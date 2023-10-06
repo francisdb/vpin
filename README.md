@@ -15,7 +15,7 @@ https://github.com/francisdb/vpxtool
 * Visual Pinball https://github.com/vpinball/vpinball
 * VPUniverse https://vpuniverse.com/
 * VPForums https://www.vpforums.org/
-* Virtual Pinball Chat https://discord.com/invite/YHcBrtT
+* Virtual Pinball Chat on Discord https://discord.com/invite/YHcBrtT
 
 ## Making a release
 
