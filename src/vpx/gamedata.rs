@@ -159,7 +159,8 @@ pub struct GameData {
     pub notes: Option<String>,                                     // NOTX 67.5 (added in 10.7)
     pub screen_shot: String,                                       // SSHT 68
     pub display_backdrop: bool,                                    // FBCK 69
-    pub glass_height: f32,                                         // GLAS 70
+    pub glass_top_height: f32,                                     // GLAS 70
+    pub glass_bottom_height: Option<f32>,                          // GLAB 70.5 (added in 10.8)
     pub table_height: f32,                                         // TBLH 71
     pub playfield_material: String,                                // PLMA 72
     pub backdrop_color: u32,                                       // BCLR 73 (color bgr)
@@ -307,7 +308,8 @@ impl Default for GameData {
             notes: None,
             screen_shot: String::new(),
             display_backdrop: false,
-            glass_height: 400.0,
+            glass_top_height: 400.0,   // new default 210 for both
+            glass_bottom_height: None, // new default 210 for both
             table_height: 0.0,
             playfield_material: "".to_string(),
             backdrop_color: 0x232323ff, // bgra
@@ -593,7 +595,10 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
     }
     writer.write_tagged_string("SSHT", &gamedata.screen_shot);
     writer.write_tagged_bool("FBCK", gamedata.display_backdrop);
-    writer.write_tagged_f32("GLAS", gamedata.glass_height);
+    writer.write_tagged_f32("GLAS", gamedata.glass_top_height);
+    if let Some(glass_bottom_height) = gamedata.glass_bottom_height {
+        writer.write_tagged_f32("GLAB", glass_bottom_height);
+    }
     writer.write_tagged_f32("TBLH", gamedata.table_height);
     writer.write_tagged_string("PLMA", &gamedata.playfield_material);
     writer.write_tagged_u32("BCLR", gamedata.backdrop_color);
@@ -794,7 +799,8 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             "NOTX" => gamedata.notes = Some(reader.get_string()),
             "SSHT" => gamedata.screen_shot = reader.get_string(),
             "FBCK" => gamedata.display_backdrop = reader.get_bool(),
-            "GLAS" => gamedata.glass_height = reader.get_f32(),
+            "GLAS" => gamedata.glass_top_height = reader.get_f32(),
+            "GLAB" => gamedata.glass_bottom_height = Some(reader.get_f32()),
             "TBLH" => gamedata.table_height = reader.get_f32(),
             "PLMA" => gamedata.playfield_material = reader.get_string(),
             "BCLR" => gamedata.backdrop_color = reader.get_u32(),
@@ -964,7 +970,8 @@ mod tests {
             notes: Some(String::from("test notes")),
             screen_shot: String::from("test screenshot"),
             display_backdrop: true,
-            glass_height: 234.0,
+            glass_top_height: 234.0,
+            glass_bottom_height: Some(123.0),
             table_height: 12.0,
             playfield_material: "material_pf".to_string(),
             backdrop_color: 0x333333ff,
