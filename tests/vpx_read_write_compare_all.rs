@@ -1,4 +1,5 @@
 use cfb::CompoundFile;
+use pretty_assertions::assert_eq;
 use std::collections::hash_map::DefaultHasher;
 use std::ffi::OsStr;
 use std::hash::{Hash, Hasher};
