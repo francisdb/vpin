@@ -4,25 +4,22 @@ use std::collections::hash_map::DefaultHasher;
 use std::ffi::OsStr;
 use std::hash::{Hash, Hasher};
 use std::io;
-use std::io::{Cursor, Read, Seek, Write};
+use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf, MAIN_SEPARATOR_STR};
 use testdir::testdir;
 use vpin::vpx::biff::BiffReader;
-use vpin::vpx::{read_vpx, version, write_vpx};
+use vpin::vpx::{version};
 use walkdir::WalkDir;
 
 #[test]
 fn read_and_write() -> io::Result<()> {
     let path = PathBuf::from("testdata/completely_blank_table_10_7_4.vpx");
-    let mut comp = cfb::open(&path)?;
-    let original = read_vpx(&mut comp)?;
+    let original = vpin::vpx::read(&path)?;
 
     // create temp file and write the vpx to it
     let dir: PathBuf = testdir!();
     let test_vpx_path = dir.join("test.vpx");
-    let mut test_comp = cfb::create(&test_vpx_path)?;
-    write_vpx(&mut test_comp, &original)?;
-    test_comp.flush()?;
+    vpin::vpx::write(&test_vpx_path, &original)?;
 
     assert_equal_vpx(&path, test_vpx_path);
     Ok(())
@@ -48,21 +45,12 @@ fn read_and_write_all() -> io::Result<()> {
 }
 
 fn read_and_write_vpx(path: &Path) -> io::Result<PathBuf> {
-    let mut comp = cfb::open(path)?;
-    let original = read_vpx(&mut comp)?;
+    let original = vpin::vpx::read(&path.to_path_buf())?;
 
     // create temp file and write the vpx to it
     let dir: PathBuf = testdir!();
     let test_vpx_path = dir.join("test.vpx");
-    // let mut test_comp = cfb::create(&test_vpx_path)?;
-    // as above is slow we create an in memory compound file
-    let mut buff = Vec::new();
-    let mut test_comp = CompoundFile::create(Cursor::new(&mut buff))?;
-    write_vpx(&mut test_comp, &original)?;
-    test_comp.flush()?;
-    // write buff to file
-    let mut file = std::fs::File::create(&test_vpx_path)?;
-    file.write_all(&buff)?;
+    vpin::vpx::write(&test_vpx_path, &original)?;
     Ok(test_vpx_path)
 }
 

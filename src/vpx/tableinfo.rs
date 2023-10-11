@@ -50,7 +50,7 @@ impl TableInfo {
     }
 }
 
-pub fn write_tableinfo<F: Read + Write + Seek>(
+pub(crate) fn write_tableinfo<F: Read + Write + Seek>(
     comp: &mut CompoundFile<F>,
     table_info: &TableInfo,
 ) -> std::io::Result<()> {
@@ -199,7 +199,7 @@ pub fn write_tableinfo<F: Read + Write + Seek>(
     Ok(())
 }
 
-pub fn read_tableinfo<F: Read + Write + Seek>(
+pub(crate) fn read_tableinfo<F: Read + Write + Seek>(
     comp: &mut CompoundFile<F>,
 ) -> std::io::Result<TableInfo> {
     // create path to table info using path separator
