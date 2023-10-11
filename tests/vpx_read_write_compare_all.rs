@@ -8,7 +8,7 @@ use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf, MAIN_SEPARATOR_STR};
 use testdir::testdir;
 use vpin::vpx::biff::BiffReader;
-use vpin::vpx::{version};
+use vpin::vpx::version;
 use walkdir::WalkDir;
 
 #[test]
