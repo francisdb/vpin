@@ -7,7 +7,7 @@
 //! use std::path::PathBuf;
 //! use vpin::vpx::{read, version};
 //!
-//! let path = PathBuf::from("test.vpx");
+//! let path = PathBuf::from("testdata/completely_blank_table_10_7_4.vpx");
 //! let vpx = read(&path).unwrap();
 //! println!("version: {}", vpx.version);
 //! println!("table name: {}", vpx.info.table_name.unwrap_or("unknown".to_string()));
@@ -69,7 +69,7 @@ pub mod version;
 /// use std::path::PathBuf;
 /// use vpin::vpx::{read, version};
 ///
-/// let path = PathBuf::from("tes.vpx");
+/// let path = PathBuf::from("testdata/completely_blank_table_10_7_4.vpx");
 /// let vpx = read(&path).unwrap();
 /// println!("version: {}", vpx.version);
 /// println!("table name: {}", vpx.info.table_name.unwrap_or("unknown".to_string()));
@@ -106,7 +106,7 @@ pub enum VerifyResult {
 /// use std::path::PathBuf;
 /// use vpin::vpx::{open, read, version};
 ///
-/// let path = PathBuf::from("test.vpx");
+/// let path = PathBuf::from("testdata/completely_blank_table_10_7_4.vpx");
 /// let mut vpx = open(&path).unwrap();
 /// let version = vpx.read_version().unwrap();
 /// println!("version: {}", version);
