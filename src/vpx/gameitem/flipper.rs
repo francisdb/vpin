@@ -17,7 +17,7 @@ pub struct Flipper {
     timer_interval: u32,
     surface: String,
     material: String,
-    name: String,
+    pub name: String,
     rubber_material: String,
     rthk: f32,                     // RTHK deprecated?
     rubber_thickness: Option<f32>, // RTHF (added in 10.?)

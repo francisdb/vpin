@@ -4,11 +4,10 @@ use std::collections::hash_map::DefaultHasher;
 use std::ffi::OsStr;
 use std::hash::{Hash, Hasher};
 use std::io;
-use std::io::{Read, Seek, Write};
+use std::io::{Read, Seek};
 use std::path::{Path, PathBuf, MAIN_SEPARATOR_STR};
 use testdir::testdir;
 use vpin::vpx::biff::BiffReader;
-use vpin::vpx::version;
 use walkdir::WalkDir;
 
 #[test]
@@ -58,8 +57,8 @@ fn assert_equal_vpx(vpx_path: &PathBuf, test_vpx_path: PathBuf) {
     let mut comp = cfb::open(&vpx_path).unwrap();
     let mut test_comp = cfb::open(&test_vpx_path).unwrap();
 
-    let version = version::read_version(&mut comp).unwrap();
-    println!("version: {:?}", version);
+    // let version = version::read_version(&mut comp).unwrap();
+    // println!("version: {:?}", version);
 
     let original_paths = compound_file_paths_and_lengths(&vpx_path);
     let test_paths = compound_file_paths_and_lengths(&test_vpx_path);
