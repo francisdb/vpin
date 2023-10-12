@@ -1,3 +1,19 @@
+//! Library for reading and writing [Visual Pinball](https://github.com/vpinball/vpinball/) `vpx` files and working with exploded vpx directories.
+//!
+//! # Example
+//!
+//! ```
+//! use std::io;
+//! use std::path::PathBuf;
+//! use vpin::vpx::{read, version};
+//!
+//! let path = PathBuf::from("testdata/completely_blank_table_10_7_4.vpx");
+//! let vpx = read(&path).unwrap();
+//! println!("version: {}", vpx.version);
+//! println!("table name: {}", vpx.info.table_name.unwrap_or("unknown".to_string()));
+//! ```
+//!
+
 use std::io::{self, Read, Seek, Write};
 use std::path::MAIN_SEPARATOR_STR;
 use std::{
@@ -42,16 +58,33 @@ pub mod sound;
 pub mod tableinfo;
 pub mod version;
 
+/// In-memory representation of a VPX file
+///
+/// *We guarantee an exact copy when reading and writing this. Exact as in the same structure and data, the underlying compound file will be a bit different on the binary level.*
+///
+/// # Example
+///
+/// ```
+/// use std::io;
+/// use std::path::PathBuf;
+/// use vpin::vpx::{read, version};
+///
+/// let path = PathBuf::from("testdata/completely_blank_table_10_7_4.vpx");
+/// let vpx = read(&path).unwrap();
+/// println!("version: {}", vpx.version);
+/// println!("table name: {}", vpx.info.table_name.unwrap_or("unknown".to_string()));
+/// ```
 pub struct VPX {
-    custominfotags: custominfotags::CustomInfoTags, // this is a bit redundant
-    info: TableInfo,
-    version: Version,
-    gamedata: GameData,
-    gameitems: Vec<gameitem::GameItemEnum>,
-    images: Vec<image::ImageData>,
-    sounds: Vec<sound::SoundData>,
-    fonts: Vec<font::FontData>,
-    collections: Vec<collection::Collection>,
+    /// This is mainly here to have an ordering for custom info tags
+    pub custominfotags: custominfotags::CustomInfoTags, // this is a bit redundant
+    pub info: TableInfo,
+    pub version: Version,
+    pub gamedata: GameData,
+    pub gameitems: Vec<gameitem::GameItemEnum>,
+    pub images: Vec<image::ImageData>,
+    pub sounds: Vec<sound::SoundData>,
+    pub fonts: Vec<font::FontData>,
+    pub collections: Vec<collection::Collection>,
 }
 
 pub enum ExtractResult {
@@ -64,6 +97,25 @@ pub enum VerifyResult {
     Failed(PathBuf, String),
 }
 
+/// Handle to an underlying VPX file
+///
+/// # Example
+///
+/// ```
+/// use std::io;
+/// use std::path::PathBuf;
+/// use vpin::vpx::{open, read, version};
+///
+/// let path = PathBuf::from("testdata/completely_blank_table_10_7_4.vpx");
+/// let mut vpx = open(&path).unwrap();
+/// let version = vpx.read_version().unwrap();
+/// println!("version: {}", version);
+/// let images = vpx.read_images().unwrap();
+/// for image in images {
+///    println!("image: {}", image.name);
+/// }
+/// ```
+///
 pub struct VpxFile<F> {
     // keep this private
     compound_file: CompoundFile<F>,
@@ -79,7 +131,7 @@ impl<F: Read + Seek + Write> VpxFile<F> {
     }
 
     pub fn read_version(&mut self) -> io::Result<Version> {
-        version::read_version(&mut self.compound_file)
+        read_version(&mut self.compound_file)
     }
 
     pub fn read_tableinfo(&mut self) -> io::Result<TableInfo> {
@@ -90,19 +142,72 @@ impl<F: Read + Seek + Write> VpxFile<F> {
         let version = self.read_version()?;
         read_gamedata(&mut self.compound_file, &version)
     }
+
+    pub fn read_gameitems(&mut self) -> io::Result<Vec<GameItemEnum>> {
+        let version = self.read_version()?;
+        let gamedata = self.read_gamedata()?;
+        read_gameitems(&mut self.compound_file, &gamedata)
+    }
+
+    pub fn read_images(&mut self) -> io::Result<Vec<ImageData>> {
+        let version = self.read_version()?;
+        let gamedata = self.read_gamedata()?;
+        read_images(&mut self.compound_file, &gamedata)
+    }
+
+    pub fn read_sounds(&mut self) -> io::Result<Vec<SoundData>> {
+        let version = self.read_version()?;
+        let gamedata = self.read_gamedata()?;
+        read_sounds(&mut self.compound_file, &gamedata, &version)
+    }
+
+    pub fn read_fonts(&mut self) -> io::Result<Vec<FontData>> {
+        let version = self.read_version()?;
+        let gamedata = self.read_gamedata()?;
+        read_fonts(&mut self.compound_file, &gamedata)
+    }
+
+    pub fn read_collections(&mut self) -> io::Result<Vec<Collection>> {
+        let version = self.read_version()?;
+        let gamedata = self.read_gamedata()?;
+        read_collections(&mut self.compound_file, &gamedata)
+    }
+
+    pub fn read_custominfotags(&mut self) -> io::Result<CustomInfoTags> {
+        read_custominfotags(&mut self.compound_file)
+    }
 }
 
+/// Opens a handle to an existing VPX file
 pub fn open<P: AsRef<Path>>(path: P) -> io::Result<VpxFile<fs::File>> {
     VpxFile::open(fs::File::open(path)?)
 }
 
+/// Reads a VPX file from disk to memory
+///
+/// see also [`write()`]
+///
+/// **Note:** This might take up a lot of memory depending on the size of the VPX file.
 pub fn read(path: &PathBuf) -> io::Result<VPX> {
     let file = File::open(path)?;
     let mut comp = CompoundFile::open(file)?;
     read_vpx(&mut comp)
 }
 
-pub fn read_vpx<F: Read + Write + Seek>(comp: &mut CompoundFile<F>) -> io::Result<VPX> {
+/// Writes a VPX file from memory to disk
+///
+/// see also [`read()`]
+pub fn write(path: &PathBuf, vpx: &VPX) -> io::Result<()> {
+    let file = File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(path)?;
+    let mut comp = CompoundFile::create(file)?;
+    write_vpx(&mut comp, vpx)
+}
+
+fn read_vpx<F: Read + Write + Seek>(comp: &mut CompoundFile<F>) -> io::Result<VPX> {
     let custominfotags = read_custominfotags(comp)?;
     let info = read_tableinfo(comp)?;
     let version = read_version(comp)?;
@@ -125,10 +230,7 @@ pub fn read_vpx<F: Read + Write + Seek>(comp: &mut CompoundFile<F>) -> io::Resul
     })
 }
 
-pub fn write_vpx<F: Read + Write + Seek>(
-    comp: &mut CompoundFile<F>,
-    original: &VPX,
-) -> io::Result<()> {
+fn write_vpx<F: Read + Write + Seek>(comp: &mut CompoundFile<F>, original: &VPX) -> io::Result<()> {
     create_game_storage(comp)?;
     write_custominfotags(comp, &original.custominfotags)?;
     write_tableinfo(comp, &original.info)?;
@@ -143,6 +245,7 @@ pub fn write_vpx<F: Read + Write + Seek>(
     write_mac(comp, &mac)
 }
 
+/// Writes a minimal `vpx` file
 pub fn new_minimal_vpx<P: AsRef<Path>>(vpx_file_path: P) -> io::Result<()> {
     let file = File::options()
         .read(true)
@@ -153,14 +256,12 @@ pub fn new_minimal_vpx<P: AsRef<Path>>(vpx_file_path: P) -> io::Result<()> {
     write_minimal_vpx(&mut comp)
 }
 
-pub fn write_minimal_vpx<F: Read + Write + Seek>(
-    comp: &mut CompoundFile<F>,
-) -> std::io::Result<()> {
+fn write_minimal_vpx<F: Read + Write + Seek>(comp: &mut CompoundFile<F>) -> std::io::Result<()> {
     let table_info = TableInfo::new();
     write_tableinfo(comp, &table_info)?;
     create_game_storage(comp)?;
     let version = Version::new(1072);
-    version::write_version(comp, &version)?;
+    write_version(comp, &version)?;
     write_game_data(comp, &GameData::default(), &version)?;
     // to be more efficient we could generate the mac while writing the different parts
     let mac = generate_mac(comp)?;
@@ -172,6 +273,13 @@ fn create_game_storage<F: Read + Write + Seek>(comp: &mut CompoundFile<F>) -> io
     comp.create_storage(&game_stg_path)
 }
 
+/// Extracts the vbs script from an existing `vpx` file and writes it next to the file as sidecar script.
+///
+/// @param vpx_file_path Path to the VPX file
+/// @param overwrite If true, the script will be extracted even if it already exists
+/// @param extension If set, the script will be written to a file with that extension instead of `vbs`
+///
+/// *When Visual Pinball finds this script it will use that instead of the one embedded in the file.*
 pub fn extractvbs(
     vpx_file_path: &PathBuf,
     overwrite: bool,
@@ -184,7 +292,7 @@ pub fn extractvbs(
 
     if !script_path.exists() || (script_path.exists() && overwrite) {
         let mut comp = cfb::open(vpx_file_path).unwrap();
-        let version = version::read_version(&mut comp).unwrap();
+        let version = read_version(&mut comp).unwrap();
         let gamedata = read_gamedata(&mut comp, &version).unwrap();
         extract_script(&gamedata, &script_path).unwrap();
         ExtractResult::Extracted(script_path)
@@ -193,6 +301,9 @@ pub fn extractvbs(
     }
 }
 
+/// Imports the sidecar script into the provided `vpx` file.
+///
+/// see also [extractvbs]
 pub fn importvbs(vpx_file_path: &PathBuf, extension: Option<&str>) -> std::io::Result<PathBuf> {
     let script_path = match extension {
         Some(ext) => path_for(vpx_file_path, ext),
@@ -216,6 +327,7 @@ pub fn importvbs(vpx_file_path: &PathBuf, extension: Option<&str>) -> std::io::R
     Ok(script_path)
 }
 
+/// Verifies the MAC signature of a VPX file
 pub fn verify(vpx_file_path: &PathBuf) -> VerifyResult {
     let mut comp = match cfb::open(vpx_file_path) {
         Ok(comp) => comp,
@@ -238,14 +350,7 @@ pub fn verify(vpx_file_path: &PathBuf) -> VerifyResult {
     }
 }
 
-pub fn cat_script(vpx_file_path: &PathBuf) -> String {
-    let mut comp = cfb::open(vpx_file_path).unwrap();
-    let version = version::read_version(&mut comp).unwrap();
-    let gamedata = read_gamedata(&mut comp, &version).unwrap();
-
-    gamedata.code.string
-}
-
+/// Returns the path to the sidecar script for a given `vpx` file
 pub fn vbs_path_for(vpx_file_path: &PathBuf) -> PathBuf {
     path_for(vpx_file_path, "vbs")
 }
@@ -254,9 +359,7 @@ fn path_for(vpx_file_path: &PathBuf, extension: &str) -> PathBuf {
     PathBuf::from(vpx_file_path).with_extension(extension)
 }
 
-pub fn read_mac<F: Read + Write + Seek>(
-    comp: &mut cfb::CompoundFile<F>,
-) -> std::io::Result<Vec<u8>> {
+fn read_mac<F: Read + Write + Seek>(comp: &mut cfb::CompoundFile<F>) -> std::io::Result<Vec<u8>> {
     let mac_path = Path::new(MAIN_SEPARATOR_STR).join("GameStg").join("MAC");
     if !comp.exists(&mac_path) {
         // fail
@@ -271,7 +374,7 @@ pub fn read_mac<F: Read + Write + Seek>(
     Ok(mac)
 }
 
-pub fn write_mac<F: Read + Write + Seek>(
+fn write_mac<F: Read + Write + Seek>(
     comp: &mut CompoundFile<F>,
     mac: &[u8],
 ) -> std::io::Result<()> {
@@ -303,7 +406,7 @@ impl FileStructureItem {
     }
 }
 
-pub fn generate_mac<F: Read + Seek>(comp: &mut CompoundFile<F>) -> Result<Vec<u8>, io::Error> {
+fn generate_mac<F: Read + Seek>(comp: &mut CompoundFile<F>) -> Result<Vec<u8>, io::Error> {
     // Regarding mac generation, see
     //  https://github.com/freezy/VisualPinball.Engine/blob/ec1e9765cd4832c134e889d6e6d03320bc404bd5/VisualPinball.Engine/VPT/Table/TableWriter.cs#L42
     //  https://github.com/vbousquet/vpx_lightmapper/blob/ca5fddd4c2a0fbe817fd546c5f4db609f9d0da9f/addons/vpx_lightmapper/vlm_export.py#L906-L913
@@ -462,7 +565,7 @@ pub fn extract_script<P: AsRef<Path>>(gamedata: &GameData, vbs_path: &P) -> Resu
     std::fs::write(vbs_path, &script.string)
 }
 
-pub fn read_gamedata<F: Seek + Read>(
+fn read_gamedata<F: Seek + Read>(
     comp: &mut CompoundFile<F>,
     version: &Version,
 ) -> std::io::Result<GameData> {
@@ -679,7 +782,6 @@ fn write_custominfotags<F: Read + Write + Seek>(
         .join("CustomInfoTags");
 
     let data = custominfotags::write_custominfotags(tags);
-
     let mut stream = comp.create_stream(path)?;
     stream.write_all(&data)
 }
@@ -698,7 +800,7 @@ mod tests {
         let mut comp = CompoundFile::create(buff)?;
         write_minimal_vpx(&mut comp)?;
 
-        let version = version::read_version(&mut comp)?;
+        let version = read_version(&mut comp)?;
         let tableinfo = tableinfo::read_tableinfo(&mut comp)?;
         let game_data = read_gamedata(&mut comp, &version)?;
 
@@ -744,7 +846,7 @@ mod tests {
     fn read_write_gamedata() -> io::Result<()> {
         let path = PathBuf::from("testdata/completely_blank_table_10_7_4.vpx");
         let mut comp = cfb::open(path)?;
-        let version = version::read_version(&mut comp)?;
+        let version = read_version(&mut comp)?;
         let original = read_gamedata(&mut comp, &version)?;
 
         let buff = Cursor::new(vec![0; 15]);
@@ -762,7 +864,7 @@ mod tests {
     fn read_write_gameitems() -> io::Result<()> {
         let path = PathBuf::from("testdata/completely_blank_table_10_7_4.vpx");
         let mut comp = cfb::open(path)?;
-        let version = version::read_version(&mut comp)?;
+        let version = read_version(&mut comp)?;
         let gamedata = read_gamedata(&mut comp, &version)?;
         let original = read_gameitems(&mut comp, &gamedata)?;
 

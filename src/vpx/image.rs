@@ -4,12 +4,12 @@ use super::biff::{self, BiffRead, BiffReader, BiffWrite, BiffWriter};
 
 #[derive(PartialEq)]
 pub struct ImageDataJpeg {
-    path: String,
-    name: String,
+    pub path: String,
+    pub name: String,
     // /**
     //  * Lowercased name?
     //  */
-    inme: Option<String>,
+    pub inme: Option<String>,
     // alpha_test_value: f32,
     pub data: Vec<u8>,
 }
@@ -49,15 +49,15 @@ pub struct ImageData {
     // /**
     //  * Lowercased name?
     //  */
-    inme: Option<String>,
-    path: String, // PATH
-    width: u32,   // WDTH
-    height: u32,  // HGHT
+    pub inme: Option<String>,
+    pub path: String, // PATH
+    pub width: u32,   // WDTH
+    pub height: u32,  // HGHT
     // TODO seems to be 1 for some kind of link type img, related to screenshots.
     // we only see this where a screenshot is set on the table info.
     // https://github.com/vpinball/vpinball/blob/1a70aa35eb57ec7b5fbbb9727f6735e8ef3183e0/Texture.cpp#L588
-    link: Option<u32>,     // LINK
-    alpha_test_value: f32, // ALTV
+    pub link: Option<u32>,     // LINK
+    pub alpha_test_value: f32, // ALTV
     // TODO we can probably only have one of these so we can make an enum
     pub jpeg: Option<ImageDataJpeg>,
     pub bits: Option<ImageDataBits>,
