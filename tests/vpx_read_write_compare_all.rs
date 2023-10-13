@@ -1,14 +1,15 @@
 use cfb::CompoundFile;
 use pretty_assertions::assert_eq;
+use rayon::prelude::*;
 use std::collections::hash_map::DefaultHasher;
-use std::ffi::OsStr;
 use std::hash::{Hash, Hasher};
 use std::io;
 use std::io::{Read, Seek};
 use std::path::{Path, PathBuf, MAIN_SEPARATOR_STR};
 use testdir::testdir;
 use vpin::vpx::biff::BiffReader;
-use walkdir::WalkDir;
+
+mod common;
 
 #[test]
 fn read_and_write() -> io::Result<()> {
@@ -32,23 +33,24 @@ fn read_and_write_all() -> io::Result<()> {
     if !folder.exists() {
         panic!("folder does not exist: {:?}", folder);
     }
-    let paths = find_vpx_files(&folder)?;
-
+    let paths = common::find_files(&folder, "vpx")?;
+    // testdir can not be used in non-main threads
+    let dir: PathBuf = testdir!();
+    // TODO why is par_iter() not faster but just consuming all cpu cores?
     paths.iter().try_for_each(|path| {
         println!("testing: {:?}", path);
-        let test_vpx_path = read_and_write_vpx(&path)?;
+        let test_vpx_path = read_and_write_vpx(&dir, &path)?;
 
         assert_equal_vpx(path, test_vpx_path);
         Ok(())
     })
 }
 
-fn read_and_write_vpx(path: &Path) -> io::Result<PathBuf> {
+fn read_and_write_vpx(dir: &PathBuf, path: &Path) -> io::Result<PathBuf> {
     let original = vpin::vpx::read(&path.to_path_buf())?;
-
     // create temp file and write the vpx to it
-    let dir: PathBuf = testdir!();
-    let test_vpx_path = dir.join("test.vpx");
+    let file_name = path.file_name().unwrap();
+    let test_vpx_path = dir.join(file_name);
     vpin::vpx::write(&test_vpx_path, &original)?;
     Ok(test_vpx_path)
 }
@@ -189,20 +191,4 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, u64)> {
         }
     }
     tags
-}
-
-pub fn find_vpx_files<P: AsRef<Path>>(tables_path: P) -> io::Result<Vec<PathBuf>> {
-    let mut vpx_files = Vec::new();
-    let mut entries = WalkDir::new(tables_path).into_iter();
-    entries.try_for_each(|entry| {
-        let dir_entry = entry?;
-        let path = dir_entry.path();
-        if path.is_file() {
-            if let Some("vpx") = path.extension().and_then(OsStr::to_str) {
-                vpx_files.push(path.to_path_buf());
-            }
-        }
-        Ok::<(), io::Error>(())
-    })?;
-    Ok(vpx_files)
 }
