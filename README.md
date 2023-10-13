@@ -21,8 +21,4 @@ https://github.com/francisdb/vpxtool
 
 ## Making a release
 
-* Change the version in `Cargo.toml`
-* Commit
-* Create release with tag `v#.#.#` on Github
-* Check it out
-* `cargo publish`
+We use https://github.com/MarcoIeni/release-plz which creates a release pr on every commit to master
