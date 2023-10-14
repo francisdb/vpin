@@ -1,7 +1,9 @@
 use rayon::prelude::*;
 use std::io;
-use std::io::{ErrorKind, Read};
+use std::io::{Error, ErrorKind, Read};
+use std::path::PathBuf;
 use vpin::directb2s;
+use vpin::directb2s::DirectB2SData;
 
 mod common;
 
@@ -19,18 +21,21 @@ fn read_all() -> io::Result<()> {
         println!("testing: {:?}", path);
 
         // read file to string
-        let mut file = std::fs::File::open(&path)?;
-        let mut contents = String::new();
-        file.read_to_string(&mut contents)?;
-        let loaded = directb2s::load(&contents).map_err(|e| {
-            let msg = format!("Error for {}: {}", path.display(), e);
-            io::Error::new(ErrorKind::Other, msg)
-        })?;
+        let loaded = read_directb2s(&path)?;
 
         // print name, version and type
         println!("name: {}", loaded.name.value);
         println!("version: {}", loaded.version);
         println!("dmd type: {}", loaded.dmd_type.value);
         Ok(())
+    })
+}
+
+fn read_directb2s(path: &PathBuf) -> Result<DirectB2SData, Error> {
+    let file = std::fs::File::open(path)?;
+    let reader = std::io::BufReader::new(file);
+    directb2s::read(reader).map_err(|e| {
+        let msg = format!("Error for {}: {}", path.display(), e);
+        io::Error::new(ErrorKind::Other, msg)
     })
 }

@@ -1,40 +1,41 @@
 //! Library for reading and writing [B2S-Backglass](https://github.com/vpinball/b2s-backglass) `directb2s` files
 
 use std::fmt::Debug;
+use std::io::BufRead;
 
-use quick_xml::de::from_str;
 use quick_xml::de::*;
-use serde::Deserialize;
+use quick_xml::se::*;
+use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
 // The xml model is based on this
 // https://github.com/vpinball/b2s-backglass/blob/f43ae8aacbb79d3413531991e4c0156264442c39/b2sbackglassdesigner/b2sbackglassdesigner/classes/CreateCode/Coding.vb#L30
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ValueTag {
     #[serde(rename = "@Value")]
     pub value: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct DestTypeTag {
     #[serde(rename = "@Value")]
     pub value: DestType,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ReelRollingDirectionTag {
     #[serde(rename = "@Value")]
     pub value: ReelRollingDirection,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct DmdTypeTag {
     #[serde(rename = "@Value")]
     pub value: DMDType,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct ImageTag {
     #[serde(rename = "@Value")]
     pub value: String,
@@ -52,7 +53,7 @@ impl Debug for ImageTag {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct OnImageTag {
     #[serde(rename = "@Value")]
     pub value: String,
@@ -74,7 +75,7 @@ impl Debug for OnImageTag {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Images {
     #[serde(rename = "BackglassOffImage")]
     pub backglass_off_image: Option<ValueTag>,
@@ -90,7 +91,7 @@ pub struct Images {
     pub thumbnail_image: ValueTag,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct AnimationStep {
     #[serde(rename = "@Step")]
     pub step: String,
@@ -104,7 +105,7 @@ pub struct AnimationStep {
     pub wait_loops_after_off: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Animation {
     #[serde(rename = "@Name")]
     pub name: String,
@@ -136,13 +137,13 @@ pub struct Animation {
     pub animation_step: Vec<AnimationStep>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Animations {
     #[serde(rename = "Animation")]
     pub animation: Option<Vec<Animation>>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct Bulb {
     #[serde(rename = "@ID")]
     pub id: String,
@@ -242,13 +243,13 @@ impl Debug for Bulb {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Illumination {
     #[serde(rename = "Bulb")]
     pub bulb: Option<Vec<Bulb>>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Score {
     #[serde(rename = "@Parent")]
     pub parent: String,
@@ -307,7 +308,7 @@ pub struct Score {
     pub sound5: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Scores {
     #[serde(rename = "@ReelCountOfIntermediates")]
     pub reel_count_of_intermediates: String,
@@ -320,7 +321,7 @@ pub struct Scores {
     pub score: Option<Vec<Score>>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ReelsImage {
     // TODO there might be dynamic fields here for IntermediateImage0, IntermediateImage1, etc.
     #[serde(rename = "@Name")]
@@ -331,13 +332,13 @@ pub struct ReelsImage {
     pub image: String, // base64 encoded image
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ReelsImages {
     #[serde(rename = "Image")]
     pub image: Option<Vec<ReelsImage>>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ReelsIlluminatedImage {
     // TODO there might be dynamic fields here for IntermediateImage0, IntermediateImage1, etc.
     #[serde(rename = "@Name")]
@@ -348,7 +349,7 @@ pub struct ReelsIlluminatedImage {
     pub image: String, // base64 encoded image
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ReelsIlluminatedImagesSet {
     #[serde(rename = "@ID")]
     pub id: String,
@@ -356,13 +357,13 @@ pub struct ReelsIlluminatedImagesSet {
     pub illuminated_image: Vec<ReelsIlluminatedImage>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ReelsIlluminatedImages {
     #[serde(rename = "Set")]
     pub set: Option<Vec<ReelsIlluminatedImagesSet>>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Reels {
     #[serde(rename = "Images")]
     pub images: ReelsImages,
@@ -370,12 +371,12 @@ pub struct Reels {
     pub illuminated_images: ReelsIlluminatedImages,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Sounds {
     // as far as I can see this is not in use
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct DMDDefaultLocation {
     #[serde(rename = "@LocX")]
     pub loc_x: String,
@@ -383,7 +384,7 @@ pub struct DMDDefaultLocation {
     pub loc_y: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct GrillHeight {
     #[serde(rename = "@Value")]
     pub value: String,
@@ -391,7 +392,7 @@ pub struct GrillHeight {
     pub small: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct DirectB2SData {
     #[serde(rename = "@Version")]
     pub version: String,
@@ -466,6 +467,15 @@ pub struct DirectB2SData {
 pub fn load(text: &str) -> Result<DirectB2SData, DeError> {
     // this will probably use up a lot of memory
     from_str::<DirectB2SData>(text)
+}
+
+pub fn read<R: BufRead>(reader: R) -> Result<DirectB2SData, DeError> {
+    // this will probably use up a lot of memory
+    from_reader(reader)
+}
+
+pub fn writer<W: std::fmt::Write>(data: &DirectB2SData, writer: W) -> Result<(), DeError> {
+    to_writer(writer, data)
 }
 
 #[derive(Debug, Serialize_repr, Deserialize_repr, PartialEq, Eq)]
