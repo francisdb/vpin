@@ -553,6 +553,7 @@ pub enum B2SPlayerNo {
     Player3 = 3,
     Player4 = 4,
     Player5 = 5, // not in original code, found in "Dogies (Bally 1967).directb2s"
+    Player6 = 6, // not in original code, found in "Capersville (Bally 1966).directb2s"
 }
 
 #[derive(Debug, Serialize_repr, Deserialize_repr, PartialEq, Eq)]
