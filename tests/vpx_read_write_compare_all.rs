@@ -7,12 +7,13 @@ use std::io;
 use std::io::{Read, Seek};
 use std::path::{Path, PathBuf, MAIN_SEPARATOR_STR};
 use testdir::testdir;
+use testresult::TestResult;
 use vpin::vpx::biff::BiffReader;
 
 mod common;
 
 #[test]
-fn read_and_write() -> io::Result<()> {
+fn read_and_write() -> TestResult {
     let path = PathBuf::from("testdata/completely_blank_table_10_7_4.vpx");
     let original = vpin::vpx::read(&path)?;
 

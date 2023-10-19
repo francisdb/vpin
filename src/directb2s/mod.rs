@@ -59,9 +59,9 @@ pub struct OnImageTag {
     pub value: String,
     #[serde(rename = "@FileName")]
     pub file_name: String,
-    #[serde(rename = "@RomID")]
+    #[serde(rename = "@RomID", skip_serializing_if = "Option::is_none")]
     pub rom_id: Option<String>,
-    #[serde(rename = "@RomIDType")]
+    #[serde(rename = "@RomIDType", skip_serializing_if = "Option::is_none")]
     pub rom_id_type: Option<RomIDType>,
 }
 
@@ -77,15 +77,15 @@ impl Debug for OnImageTag {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Images {
-    #[serde(rename = "BackglassOffImage")]
+    #[serde(rename = "BackglassOffImage", skip_serializing_if = "Option::is_none")]
     pub backglass_off_image: Option<ValueTag>,
-    #[serde(rename = "BackglassOnImage")]
+    #[serde(rename = "BackglassOnImage", skip_serializing_if = "Option::is_none")]
     pub backglass_on_image: Option<OnImageTag>,
     #[serde(rename = "BackglassImage")]
     pub backglass_image: Option<ImageTag>,
-    #[serde(rename = "DMDImage")]
+    #[serde(rename = "DMDImage", skip_serializing_if = "Option::is_none")]
     pub dmd_image: Option<ImageTag>,
-    #[serde(rename = "IlluminationImage")]
+    #[serde(rename = "IlluminationImage", skip_serializing_if = "Option::is_none")]
     pub illumination_image: Option<ValueTag>,
     #[serde(rename = "ThumbnailImage")]
     pub thumbnail_image: ValueTag,
@@ -111,7 +111,7 @@ pub struct Animation {
     pub name: String,
     #[serde(rename = "@Parent")]
     pub parent: String,
-    #[serde(rename = "@DualMode")]
+    #[serde(rename = "@DualMode", skip_serializing_if = "Option::is_none")]
     pub dual_mode: Option<DualMode>,
     #[serde(rename = "@Interval")]
     pub interval: String,
@@ -139,29 +139,29 @@ pub struct Animation {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Animations {
-    #[serde(rename = "Animation")]
+    #[serde(rename = "Animation", skip_serializing_if = "Option::is_none")]
     pub animation: Option<Vec<Animation>>,
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct Bulb {
-    #[serde(rename = "@ID")]
-    pub id: String,
     #[serde(rename = "@Parent")]
     pub parent: Option<String>,
+    #[serde(rename = "@ID")]
+    pub id: String,
     #[serde(rename = "@Name")]
     pub name: String,
-    #[serde(rename = "@B2SID")]
+    #[serde(rename = "@B2SID", skip_serializing_if = "Option::is_none")]
     pub b2s_id: Option<String>,
-    #[serde(rename = "@B2SIDType")]
+    #[serde(rename = "@B2SIDType", skip_serializing_if = "Option::is_none")]
     pub b2s_id_type: Option<B2SIDType>,
-    #[serde(rename = "@B2SValue")]
+    #[serde(rename = "@B2SValue", skip_serializing_if = "Option::is_none")]
     pub b2s_value: Option<String>,
-    #[serde(rename = "@RomID")]
+    #[serde(rename = "@RomID", skip_serializing_if = "Option::is_none")]
     pub rom_id: Option<String>,
-    #[serde(rename = "@RomIDType")]
+    #[serde(rename = "@RomIDType", skip_serializing_if = "Option::is_none")]
     pub rom_id_type: Option<RomIDType>,
-    #[serde(rename = "@RomInverted")]
+    #[serde(rename = "@RomInverted", skip_serializing_if = "Option::is_none")]
     pub rom_inverted: Option<String>,
     #[serde(rename = "@InitialState")]
     pub initial_state: String,
@@ -173,9 +173,9 @@ pub struct Bulb {
     pub light_color: Option<String>,
     #[serde(rename = "@DodgeColor")]
     pub dodge_color: String,
-    #[serde(rename = "@IlluMode")]
+    #[serde(rename = "@IlluMode", skip_serializing_if = "Option::is_none")]
     pub illu_mode: Option<String>,
-    #[serde(rename = "@ZOrder")]
+    #[serde(rename = "@ZOrder", skip_serializing_if = "Option::is_none")]
     pub z_order: Option<String>,
     #[serde(rename = "@Visible")]
     pub visible: String,
@@ -189,7 +189,7 @@ pub struct Bulb {
     pub height: String,
     #[serde(rename = "@IsImageSnippit")]
     pub is_image_snippit: String,
-    #[serde(rename = "@SnippitType")]
+    #[serde(rename = "@SnippitType", skip_serializing_if = "Option::is_none")]
     // SnippitMechID
     // SnippitRotatingSteps
     // SnippitRotatingDirection
@@ -198,7 +198,7 @@ pub struct Bulb {
     pub snippit_type: Option<SnippitType>,
     #[serde(rename = "@Image")]
     pub image: String,
-    #[serde(rename = "@OffImage")]
+    #[serde(rename = "@OffImage", skip_serializing_if = "Option::is_none")]
     pub off_image: Option<String>,
     #[serde(rename = "@Text")]
     pub text: String,
@@ -245,35 +245,35 @@ impl Debug for Bulb {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Illumination {
-    #[serde(rename = "Bulb")]
+    #[serde(rename = "Bulb", skip_serializing_if = "Option::is_none")]
     pub bulb: Option<Vec<Bulb>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Score {
-    #[serde(rename = "@Parent")]
-    pub parent: String,
     #[serde(rename = "@ID")]
     pub id: String,
-    #[serde(rename = "@B2SStartDigit")]
+    #[serde(rename = "@Parent")]
+    pub parent: String,
+    #[serde(rename = "@B2SStartDigit", skip_serializing_if = "Option::is_none")]
     pub b2s_start_digit: Option<String>,
-    #[serde(rename = "@B2SScoreType")]
+    #[serde(rename = "@B2SScoreType", skip_serializing_if = "Option::is_none")]
     pub b2s_score_type: Option<B2SScoreType>,
-    #[serde(rename = "@B2SPlayerNo")]
+    #[serde(rename = "@B2SPlayerNo", skip_serializing_if = "Option::is_none")]
     pub b2s_player_no: Option<B2SPlayerNo>,
     #[serde(rename = "@ReelType")]
     pub reel_type: String,
-    #[serde(rename = "@ReelIlluImageSet")]
+    #[serde(rename = "@ReelIlluImageSet", skip_serializing_if = "Option::is_none")]
     pub reel_illu_image_set: Option<String>,
-    #[serde(rename = "@ReelIlluLocation")]
+    #[serde(rename = "@ReelIlluLocation", skip_serializing_if = "Option::is_none")]
     pub reel_illu_location: Option<String>,
-    #[serde(rename = "@ReelIlluIntensity")]
+    #[serde(rename = "@ReelIlluIntensity", skip_serializing_if = "Option::is_none")]
     pub reel_illu_intensity: Option<String>,
-    #[serde(rename = "@ReelIlluB2SID")]
+    #[serde(rename = "@ReelIlluB2SID", skip_serializing_if = "Option::is_none")]
     pub reel_illu_b2s_id: Option<String>,
-    #[serde(rename = "@ReelIlluB2SIDType")]
+    #[serde(rename = "@ReelIlluB2SIDType", skip_serializing_if = "Option::is_none")]
     pub reel_illu_b2s_id_type: Option<B2SIDType>,
-    #[serde(rename = "@ReelIlluB2SValue")]
+    #[serde(rename = "@ReelIlluB2SValue", skip_serializing_if = "Option::is_none")]
     pub reel_illu_b2s_value: Option<String>,
     #[serde(rename = "@ReelLitColor")]
     pub reel_lit_color: String,
@@ -300,11 +300,11 @@ pub struct Score {
     #[serde(rename = "@Height")]
     pub height: String,
     // following fields are not really in use as far as I know
-    #[serde(rename = "@Sound3")]
+    #[serde(rename = "@Sound3", skip_serializing_if = "Option::is_none")]
     pub sound3: Option<String>,
-    #[serde(rename = "@Sound4")]
+    #[serde(rename = "@Sound4", skip_serializing_if = "Option::is_none")]
     pub sound4: Option<String>,
-    #[serde(rename = "@Sound5")]
+    #[serde(rename = "@Sound5", skip_serializing_if = "Option::is_none")]
     pub sound5: Option<String>,
 }
 
@@ -317,7 +317,7 @@ pub struct Scores {
     #[serde(rename = "@ReelRollingInterval")]
     pub reel_rolling_interval: String,
 
-    #[serde(rename = "Score")]
+    #[serde(rename = "Score", skip_serializing_if = "Option::is_none")]
     pub score: Option<Vec<Score>>,
 }
 
@@ -329,12 +329,17 @@ pub struct ReelsImage {
     #[serde(rename = "@CountOfIntermediates")]
     pub count_of_intermediates: String,
     #[serde(rename = "@Image")]
-    pub image: String, // base64 encoded image
+    pub image: String,
+    // base64 encoded image
+    #[serde(rename = "@IntermediateImage1", skip_serializing_if = "Option::is_none")]
+    pub intermediate_image1: Option<String>,
+    #[serde(rename = "@IntermediateImage2", skip_serializing_if = "Option::is_none")]
+    pub intermediate_image2: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ReelsImages {
-    #[serde(rename = "Image")]
+    #[serde(rename = "Image", skip_serializing_if = "Option::is_none")]
     pub image: Option<Vec<ReelsImage>>,
 }
 
@@ -346,7 +351,12 @@ pub struct ReelsIlluminatedImage {
     #[serde(rename = "@CountOfIntermediates")]
     pub count_of_intermediates: String,
     #[serde(rename = "@Image")]
-    pub image: String, // base64 encoded image
+    pub image: String,
+    // base64 encoded image
+    #[serde(rename = "@IntermediateImage1", skip_serializing_if = "Option::is_none")]
+    pub intermediate_image1: Option<String>,
+    #[serde(rename = "@IntermediateImage2", skip_serializing_if = "Option::is_none")]
+    pub intermediate_image2: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -359,7 +369,7 @@ pub struct ReelsIlluminatedImagesSet {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ReelsIlluminatedImages {
-    #[serde(rename = "Set")]
+    #[serde(rename = "Set", skip_serializing_if = "Option::is_none")]
     pub set: Option<Vec<ReelsIlluminatedImagesSet>>,
 }
 
@@ -388,7 +398,7 @@ pub struct DMDDefaultLocation {
 pub struct GrillHeight {
     #[serde(rename = "@Value")]
     pub value: String,
-    #[serde(rename = "@Small")]
+    #[serde(rename = "@Small", skip_serializing_if = "Option::is_none")]
     pub small: Option<String>,
 }
 
@@ -442,7 +452,7 @@ pub struct DirectB2SData {
     pub d7_thickness: ValueTag,
     #[serde(rename = "D7Shear")]
     pub d7_shear: ValueTag,
-    #[serde(rename = "ReelColor")]
+    #[serde(rename = "ReelColor", skip_serializing_if = "Option::is_none")]
     pub reel_color: Option<ValueTag>,
     #[serde(rename = "ReelRollingDirection")]
     pub reel_rolling_direction: ReelRollingDirectionTag,
@@ -454,19 +464,14 @@ pub struct DirectB2SData {
     pub animations: Animations,
     #[serde(rename = "Scores")]
     pub scores: Option<Scores>,
-    #[serde(rename = "Reels")]
+    #[serde(rename = "Reels", skip_serializing_if = "Option::is_none")]
     pub reels: Option<Reels>,
     #[serde(rename = "Illumination")]
     pub illumination: Illumination,
-    #[serde(rename = "Sounds")]
+    #[serde(rename = "Sounds", skip_serializing_if = "Option::is_none")]
     pub sounds: Option<Sounds>,
     #[serde(rename = "Images")]
     pub images: Images,
-}
-
-pub fn load(text: &str) -> Result<DirectB2SData, DeError> {
-    // this will probably use up a lot of memory
-    from_str::<DirectB2SData>(text)
 }
 
 pub fn read<R: BufRead>(reader: R) -> Result<DirectB2SData, DeError> {
@@ -474,8 +479,11 @@ pub fn read<R: BufRead>(reader: R) -> Result<DirectB2SData, DeError> {
     from_reader(reader)
 }
 
-pub fn writer<W: std::fmt::Write>(data: &DirectB2SData, writer: W) -> Result<(), DeError> {
-    to_writer(writer, data)
+pub fn write<W: std::fmt::Write>(data: &DirectB2SData, writer: &mut W) -> Result<(), DeError> {
+    // to_writer(writer, data)
+    let mut ser = Serializer::new(writer);
+    ser.indent(' ', 2);
+    data.serialize(ser)
 }
 
 #[derive(Debug, Serialize_repr, Deserialize_repr, PartialEq, Eq)]
@@ -562,7 +570,8 @@ pub enum B2SPlayerNo {
     Player2 = 2,
     Player3 = 3,
     Player4 = 4,
-    Player5 = 5, // not in original code, found in "Dogies (Bally 1967).directb2s"
+    Player5 = 5,
+    // not in original code, found in "Dogies (Bally 1967).directb2s"
     Player6 = 6, // not in original code, found in "Capersville (Bally 1966).directb2s"
 }
 
