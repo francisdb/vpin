@@ -18,6 +18,12 @@ pub struct ValueTag {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct ImageValueTag {
+    #[serde(rename = "@Value"/*, serialize_with = "as_str_encoded"*/)]
+    pub value: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct DestTypeTag {
     #[serde(rename = "@Value")]
     pub value: DestType,
@@ -37,7 +43,7 @@ pub struct DmdTypeTag {
 
 #[derive(Deserialize, Serialize)]
 pub struct ImageTag {
-    #[serde(rename = "@Value")]
+    #[serde(rename = "@Value"/*, serialize_with = "as_str_encoded"*/)]
     pub value: String,
     #[serde(rename = "@FileName")]
     pub file_name: String,
@@ -88,7 +94,7 @@ pub struct Images {
     #[serde(rename = "IlluminationImage", skip_serializing_if = "Option::is_none")]
     pub illumination_image: Option<ValueTag>,
     #[serde(rename = "ThumbnailImage")]
-    pub thumbnail_image: ValueTag,
+    pub thumbnail_image: ImageValueTag,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -300,12 +306,26 @@ pub struct Score {
     #[serde(rename = "@Height")]
     pub height: String,
     // following fields are not really in use as far as I know
+    #[serde(rename = "@Sound1", skip_serializing_if = "Option::is_none")]
+    pub sound1: Option<String>,
+    #[serde(rename = "@Sound2", skip_serializing_if = "Option::is_none")]
+    pub sound2: Option<String>,
     #[serde(rename = "@Sound3", skip_serializing_if = "Option::is_none")]
     pub sound3: Option<String>,
     #[serde(rename = "@Sound4", skip_serializing_if = "Option::is_none")]
     pub sound4: Option<String>,
     #[serde(rename = "@Sound5", skip_serializing_if = "Option::is_none")]
     pub sound5: Option<String>,
+    #[serde(rename = "@Sound6", skip_serializing_if = "Option::is_none")]
+    pub sound6: Option<String>,
+    #[serde(rename = "@Sound7", skip_serializing_if = "Option::is_none")]
+    pub sound7: Option<String>,
+    #[serde(rename = "@Sound8", skip_serializing_if = "Option::is_none")]
+    pub sound8: Option<String>,
+    #[serde(rename = "@Sound9", skip_serializing_if = "Option::is_none")]
+    pub sound9: Option<String>,
+    #[serde(rename = "@Sound10", skip_serializing_if = "Option::is_none")]
+    pub sound10: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -341,6 +361,16 @@ pub struct ReelsImage {
         skip_serializing_if = "Option::is_none"
     )]
     pub intermediate_image2: Option<String>,
+    #[serde(
+        rename = "@IntermediateImage3",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub intermediate_image3: Option<String>,
+    #[serde(
+        rename = "@IntermediateImage4",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub intermediate_image4: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -369,6 +399,16 @@ pub struct ReelsIlluminatedImage {
         skip_serializing_if = "Option::is_none"
     )]
     pub intermediate_image2: Option<String>,
+    #[serde(
+        rename = "@IntermediateImage3",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub intermediate_image3: Option<String>,
+    #[serde(
+        rename = "@IntermediateImage4",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub intermediate_image4: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -669,3 +709,12 @@ pub enum ReelRollingDirection {
     Up = 0,
     Down = 1,
 }
+
+// // workaround for https://github.com/tafia/quick-xml/issues/670
+// fn as_str_encoded<S: serde::Serializer>(v: &String, serializer: S) -> Result<S::Ok, S::Error> {
+//     //serializer.serialize_str(&base64::encode(v.as_ref()))
+//     // CR -> &#xD;
+//     // LF -> &#xA;
+//     let serialized = v.replace("\r", "&#xD;").replace("\n", "&#xA;");
+//     serializer.serialize_str(&serialized)
+// }

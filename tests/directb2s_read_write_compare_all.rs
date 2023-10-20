@@ -1,13 +1,11 @@
 use pretty_assertions::assert_eq;
 use rayon::prelude::*;
 use roxmltree::{Document, Node, NodeType};
-use std::any::Any;
 use std::collections::hash_map::DefaultHasher;
 use std::fmt::Write;
 use std::hash::{Hash, Hasher};
 use std::io;
 use std::io::{Error, ErrorKind, Read};
-use std::os::macos::raw::stat;
 use std::path::PathBuf;
 use testresult::TestResult;
 use vpin::directb2s;
@@ -43,10 +41,10 @@ fn read_all() -> TestResult {
 
         // FIXME workaround for https://github.com/tafia/quick-xml/issues/670
         let mut written = written.replace("\r\n", "&#xD;&#xA;");
-
-        // let original_tail = &doc.chars().rev().into_iter().take(100).collect::<String>().chars().rev().collect::<String>();
-        // let written_tail2 = &written.chars().rev().take(100).collect::<String>().chars().rev().collect::<String>();
+        // let original_tail = tail(&doc, 100);
+        // let written_tail2 = tail(&written, 100);
         // assert_eq!(original_tail, written_tail2);
+        // ---
 
         let original = roxmltree::Document::parse(&doc)?;
 
@@ -60,6 +58,18 @@ fn read_all() -> TestResult {
         assert_eq!(original, written);
         Ok(())
     })
+}
+
+fn tail(written: &String, n: usize) -> String {
+    written
+        .chars()
+        .rev()
+        .take(n)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect::<String>()
+        .to_owned()
 }
 
 fn doc_tree(doc: &Document) -> Result<String, std::fmt::Error> {
@@ -104,10 +114,11 @@ fn write_node<W: Write>(
             let value = a.value();
             if value.len() > 100 {
                 format!(
-                    "{}=hash[{}]{}",
+                    "{}=hash[{}]{}|{}",
                     a.name(),
                     &value.len(),
-                    calculate_hash(&value)
+                    calculate_hash(&value),
+                    &value[0..100]
                 )
             } else {
                 format!("{}={}", a.name(), a.value())
