@@ -144,13 +144,11 @@ impl<F: Read + Seek + Write> VpxFile<F> {
     }
 
     pub fn read_gameitems(&mut self) -> io::Result<Vec<GameItemEnum>> {
-        let version = self.read_version()?;
         let gamedata = self.read_gamedata()?;
         read_gameitems(&mut self.compound_file, &gamedata)
     }
 
     pub fn read_images(&mut self) -> io::Result<Vec<ImageData>> {
-        let version = self.read_version()?;
         let gamedata = self.read_gamedata()?;
         read_images(&mut self.compound_file, &gamedata)
     }
@@ -162,13 +160,11 @@ impl<F: Read + Seek + Write> VpxFile<F> {
     }
 
     pub fn read_fonts(&mut self) -> io::Result<Vec<FontData>> {
-        let version = self.read_version()?;
         let gamedata = self.read_gamedata()?;
         read_fonts(&mut self.compound_file, &gamedata)
     }
 
     pub fn read_collections(&mut self) -> io::Result<Vec<Collection>> {
-        let version = self.read_version()?;
         let gamedata = self.read_gamedata()?;
         read_collections(&mut self.compound_file, &gamedata)
     }
