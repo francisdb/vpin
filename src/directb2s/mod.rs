@@ -81,7 +81,7 @@ pub struct Images {
     pub backglass_off_image: Option<ValueTag>,
     #[serde(rename = "BackglassOnImage", skip_serializing_if = "Option::is_none")]
     pub backglass_on_image: Option<OnImageTag>,
-    #[serde(rename = "BackglassImage")]
+    #[serde(rename = "BackglassImage", skip_serializing_if = "Option::is_none")]
     pub backglass_image: Option<ImageTag>,
     #[serde(rename = "DMDImage", skip_serializing_if = "Option::is_none")]
     pub dmd_image: Option<ImageTag>,
@@ -331,9 +331,15 @@ pub struct ReelsImage {
     #[serde(rename = "@Image")]
     pub image: String,
     // base64 encoded image
-    #[serde(rename = "@IntermediateImage1", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "@IntermediateImage1",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub intermediate_image1: Option<String>,
-    #[serde(rename = "@IntermediateImage2", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "@IntermediateImage2",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub intermediate_image2: Option<String>,
 }
 
@@ -353,9 +359,15 @@ pub struct ReelsIlluminatedImage {
     #[serde(rename = "@Image")]
     pub image: String,
     // base64 encoded image
-    #[serde(rename = "@IntermediateImage1", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "@IntermediateImage1",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub intermediate_image1: Option<String>,
-    #[serde(rename = "@IntermediateImage2", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "@IntermediateImage2",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub intermediate_image2: Option<String>,
 }
 

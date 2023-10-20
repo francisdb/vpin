@@ -1,17 +1,17 @@
+use pretty_assertions::assert_eq;
+use rayon::prelude::*;
+use roxmltree::{Document, Node, NodeType};
 use std::any::Any;
 use std::collections::hash_map::DefaultHasher;
 use std::fmt::Write;
 use std::hash::{Hash, Hasher};
-use rayon::prelude::*;
 use std::io;
 use std::io::{Error, ErrorKind, Read};
 use std::os::macos::raw::stat;
 use std::path::PathBuf;
-use testresult::{TestResult};
+use testresult::TestResult;
 use vpin::directb2s;
 use vpin::directb2s::DirectB2SData;
-use pretty_assertions::assert_eq;
-use roxmltree::{Document, Node, NodeType};
 
 mod common;
 
@@ -41,15 +41,12 @@ fn read_all() -> TestResult {
         let mut doc = String::new();
         file.read_to_string(&mut doc)?;
 
-
         // FIXME workaround for https://github.com/tafia/quick-xml/issues/670
         let mut written = written.replace("\r\n", "&#xD;&#xA;");
-
 
         // let original_tail = &doc.chars().rev().into_iter().take(100).collect::<String>().chars().rev().collect::<String>();
         // let written_tail2 = &written.chars().rev().take(100).collect::<String>().chars().rev().collect::<String>();
         // assert_eq!(original_tail, written_tail2);
-
 
         let original = roxmltree::Document::parse(&doc)?;
 
@@ -71,7 +68,11 @@ fn doc_tree(doc: &Document) -> Result<String, std::fmt::Error> {
     Ok(writer)
 }
 
-fn doc_to_tag_tree<W: Write>(node: &Node, indent: String, writer: &mut W) -> Result<(), std::fmt::Error> {
+fn doc_to_tag_tree<W: Write>(
+    node: &Node,
+    indent: String,
+    writer: &mut W,
+) -> Result<(), std::fmt::Error> {
     let t = node.node_type();
     match node.node_type() {
         NodeType::Element => {
@@ -85,24 +86,43 @@ fn doc_to_tag_tree<W: Write>(node: &Node, indent: String, writer: &mut W) -> Res
             // println!("skipping: {:?}", t)
         }
     }
-    node.children().try_for_each(|child| {
-        doc_to_tag_tree(&child, format!("{}  ", indent), writer)
-    })
+    node.children()
+        .try_for_each(|child| doc_to_tag_tree(&child, format!("{}  ", indent), writer))
 }
 
-fn write_node<W: Write>(node: &Node, indent: &String, writer: &mut W, t: NodeType) -> Result<(), std::fmt::Error> {
+fn write_node<W: Write>(
+    node: &Node,
+    indent: &String,
+    writer: &mut W,
+    t: NodeType,
+) -> Result<(), std::fmt::Error> {
     let mut sorted_attributes = node.attributes().collect::<Vec<_>>();
     sorted_attributes.sort_by_cached_key(|a| a.name());
-    let attributes = sorted_attributes.iter().map(|a| {
-        let value = a.value();
-        if value.len() > 100 {
-            format!("{}=hash[{}]{}", a.name(), &value.len(), calculate_hash(&value))
-        } else {
-            format!("{}={}", a.name(), a.value())
-        }
-    }).collect::<Vec<_>>();
+    let attributes = sorted_attributes
+        .iter()
+        .map(|a| {
+            let value = a.value();
+            if value.len() > 100 {
+                format!(
+                    "{}=hash[{}]{}",
+                    a.name(),
+                    &value.len(),
+                    calculate_hash(&value)
+                )
+            } else {
+                format!("{}={}", a.name(), a.value())
+            }
+        })
+        .collect::<Vec<_>>();
     let attributes = attributes.join(" ");
-    write!(writer, "{} {:?} {} {}\n", indent, t, node.tag_name().name(), attributes)?;
+    write!(
+        writer,
+        "{} {:?} {} {}\n",
+        indent,
+        t,
+        node.tag_name().name(),
+        attributes
+    )?;
     Ok(())
 }
 
@@ -114,7 +134,6 @@ fn read_directb2s(path: &PathBuf) -> Result<DirectB2SData, Error> {
         io::Error::new(ErrorKind::Other, msg)
     })
 }
-
 
 fn calculate_hash<T: Hash>(t: &T) -> u64 {
     let mut s = DefaultHasher::new();
