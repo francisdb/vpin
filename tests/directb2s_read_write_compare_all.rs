@@ -25,7 +25,7 @@ fn read_all() -> TestResult {
 
     let filtered_file_names = [
         // contains lowercase empty sound[1-9] tags where these should be Capitalized
-        //"Four Million B.C. (Bally 1971).directb2s",
+        "Four Million B.C. (Bally 1971).directb2s",
     ];
     let paths = paths
         .iter()
