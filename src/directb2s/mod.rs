@@ -127,11 +127,17 @@ pub struct Animation {
     pub id_join: String,
     #[serde(rename = "@StartAnimationAtBackglassStartup")]
     pub start_animation_at_backglass_startup: String,
-    #[serde(rename = "@LightsStateAtAnimationStart")]
+    #[serde(
+        rename = "@LightsStateAtAnimationStart",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub lights_state_at_animation_start: Option<String>,
     #[serde(rename = "@LightsStateAtAnimationEnd")]
     pub lights_state_at_animation_end: String,
-    #[serde(rename = "@AnimationStopBehaviour")]
+    #[serde(
+        rename = "@AnimationStopBehaviour",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub animation_stop_behaviour: Option<String>,
     #[serde(rename = "@LockInvolvedLamps")]
     pub lock_involved_lamps: String,
@@ -139,6 +145,16 @@ pub struct Animation {
     pub hide_score_displays: String,
     #[serde(rename = "@BringToFront")]
     pub bring_to_front: String,
+    #[serde(
+        rename = "@AllLightsOffAtAnimationStart",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub all_lights_off_at_animation_start: Option<String>,
+    #[serde(
+        rename = "@RunAnimationTilEnd",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub run_animation_til_end: Option<String>,
     #[serde(rename = "AnimationStep")]
     pub animation_step: Vec<AnimationStep>,
 }
@@ -171,11 +187,11 @@ pub struct Bulb {
     pub rom_inverted: Option<String>,
     #[serde(rename = "@InitialState")]
     pub initial_state: String,
-    #[serde(rename = "@DualMode")]
+    #[serde(rename = "@DualMode", skip_serializing_if = "Option::is_none")]
     pub dual_mode: Option<DualMode>,
     #[serde(rename = "@Intensity")]
     pub intensity: String,
-    #[serde(rename = "@LightColor")]
+    #[serde(rename = "@LightColor", skip_serializing_if = "Option::is_none")]
     pub light_color: Option<String>,
     #[serde(rename = "@DodgeColor")]
     pub dodge_color: String,
@@ -195,12 +211,29 @@ pub struct Bulb {
     pub height: String,
     #[serde(rename = "@IsImageSnippit")]
     pub is_image_snippit: String,
-    #[serde(rename = "@SnippitType", skip_serializing_if = "Option::is_none")]
     // SnippitMechID
-    // SnippitRotatingSteps
-    // SnippitRotatingDirection
-    // SnippitRotatingStopBehaviour
-    // SnippitRotatingInterval
+    #[serde(
+        rename = "@SnippitRotatingDirection",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub snippit_rotating_direction: Option<String>,
+    #[serde(
+        rename = "@SnippitRotatingInterval",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub snippit_rotating_interval: Option<String>,
+    #[serde(
+        rename = "@SnippitRotatingSteps",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub snippit_rotating_steps: Option<String>,
+    #[serde(
+        rename = "@SnippitRotatingStopBehaviour",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub snippit_rotating_stop_behaviour: Option<String>,
+
+    #[serde(rename = "@SnippitType", skip_serializing_if = "Option::is_none")]
     pub snippit_type: Option<SnippitType>,
     #[serde(rename = "@Image")]
     pub image: String,
@@ -295,7 +328,7 @@ pub struct Score {
     pub digits: String,
     #[serde(rename = "@Spacing")]
     pub spacing: String,
-    #[serde(rename = "@DisplayState")]
+    #[serde(rename = "@DisplayState", skip_serializing_if = "Option::is_none")]
     pub display_state: Option<String>,
     #[serde(rename = "@LocX")]
     pub loc_x: String,
@@ -371,6 +404,11 @@ pub struct ReelsImage {
         skip_serializing_if = "Option::is_none"
     )]
     pub intermediate_image4: Option<String>,
+    #[serde(
+        rename = "@IntermediateImage5",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub intermediate_imag5: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -409,6 +447,11 @@ pub struct ReelsIlluminatedImage {
         skip_serializing_if = "Option::is_none"
     )]
     pub intermediate_image4: Option<String>,
+    #[serde(
+        rename = "@IntermediateImage5",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub intermediate_imag5: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -476,11 +519,11 @@ pub struct DirectB2SData {
     pub assembly_guid: ValueTag,
     #[serde(rename = "VSName")]
     pub vsname: ValueTag,
-    #[serde(rename = "DualBackglass")]
+    #[serde(rename = "DualBackglass", skip_serializing_if = "Option::is_none")]
     pub dual_backglass: Option<ValueTag>,
     #[serde(rename = "Author")]
     pub author: ValueTag,
-    #[serde(rename = "Artwork")]
+    #[serde(rename = "Artwork", skip_serializing_if = "Option::is_none")]
     pub artwork: Option<ValueTag>,
     #[serde(rename = "GameName")]
     pub game_name: ValueTag,

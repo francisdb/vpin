@@ -23,6 +23,16 @@ fn read_all() -> TestResult {
     }
     let paths = common::find_files(&folder, "directb2s")?;
 
+    let filtered_file_names = [
+        // contains lowercase empty sound[1-9] tags where these should be Capitalized
+        "Four Million B.C. (Bally 1971).directb2s",
+    ];
+    let paths = paths
+        .iter()
+        .filter(|p| !filtered_file_names.contains(&p.file_name().unwrap().to_str().unwrap()))
+        .map(|p| p.to_path_buf())
+        .collect::<Vec<_>>();
+
     //paths.par_iter().panic_fuse().try_for_each(|path| {
     paths.iter().try_for_each(|path| {
         println!("testing: {:?}", path);
