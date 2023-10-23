@@ -23,8 +23,17 @@ fn read_all() -> TestResult {
     }
     let paths = common::find_files(&folder, "directb2s")?;
 
-    //paths.par_iter().panic_fuse().try_for_each(|path| {
-    paths.iter().try_for_each(|path| {
+    let filtered_file_names = [
+        // contains lowercase empty sound[1-9] tags where these should be Capitalized
+        "Four Million B.C. (Bally 1971).directb2s",
+    ];
+    let paths = paths
+        .iter()
+        .filter(|p| !filtered_file_names.contains(&p.file_name().unwrap().to_str().unwrap()))
+        .map(|p| p.to_path_buf())
+        .collect::<Vec<_>>();
+
+    paths.par_iter().panic_fuse().try_for_each(|path| {
         println!("testing: {:?}", path);
 
         // read file to data
@@ -51,8 +60,18 @@ fn read_all() -> TestResult {
         // read buffer as xml ast
         let written = roxmltree::Document::parse(&mut written)?;
 
-        let original = doc_tree(&original)?;
-        let written = doc_tree(&written)?;
+        let original_tree = doc_tree(&original)?;
+        let original = format!(
+            "{}\n{}",
+            path.file_name().unwrap().to_str().unwrap(),
+            original_tree
+        );
+        let written_tree = doc_tree(&written)?;
+        let written = format!(
+            "{}\n{}",
+            path.file_name().unwrap().to_str().unwrap(),
+            written_tree
+        );
 
         // compare both
         assert_eq!(original, written);
@@ -128,7 +147,7 @@ fn write_node<W: Write>(
     let attributes = attributes.join(" ");
     write!(
         writer,
-        "{} {:?} {} {}\n",
+        "{}{:?} {} {}\n",
         indent,
         t,
         node.tag_name().name(),
