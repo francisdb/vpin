@@ -527,12 +527,10 @@ pub struct DirectB2SData {
 }
 
 pub fn read<R: BufRead>(reader: R) -> Result<DirectB2SData, DeError> {
-    // this will probably use up a lot of memory
     from_reader(reader)
 }
 
 pub fn write<W: std::fmt::Write>(data: &DirectB2SData, writer: &mut W) -> Result<(), DeError> {
-    // to_writer(writer, data)
     let mut ser = Serializer::new(writer);
     ser.indent(' ', 2);
     data.serialize(ser)
