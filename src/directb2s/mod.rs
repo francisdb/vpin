@@ -1,5 +1,19 @@
 //! Library for reading and writing [B2S-Backglass](https://github.com/vpinball/b2s-backglass) `directb2s` files
-
+//!
+//! # Example
+//!
+//! ```
+//! use std::io;
+//! use std::path::PathBuf;
+//! use vpin::directb2s;
+//!
+//! let file = std::fs::File::open("testdata/Police Force (Williams 1989) FULL DMD.stripped.directb2s").unwrap();
+//! let reader = io::BufReader::new(file);
+//! let data = directb2s::read(reader).unwrap();
+//! println!("Game name: {}", data.game_name.value);
+//! println!("Author: {}", data.author.value);
+//! ```
+//!
 use std::fmt::Debug;
 use std::io::BufRead;
 
@@ -408,7 +422,7 @@ pub struct ReelsImage {
         rename = "@IntermediateImage5",
         skip_serializing_if = "Option::is_none"
     )]
-    pub intermediate_imag5: Option<String>,
+    pub intermediate_image5: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -418,48 +432,11 @@ pub struct ReelsImages {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct ReelsIlluminatedImage {
-    // TODO there might be dynamic fields here for IntermediateImage0, IntermediateImage1, etc.
-    #[serde(rename = "@Name")]
-    pub name: String,
-    #[serde(rename = "@CountOfIntermediates")]
-    pub count_of_intermediates: String,
-    #[serde(rename = "@Image")]
-    pub image: String,
-    // base64 encoded image
-    #[serde(
-        rename = "@IntermediateImage1",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub intermediate_image1: Option<String>,
-    #[serde(
-        rename = "@IntermediateImage2",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub intermediate_image2: Option<String>,
-    #[serde(
-        rename = "@IntermediateImage3",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub intermediate_image3: Option<String>,
-    #[serde(
-        rename = "@IntermediateImage4",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub intermediate_image4: Option<String>,
-    #[serde(
-        rename = "@IntermediateImage5",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub intermediate_imag5: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
 pub struct ReelsIlluminatedImagesSet {
     #[serde(rename = "@ID")]
     pub id: String,
     #[serde(rename = "IlluminatedImage")]
-    pub illuminated_image: Vec<ReelsIlluminatedImage>,
+    pub illuminated_image: Vec<ReelsImage>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -497,6 +474,7 @@ pub struct GrillHeight {
     pub small: Option<String>,
 }
 
+/// Root data structure representing a directb2s file
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DirectB2SData {
     #[serde(rename = "@Version")]
@@ -567,6 +545,54 @@ pub struct DirectB2SData {
     pub sounds: Option<Sounds>,
     #[serde(rename = "Images")]
     pub images: Images,
+}
+
+impl DirectB2SData {
+    /// Replaces image data with "\[stripped\]" for the whole structure
+    pub fn strip_images(self: &mut Self) {
+        self.images.backglass_image.iter_mut().for_each(|i| {
+            i.value = "[stripped]".to_string();
+        });
+        self.images.dmd_image.iter_mut().for_each(|i| {
+            i.value = "[stripped]".to_string();
+        });
+        self.images.backglass_off_image.iter_mut().for_each(|i| {
+            i.value = "[stripped]".to_string();
+        });
+        self.images.backglass_on_image.iter_mut().for_each(|i| {
+            i.value = "[stripped]".to_string();
+        });
+        self.images.illumination_image.iter_mut().for_each(|i| {
+            i.value = "[stripped]".to_string();
+        });
+        self.images.thumbnail_image.value = "[stripped]".to_string();
+        self.illumination.bulb.iter_mut().for_each(|bulbs| {
+            bulbs.iter_mut().for_each(|b| {
+                b.image = "[stripped]".to_string();
+            });
+        });
+        self.reels.as_mut().iter_mut().for_each(|reels| {
+            reels.images.image.iter_mut().for_each(|i| {
+                Self::strip_reels_images(i);
+            });
+            reels.illuminated_images.set.iter_mut().for_each(|s| {
+                s.iter_mut().for_each(|i| {
+                    Self::strip_reels_images(&mut i.illuminated_image);
+                });
+            });
+        });
+    }
+
+    fn strip_reels_images(images: &mut Vec<ReelsImage>) {
+        images.iter_mut().for_each(|i| {
+            i.image = "[stripped]".to_string();
+            i.intermediate_image1 = Some("[stripped]".to_string());
+            i.intermediate_image2 = Some("[stripped]".to_string());
+            i.intermediate_image3 = Some("[stripped]".to_string());
+            i.intermediate_image4 = Some("[stripped]".to_string());
+            i.intermediate_image5 = Some("[stripped]".to_string());
+        });
+    }
 }
 
 pub fn read<R: BufRead>(reader: R) -> Result<DirectB2SData, DeError> {
@@ -750,12 +776,3 @@ pub enum ReelRollingDirection {
     Up = 0,
     Down = 1,
 }
-
-// // workaround for https://github.com/tafia/quick-xml/issues/670
-// fn as_str_encoded<S: serde::Serializer>(v: &String, serializer: S) -> Result<S::Ok, S::Error> {
-//     //serializer.serialize_str(&base64::encode(v.as_ref()))
-//     // CR -> &#xD;
-//     // LF -> &#xA;
-//     let serialized = v.replace("\r", "&#xD;").replace("\n", "&#xA;");
-//     serializer.serialize_str(&serialized)
-// }
