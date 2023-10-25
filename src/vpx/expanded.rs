@@ -1,9 +1,13 @@
+use std::fmt::{Display, Formatter};
 use std::io::{self, Read, Write};
 use std::{fs::File, path::Path};
 
 use cfb::CompoundFile;
+use serde_json::{Error, Value};
 
-use super::{extract_script, read_gamedata, tableinfo, Version, VPX};
+use super::{
+    custominfotags, extract_script, read_custominfotags, read_gamedata, tableinfo, Version, VPX,
+};
 
 use super::collection::{self, Collection};
 use super::font;
@@ -14,10 +18,37 @@ use super::sound::write_sound;
 use super::version;
 use crate::vpx::biff::{BiffRead, BiffReader};
 use crate::vpx::image::ImageData;
-use crate::vpx::jsonmodel::{collections_json, table_json};
+use crate::vpx::jsonmodel::{collections_json, info_to_json, json_to_collections, json_to_info};
 use crate::vpx::tableinfo::TableInfo;
 
-pub fn extract(vpx_file_path: &Path, expanded_path: &Path) -> std::io::Result<()> {
+#[derive(Debug)]
+pub enum ReadError {
+    Io(io::Error),
+    Json(serde_json::Error),
+}
+
+impl Display for ReadError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReadError::Io(error) => write!(f, "IO error: {}", error),
+            ReadError::Json(error) => write!(f, "JSON error: {}", error),
+        }
+    }
+}
+
+impl From<io::Error> for ReadError {
+    fn from(error: io::Error) -> Self {
+        ReadError::Io(error)
+    }
+}
+
+impl From<serde_json::Error> for ReadError {
+    fn from(error: serde_json::Error) -> Self {
+        ReadError::Json(error)
+    }
+}
+
+pub fn extract(vpx_file_path: &Path, expanded_path: &Path) -> io::Result<()> {
     let vbs_path = expanded_path.join("script.vbs");
 
     let mut root_dir = std::fs::DirBuilder::new();
@@ -51,16 +82,36 @@ pub fn extract(vpx_file_path: &Path, expanded_path: &Path) -> std::io::Result<()
     Ok(())
 }
 
-pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> std::io::Result<()> {
+pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> io::Result<()> {
     // write the version as utf8 to version.txt
     let version_path = expanded_dir.as_ref().join("version.txt");
     let mut version_file = std::fs::File::create(&version_path)?;
     let version_string = vpx.version.to_string();
     version_file.write_all(version_string.as_bytes())?;
+
+    // write the screenshot as a png
+    if let Some(screenshot) = &vpx.info.screenshot {
+        let screenshot_path = expanded_dir.as_ref().join("screenshot.png");
+        let mut screenshot_file = std::fs::File::create(&screenshot_path)?;
+        screenshot_file.write_all(screenshot)?;
+    }
+
+    // write table metadata as json
+    let json_path = expanded_dir.as_ref().join("info.json");
+    let mut json_file = std::fs::File::create(&json_path)?;
+    let info = info_to_json(&vpx.info, &vpx.custominfotags);
+    serde_json::to_writer_pretty(&mut json_file, &info)?;
+
+    // collections
+    let collections_json_path = expanded_dir.as_ref().join("collections.json");
+    let mut collections_json_file = std::fs::File::create(&collections_json_path)?;
+    let json_collections = collections_json(&vpx.collections);
+    serde_json::to_writer_pretty(&mut collections_json_file, &json_collections)?;
+
     Ok(())
 }
 
-pub fn read<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<VPX> {
+pub fn read<P: AsRef<Path>>(expanded_dir: &P) -> Result<VPX, ReadError> {
     // read the version
     let version_path = expanded_dir.as_ref().join("version.txt");
     let mut version_file = std::fs::File::open(&version_path)?;
@@ -73,30 +124,36 @@ pub fn read<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<VPX> {
         )
     })?;
 
+    let screenshot = expanded_dir.as_ref().join("screenshot.png");
+    let screenshot = if screenshot.exists() {
+        let mut screenshot_file = std::fs::File::open(&screenshot)?;
+        let mut screenshot = Vec::new();
+        screenshot_file.read_to_end(&mut screenshot)?;
+        Some(screenshot)
+    } else {
+        None
+    };
+
+    let info_path = expanded_dir.as_ref().join("info.json");
+    let mut info_file = std::fs::File::open(&info_path)?;
+    let value: Value = serde_json::from_reader(&mut info_file)?;
+    let (info, custominfotags) = json_to_info(value, screenshot)?;
+
+    let collections_path = expanded_dir.as_ref().join("collections.json");
+    let mut collections_file = std::fs::File::open(&collections_path)?;
+    let value = serde_json::from_reader(&mut collections_file)?;
+    let collections: Vec<Collection> = json_to_collections(value)?;
+
     let vpx = VPX {
-        custominfotags: vec![],
-        info: TableInfo {
-            table_name: None,
-            author_name: None,
-            screenshot: None,
-            table_blurb: None,
-            table_rules: None,
-            author_email: None,
-            release_date: None,
-            table_save_rev: None,
-            table_version: None,
-            author_website: None,
-            table_save_date: None,
-            table_description: None,
-            properties: Default::default(),
-        },
+        custominfotags,
+        info,
         version,
         gamedata: Default::default(),
         gameitems: vec![],
         images: vec![],
         sounds: vec![],
         fonts: vec![],
-        collections: vec![],
+        collections,
     };
     Ok(vpx)
 }
@@ -244,6 +301,7 @@ fn extract_info(comp: &mut CompoundFile<File>, root_dir_path: &Path) -> std::io:
     let json_path = root_dir_path.join("TableInfo.json");
     let mut json_file = std::fs::File::create(&json_path).unwrap();
     let table_info = tableinfo::read_tableinfo(comp)?;
+    let custom_info_tags = read_custominfotags(comp)?;
     // TODO can we avoid the clone?
     let screenshot = table_info
         .screenshot
@@ -256,7 +314,7 @@ fn extract_info(comp: &mut CompoundFile<File>, root_dir_path: &Path) -> std::io:
         screenshot_file.write_all(&screenshot).unwrap();
     }
 
-    let info = table_json(&table_info);
+    let info = info_to_json(&table_info, &custom_info_tags);
 
     serde_json::to_writer_pretty(&mut json_file, &info).unwrap();
     println!("Info file written to\n  {}", &json_path.display());
@@ -483,11 +541,13 @@ mod test {
     use super::*;
     use crate::vpx::tableinfo::TableInfo;
     use pretty_assertions::assert_eq;
+    use std::collections::HashMap;
     use std::path::PathBuf;
     use testdir::testdir;
+    use testresult::TestResult;
 
     #[test]
-    pub fn test_expand() -> io::Result<()> {
+    pub fn test_expand_write_read() -> TestResult {
         let vpx_file_path = PathBuf::from("testdata/completely_blank_table_10_7_4.vpx");
         //let expanded_path = testdir!();
         let expanded_path = PathBuf::from("testing_expanded");
@@ -496,23 +556,31 @@ mod test {
         }
         std::fs::create_dir(&expanded_path)?;
 
+        // read 1x1.png as a Vec<u8>
+        let mut screenshot = Vec::new();
+        let mut screenshot_file = std::fs::File::open("testdata/1x1.png")?;
+        screenshot_file.read_to_end(&mut screenshot)?;
+
         let version = Version::new(1074);
         let vpx = VPX {
-            custominfotags: vec![],
+            custominfotags: vec!["test prop 2".to_string(), "test prop".to_string()],
             info: TableInfo {
                 table_name: Some("test table name".to_string()),
-                author_name: None,
-                screenshot: None,
-                table_blurb: None,
-                table_rules: None,
-                author_email: None,
-                release_date: None,
-                table_save_rev: None,
-                table_version: None,
-                author_website: None,
-                table_save_date: None,
-                table_description: None,
-                properties: Default::default(),
+                author_name: Some("test author name".to_string()),
+                screenshot: Some(screenshot),
+                table_blurb: Some("test table blurb".to_string()),
+                table_rules: Some("test table rules".to_string()),
+                author_email: Some("test author email".to_string()),
+                release_date: Some("test release date".to_string()),
+                table_save_rev: Some("123a".to_string()),
+                table_version: Some("test table version".to_string()),
+                author_website: Some("test author website".to_string()),
+                table_save_date: Some("test table save date".to_string()),
+                table_description: Some("test table description".to_string()),
+                properties: HashMap::from([
+                    ("test prop".to_string(), "test prop value".to_string()),
+                    ("test prop2".to_string(), "test prop2 value".to_string()),
+                ]),
             },
             version,
             gamedata: Default::default(),
@@ -520,7 +588,22 @@ mod test {
             images: vec![],
             sounds: vec![],
             fonts: vec![],
-            collections: vec![],
+            collections: vec![
+                Collection {
+                    name: "test collection".to_string(),
+                    items: vec!["test item".to_string()],
+                    fire_events: false,
+                    stop_single_events: false,
+                    group_elements: false,
+                },
+                Collection {
+                    name: "test collection 2".to_string(),
+                    items: vec!["test item 2".to_string(), "test item 3".to_string()],
+                    fire_events: true,
+                    stop_single_events: true,
+                    group_elements: true,
+                },
+            ],
         };
 
         write(&vpx, &expanded_path)?;
