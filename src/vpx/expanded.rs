@@ -3,7 +3,7 @@ use std::{fs::File, path::Path};
 
 use cfb::CompoundFile;
 
-use super::{extract_script, read_gamedata, tableinfo, Version};
+use super::{extract_script, read_gamedata, tableinfo, Version, VPX};
 
 use super::collection::{self, Collection};
 use super::font;
@@ -15,6 +15,7 @@ use super::version;
 use crate::vpx::biff::{BiffRead, BiffReader};
 use crate::vpx::image::ImageData;
 use crate::vpx::jsonmodel::{collections_json, table_json};
+use crate::vpx::tableinfo::TableInfo;
 
 pub fn extract(vpx_file_path: &Path, expanded_path: &Path) -> std::io::Result<()> {
     let vbs_path = expanded_path.join("script.vbs");
@@ -48,6 +49,56 @@ pub fn extract(vpx_file_path: &Path, expanded_path: &Path) -> std::io::Result<()
     // let mut stream = comp.open_stream(inner_path).unwrap();
     // io::copy(&mut stream, &mut io::stdout()).unwrap();
     Ok(())
+}
+
+pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> std::io::Result<()> {
+    // write the version as utf8 to version.txt
+    let version_path = expanded_dir.as_ref().join("version.txt");
+    let mut version_file = std::fs::File::create(&version_path)?;
+    let version_string = vpx.version.to_string();
+    version_file.write_all(version_string.as_bytes())?;
+    Ok(())
+}
+
+pub fn read<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<VPX> {
+    // read the version
+    let version_path = expanded_dir.as_ref().join("version.txt");
+    let mut version_file = std::fs::File::open(&version_path)?;
+    let mut version_string = String::new();
+    version_file.read_to_string(&mut version_string)?;
+    let version = Version::parse(&version_string).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Could not parse version {}: {}", &version_string, e),
+        )
+    })?;
+
+    let vpx = VPX {
+        custominfotags: vec![],
+        info: TableInfo {
+            table_name: None,
+            author_name: None,
+            screenshot: None,
+            table_blurb: None,
+            table_rules: None,
+            author_email: None,
+            release_date: None,
+            table_save_rev: None,
+            table_version: None,
+            author_website: None,
+            table_save_date: None,
+            table_description: None,
+            properties: Default::default(),
+        },
+        version,
+        gamedata: Default::default(),
+        gameitems: vec![],
+        images: vec![],
+        sounds: vec![],
+        fonts: vec![],
+        collections: vec![],
+    };
+    Ok(vpx)
 }
 
 pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
@@ -428,8 +479,54 @@ fn extract_binaries(comp: &mut CompoundFile<std::fs::File>, root_dir_path: &Path
 }
 
 #[cfg(test)]
-mod tests {
-    // use super::*;
-    // use std::path::PathBuf;
-    // use testdir::testdir;
+mod test {
+    use super::*;
+    use crate::vpx::tableinfo::TableInfo;
+    use pretty_assertions::assert_eq;
+    use std::path::PathBuf;
+    use testdir::testdir;
+
+    #[test]
+    pub fn test_expand() -> io::Result<()> {
+        let vpx_file_path = PathBuf::from("testdata/completely_blank_table_10_7_4.vpx");
+        //let expanded_path = testdir!();
+        let expanded_path = PathBuf::from("testing_expanded");
+        if expanded_path.exists() {
+            std::fs::remove_dir_all(&expanded_path)?;
+        }
+        std::fs::create_dir(&expanded_path)?;
+
+        let version = Version::new(1074);
+        let vpx = VPX {
+            custominfotags: vec![],
+            info: TableInfo {
+                table_name: Some("test table name".to_string()),
+                author_name: None,
+                screenshot: None,
+                table_blurb: None,
+                table_rules: None,
+                author_email: None,
+                release_date: None,
+                table_save_rev: None,
+                table_version: None,
+                author_website: None,
+                table_save_date: None,
+                table_description: None,
+                properties: Default::default(),
+            },
+            version,
+            gamedata: Default::default(),
+            gameitems: vec![],
+            images: vec![],
+            sounds: vec![],
+            fonts: vec![],
+            collections: vec![],
+        };
+
+        write(&vpx, &expanded_path)?;
+        let read = read(&expanded_path)?;
+
+        assert_eq!(&vpx, &read);
+        Ok(())
+    }
 }
