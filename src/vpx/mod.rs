@@ -74,6 +74,8 @@ pub mod version;
 /// println!("version: {}", vpx.version);
 /// println!("table name: {}", vpx.info.table_name.unwrap_or("unknown".to_string()));
 /// ```
+
+#[derive(Debug, PartialEq)]
 pub struct VPX {
     /// This is mainly here to have an ordering for custom info tags
     pub custominfotags: custominfotags::CustomInfoTags, // this is a bit redundant
