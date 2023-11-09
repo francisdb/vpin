@@ -7,6 +7,4 @@
 
 pub mod directb2s;
 
-pub mod pov;
-
 pub mod vpx;
