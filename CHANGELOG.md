@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/francisdb/vpin/compare/v0.5.0...v0.6.0) - 2023-11-09
+
+### Other
+- drop pov module as pov support removed in vpinball 10.8 ([#24](https://github.com/francisdb/vpin/pull/24))
+- *(deps)* update cfb requirement from 0.8.1 to 0.9.0 ([#23](https://github.com/francisdb/vpin/pull/23))
+
 ## [0.5.0](https://github.com/francisdb/vpin/compare/v0.4.0...v0.5.0) - 2023-10-24
 
 ### Other
