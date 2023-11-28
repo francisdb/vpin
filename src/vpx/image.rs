@@ -56,8 +56,10 @@ pub struct ImageData {
     // TODO seems to be 1 for some kind of link type img, related to screenshots.
     // we only see this where a screenshot is set on the table info.
     // https://github.com/vpinball/vpinball/blob/1a70aa35eb57ec7b5fbbb9727f6735e8ef3183e0/Texture.cpp#L588
-    pub link: Option<u32>,     // LINK
-    pub alpha_test_value: f32, // ALTV
+    pub link: Option<u32>,       // LINK
+    pub alpha_test_value: f32,   // ALTV
+    pub is_opaque: Option<bool>, // OPAQ (added in 10.8)
+    pub is_signed: Option<bool>, // SIGN (added in 10.8)
     // TODO we can probably only have one of these so we can make an enum
     pub jpeg: Option<ImageDataJpeg>,
     pub bits: Option<ImageDataBits>,
@@ -92,6 +94,8 @@ fn read(reader: &mut BiffReader) -> ImageData {
     let mut width: u32 = 0;
     let mut path: String = "".to_string();
     let mut alpha_test_value: f32 = 0.0;
+    let mut is_opaque: Option<bool> = None;
+    let mut is_signed: Option<bool> = None;
     let mut jpeg: Option<ImageDataJpeg> = None;
     let mut bits: Option<ImageDataBits> = None;
     let mut link: Option<u32> = None;
@@ -120,6 +124,12 @@ fn read(reader: &mut BiffReader) -> ImageData {
             }
             "ALTV" => {
                 alpha_test_value = reader.get_f32();
+            }
+            "OPAQ" => {
+                is_opaque = Some(reader.get_bool());
+            }
+            "SIGN" => {
+                is_signed = Some(reader.get_bool());
             }
             "BITS" => {
                 // these have zero as length
@@ -160,6 +170,8 @@ fn read(reader: &mut BiffReader) -> ImageData {
         height,
         link,
         alpha_test_value,
+        is_opaque,
+        is_signed,
         jpeg,
         bits,
     }
@@ -184,6 +196,12 @@ fn write(data: &ImageData, writer: &mut BiffWriter) {
         writer.write_tagged_data("JPEG", &bits);
     }
     writer.write_tagged_f32("ALTV", data.alpha_test_value);
+    if let Some(is_opaque) = data.is_opaque {
+        writer.write_tagged_bool("OPAQ", is_opaque);
+    }
+    if let Some(is_signed) = data.is_signed {
+        writer.write_tagged_bool("SIGN", is_signed);
+    }
     writer.close(true);
 }
 
@@ -280,6 +298,8 @@ mod test {
             height: 2,
             link: None,
             alpha_test_value: 1.0,
+            is_opaque: Some(true),
+            is_signed: Some(false),
             jpeg: Some(ImageDataJpeg {
                 path: "path_value".to_string(),
                 name: "name_value".to_string(),

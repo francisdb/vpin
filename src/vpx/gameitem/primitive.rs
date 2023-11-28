@@ -30,7 +30,8 @@ pub struct Primitive {
     pub is_toy: bool,                          // 29
     pub use_3d_mesh: bool,                     // 30
     pub static_rendering: bool,                // 31
-    pub disable_lighting_top: f32,             // 32
+    pub disable_lighting_top_old: Option<f32>, // DILI (removed in 10.8)
+    pub disable_lighting_top: Option<f32>,     // DILT (added in 10.8)
     pub disable_lighting_below: Option<f32>,   // 33 DILB (added in 10.?)
     pub is_reflection_enabled: bool,           // 34
     pub backfaces_enabled: Option<bool>,       // 35 EBFC (added in 10.?)
@@ -92,7 +93,8 @@ impl BiffRead for Primitive {
         let mut is_toy: bool = false;
         let mut use_3d_mesh: bool = false;
         let mut static_rendering: bool = false;
-        let mut disable_lighting_top: f32 = 0.0;
+        let mut disable_lighting_top_old: Option<f32> = None; //0.0;
+        let mut disable_lighting_top: Option<f32> = None; //0.0;
         let mut disable_lighting_below: Option<f32> = None; //0.0;
         let mut is_reflection_enabled: bool = true;
         let mut backfaces_enabled: Option<bool> = None; //false;
@@ -240,7 +242,10 @@ impl BiffRead for Primitive {
                 //[BiffFloat("DILI", QuantizedUnsignedBits = 8, Pos = 32)]
                 //public float DisableLightingTop; // m_d.m_fDisableLightingTop = (tmp == 1) ? 1.f : dequantizeUnsigned<8>(tmp); // backwards compatible hacky loading!
                 "DILI" => {
-                    disable_lighting_top = reader.get_f32();
+                    disable_lighting_top_old = Some(reader.get_f32());
+                }
+                "DILT" => {
+                    disable_lighting_top = Some(reader.get_f32());
                 }
                 "DILB" => {
                     disable_lighting_below = Some(reader.get_f32());
@@ -393,6 +398,7 @@ impl BiffRead for Primitive {
             is_toy,
             use_3d_mesh,
             static_rendering,
+            disable_lighting_top_old,
             disable_lighting_top,
             disable_lighting_below,
             is_reflection_enabled,
@@ -465,7 +471,12 @@ impl BiffWrite for Primitive {
         writer.write_tagged_bool("ISTO", self.is_toy);
         writer.write_tagged_bool("U3DM", self.use_3d_mesh);
         writer.write_tagged_bool("STRE", self.static_rendering);
-        writer.write_tagged_f32("DILI", self.disable_lighting_top);
+        if let Some(disable_lighting_top_old) = self.disable_lighting_top_old {
+            writer.write_tagged_f32("DILI", disable_lighting_top_old);
+        }
+        if let Some(disable_lighting_top) = self.disable_lighting_top {
+            writer.write_tagged_f32("DILT", disable_lighting_top);
+        }
         if let Some(disable_lighting_below) = self.disable_lighting_below {
             writer.write_tagged_f32("DILB", disable_lighting_below);
         }
@@ -604,7 +615,8 @@ mod tests {
             is_toy: rng.gen(),
             use_3d_mesh: rng.gen(),
             static_rendering: rng.gen(),
-            disable_lighting_top: rng.gen(),
+            disable_lighting_top_old: Some(rng.gen()),
+            disable_lighting_top: Some(rng.gen()),
             disable_lighting_below: rng.gen(),
             is_reflection_enabled: rng.gen(),
             backfaces_enabled: rng.gen(),

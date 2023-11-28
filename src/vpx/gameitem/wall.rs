@@ -33,8 +33,9 @@ pub struct Wall {
     pub is_top_bottom_visible: bool,
     pub slingshot_animation: bool,
     pub is_side_visible: bool,
-    pub disable_lighting_top: f32,
-    pub disable_lighting_below: Option<f32>, // DILB (added in 10.?)
+    pub disable_lighting_top_old: Option<f32>, // DILI (removed in 10.8)
+    pub disable_lighting_top: Option<f32>,     // DILT (added in 10.8)
+    pub disable_lighting_below: Option<f32>,   // DILB (added in 10.?)
     pub is_reflection_enabled: bool,
     pub physics_material: Option<String>, // MAPH (added in 10.?)
     pub overwrite_physics: Option<bool>,  // OVPH (added in 10.?)
@@ -74,7 +75,8 @@ impl BiffRead for Wall {
         let mut scatter: f32 = Default::default();
         let mut is_top_bottom_visible: bool = true;
         let mut overwrite_physics: Option<bool> = None; //true;
-        let mut disable_lighting_top: f32 = Default::default();
+        let mut disable_lighting_top_old: Option<f32> = None; //0.0;
+        let mut disable_lighting_top: Option<f32> = None; //0.0;
         let mut disable_lighting_below: Option<f32> = None;
         let mut is_side_visible: bool = true;
         let mut is_reflection_enabled: bool = true;
@@ -167,9 +169,6 @@ impl BiffRead for Wall {
                 "OVPH" => {
                     overwrite_physics = Some(reader.get_bool());
                 }
-                "DLTO" => {
-                    disable_lighting_top = reader.get_f32();
-                }
                 "DLBE" => {
                     disable_lighting_below = Some(reader.get_f32());
                 }
@@ -207,7 +206,10 @@ impl BiffRead for Wall {
                     is_side_visible = reader.get_bool();
                 }
                 "DILI" => {
-                    disable_lighting_top = reader.get_f32();
+                    disable_lighting_top_old = Some(reader.get_f32());
+                }
+                "DILT" => {
+                    disable_lighting_top = Some(reader.get_f32());
                 }
                 "DILB" => {
                     disable_lighting_below = Some(reader.get_f32());
@@ -307,6 +309,7 @@ impl BiffRead for Wall {
             is_top_bottom_visible,
             slingshot_animation,
             is_side_visible,
+            disable_lighting_top_old,
             disable_lighting_top,
             disable_lighting_below,
             is_reflection_enabled,
@@ -351,7 +354,12 @@ impl BiffWrite for Wall {
         writer.write_tagged_bool("VSBL", self.is_top_bottom_visible);
         writer.write_tagged_bool("SLGA", self.slingshot_animation);
         writer.write_tagged_bool("SVBL", self.is_side_visible);
-        writer.write_tagged_f32("DILI", self.disable_lighting_top);
+        if let Some(disable_lighting_top_old) = self.disable_lighting_top_old {
+            writer.write_tagged_f32("DILI", disable_lighting_top_old);
+        }
+        if let Some(disable_lighting_top) = self.disable_lighting_top {
+            writer.write_tagged_f32("DILT", disable_lighting_top);
+        }
         if let Some(disable_lighting_below) = self.disable_lighting_below {
             writer.write_tagged_f32("DILB", disable_lighting_below);
         }
@@ -386,9 +394,11 @@ impl BiffWrite for Wall {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+    use rand::Rng;
 
     #[test]
     fn test_write_read() {
+        let mut rng = rand::thread_rng();
         let wall = Wall {
             hit_event: true,
             is_droppable: true,
@@ -416,7 +426,8 @@ mod tests {
             is_top_bottom_visible: true,
             slingshot_animation: true,
             is_side_visible: true,
-            disable_lighting_top: 11.0,
+            disable_lighting_top_old: Some(rng.gen()),
+            disable_lighting_top: Some(rng.gen()),
             disable_lighting_below: Some(12.0),
             is_reflection_enabled: true,
             physics_material: Some("physics_material".to_string()),

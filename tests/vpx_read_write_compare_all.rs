@@ -38,13 +38,22 @@ fn read_and_write_all() -> io::Result<()> {
     // testdir can not be used in non-main threads
     let dir: PathBuf = testdir!();
     // TODO why is par_iter() not faster but just consuming all cpu cores?
-    paths.iter().try_for_each(|path| {
-        println!("testing: {:?}", path);
-        let test_vpx_path = read_and_write_vpx(&dir, &path)?;
+    paths
+        .iter()
+        // .filter(|p| {
+        //     p.file_name()
+        //         .unwrap()
+        //         .to_string_lossy()
+        //         .to_ascii_lowercase()
+        //         .contains("DieHard")
+        // })
+        .try_for_each(|path| {
+            println!("testing: {:?}", path);
+            let test_vpx_path = read_and_write_vpx(&dir, &path)?;
 
-        assert_equal_vpx(path, test_vpx_path);
-        Ok(())
-    })
+            assert_equal_vpx(path, test_vpx_path);
+            Ok(())
+        })
 }
 
 fn read_and_write_vpx(dir: &PathBuf, path: &Path) -> io::Result<PathBuf> {

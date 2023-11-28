@@ -20,8 +20,9 @@ pub struct HitTarget {
     pub friction: f32,
     pub scatter: f32,
     pub is_collidable: bool,
-    pub disable_lighting_top: f32,           // DILI
-    pub disable_lighting_below: Option<f32>, // DILB (added in 10.?)
+    pub disable_lighting_top_old: Option<f32>, // DILI (removed in 10.8)
+    pub disable_lighting_top: Option<f32>,     // DILT (added in 10.8)
+    pub disable_lighting_below: Option<f32>,   // DILB (added in 10.?)
     pub depth_bias: f32,
     pub is_reflection_enabled: bool,
     pub is_dropped: bool,
@@ -69,7 +70,8 @@ impl BiffRead for HitTarget {
         let mut friction: f32 = 0.0;
         let mut scatter: f32 = 0.0;
         let mut is_collidable: bool = true;
-        let mut disable_lighting_top: f32 = 0.0;
+        let mut disable_lighting_top_old: Option<f32> = None; //0.0;
+        let mut disable_lighting_top: Option<f32> = None; //0.0;
         let mut disable_lighting_below: Option<f32> = None; //0.0;
         let mut depth_bias: f32 = 0.0;
         let mut is_reflection_enabled: bool = true;
@@ -144,7 +146,10 @@ impl BiffRead for HitTarget {
                     is_collidable = reader.get_bool();
                 }
                 "DILI" => {
-                    disable_lighting_top = reader.get_f32();
+                    disable_lighting_top_old = Some(reader.get_f32());
+                }
+                "DILT" => {
+                    disable_lighting_top = Some(reader.get_f32());
                 }
                 "DILB" => {
                     disable_lighting_below = Some(reader.get_f32());
@@ -209,6 +214,7 @@ impl BiffRead for HitTarget {
             friction,
             scatter,
             is_collidable,
+            disable_lighting_top_old,
             disable_lighting_top,
             disable_lighting_below,
             is_reflection_enabled,
@@ -246,7 +252,12 @@ impl BiffWrite for HitTarget {
         writer.write_tagged_f32("RFCT", self.friction);
         writer.write_tagged_f32("RSCT", self.scatter);
         writer.write_tagged_bool("CLDR", self.is_collidable);
-        writer.write_tagged_f32("DILI", self.disable_lighting_top);
+        if let Some(dili) = self.disable_lighting_top_old {
+            writer.write_tagged_f32("DILI", dili);
+        }
+        if let Some(disable_lighting_top) = self.disable_lighting_top {
+            writer.write_tagged_f32("DILT", disable_lighting_top);
+        }
         if let Some(disable_lighting_below) = self.disable_lighting_below {
             writer.write_tagged_f32("DILB", disable_lighting_below);
         }
@@ -308,7 +319,8 @@ mod tests {
             friction: rng.gen(),
             scatter: rng.gen(),
             is_collidable: rng.gen(),
-            disable_lighting_top: rng.gen(),
+            disable_lighting_top_old: Some(rng.gen()),
+            disable_lighting_top: Some(rng.gen()),
             disable_lighting_below: rng.gen(),
             is_reflection_enabled: rng.gen(),
             depth_bias: rng.gen(),
