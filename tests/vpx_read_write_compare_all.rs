@@ -38,13 +38,22 @@ fn read_and_write_all() -> io::Result<()> {
     // testdir can not be used in non-main threads
     let dir: PathBuf = testdir!();
     // TODO why is par_iter() not faster but just consuming all cpu cores?
-    paths.iter().try_for_each(|path| {
-        println!("testing: {:?}", path);
-        let test_vpx_path = read_and_write_vpx(&dir, &path)?;
+    paths
+        .iter()
+        // .filter(|p| {
+        //     p.file_name()
+        //         .unwrap()
+        //         .to_string_lossy()
+        //         .to_ascii_lowercase()
+        //         .contains("diehard")
+        // })
+        .try_for_each(|path| {
+            println!("testing: {:?}", path);
+            let test_vpx_path = read_and_write_vpx(&dir, &path)?;
 
-        assert_equal_vpx(path, test_vpx_path);
-        Ok(())
-    })
+            assert_equal_vpx(path, test_vpx_path);
+            Ok(())
+        })
 }
 
 fn read_and_write_vpx(dir: &PathBuf, path: &Path) -> io::Result<PathBuf> {
@@ -181,6 +190,15 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, u64)> {
                 Hash::hash_slice(&data, &mut hasher);
                 let hash = hasher.finish();
                 tags.push(("BITS".to_string(), data.len(), hash));
+            }
+            "CODE" => {
+                let len = reader.get_u32_no_remaining_update();
+                // at least a the time of 1060, some code was still encoded in latin1
+                let data = reader.get_str_with_encoding_no_remaining_update(len as usize);
+                let mut hasher = DefaultHasher::new();
+                Hash::hash_slice(&data.string.as_bytes(), &mut hasher);
+                let hash = hasher.finish();
+                tags.push(("CODE".to_string(), len as usize, hash));
             }
             other => {
                 let data = reader.get_record_data(false);

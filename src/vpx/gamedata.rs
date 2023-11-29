@@ -161,7 +161,7 @@ pub struct GameData {
     pub display_backdrop: bool,                                    // FBCK 69
     pub glass_top_height: f32,                                     // GLAS 70
     pub glass_bottom_height: Option<f32>,                          // GLAB 70.5 (added in 10.8)
-    pub table_height: f32,                                         // TBLH 71
+    pub table_height: Option<f32>,                                 // TBLH 71 (optional in 10.8)
     pub playfield_material: String,                                // PLMA 72
     pub backdrop_color: u32,                                       // BCLR 73 (color bgr)
     pub global_difficulty: f32,                                    // TDFT 74
@@ -176,40 +176,42 @@ pub struct GameData {
     pub ssr_scale: Option<f32>,                                    // SSSC 83 (added in 10.?)
     pub table_sound_volume: f32,                                   // SVOL 84
     pub table_music_volume: f32,                                   // MVOL 85
-    pub table_adaptive_vsync: i32,                                 // AVSY 86
-    pub use_reflection_for_balls: i32,                             // BREF 87
-    pub playfield_reflection_strength: f32,                        // PLST 88
-    pub use_trail_for_balls: i32,                                  // BTRA 89
-    pub ball_decal_mode: bool,                                     // BDMO 90
-    pub ball_playfield_reflection_strength: f32,                   // BPRS 91
-    pub default_bulb_intensity_scale_on_ball: Option<f32>,         // DBIS 92 (added in 10.?)
+    pub table_adaptive_vsync: Option<i32>, // AVSY 86 (became optional in 10.8)
+    pub use_reflection_for_balls: Option<i32>, // BREF 87 (became optional in 10.8)
+    pub playfield_reflection_strength: f32, // PLST 88
+    pub use_trail_for_balls: Option<i32>,  // BTRA 89 (became optional in 10.8)
+    pub ball_decal_mode: bool,             // BDMO 90
+    pub ball_playfield_reflection_strength: f32, // BPRS 91
+    pub default_bulb_intensity_scale_on_ball: Option<f32>, // DBIS 92 (added in 10.?)
     /// this has a special quantization,
     /// See [`Self::get_ball_trail_strength`] and [`Self::set_ball_trail_strength`]
-    pub ball_trail_strength: u32, // BTST 93
-    pub user_detail_level: u32,                                    // ARAC 94
-    pub overwrite_global_detail_level: bool,                       // OVDL 95
-    pub overwrite_global_day_night: bool,                          // OVDN 96
-    pub show_grid: bool,                                           // GDAC 97
-    pub reflect_elements_on_playfield: bool,                       // REOP 98
-    pub use_aal: i32,                                              // UAAL 99
-    pub use_fxaa: i32,                                             // UFXA 100
-    pub use_ao: i32,                                               // UAOC 101
-    pub use_ssr: Option<i32>,                                      // USSR 102 (added in 10.?)
-    pub bloom_strength: f32,                                       // BLST 103
-    pub materials_size: u32,                                       // MASI 104
-    pub materials: Vec<u8>,                                        // MATE 105
-    pub materials_physics: Option<Vec<u8>>,                        // PHMA 106 (added in 10.?)
-    pub materials_new: Option<Vec<Vec<u8>>>,                       // MATR (added in 10.8)
-    pub render_probes: Option<Vec<Vec<u8>>>,                       // RPRB (added in 10.8)
-    pub gameitems_size: u32,                                       // SEDT 107
-    pub sounds_size: u32,                                          // SSND 108
-    pub images_size: u32,                                          // SIMG 109
-    pub fonts_size: u32,                                           // SFNT 110
-    pub collections_size: u32,                                     // SCOL 111
-    pub name: String,                                              // NAME 112
-    pub custom_colors: Vec<u8>,                                    //[Color; 16], // CCUS 113
-    pub protection_data: Option<Vec<u8>>,                          // SECB (removed in ?)
-    pub code: StringWithEncoding,                                  // CODE 114
+    pub ball_trail_strength: Option<u32>, // BTST 93 (became optional in 10.8)
+    pub user_detail_level: Option<u32>,    // ARAC 94 (became optional in 10.8)
+    pub overwrite_global_detail_level: Option<bool>, // OGAC 95 (became optional in 10.8)
+    pub overwrite_global_day_night: Option<bool>, // OGDN 96 (became optional in 10.8)
+    pub show_grid: bool,                   // GDAC 97
+    pub reflect_elements_on_playfield: Option<bool>, // REOP 98 (became optional in 10.8)
+    pub use_aal: Option<i32>,              // UAAL 99 (became optional in 10.8)
+    pub use_fxaa: Option<i32>,             // UFXA 100 (became optional in 10.8)
+    pub use_ao: Option<i32>,               // UAOC 101 (became optional in 10.8)
+    pub use_ssr: Option<i32>,              // USSR 102 (added in 10.?)
+    pub tone_mapper: Option<i32>,          // TMAP 102.5 (added in 10.8)
+    pub bloom_strength: f32,               // BLST 103
+    pub materials_size: u32,               // MASI 104
+    pub materials: Vec<u8>,                // MATE 105
+    pub materials_physics: Option<Vec<u8>>, // PHMA 106 (added in 10.?)
+    pub materials_new: Option<Vec<Vec<u8>>>, // MATR (added in 10.8)
+    pub render_probes: Option<Vec<Vec<u8>>>, // RPRB (added in 10.8)
+    pub gameitems_size: u32,               // SEDT 107
+    pub sounds_size: u32,                  // SSND 108
+    pub images_size: u32,                  // SIMG 109
+    pub fonts_size: u32,                   // SFNT 110
+    pub collections_size: u32,             // SCOL 111
+    pub name: String,                      // NAME 112
+    pub custom_colors: Vec<u8>,            //[Color; 16], // CCUS 113
+    pub protection_data: Option<Vec<u8>>,  // SECB (removed in ?)
+    pub code: StringWithEncoding,          // CODE 114
+    pub is_locked: Option<bool>,           // TLCK (added in 10.8 for tournament mode?)
     // This is a bit of a hack because we want reproducible builds.
     // 10.8.0 beta 1-4 had EFSS at the old location, but it was moved to the new location in beta 5
     // Some tables were released with these old betas, so we need to support both locations to be 100% reproducing the orignal table
@@ -222,12 +224,12 @@ impl GameData {
         self.code = StringWithEncoding::new(script);
     }
 
-    pub fn get_ball_trail_strength(&self) -> f32 {
-        dequantize_unsigned(8, self.ball_trail_strength)
+    pub fn get_ball_trail_strength(&self) -> Option<f32> {
+        self.ball_trail_strength.map(|v| dequantize_unsigned(8, v))
     }
 
     pub fn set_ball_trail_strength(&mut self, value: f32) {
-        self.ball_trail_strength = quantize_unsigned(8, value);
+        self.ball_trail_strength = Some(quantize_unsigned(8, value));
     }
 }
 
@@ -310,7 +312,7 @@ impl Default for GameData {
             display_backdrop: false,
             glass_top_height: 400.0,   // new default 210 for both
             glass_bottom_height: None, // new default 210 for both
-            table_height: 0.0,
+            table_height: None,        //0.0,
             playfield_material: "".to_string(),
             backdrop_color: 0x232323ff, // bgra
             global_difficulty: 0.2,
@@ -325,23 +327,24 @@ impl Default for GameData {
             ssr_scale: None, //1.0,
             table_sound_volume: 1.0,
             table_music_volume: 1.0,
-            table_adaptive_vsync: -1,
-            use_reflection_for_balls: -1,
+            table_adaptive_vsync: None,     //-1,
+            use_reflection_for_balls: None, //-1,
             playfield_reflection_strength: 0.2941177,
-            use_trail_for_balls: -1,
+            use_trail_for_balls: None, //-1,
             ball_decal_mode: false,
             ball_playfield_reflection_strength: 1.0,
             default_bulb_intensity_scale_on_ball: None, //1.0,
-            ball_trail_strength: quantize_unsigned(8, 0.4901961),
-            user_detail_level: 5,
-            overwrite_global_detail_level: false,
-            overwrite_global_day_night: false,
+            ball_trail_strength: None,                  //quantize_unsigned(8, 0.4901961),
+            user_detail_level: None,                    //5,
+            overwrite_global_detail_level: None,        //false,
+            overwrite_global_day_night: None,           //false,
             show_grid: true,
-            reflect_elements_on_playfield: true,
-            use_aal: -1,
-            use_fxaa: -1,
-            use_ao: -1,
-            use_ssr: None, //-1,
+            reflect_elements_on_playfield: None, //true,
+            use_aal: None,                       //-1,
+            use_fxaa: None,                      //-1,
+            use_ao: None,                        //-1,
+            use_ssr: None,                       //-1,
+            tone_mapper: None,                   // 0 = TM_REINHARD,
             bloom_strength: 1.8,
             materials_size: 0,
             materials: Vec::new(),
@@ -383,6 +386,7 @@ impl Default for GameData {
             bg_window_bottom_x_offset_full_single_screen: None,
             bg_window_bottom_y_offset_full_single_screen: None,
             bg_window_bottom_z_offset_full_single_screen: None,
+            is_locked: None,
         }
     }
 }
@@ -599,7 +603,9 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
     if let Some(glass_bottom_height) = gamedata.glass_bottom_height {
         writer.write_tagged_f32("GLAB", glass_bottom_height);
     }
-    writer.write_tagged_f32("TBLH", gamedata.table_height);
+    if let Some(table_height) = gamedata.table_height {
+        writer.write_tagged_f32("TBLH", table_height);
+    }
     writer.write_tagged_string("PLMA", &gamedata.playfield_material);
     writer.write_tagged_u32("BCLR", gamedata.backdrop_color);
     writer.write_tagged_f32("TDFT", gamedata.global_difficulty);
@@ -616,26 +622,51 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
     }
     writer.write_tagged_f32("SVOL", gamedata.table_sound_volume);
     writer.write_tagged_f32("MVOL", gamedata.table_music_volume);
-    writer.write_tagged_i32("AVSY", gamedata.table_adaptive_vsync);
-    writer.write_tagged_i32("BREF", gamedata.use_reflection_for_balls);
+    if let Some(avsy) = gamedata.table_adaptive_vsync {
+        writer.write_tagged_i32("AVSY", avsy);
+    }
+    if let Some(bref) = gamedata.use_reflection_for_balls {
+        writer.write_tagged_i32("BREF", bref);
+    }
     writer.write_tagged_f32("PLST", gamedata.playfield_reflection_strength);
-    writer.write_tagged_i32("BTRA", gamedata.use_trail_for_balls);
+    if let Some(btst) = gamedata.use_trail_for_balls {
+        writer.write_tagged_i32("BTRA", btst);
+    }
     writer.write_tagged_bool("BDMO", gamedata.ball_decal_mode);
     writer.write_tagged_f32("BPRS", gamedata.ball_playfield_reflection_strength);
     if let Some(dbis) = gamedata.default_bulb_intensity_scale_on_ball {
         writer.write_tagged_f32("DBIS", dbis);
     }
-    writer.write_tagged_u32("BTST", gamedata.ball_trail_strength);
-    writer.write_tagged_u32("ARAC", gamedata.user_detail_level);
-    writer.write_tagged_bool("OGAC", gamedata.overwrite_global_detail_level);
-    writer.write_tagged_bool("OGDN", gamedata.overwrite_global_day_night);
+    if let Some(btst) = gamedata.ball_trail_strength {
+        writer.write_tagged_u32("BTST", btst);
+    }
+    if let Some(arac) = gamedata.user_detail_level {
+        writer.write_tagged_u32("ARAC", arac);
+    }
+    if let Some(ogac) = gamedata.overwrite_global_detail_level {
+        writer.write_tagged_bool("OGAC", ogac);
+    }
+    if let Some(ogdn) = gamedata.overwrite_global_day_night {
+        writer.write_tagged_bool("OGDN", ogdn);
+    }
     writer.write_tagged_bool("GDAC", gamedata.show_grid);
-    writer.write_tagged_bool("REOP", gamedata.reflect_elements_on_playfield);
-    writer.write_tagged_i32("UAAL", gamedata.use_aal);
-    writer.write_tagged_i32("UFXA", gamedata.use_fxaa);
-    writer.write_tagged_i32("UAOC", gamedata.use_ao);
+    if let Some(reop) = gamedata.reflect_elements_on_playfield {
+        writer.write_tagged_bool("REOP", reop);
+    }
+    if let Some(uaal) = gamedata.use_aal {
+        writer.write_tagged_i32("UAAL", uaal);
+    }
+    if let Some(ufxa) = gamedata.use_fxaa {
+        writer.write_tagged_i32("UFXA", ufxa);
+    }
+    if let Some(uaoc) = gamedata.use_ao {
+        writer.write_tagged_i32("UAOC", uaoc);
+    }
     if let Some(ussr) = gamedata.use_ssr {
         writer.write_tagged_i32("USSR", ussr);
+    }
+    if let Some(tmap) = gamedata.tone_mapper {
+        writer.write_tagged_i32("TMAP", tmap);
     }
     writer.write_tagged_f32("BLST", gamedata.bloom_strength);
     writer.write_tagged_u32("MASI", gamedata.materials_size);
@@ -667,6 +698,9 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
         writer.write_tagged_data("SECB", protection_data);
     }
     writer.write_tagged_string_with_encoding_no_size("CODE", &gamedata.code);
+    if let Some(is_locked) = gamedata.is_locked {
+        writer.write_tagged_bool("TLCK", is_locked);
+    }
 
     writer.close(true);
     // TODO how do we get rid of this extra copy?
@@ -801,7 +835,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             "FBCK" => gamedata.display_backdrop = reader.get_bool(),
             "GLAS" => gamedata.glass_top_height = reader.get_f32(),
             "GLAB" => gamedata.glass_bottom_height = Some(reader.get_f32()),
-            "TBLH" => gamedata.table_height = reader.get_f32(),
+            "TBLH" => gamedata.table_height = Some(reader.get_f32()),
             "PLMA" => gamedata.playfield_material = reader.get_string(),
             "BCLR" => gamedata.backdrop_color = reader.get_u32(),
             "TDFT" => gamedata.global_difficulty = reader.get_f32(),
@@ -816,26 +850,27 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             "SSSC" => gamedata.ssr_scale = Some(reader.get_f32()),
             "SVOL" => gamedata.table_sound_volume = reader.get_f32(),
             "MVOL" => gamedata.table_music_volume = reader.get_f32(),
-            "AVSY" => gamedata.table_adaptive_vsync = reader.get_i32(),
-            "BREF" => gamedata.use_reflection_for_balls = reader.get_i32(),
+            "AVSY" => gamedata.table_adaptive_vsync = Some(reader.get_i32()),
+            "BREF" => gamedata.use_reflection_for_balls = Some(reader.get_i32()),
             "PLST" => gamedata.playfield_reflection_strength = reader.get_f32(),
-            "BTRA" => gamedata.use_trail_for_balls = reader.get_i32(),
+            "BTRA" => gamedata.use_trail_for_balls = Some(reader.get_i32()),
             "BDMO" => gamedata.ball_decal_mode = reader.get_bool(),
             "BPRS" => gamedata.ball_playfield_reflection_strength = reader.get_f32(),
             "DBIS" => gamedata.default_bulb_intensity_scale_on_ball = Some(reader.get_f32()),
             "BTST" => {
                 // TODO do we need this QuantizedUnsignedBits for some of the float fields?
-                gamedata.ball_trail_strength = reader.get_u32();
+                gamedata.ball_trail_strength = Some(reader.get_u32());
             }
-            "ARAC" => gamedata.user_detail_level = reader.get_u32(),
-            "OGAC" => gamedata.overwrite_global_detail_level = reader.get_bool(),
-            "OGDN" => gamedata.overwrite_global_day_night = reader.get_bool(),
+            "ARAC" => gamedata.user_detail_level = Some(reader.get_u32()),
+            "OGAC" => gamedata.overwrite_global_detail_level = Some(reader.get_bool()),
+            "OGDN" => gamedata.overwrite_global_day_night = Some(reader.get_bool()),
             "GDAC" => gamedata.show_grid = reader.get_bool(),
-            "REOP" => gamedata.reflect_elements_on_playfield = reader.get_bool(),
-            "UAAL" => gamedata.use_aal = reader.get_i32(),
-            "UFXA" => gamedata.use_fxaa = reader.get_i32(),
-            "UAOC" => gamedata.use_ao = reader.get_i32(),
+            "REOP" => gamedata.reflect_elements_on_playfield = Some(reader.get_bool()),
+            "UAAL" => gamedata.use_aal = Some(reader.get_i32()),
+            "UFXA" => gamedata.use_fxaa = Some(reader.get_i32()),
+            "UAOC" => gamedata.use_ao = Some(reader.get_i32()),
             "USSR" => gamedata.use_ssr = Some(reader.get_i32()),
+            "TMAP" => gamedata.tone_mapper = Some(reader.get_i32()),
             "BLST" => gamedata.bloom_strength = reader.get_f32(),
             "MASI" => gamedata.materials_size = reader.get_u32(),
             "MATE" => gamedata.materials = reader.get_record_data(false).to_vec(),
@@ -868,6 +903,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
                 // at least a the time of 1060, some code was still encoded in latin1
                 gamedata.code = reader.get_str_with_encoding_no_remaining_update(len as usize);
             }
+            "TLCK" => gamedata.is_locked = Some(reader.get_bool()),
             other => {
                 let data = reader.get_record_data(false);
                 println!("unhandled tag {} {} bytes", other, data.len());
@@ -972,7 +1008,7 @@ mod tests {
             display_backdrop: true,
             glass_top_height: 234.0,
             glass_bottom_height: Some(123.0),
-            table_height: 12.0,
+            table_height: Some(12.0),
             playfield_material: "material_pf".to_string(),
             backdrop_color: 0x333333ff,
             global_difficulty: 0.3,
@@ -987,23 +1023,24 @@ mod tests {
             ssr_scale: Some(0.5),
             table_sound_volume: 0.6,
             table_music_volume: 0.5,
-            table_adaptive_vsync: 1,
-            use_reflection_for_balls: 1,
+            table_adaptive_vsync: Some(1),
+            use_reflection_for_balls: Some(1),
             playfield_reflection_strength: 0.02,
-            use_trail_for_balls: -3,
+            use_trail_for_balls: Some(-3),
             ball_decal_mode: true,
             ball_playfield_reflection_strength: 2.0,
             default_bulb_intensity_scale_on_ball: Some(2.0),
-            ball_trail_strength: quantize_unsigned(8, 0.55),
-            user_detail_level: 9,
-            overwrite_global_detail_level: true,
-            overwrite_global_day_night: true,
+            ball_trail_strength: Some(quantize_unsigned(8, 0.55)),
+            user_detail_level: Some(9),
+            overwrite_global_detail_level: Some(true),
+            overwrite_global_day_night: Some(false),
             show_grid: false,
-            reflect_elements_on_playfield: false,
-            use_aal: -10,
-            use_fxaa: -2,
-            use_ao: -3,
+            reflect_elements_on_playfield: Some(false),
+            use_aal: Some(-10),
+            use_fxaa: Some(-2),
+            use_ao: Some(-3),
             use_ssr: Some(-4),
+            tone_mapper: Some(1), // TM_TONY_MC_MAPFACE
             bloom_strength: 0.3,
             materials_size: 0,
             gameitems_size: 0,
@@ -1045,6 +1082,7 @@ mod tests {
             bg_window_bottom_x_offset_full_single_screen: None,
             bg_window_bottom_y_offset_full_single_screen: None,
             bg_window_bottom_z_offset_full_single_screen: None,
+            is_locked: Some(true),
             is_10_8_0_beta1_to_beta4: false,
         };
         let version = Version::new(1074);
