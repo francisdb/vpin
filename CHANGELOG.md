@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/francisdb/vpin/compare/v0.6.0...v0.7.0) - 2023-11-29
+
+### Added
+- more vpinball 10.8 changes ([#30](https://github.com/francisdb/vpin/pull/30))
+
+### Other
+- *(deps)* update testdir requirement from 0.8.1 to 0.9.0 ([#29](https://github.com/francisdb/vpin/pull/29))
+- *(deps)* update roxmltree requirement from 0.18.1 to 0.19.0 ([#26](https://github.com/francisdb/vpin/pull/26))
+
 ## [0.6.0](https://github.com/francisdb/vpin/compare/v0.5.0...v0.6.0) - 2023-11-09
 
 ### Other
