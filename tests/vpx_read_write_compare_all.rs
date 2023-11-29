@@ -45,7 +45,7 @@ fn read_and_write_all() -> io::Result<()> {
         //         .unwrap()
         //         .to_string_lossy()
         //         .to_ascii_lowercase()
-        //         .contains("DieHard")
+        //         .contains("diehard")
         // })
         .try_for_each(|path| {
             println!("testing: {:?}", path);
@@ -190,6 +190,15 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, u64)> {
                 Hash::hash_slice(&data, &mut hasher);
                 let hash = hasher.finish();
                 tags.push(("BITS".to_string(), data.len(), hash));
+            }
+            "CODE" => {
+                let len = reader.get_u32_no_remaining_update();
+                // at least a the time of 1060, some code was still encoded in latin1
+                let data = reader.get_str_with_encoding_no_remaining_update(len as usize);
+                let mut hasher = DefaultHasher::new();
+                Hash::hash_slice(&data.string.as_bytes(), &mut hasher);
+                let hash = hasher.finish();
+                tags.push(("CODE".to_string(), len as usize, hash));
             }
             other => {
                 let data = reader.get_record_data(false);

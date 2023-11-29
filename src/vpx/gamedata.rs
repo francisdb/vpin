@@ -161,7 +161,7 @@ pub struct GameData {
     pub display_backdrop: bool,                                    // FBCK 69
     pub glass_top_height: f32,                                     // GLAS 70
     pub glass_bottom_height: Option<f32>,                          // GLAB 70.5 (added in 10.8)
-    pub table_height: f32,                                         // TBLH 71
+    pub table_height: Option<f32>,                                 // TBLH 71 (optional in 10.8)
     pub playfield_material: String,                                // PLMA 72
     pub backdrop_color: u32,                                       // BCLR 73 (color bgr)
     pub global_difficulty: f32,                                    // TDFT 74
@@ -188,7 +188,7 @@ pub struct GameData {
     pub ball_trail_strength: Option<u32>, // BTST 93 (became optional in 10.8)
     pub user_detail_level: Option<u32>,    // ARAC 94 (became optional in 10.8)
     pub overwrite_global_detail_level: Option<bool>, // OGAC 95 (became optional in 10.8)
-    pub overwrite_global_day_night: bool,  // OVDN 96
+    pub overwrite_global_day_night: Option<bool>, // OGDN 96 (became optional in 10.8)
     pub show_grid: bool,                   // GDAC 97
     pub reflect_elements_on_playfield: Option<bool>, // REOP 98 (became optional in 10.8)
     pub use_aal: Option<i32>,              // UAAL 99 (became optional in 10.8)
@@ -211,6 +211,7 @@ pub struct GameData {
     pub custom_colors: Vec<u8>,            //[Color; 16], // CCUS 113
     pub protection_data: Option<Vec<u8>>,  // SECB (removed in ?)
     pub code: StringWithEncoding,          // CODE 114
+    pub is_locked: Option<bool>,           // TLCK (added in 10.8 for tournament mode?)
     // This is a bit of a hack because we want reproducible builds.
     // 10.8.0 beta 1-4 had EFSS at the old location, but it was moved to the new location in beta 5
     // Some tables were released with these old betas, so we need to support both locations to be 100% reproducing the orignal table
@@ -311,7 +312,7 @@ impl Default for GameData {
             display_backdrop: false,
             glass_top_height: 400.0,   // new default 210 for both
             glass_bottom_height: None, // new default 210 for both
-            table_height: 0.0,
+            table_height: None,        //0.0,
             playfield_material: "".to_string(),
             backdrop_color: 0x232323ff, // bgra
             global_difficulty: 0.2,
@@ -336,7 +337,7 @@ impl Default for GameData {
             ball_trail_strength: None,                  //quantize_unsigned(8, 0.4901961),
             user_detail_level: None,                    //5,
             overwrite_global_detail_level: None,        //false,
-            overwrite_global_day_night: false,
+            overwrite_global_day_night: None,           //false,
             show_grid: true,
             reflect_elements_on_playfield: None, //true,
             use_aal: None,                       //-1,
@@ -385,6 +386,7 @@ impl Default for GameData {
             bg_window_bottom_x_offset_full_single_screen: None,
             bg_window_bottom_y_offset_full_single_screen: None,
             bg_window_bottom_z_offset_full_single_screen: None,
+            is_locked: None,
         }
     }
 }
@@ -601,7 +603,9 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
     if let Some(glass_bottom_height) = gamedata.glass_bottom_height {
         writer.write_tagged_f32("GLAB", glass_bottom_height);
     }
-    writer.write_tagged_f32("TBLH", gamedata.table_height);
+    if let Some(table_height) = gamedata.table_height {
+        writer.write_tagged_f32("TBLH", table_height);
+    }
     writer.write_tagged_string("PLMA", &gamedata.playfield_material);
     writer.write_tagged_u32("BCLR", gamedata.backdrop_color);
     writer.write_tagged_f32("TDFT", gamedata.global_difficulty);
@@ -642,7 +646,9 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
     if let Some(ogac) = gamedata.overwrite_global_detail_level {
         writer.write_tagged_bool("OGAC", ogac);
     }
-    writer.write_tagged_bool("OGDN", gamedata.overwrite_global_day_night);
+    if let Some(ogdn) = gamedata.overwrite_global_day_night {
+        writer.write_tagged_bool("OGDN", ogdn);
+    }
     writer.write_tagged_bool("GDAC", gamedata.show_grid);
     if let Some(reop) = gamedata.reflect_elements_on_playfield {
         writer.write_tagged_bool("REOP", reop);
@@ -692,6 +698,9 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
         writer.write_tagged_data("SECB", protection_data);
     }
     writer.write_tagged_string_with_encoding_no_size("CODE", &gamedata.code);
+    if let Some(is_locked) = gamedata.is_locked {
+        writer.write_tagged_bool("TLCK", is_locked);
+    }
 
     writer.close(true);
     // TODO how do we get rid of this extra copy?
@@ -826,7 +835,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             "FBCK" => gamedata.display_backdrop = reader.get_bool(),
             "GLAS" => gamedata.glass_top_height = reader.get_f32(),
             "GLAB" => gamedata.glass_bottom_height = Some(reader.get_f32()),
-            "TBLH" => gamedata.table_height = reader.get_f32(),
+            "TBLH" => gamedata.table_height = Some(reader.get_f32()),
             "PLMA" => gamedata.playfield_material = reader.get_string(),
             "BCLR" => gamedata.backdrop_color = reader.get_u32(),
             "TDFT" => gamedata.global_difficulty = reader.get_f32(),
@@ -854,7 +863,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             }
             "ARAC" => gamedata.user_detail_level = Some(reader.get_u32()),
             "OGAC" => gamedata.overwrite_global_detail_level = Some(reader.get_bool()),
-            "OGDN" => gamedata.overwrite_global_day_night = reader.get_bool(),
+            "OGDN" => gamedata.overwrite_global_day_night = Some(reader.get_bool()),
             "GDAC" => gamedata.show_grid = reader.get_bool(),
             "REOP" => gamedata.reflect_elements_on_playfield = Some(reader.get_bool()),
             "UAAL" => gamedata.use_aal = Some(reader.get_i32()),
@@ -894,6 +903,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
                 // at least a the time of 1060, some code was still encoded in latin1
                 gamedata.code = reader.get_str_with_encoding_no_remaining_update(len as usize);
             }
+            "TLCK" => gamedata.is_locked = Some(reader.get_bool()),
             other => {
                 let data = reader.get_record_data(false);
                 println!("unhandled tag {} {} bytes", other, data.len());
@@ -998,7 +1008,7 @@ mod tests {
             display_backdrop: true,
             glass_top_height: 234.0,
             glass_bottom_height: Some(123.0),
-            table_height: 12.0,
+            table_height: Some(12.0),
             playfield_material: "material_pf".to_string(),
             backdrop_color: 0x333333ff,
             global_difficulty: 0.3,
@@ -1023,7 +1033,7 @@ mod tests {
             ball_trail_strength: Some(quantize_unsigned(8, 0.55)),
             user_detail_level: Some(9),
             overwrite_global_detail_level: Some(true),
-            overwrite_global_day_night: true,
+            overwrite_global_day_night: Some(false),
             show_grid: false,
             reflect_elements_on_playfield: Some(false),
             use_aal: Some(-10),
@@ -1072,6 +1082,7 @@ mod tests {
             bg_window_bottom_x_offset_full_single_screen: None,
             bg_window_bottom_y_offset_full_single_screen: None,
             bg_window_bottom_z_offset_full_single_screen: None,
+            is_locked: Some(true),
             is_10_8_0_beta1_to_beta4: false,
         };
         let version = Version::new(1074);
