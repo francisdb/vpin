@@ -22,7 +22,7 @@ fn read_and_write() -> TestResult {
     let test_vpx_path = dir.join("test.vpx");
     vpin::vpx::write(&test_vpx_path, &original)?;
 
-    assert_equal_vpx(&path, test_vpx_path);
+    assert_equal_vpx(&path, &test_vpx_path);
     Ok(())
 }
 
@@ -47,11 +47,12 @@ fn read_and_write_all() -> io::Result<()> {
         //         .to_ascii_lowercase()
         //         .contains("diehard")
         // })
-        .try_for_each(|path| {
-            println!("testing: {:?}", path);
-            let test_vpx_path = read_and_write_vpx(&dir, &path)?;
-
-            assert_equal_vpx(path, test_vpx_path);
+        .try_for_each(|vpx_path| {
+            println!("testing: {:?}", vpx_path);
+            let test_vpx_path = read_and_write_vpx(&dir, &vpx_path)?;
+            assert_equal_vpx(vpx_path, &test_vpx_path);
+            // if all is good we remove the test file
+            std::fs::remove_file(&test_vpx_path)?;
             Ok(())
         })
 }
@@ -65,7 +66,7 @@ fn read_and_write_vpx(dir: &PathBuf, path: &Path) -> io::Result<PathBuf> {
     Ok(test_vpx_path)
 }
 
-fn assert_equal_vpx(vpx_path: &PathBuf, test_vpx_path: PathBuf) {
+fn assert_equal_vpx(vpx_path: &PathBuf, test_vpx_path: &PathBuf) {
     let mut comp = cfb::open(&vpx_path).unwrap();
     let mut test_comp = cfb::open(&test_vpx_path).unwrap();
 

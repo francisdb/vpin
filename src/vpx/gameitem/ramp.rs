@@ -4,36 +4,36 @@ use super::dragpoint::DragPoint;
 
 #[derive(Debug, PartialEq)]
 pub struct Ramp {
-    pub height_bottom: f32,               // 1
-    pub height_top: f32,                  // 2
-    pub width_bottom: f32,                // 3
-    pub width_top: f32,                   // 4
-    pub material: String,                 // 5
-    pub is_timer_enabled: bool,           // 6
-    pub timer_interval: u32,              // 7
-    pub ramp_type: u32,                   // 8
-    pub name: String,                     // 9
-    pub image: String,                    // 10
-    pub image_alignment: u32,             // 11
-    pub image_walls: bool,                // 12
-    pub left_wall_height: f32,            // 13
-    pub right_wall_height: f32,           // 14
-    pub left_wall_height_visible: f32,    // 15
-    pub right_wall_height_visible: f32,   // 16
-    pub hit_event: Option<bool>,          // HTEV 17 (added in 10.?)
-    pub threshold: Option<f32>,           // THRS 18 (added in 10.?)
-    pub elasticity: f32,                  // 19
-    pub friction: f32,                    // 20
-    pub scatter: f32,                     // 21
-    pub is_collidable: bool,              // 22
-    pub is_visible: bool,                 // 23
-    pub depth_bias: f32,                  // 24
-    pub wire_diameter: f32,               // 25
-    pub wire_distance_x: f32,             // 26
-    pub wire_distance_y: f32,             // 27
-    pub is_reflection_enabled: bool,      // 28
-    pub physics_material: Option<String>, // MAPH 29 (added in 10.?)
-    pub overwrite_physics: Option<bool>,  // OVPH 30 (added in 10.?)
+    pub height_bottom: f32,                  // 1
+    pub height_top: f32,                     // 2
+    pub width_bottom: f32,                   // 3
+    pub width_top: f32,                      // 4
+    pub material: String,                    // 5
+    pub is_timer_enabled: bool,              // 6
+    pub timer_interval: u32,                 // 7
+    pub ramp_type: u32,                      // 8
+    pub name: String,                        // 9
+    pub image: String,                       // 10
+    pub image_alignment: u32,                // 11
+    pub image_walls: bool,                   // 12
+    pub left_wall_height: f32,               // 13
+    pub right_wall_height: f32,              // 14
+    pub left_wall_height_visible: f32,       // 15
+    pub right_wall_height_visible: f32,      // 16
+    pub hit_event: Option<bool>,             // HTEV 17 (added in 10.?)
+    pub threshold: Option<f32>,              // THRS 18 (added in 10.?)
+    pub elasticity: f32,                     // 19
+    pub friction: f32,                       // 20
+    pub scatter: f32,                        // 21
+    pub is_collidable: bool,                 // 22
+    pub is_visible: bool,                    // 23
+    pub depth_bias: f32,                     // 24
+    pub wire_diameter: f32,                  // 25
+    pub wire_distance_x: f32,                // 26
+    pub wire_distance_y: f32,                // 27
+    pub is_reflection_enabled: Option<bool>, // 28 REEN (was missing in 10.01)
+    pub physics_material: Option<String>,    // MAPH 29 (added in 10.?)
+    pub overwrite_physics: Option<bool>,     // OVPH 30 (added in 10.?)
 
     drag_points: Vec<DragPoint>,
 
@@ -85,7 +85,7 @@ impl BiffRead for Ramp {
         let mut wire_diameter: f32 = 8.0;
         let mut wire_distance_x: f32 = 38.0;
         let mut wire_distance_y: f32 = 88.0;
-        let mut is_reflection_enabled: bool = true;
+        let mut is_reflection_enabled: Option<bool> = None; // true
         let mut physics_material: Option<String> = None;
         let mut overwrite_physics: Option<bool> = None; // true;
 
@@ -190,7 +190,7 @@ impl BiffRead for Ramp {
                     wire_distance_y = reader.get_f32();
                 }
                 "REEN" => {
-                    is_reflection_enabled = reader.get_bool();
+                    is_reflection_enabled = Some(reader.get_bool());
                 }
                 "MAPH" => {
                     physics_material = Some(reader.get_string());
@@ -302,7 +302,9 @@ impl BiffWrite for Ramp {
         writer.write_tagged_f32("RADI", self.wire_diameter);
         writer.write_tagged_f32("RADX", self.wire_distance_x);
         writer.write_tagged_f32("RADY", self.wire_distance_y);
-        writer.write_tagged_bool("REEN", self.is_reflection_enabled);
+        if let Some(is_reflection_enabled) = self.is_reflection_enabled {
+            writer.write_tagged_bool("REEN", is_reflection_enabled);
+        }
         if let Some(physics_material) = &self.physics_material {
             writer.write_tagged_string("MAPH", physics_material);
         }

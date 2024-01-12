@@ -144,7 +144,7 @@ pub struct GameData {
     pub angle_tilt_min: f32,                                       // SLOP 54
     pub stereo_max_separation: f32,                                // MAXS 55
     pub stereo_zero_parallax_displacement: f32,                    // ZPD 56
-    pub stereo_offset: f32,                                        // STO 57
+    pub stereo_offset: Option<f32>,                                // STO 57 (was missing in  10.01)
     pub overwrite_global_stereo3d: bool,                           // OGST 58
     pub image: String,                                             // IMAG 59
     pub backglass_image_full_desktop: String,                      // BIMG 60
@@ -155,7 +155,7 @@ pub struct GameData {
     pub ball_image: String,                                        // BLIM 65
     pub ball_spherical_mapping: Option<bool>,                      // BLSM (added in 10.8)
     pub ball_image_front: String,                                  // BLIF 66
-    pub env_image: String,                                         // EIMG 67
+    pub env_image: Option<String>,                                 // EIMG 67 (was missing in 10.01)
     pub notes: Option<String>,                                     // NOTX 67.5 (added in 10.7)
     pub screen_shot: String,                                       // SSHT 68
     pub display_backdrop: bool,                                    // FBCK 69
@@ -178,10 +178,11 @@ pub struct GameData {
     pub table_music_volume: f32,                                   // MVOL 85
     pub table_adaptive_vsync: Option<i32>, // AVSY 86 (became optional in 10.8)
     pub use_reflection_for_balls: Option<i32>, // BREF 87 (became optional in 10.8)
+    pub brst: Option<i32>,                 // BRST (in use in 10.01)
     pub playfield_reflection_strength: f32, // PLST 88
     pub use_trail_for_balls: Option<i32>,  // BTRA 89 (became optional in 10.8)
     pub ball_decal_mode: bool,             // BDMO 90
-    pub ball_playfield_reflection_strength: f32, // BPRS 91
+    pub ball_playfield_reflection_strength: Option<f32>, // BPRS 91 (was missing in 10.01)
     pub default_bulb_intensity_scale_on_ball: Option<f32>, // DBIS 92 (added in 10.?)
     /// this has a special quantization,
     /// See [`Self::get_ball_trail_strength`] and [`Self::set_ball_trail_strength`]
@@ -295,7 +296,7 @@ impl Default for GameData {
             angle_tilt_min: 6.0,
             stereo_max_separation: 0.015,
             stereo_zero_parallax_displacement: 0.1,
-            stereo_offset: 0.0,
+            stereo_offset: None,
             overwrite_global_stereo3d: false,
             image: String::new(),
             backglass_image_full_desktop: String::new(),
@@ -306,7 +307,7 @@ impl Default for GameData {
             ball_image: String::new(),
             ball_spherical_mapping: None,
             ball_image_front: String::new(),
-            env_image: String::new(),
+            env_image: None,
             notes: None,
             screen_shot: String::new(),
             display_backdrop: false,
@@ -329,10 +330,11 @@ impl Default for GameData {
             table_music_volume: 1.0,
             table_adaptive_vsync: None,     //-1,
             use_reflection_for_balls: None, //-1,
+            brst: None,
             playfield_reflection_strength: 0.2941177,
             use_trail_for_balls: None, //-1,
             ball_decal_mode: false,
-            ball_playfield_reflection_strength: 1.0,
+            ball_playfield_reflection_strength: None,
             default_bulb_intensity_scale_on_ball: None, //1.0,
             ball_trail_strength: None,                  //quantize_unsigned(8, 0.4901961),
             user_detail_level: None,                    //5,
@@ -577,7 +579,9 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
     writer.write_tagged_f32("SLOP", gamedata.angle_tilt_min);
     writer.write_tagged_f32("MAXS", gamedata.stereo_max_separation);
     writer.write_tagged_f32("ZPD", gamedata.stereo_zero_parallax_displacement);
-    writer.write_tagged_f32("STO", gamedata.stereo_offset);
+    if let Some(sto) = gamedata.stereo_offset {
+        writer.write_tagged_f32("STO", sto);
+    }
     writer.write_tagged_bool("OGST", gamedata.overwrite_global_stereo3d);
     writer.write_tagged_string("IMAG", &gamedata.image);
     writer.write_tagged_string("BIMG", &gamedata.backglass_image_full_desktop);
@@ -593,7 +597,9 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
         writer.write_tagged_bool("BLSM", ball_spherical_mapping);
     }
     writer.write_tagged_string("BLIF", &gamedata.ball_image_front);
-    writer.write_tagged_string("EIMG", &gamedata.env_image);
+    if let Some(env_image) = &gamedata.env_image {
+        writer.write_tagged_string("EIMG", env_image);
+    }
     if let Some(notes) = &gamedata.notes {
         writer.write_tagged_string("NOTX", notes);
     }
@@ -628,12 +634,17 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
     if let Some(bref) = gamedata.use_reflection_for_balls {
         writer.write_tagged_i32("BREF", bref);
     }
+    if let Some(brst) = gamedata.brst {
+        writer.write_tagged_i32("BRST", brst);
+    }
     writer.write_tagged_f32("PLST", gamedata.playfield_reflection_strength);
     if let Some(btst) = gamedata.use_trail_for_balls {
         writer.write_tagged_i32("BTRA", btst);
     }
     writer.write_tagged_bool("BDMO", gamedata.ball_decal_mode);
-    writer.write_tagged_f32("BPRS", gamedata.ball_playfield_reflection_strength);
+    if let Some(bprs) = gamedata.ball_playfield_reflection_strength {
+        writer.write_tagged_f32("BPRS", bprs);
+    }
     if let Some(dbis) = gamedata.default_bulb_intensity_scale_on_ball {
         writer.write_tagged_f32("DBIS", dbis);
     }
@@ -818,7 +829,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             "SLOP" => gamedata.angle_tilt_min = reader.get_f32(),
             "MAXS" => gamedata.stereo_max_separation = reader.get_f32(),
             "ZPD" => gamedata.stereo_zero_parallax_displacement = reader.get_f32(),
-            "STO" => gamedata.stereo_offset = reader.get_f32(),
+            "STO" => gamedata.stereo_offset = Some(reader.get_f32()),
             "OGST" => gamedata.overwrite_global_stereo3d = reader.get_bool(),
             "IMAG" => gamedata.image = reader.get_string(),
             "BIMG" => gamedata.backglass_image_full_desktop = reader.get_string(),
@@ -829,7 +840,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             "BLIM" => gamedata.ball_image = reader.get_string(),
             "BLSM" => gamedata.ball_spherical_mapping = Some(reader.get_bool()),
             "BLIF" => gamedata.ball_image_front = reader.get_string(),
-            "EIMG" => gamedata.env_image = reader.get_string(),
+            "EIMG" => gamedata.env_image = Some(reader.get_string()),
             "NOTX" => gamedata.notes = Some(reader.get_string()),
             "SSHT" => gamedata.screen_shot = reader.get_string(),
             "FBCK" => gamedata.display_backdrop = reader.get_bool(),
@@ -852,10 +863,11 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             "MVOL" => gamedata.table_music_volume = reader.get_f32(),
             "AVSY" => gamedata.table_adaptive_vsync = Some(reader.get_i32()),
             "BREF" => gamedata.use_reflection_for_balls = Some(reader.get_i32()),
+            "BRST" => gamedata.brst = Some(reader.get_i32()),
             "PLST" => gamedata.playfield_reflection_strength = reader.get_f32(),
             "BTRA" => gamedata.use_trail_for_balls = Some(reader.get_i32()),
             "BDMO" => gamedata.ball_decal_mode = reader.get_bool(),
-            "BPRS" => gamedata.ball_playfield_reflection_strength = reader.get_f32(),
+            "BPRS" => gamedata.ball_playfield_reflection_strength = Some(reader.get_f32()),
             "DBIS" => gamedata.default_bulb_intensity_scale_on_ball = Some(reader.get_f32()),
             "BTST" => {
                 // TODO do we need this QuantizedUnsignedBits for some of the float fields?
@@ -991,7 +1003,7 @@ mod tests {
             angle_tilt_min: 3.0,
             stereo_max_separation: 0.03,
             stereo_zero_parallax_displacement: 0.2,
-            stereo_offset: 0.5,
+            stereo_offset: Some(0.5),
             overwrite_global_stereo3d: true,
             image: String::from("test image"),
             backglass_image_full_desktop: String::from("test desktop"),
@@ -1002,7 +1014,7 @@ mod tests {
             ball_image: String::from("test ball image"),
             ball_spherical_mapping: Some(true),
             ball_image_front: String::from("test ball image"),
-            env_image: String::from("test env image"),
+            env_image: Some(String::from("test env image")),
             notes: Some(String::from("test notes")),
             screen_shot: String::from("test screenshot"),
             display_backdrop: true,
@@ -1025,10 +1037,11 @@ mod tests {
             table_music_volume: 0.5,
             table_adaptive_vsync: Some(1),
             use_reflection_for_balls: Some(1),
+            brst: Some(123),
             playfield_reflection_strength: 0.02,
             use_trail_for_balls: Some(-3),
             ball_decal_mode: true,
-            ball_playfield_reflection_strength: 2.0,
+            ball_playfield_reflection_strength: Some(2.0),
             default_bulb_intensity_scale_on_ball: Some(2.0),
             ball_trail_strength: Some(quantize_unsigned(8, 0.55)),
             user_detail_level: Some(9),

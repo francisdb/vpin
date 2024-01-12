@@ -24,7 +24,7 @@ pub struct Plunger {
     is_timer_enabled: bool,
     timer_interval: u32,
     is_visible: bool,
-    is_reflection_enabled: bool,
+    is_reflection_enabled: Option<bool>, // REEN (was missing in 10.01)
     surface: String,
     pub name: String,
     tip_shape: String,
@@ -72,7 +72,7 @@ impl BiffRead for Plunger {
         let mut is_timer_enabled: bool = false;
         let mut timer_interval: u32 = 0;
         let mut is_visible: bool = true;
-        let mut is_reflection_enabled: bool = true;
+        let mut is_reflection_enabled: Option<bool> = None; // true
         let mut surface = String::default();
         let mut name = Default::default();
         let mut tip_shape =
@@ -161,7 +161,7 @@ impl BiffRead for Plunger {
                     is_visible = reader.get_bool();
                 }
                 "REEN" => {
-                    is_reflection_enabled = reader.get_bool();
+                    is_reflection_enabled = Some(reader.get_bool());
                 }
                 "SURF" => {
                     surface = reader.get_string();
@@ -283,7 +283,9 @@ impl BiffWrite for Plunger {
         writer.write_tagged_bool("TMON", self.is_timer_enabled);
         writer.write_tagged_u32("TMIN", self.timer_interval);
         writer.write_tagged_bool("VSBL", self.is_visible);
-        writer.write_tagged_bool("REEN", self.is_reflection_enabled);
+        if let Some(is_reflection_enabled) = self.is_reflection_enabled {
+            writer.write_tagged_bool("REEN", is_reflection_enabled);
+        }
         writer.write_tagged_string("SURF", &self.surface);
         writer.write_tagged_wide_string("NAME", &self.name);
         writer.write_tagged_string("TIPS", &self.tip_shape);
@@ -339,7 +341,7 @@ mod tests {
             is_timer_enabled: false,
             timer_interval: 0,
             is_visible: true,
-            is_reflection_enabled: true,
+            is_reflection_enabled: Some(true),
             surface: "test surface".to_string(),
             name: "test plunger".to_string(),
             tip_shape: "0 .34; 2 .6; 3 .64; 5 .7; 7 .84; 8 .88; 9 .9; 11 .92; 14 .92; 39 .83"
