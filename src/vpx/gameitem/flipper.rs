@@ -37,8 +37,8 @@ pub struct Flipper {
     is_visible: bool,
     is_enabled: bool,
     height: f32,
-    image: String,
-    is_reflection_enabled: bool,
+    image: Option<String>,               // IMAG (was missing in 10.01)
+    is_reflection_enabled: Option<bool>, // REEN (was missing in 10.01)
 
     // these are shared between all items
     pub is_locked: bool,
@@ -88,8 +88,8 @@ impl BiffRead for Flipper {
         let mut is_visible: bool = true;
         let mut is_enabled: bool = true;
         let mut height: f32 = 50.0;
-        let mut image: String = Default::default();
-        let mut is_reflection_enabled: bool = true;
+        let mut image: Option<String> = None;
+        let mut is_reflection_enabled: Option<bool> = None; //true
 
         // these are shared between all items
         let mut is_locked: bool = false;
@@ -205,10 +205,10 @@ impl BiffRead for Flipper {
                     height = reader.get_f32();
                 }
                 "IMAG" => {
-                    image = reader.get_string();
+                    image = Some(reader.get_string());
                 }
                 "REEN" => {
-                    is_reflection_enabled = reader.get_bool();
+                    is_reflection_enabled = Some(reader.get_bool());
                 }
 
                 // shared
@@ -325,8 +325,13 @@ impl BiffWrite for Flipper {
         writer.write_tagged_bool("ENBL", self.is_enabled);
         writer.write_tagged_f32("FRMN", self.flipper_radius_min);
         writer.write_tagged_f32("FHGT", self.height);
-        writer.write_tagged_string("IMAG", &self.image);
-        writer.write_tagged_bool("REEN", self.is_reflection_enabled);
+        if let Some(image) = &self.image {
+            writer.write_tagged_string("IMAG", image);
+        }
+        if let Some(is_reflection_enabled) = self.is_reflection_enabled {
+            writer.write_tagged_bool("REEN", is_reflection_enabled);
+        }
+
         // shared
         writer.write_tagged_bool("LOCK", self.is_locked);
         writer.write_tagged_u32("LAYR", self.editor_layer);
@@ -384,8 +389,8 @@ mod tests {
             is_visible: true,
             is_enabled: true,
             height: 50.0,
-            image: String::from("test image"),
-            is_reflection_enabled: true,
+            image: Some(String::from("test image")),
+            is_reflection_enabled: Some(true),
             is_locked: false,
             editor_layer: 123,
             editor_layer_name: Some(String::from("test editor layer name")),

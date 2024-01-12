@@ -19,14 +19,15 @@ pub struct Rubber {
     pub scatter: f32,
     pub is_collidable: bool,
     pub is_visible: bool,
+    pub radb: Option<f32>, // RADB (was used in 10.01)
     pub static_rendering: bool,
     pub show_in_editor: bool,
     pub rot_x: f32,
     pub rot_y: f32,
     pub rot_z: f32,
-    pub is_reflection_enabled: bool,
-    pub physics_material: Option<String>, // MAPH (added in 10.?)
-    pub overwrite_physics: Option<bool>,  // OVPH (added in 10.?)
+    pub is_reflection_enabled: Option<bool>, // REEN (was missing in 10.01)
+    pub physics_material: Option<String>,    // MAPH (added in 10.?)
+    pub overwrite_physics: Option<bool>,     // OVPH (added in 10.?)
 
     // these are shared between all items
     pub is_locked: bool,
@@ -54,12 +55,13 @@ impl BiffRead for Rubber {
         let mut scatter: f32 = Default::default();
         let mut is_collidable: bool = true;
         let mut is_visible: bool = true;
+        let mut radb: Option<f32> = None;
         let mut static_rendering: bool = true;
         let mut show_in_editor: bool = true;
         let mut rot_x: f32 = 0.0;
         let mut rot_y: f32 = 0.0;
         let mut rot_z: f32 = 0.0;
-        let mut is_reflection_enabled: bool = true;
+        let mut is_reflection_enabled: Option<bool> = None; // true;
         let mut physics_material: Option<String> = None;
         let mut overwrite_physics: Option<bool> = None; //false;
 
@@ -124,6 +126,9 @@ impl BiffRead for Rubber {
                 "RVIS" => {
                     is_visible = reader.get_bool();
                 }
+                "RADB" => {
+                    radb = Some(reader.get_f32());
+                }
                 "ESTR" => {
                     static_rendering = reader.get_bool();
                 }
@@ -140,7 +145,7 @@ impl BiffRead for Rubber {
                     rot_z = reader.get_f32();
                 }
                 "REEN" => {
-                    is_reflection_enabled = reader.get_bool();
+                    is_reflection_enabled = Some(reader.get_bool());
                 }
                 "MAPH" => {
                     physics_material = Some(reader.get_string());
@@ -196,6 +201,7 @@ impl BiffRead for Rubber {
             scatter,
             is_collidable,
             is_visible,
+            radb,
             static_rendering,
             show_in_editor,
             rot_x,
@@ -232,12 +238,17 @@ impl BiffWrite for Rubber {
         writer.write_tagged_f32("RSCT", self.scatter);
         writer.write_tagged_bool("CLDR", self.is_collidable);
         writer.write_tagged_bool("RVIS", self.is_visible);
+        if let Some(radb) = self.radb {
+            writer.write_tagged_f32("RADB", radb);
+        }
         writer.write_tagged_bool("ESTR", self.static_rendering);
         writer.write_tagged_bool("ESIE", self.show_in_editor);
         writer.write_tagged_f32("ROTX", self.rot_x);
         writer.write_tagged_f32("ROTY", self.rot_y);
         writer.write_tagged_f32("ROTZ", self.rot_z);
-        writer.write_tagged_bool("REEN", self.is_reflection_enabled);
+        if let Some(is_reflection_enabled) = self.is_reflection_enabled {
+            writer.write_tagged_bool("REEN", is_reflection_enabled);
+        }
         if let Some(physics_material) = &self.physics_material {
             writer.write_tagged_string("MAPH", physics_material);
         }
@@ -293,6 +304,7 @@ mod tests {
             scatter: 8.0,
             is_collidable: rng.gen(),
             is_visible: rng.gen(),
+            radb: Some(9.0),
             static_rendering: rng.gen(),
             show_in_editor: rng.gen(),
             rot_x: 9.0,

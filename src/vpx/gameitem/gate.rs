@@ -4,27 +4,29 @@ use super::vertex2d::Vertex2D;
 
 #[derive(Debug, PartialEq)]
 pub struct Gate {
-    pub center: Vertex2D,            // 1 VCEN
-    pub length: f32,                 // 2 LGTH
-    pub height: f32,                 // 3 HGTH
-    pub rotation: f32,               // 4 ROTA
-    pub material: String,            // 5 MATR
-    pub is_timer_enabled: bool,      // 6 TMON
-    pub show_bracket: bool,          // 7 GSUP
-    pub is_collidable: bool,         // 8 GCOL
-    pub timer_interval: f32,         // 9 TMIN
-    pub surface: String,             // 10 SURF
-    pub elasticity: f32,             // 11 ELAS
-    pub angle_max: f32,              // 12 GAMA
-    pub angle_min: f32,              // 13 GAMI
-    pub friction: f32,               // 14 GFRC
-    pub damping: Option<f32>,        // 15 AFRC (added in 10.?)
-    pub gravity_factor: Option<f32>, // 16 GGFC (added in 10.?)
-    pub is_visible: bool,            // 17 GVSB
-    pub name: String,                // 18 NAME
-    pub two_way: bool,               // 19 TWWA
-    pub is_reflection_enabled: bool, // 20 REEN
-    pub gate_type: u32,              // 21 GATY
+    pub center: Vertex2D,                    // 1 VCEN
+    pub length: f32,                         // 2 LGTH
+    pub height: f32,                         // 3 HGTH
+    pub rotation: f32,                       // 4 ROTA
+    pub material: String,                    // 5 MATR
+    pub is_timer_enabled: bool,              // 6 TMON
+    pub show_bracket: bool,                  // 7 GSUP
+    pub is_collidable: bool,                 // 8 GCOL
+    pub timer_interval: f32,                 // 9 TMIN
+    pub imgf: Option<String>,                // IMGF (was in use in 10.01)
+    pub imgb: Option<String>,                // IMGB (was in use in 10.01)
+    pub surface: String,                     // 10 SURF
+    pub elasticity: f32,                     // 11 ELAS
+    pub angle_max: f32,                      // 12 GAMA
+    pub angle_min: f32,                      // 13 GAMI
+    pub friction: f32,                       // 14 GFRC
+    pub damping: Option<f32>,                // 15 AFRC (added in 10.?)
+    pub gravity_factor: Option<f32>,         // 16 GGFC (added in 10.?)
+    pub is_visible: bool,                    // 17 GVSB
+    pub name: String,                        // 18 NAME
+    pub two_way: bool,                       // 19 TWWA
+    pub is_reflection_enabled: Option<bool>, // 20 REEN (was missing in 10.01)
+    pub gate_type: Option<u32>,              // 21 GATY (was missing in 10.01)
 
     // these are shared between all items
     pub is_locked: bool,
@@ -44,6 +46,8 @@ impl BiffRead for Gate {
         let mut show_bracket: bool = true;
         let mut is_collidable: bool = true;
         let mut timer_interval: f32 = Default::default();
+        let mut imgf: Option<String> = None;
+        let mut imgb: Option<String> = None;
         let mut surface: String = Default::default();
         let mut elasticity: f32 = 0.3;
         let mut angle_max: f32 = std::f32::consts::PI / 2.0;
@@ -53,8 +57,8 @@ impl BiffRead for Gate {
         let mut is_visible: bool = true;
         let mut name: String = Default::default();
         let mut two_way: bool = false;
-        let mut is_reflection_enabled: bool = true;
-        let mut gate_type: u32 = Default::default();
+        let mut is_reflection_enabled: Option<bool> = None;
+        let mut gate_type: Option<u32> = None;
         let mut gravity_factor: Option<f32> = None; //0.25;
 
         // these are shared between all items
@@ -98,6 +102,12 @@ impl BiffRead for Gate {
                 "TMIN" => {
                     timer_interval = reader.get_f32();
                 }
+                "IMGF" => {
+                    imgf = Some(reader.get_string());
+                }
+                "IMGB" => {
+                    imgb = Some(reader.get_string());
+                }
                 "SURF" => {
                     surface = reader.get_string();
                 }
@@ -129,10 +139,10 @@ impl BiffRead for Gate {
                     two_way = reader.get_bool();
                 }
                 "REEN" => {
-                    is_reflection_enabled = reader.get_bool();
+                    is_reflection_enabled = Some(reader.get_bool());
                 }
                 "GATY" => {
-                    gate_type = reader.get_u32();
+                    gate_type = Some(reader.get_u32());
                 }
 
                 // shared
@@ -169,6 +179,8 @@ impl BiffRead for Gate {
             show_bracket,
             is_collidable,
             timer_interval,
+            imgf,
+            imgb,
             surface,
             elasticity,
             angle_max,
@@ -200,6 +212,12 @@ impl BiffWrite for Gate {
         writer.write_tagged_bool("GSUP", self.show_bracket);
         writer.write_tagged_bool("GCOL", self.is_collidable);
         writer.write_tagged_f32("TMIN", self.timer_interval);
+        if let Some(imgf) = &self.imgf {
+            writer.write_tagged_string("IMGF", imgf);
+        }
+        if let Some(imgb) = &self.imgb {
+            writer.write_tagged_string("IMGB", imgb);
+        }
         writer.write_tagged_string("SURF", &self.surface);
         writer.write_tagged_f32("ELAS", self.elasticity);
         writer.write_tagged_f32("GAMA", self.angle_max);
@@ -214,8 +232,12 @@ impl BiffWrite for Gate {
         writer.write_tagged_bool("GVSB", self.is_visible);
         writer.write_tagged_wide_string("NAME", &self.name);
         writer.write_tagged_bool("TWWA", self.two_way);
-        writer.write_tagged_bool("REEN", self.is_reflection_enabled);
-        writer.write_tagged_u32("GATY", self.gate_type);
+        if let Some(is_reflection_enabled) = self.is_reflection_enabled {
+            writer.write_tagged_bool("REEN", is_reflection_enabled);
+        };
+        if let Some(gate_type) = self.gate_type {
+            writer.write_tagged_u32("GATY", gate_type);
+        };
 
         // shared
         writer.write_tagged_bool("LOCK", self.is_locked);
@@ -251,6 +273,8 @@ mod tests {
             show_bracket: false,
             is_collidable: false,
             timer_interval: 6.0,
+            imgf: Some("imgf".to_string()),
+            imgb: Some("imgb".to_string()),
             surface: "surface".to_string(),
             elasticity: 7.0,
             angle_max: 8.0,
@@ -261,8 +285,8 @@ mod tests {
             is_visible: false,
             name: "name".to_string(),
             two_way: true,
-            is_reflection_enabled: false,
-            gate_type: 13,
+            is_reflection_enabled: Some(false),
+            gate_type: Some(13),
             is_locked: true,
             editor_layer: 14,
             editor_layer_name: Some("editor_layer_name".to_string()),

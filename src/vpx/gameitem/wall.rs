@@ -36,9 +36,9 @@ pub struct Wall {
     pub disable_lighting_top_old: Option<f32>, // DILI (removed in 10.8)
     pub disable_lighting_top: Option<f32>,     // DILT (added in 10.8)
     pub disable_lighting_below: Option<f32>,   // DILB (added in 10.?)
-    pub is_reflection_enabled: bool,
-    pub physics_material: Option<String>, // MAPH (added in 10.?)
-    pub overwrite_physics: Option<bool>,  // OVPH (added in 10.?)
+    pub is_reflection_enabled: Option<bool>,   // REEN (was missing in 10.01)
+    pub physics_material: Option<String>,      // MAPH (added in 10.?)
+    pub overwrite_physics: Option<bool>,       // OVPH (added in 10.?)
 
     // these are shared between all items
     pub is_locked: bool,
@@ -79,7 +79,7 @@ impl BiffRead for Wall {
         let mut disable_lighting_top: Option<f32> = None; //0.0;
         let mut disable_lighting_below: Option<f32> = None;
         let mut is_side_visible: bool = true;
-        let mut is_reflection_enabled: bool = true;
+        let mut is_reflection_enabled: Option<bool> = None;
         let mut is_timer_enabled: bool = false;
         let mut timer_interval: u32 = Default::default();
         let mut physics_material: Option<String> = None;
@@ -175,9 +175,6 @@ impl BiffRead for Wall {
                 "SIVI" => {
                     is_side_visible = reader.get_bool();
                 }
-                "REFL" => {
-                    is_reflection_enabled = reader.get_bool();
-                }
                 "TMRN" => {
                     is_timer_enabled = reader.get_bool();
                 }
@@ -218,7 +215,7 @@ impl BiffRead for Wall {
                     physics_material = Some(reader.get_string());
                 }
                 "REEN" => {
-                    is_reflection_enabled = reader.get_bool();
+                    is_reflection_enabled = Some(reader.get_bool());
                 }
                 "IMAG" => {
                     image = reader.get_string();
@@ -363,7 +360,9 @@ impl BiffWrite for Wall {
         if let Some(disable_lighting_below) = self.disable_lighting_below {
             writer.write_tagged_f32("DILB", disable_lighting_below);
         }
-        writer.write_tagged_bool("REEN", self.is_reflection_enabled);
+        if let Some(is_reflection_enabled) = self.is_reflection_enabled {
+            writer.write_tagged_bool("REEN", is_reflection_enabled);
+        }
         if let Some(physics_material) = &self.physics_material {
             writer.write_tagged_string("MAPH", physics_material);
         }
@@ -429,7 +428,7 @@ mod tests {
             disable_lighting_top_old: Some(rng.gen()),
             disable_lighting_top: Some(rng.gen()),
             disable_lighting_below: Some(12.0),
-            is_reflection_enabled: true,
+            is_reflection_enabled: Some(true),
             physics_material: Some("physics_material".to_string()),
             overwrite_physics: Some(true),
             is_locked: true,

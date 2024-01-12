@@ -15,7 +15,7 @@ pub struct Kicker {
     kicker_type: u32,
     scatter: f32,
     hit_accuracy: f32,
-    hit_height: f32,
+    hit_height: Option<f32>, // KHHI (was missing in 10.01)
     orientation: f32,
     fall_through: bool,
     legacy_mode: bool,
@@ -50,7 +50,7 @@ impl BiffRead for Kicker {
         let mut kicker_type: u32 = Kicker::KICKER_TYPE_HOLE;
         let mut scatter: f32 = 0.0;
         let mut hit_accuracy: f32 = 0.7;
-        let mut hit_height: f32 = 40.0;
+        let mut hit_height: Option<f32> = None; //40.0;
         let mut orientation: f32 = 0.0;
         let mut fall_through: bool = false;
         let mut legacy_mode: bool = true;
@@ -103,7 +103,7 @@ impl BiffRead for Kicker {
                     hit_accuracy = reader.get_f32();
                 }
                 "KHHI" => {
-                    hit_height = reader.get_f32();
+                    hit_height = Some(reader.get_f32());
                 }
                 "KORI" => {
                     orientation = reader.get_f32();
@@ -175,7 +175,9 @@ impl BiffWrite for Kicker {
         writer.write_tagged_u32("TYPE", self.kicker_type);
         writer.write_tagged_f32("KSCT", self.scatter);
         writer.write_tagged_f32("KHAC", self.hit_accuracy);
-        writer.write_tagged_f32("KHHI", self.hit_height);
+        if let Some(hit_height) = self.hit_height {
+            writer.write_tagged_f32("KHHI", hit_height);
+        }
         writer.write_tagged_f32("KORI", self.orientation);
         writer.write_tagged_bool("FATH", self.fall_through);
         writer.write_tagged_bool("LEMO", self.legacy_mode);
@@ -215,7 +217,7 @@ mod tests {
             kicker_type: 5,
             scatter: 6.0,
             hit_accuracy: 7.0,
-            hit_height: 8.0,
+            hit_height: Some(8.0),
             orientation: 9.0,
             fall_through: true,
             legacy_mode: false,

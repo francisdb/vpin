@@ -7,7 +7,7 @@ pub struct Trigger {
     pub center: Vertex2D,
     pub radius: f32,
     pub rotation: f32,
-    pub wire_thickness: f32,
+    pub wire_thickness: Option<f32>, // WITI (was missing in 10.01)
     pub scale_x: f32,
     pub scale_y: f32,
     pub is_timer_enabled: bool,
@@ -28,7 +28,7 @@ pub struct Trigger {
     // public bool IsReflectionEnabled = true;
     pub shape: u32,
     pub anim_speed: f32,
-    pub is_reflection_enabled: bool,
+    pub is_reflection_enabled: Option<bool>, // REEN (was missing in 10.01)
 
     // these are shared between all items
     pub is_locked: bool,
@@ -44,7 +44,7 @@ impl BiffRead for Trigger {
         let mut center: Vertex2D = Default::default();
         let mut radius: f32 = 25.0;
         let mut rotation: f32 = Default::default();
-        let mut wire_thickness: f32 = Default::default();
+        let mut wire_thickness: Option<f32> = None;
         let mut scale_x: f32 = Default::default();
         let mut scale_y: f32 = Default::default();
         let mut is_timer_enabled: bool = false;
@@ -57,7 +57,7 @@ impl BiffRead for Trigger {
         let mut name = Default::default();
         let mut shape: u32 = TRIGGER_SHAPE_WIRE_A;
         let mut anim_speed: f32 = Default::default();
-        let mut is_reflection_enabled: bool = true;
+        let mut is_reflection_enabled: Option<bool> = None; //true;
 
         // these are shared between all items
         let mut is_locked: bool = false;
@@ -88,7 +88,7 @@ impl BiffRead for Trigger {
                     rotation = reader.get_f32();
                 }
                 "WITI" => {
-                    wire_thickness = reader.get_f32();
+                    wire_thickness = Some(reader.get_f32());
                 }
                 "SCAX" => {
                     scale_x = reader.get_f32();
@@ -127,7 +127,7 @@ impl BiffRead for Trigger {
                     anim_speed = reader.get_f32();
                 }
                 "REEN" => {
-                    is_reflection_enabled = reader.get_bool();
+                    is_reflection_enabled = Some(reader.get_bool());
                 }
                 // shared
                 "LOCK" => {
@@ -188,7 +188,9 @@ impl BiffWrite for Trigger {
         writer.write_tagged("VCEN", &self.center);
         writer.write_tagged_f32("RADI", self.radius);
         writer.write_tagged_f32("ROTA", self.rotation);
-        writer.write_tagged_f32("WITI", self.wire_thickness);
+        if let Some(wire_thickness) = self.wire_thickness {
+            writer.write_tagged_f32("WITI", wire_thickness);
+        }
         writer.write_tagged_f32("SCAX", self.scale_x);
         writer.write_tagged_f32("SCAY", self.scale_y);
         writer.write_tagged_bool("TMON", self.is_timer_enabled);
@@ -201,7 +203,9 @@ impl BiffWrite for Trigger {
         writer.write_tagged_wide_string("NAME", &self.name);
         writer.write_tagged_u32("SHAP", self.shape);
         writer.write_tagged_f32("ANSP", self.anim_speed);
-        writer.write_tagged_bool("REEN", self.is_reflection_enabled);
+        if let Some(is_reflection_enabled) = self.is_reflection_enabled {
+            writer.write_tagged_bool("REEN", is_reflection_enabled);
+        }
         // shared
         writer.write_tagged_bool("LOCK", self.is_locked);
         writer.write_tagged_u32("LAYR", self.editor_layer);
@@ -234,7 +238,7 @@ mod tests {
             center: Vertex2D::new(1.0, 2.0),
             radius: 25.0,
             rotation: 3.0,
-            wire_thickness: 4.0,
+            wire_thickness: Some(4.0),
             scale_x: 5.0,
             scale_y: 6.0,
             is_timer_enabled: true,
@@ -247,7 +251,7 @@ mod tests {
             name: "test name".to_string(),
             shape: 9,
             anim_speed: 10.0,
-            is_reflection_enabled: false,
+            is_reflection_enabled: Some(false),
             is_locked: true,
             editor_layer: 11,
             editor_layer_name: Some("test layer name".to_string()),

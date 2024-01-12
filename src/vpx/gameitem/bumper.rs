@@ -23,11 +23,11 @@ pub struct Bumper {
     name: String,
     is_cap_visible: bool,
     is_base_visible: bool,
-    is_ring_visible: Option<bool>,   // RIVS (added in ?)
-    is_socket_visible: Option<bool>, // SKVS (added in ?)
-    hit_event: Option<bool>,         // HAHE (added in ?)
-    is_collidable: Option<bool>,     // COLI (added in ?)
-    is_reflection_enabled: bool,
+    is_ring_visible: Option<bool>,       // RIVS (added in ?)
+    is_socket_visible: Option<bool>,     // SKVS (added in ?)
+    hit_event: Option<bool>,             // HAHE (added in ?)
+    is_collidable: Option<bool>,         // COLI (added in ?)
+    is_reflection_enabled: Option<bool>, // REEN (was missing in 10.01)
 
     // these are shared between all items
     pub is_locked: bool,
@@ -66,7 +66,7 @@ impl BiffRead for Bumper {
         let mut is_socket_visible: Option<bool> = None; //true;
         let mut hit_event: Option<bool> = None; //true;
         let mut is_collidable: Option<bool> = None; //true;
-        let mut is_reflection_enabled: bool = true;
+        let mut is_reflection_enabled: Option<bool> = None;
 
         // these are shared between all items
         let mut is_locked: bool = false;
@@ -152,7 +152,7 @@ impl BiffRead for Bumper {
                     is_collidable = Some(reader.get_bool());
                 }
                 "REEN" => {
-                    is_reflection_enabled = reader.get_bool();
+                    is_reflection_enabled = Some(reader.get_bool());
                 }
 
                 // shared
@@ -250,7 +250,9 @@ impl BiffWrite for Bumper {
         if let Some(is_collidable) = self.is_collidable {
             writer.write_tagged_bool("COLI", is_collidable);
         }
-        writer.write_tagged_bool("REEN", self.is_reflection_enabled);
+        if let Some(is_reflection_enabled) = self.is_reflection_enabled {
+            writer.write_tagged_bool("REEN", is_reflection_enabled);
+        }
         // shared
         writer.write_tagged_bool("LOCK", self.is_locked);
         writer.write_tagged_u32("LAYR", self.editor_layer);
@@ -299,7 +301,7 @@ mod tests {
             is_socket_visible: Some(true),
             hit_event: Some(true),
             is_collidable: Some(true),
-            is_reflection_enabled: true,
+            is_reflection_enabled: Some(true),
             is_locked: true,
             editor_layer: 5,
             editor_layer_name: Some("layer".to_string()),
