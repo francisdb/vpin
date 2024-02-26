@@ -1,10 +1,13 @@
 use crate::vpx::biff::{BiffRead, BiffReader, BiffWrite, BiffWriter};
+use fake::Dummy;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Dummy, PartialEq, Serialize, Deserialize, Clone, Copy)]
 pub struct Vertex2D {
-    x: f32,
-    y: f32,
+    pub x: f32,
+    pub y: f32,
 }
+
 impl Vertex2D {
     pub fn new(x: f32, y: f32) -> Vertex2D {
         Vertex2D { x, y }
@@ -30,6 +33,7 @@ impl BiffRead for Vertex2D {
         Vertex2D { x, y }
     }
 }
+
 impl BiffWrite for Vertex2D {
     fn biff_write(&self, writer: &mut BiffWriter) {
         writer.write_f32(self.x);

@@ -1,8 +1,36 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader};
+use serde::{Deserialize, Serialize, Serializer};
 
 #[derive(Debug, PartialEq)]
 pub struct LightCenter {
     pub name: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct LightCenterJson {
+    name: String,
+}
+
+impl Serialize for LightCenter {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let json = LightCenterJson {
+            name: self.name.clone(),
+        };
+        json.serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for LightCenter {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let json = LightCenterJson::deserialize(deserializer)?;
+        Ok(Self { name: json.name })
+    }
 }
 
 impl BiffRead for LightCenter {

@@ -1,6 +1,8 @@
 use crate::vpx::biff::{BiffRead, BiffReader, BiffWrite, BiffWriter};
+use fake::Dummy;
+use serde::{Deserialize, Serialize};
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Dummy)]
 pub struct Font {
     // Font style flags
     //
@@ -13,6 +15,32 @@ pub struct Font {
     weight: u16,
     size: u32,
     name: String,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct FontJson {
+    style: u8,
+    weight: u16,
+    size: u32,
+    name: String,
+}
+impl FontJson {
+    pub fn from_font(font: &Font) -> Self {
+        Self {
+            style: font.style,
+            weight: font.weight,
+            size: font.size,
+            name: font.name.clone(),
+        }
+    }
+    pub fn to_font(&self) -> Font {
+        Font {
+            style: self.style,
+            weight: self.weight,
+            size: self.size,
+            name: self.name.clone(),
+        }
+    }
 }
 
 impl Font {

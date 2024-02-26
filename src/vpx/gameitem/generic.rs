@@ -1,4 +1,5 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader};
+use serde::{Deserialize, Serialize};
 
 use super::GameItem;
 
@@ -7,8 +8,40 @@ use super::GameItem;
  */
 #[derive(Debug, PartialEq)]
 pub struct Generic {
-    name: String,
+    pub name: String,
     pub fields: Vec<(String, Vec<u8>)>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct GenericJson {
+    name: String,
+    fields: Vec<(String, Vec<u8>)>,
+}
+
+impl Serialize for Generic {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        GenericJson {
+            name: self.name.clone(),
+            fields: self.fields.clone(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Generic {
+    fn deserialize<D>(deserializer: D) -> Result<Generic, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let json = GenericJson::deserialize(deserializer)?;
+        Ok(Generic {
+            name: json.name,
+            fields: json.fields,
+        })
+    }
 }
 
 impl GameItem for Generic {

@@ -1,8 +1,36 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, PartialEq)]
 pub struct Table {
     pub name: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct TableJson {
+    name: String,
+}
+
+impl Serialize for Table {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let json = TableJson {
+            name: self.name.clone(),
+        };
+        json.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Table {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let json = TableJson::deserialize(deserializer)?;
+        Ok(Self { name: json.name })
+    }
 }
 
 impl BiffRead for Table {

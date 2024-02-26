@@ -1,4 +1,5 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{dragpoint::DragPoint, vertex2d::Vertex2D, TRIGGER_SHAPE_WIRE_A};
 
@@ -33,10 +34,29 @@ pub struct Trigger {
     // these are shared between all items
     pub is_locked: bool,
     pub editor_layer: u32,
-    pub editor_layer_name: Option<String>, // default "Layer_{editor_layer + 1}"
+    pub editor_layer_name: Option<String>,
+    // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
 
     drag_points: Vec<DragPoint>,
+}
+
+impl Serialize for Trigger {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        todo!()
+    }
+}
+
+impl<'de> Deserialize<'de> for Trigger {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        todo!()
+    }
 }
 
 impl BiffRead for Trigger {

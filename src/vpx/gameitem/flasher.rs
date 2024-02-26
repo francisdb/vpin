@@ -2,6 +2,7 @@ use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
 };
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{dragpoint::DragPoint, FILTER_OVERLAY, IMAGE_ALIGN_TOP_LEFT};
 
@@ -23,19 +24,41 @@ pub struct Flasher {
     pub modulate_vs_add: f32,
     pub is_visible: bool,
     pub add_blend: bool,
-    pub is_dmd: Option<bool>, // IDMD added in 10.2?
+    pub is_dmd: Option<bool>,
+    // IDMD added in 10.2?
     pub display_texture: bool,
     pub depth_bias: f32,
     pub image_alignment: u32,
     pub filter: u32,
-    pub filter_amount: u32,        // FIAM
-    pub light_map: Option<String>, // LMAP added in 10.8
+    pub filter_amount: u32,
+    // FIAM
+    pub light_map: Option<String>,
+    // LMAP added in 10.8
     pub drag_points: Vec<DragPoint>,
     // these are shared between all items
     pub is_locked: bool,
     pub editor_layer: u32,
-    pub editor_layer_name: Option<String>, // default "Layer_{editor_layer + 1}"
+    pub editor_layer_name: Option<String>,
+    // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+}
+
+impl Serialize for Flasher {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        todo!()
+    }
+}
+
+impl<'de> Deserialize<'de> for Flasher {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        todo!()
+    }
 }
 
 impl BiffRead for Flasher {

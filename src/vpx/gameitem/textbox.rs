@@ -3,30 +3,64 @@ use crate::vpx::{
     color::Color,
     gameitem::font::Font,
 };
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::vertex2d::Vertex2D;
 
 #[derive(Debug, PartialEq)]
 pub struct TextBox {
-    ver1: Vertex2D,         // VER1
-    ver2: Vertex2D,         // VER2
-    back_color: Color,      // CLRB
-    font_color: Color,      // CLRF
-    intensity_scale: f32,   // INSC
-    text: String,           // TEXT
-    is_timer_enabled: bool, // TMON
-    timer_interval: u32,    // TMIN
-    pub name: String,       // NAME
-    align: u32,             // ALGN
-    is_transparent: bool,   // TRNS
-    is_dmd: Option<bool>,   // IDMD added in 10.2?
-    font: Font,             // FONT
+    ver1: Vertex2D,
+    // VER1
+    ver2: Vertex2D,
+    // VER2
+    back_color: Color,
+    // CLRB
+    font_color: Color,
+    // CLRF
+    intensity_scale: f32,
+    // INSC
+    text: String,
+    // TEXT
+    is_timer_enabled: bool,
+    // TMON
+    timer_interval: u32,
+    // TMIN
+    pub name: String,
+    // NAME
+    align: u32,
+    // ALGN
+    is_transparent: bool,
+    // TRNS
+    is_dmd: Option<bool>,
+    // IDMD added in 10.2?
+    font: Font, // FONT
 
     // these are shared between all items
-    pub is_locked: bool,                       // LOCK
-    pub editor_layer: u32,                     // LAYR
-    pub editor_layer_name: Option<String>,     // LANR default "Layer_{editor_layer + 1}"
+    pub is_locked: bool,
+    // LOCK
+    pub editor_layer: u32,
+    // LAYR
+    pub editor_layer_name: Option<String>,
+    // LANR default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>, // LVIS
+}
+
+impl Serialize for TextBox {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        todo!()
+    }
+}
+
+impl<'de> Deserialize<'de> for TextBox {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        todo!()
+    }
 }
 
 impl BiffRead for TextBox {

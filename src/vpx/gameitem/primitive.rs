@@ -2,6 +2,7 @@ use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
 };
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::vertex3d::Vertex3D;
 
@@ -64,8 +65,27 @@ pub struct Primitive {
     // these are shared between all items
     pub is_locked: bool,
     pub editor_layer: u32,
-    pub editor_layer_name: Option<String>, // default "Layer_{editor_layer + 1}"
+    pub editor_layer_name: Option<String>,
+    // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+}
+
+impl Serialize for Primitive {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        todo!()
+    }
+}
+
+impl<'de> Deserialize<'de> for Primitive {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        todo!()
+    }
 }
 
 impl BiffRead for Primitive {

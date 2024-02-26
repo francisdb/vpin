@@ -1,6 +1,5 @@
-use serde::de::Error;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, to_value, Value};
+use serde_json::to_value;
 use std::collections::HashMap;
 
 use crate::vpx::collection::Collection;
@@ -14,10 +13,6 @@ struct CollectionJson {
     fire_events: bool,
     stop_single_events: bool,
     group_elements: bool,
-}
-
-struct CollectionsJson {
-    collections: Vec<CollectionJson>,
 }
 
 /// Since we want to decouple out json model from the vpx model, we need to

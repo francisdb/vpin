@@ -1,8 +1,10 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use fake::Dummy;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::GameItem;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Dummy)]
 pub struct DragPoint {
     x: f32,
     y: f32,
@@ -16,12 +18,61 @@ pub struct DragPoint {
     // these are shared between all items
     pub is_locked: bool,
     pub editor_layer: u32,
-    pub editor_layer_name: Option<String>, // default "Layer_{editor_layer + 1}"
+    pub editor_layer_name: Option<String>,
+    // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
 }
 
-impl DragPoint {
-    pub fn default() -> Self {
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct DragPointJson {
+    x: f32,
+    y: f32,
+    z: f32,
+    smooth: bool,
+    is_slingshot: Option<bool>,
+    has_auto_texture: bool,
+    tex_coord: f32,
+    is_locked: bool,
+    editor_layer: u32,
+    editor_layer_name: Option<String>,
+    editor_layer_visibility: Option<bool>,
+}
+
+impl DragPointJson {
+    pub fn from_dragpoint(dragpoint: &DragPoint) -> Self {
+        Self {
+            x: dragpoint.x,
+            y: dragpoint.y,
+            z: dragpoint.z,
+            smooth: dragpoint.smooth,
+            is_slingshot: dragpoint.is_slingshot,
+            has_auto_texture: dragpoint.has_auto_texture,
+            tex_coord: dragpoint.tex_coord,
+            is_locked: dragpoint.is_locked,
+            editor_layer: dragpoint.editor_layer,
+            editor_layer_name: dragpoint.editor_layer_name.clone(),
+            editor_layer_visibility: dragpoint.editor_layer_visibility,
+        }
+    }
+    pub fn to_dragpoint(&self) -> DragPoint {
+        DragPoint {
+            x: self.x,
+            y: self.y,
+            z: self.z,
+            smooth: self.smooth,
+            is_slingshot: self.is_slingshot,
+            has_auto_texture: self.has_auto_texture,
+            tex_coord: self.tex_coord,
+            is_locked: self.is_locked,
+            editor_layer: self.editor_layer,
+            editor_layer_name: self.editor_layer_name.clone(),
+            editor_layer_visibility: self.editor_layer_visibility,
+        }
+    }
+}
+
+impl Default for DragPoint {
+    fn default() -> Self {
         let x = 0.0;
         let y = 0.0;
         let z = 0.0;
@@ -48,6 +99,37 @@ impl DragPoint {
             editor_layer_name,
             editor_layer_visibility,
         }
+    }
+}
+
+impl Serialize for DragPoint {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        DragPointJson::from_dragpoint(self).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for DragPoint {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let json = DragPointJson::deserialize(deserializer)?;
+        Ok(DragPoint {
+            x: json.x,
+            y: json.y,
+            z: json.z,
+            smooth: json.smooth,
+            is_slingshot: json.is_slingshot,
+            has_auto_texture: json.has_auto_texture,
+            tex_coord: json.tex_coord,
+            is_locked: json.is_locked,
+            editor_layer: json.editor_layer,
+            editor_layer_name: json.editor_layer_name,
+            editor_layer_visibility: json.editor_layer_visibility,
+        })
     }
 }
 

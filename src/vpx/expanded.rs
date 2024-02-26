@@ -3,20 +3,21 @@ use std::io::{self, Read, Write};
 use std::{fs::File, path::Path};
 
 use cfb::CompoundFile;
-use serde_json::{Error, Value};
+use serde_json::Value;
 
-use super::{
-    custominfotags, extract_script, read_custominfotags, read_gamedata, tableinfo, Version, VPX,
-};
+use super::{extract_script, read_custominfotags, read_gamedata, tableinfo, Version, VPX};
 
 use super::collection::{self, Collection};
 use super::font;
 use super::gamedata::GameData;
 use super::gameitem;
+use super::gameitem::bumper;
 use super::sound;
 use super::sound::write_sound;
 use super::version;
 use crate::vpx::biff::{BiffRead, BiffReader};
+use crate::vpx::custominfotags::CustomInfoTags;
+use crate::vpx::gameitem::GameItemEnum;
 use crate::vpx::image::ImageData;
 use crate::vpx::jsonmodel::{collections_json, info_to_json, json_to_collections, json_to_info};
 use crate::vpx::tableinfo::TableInfo;
@@ -45,6 +46,32 @@ impl From<io::Error> for ReadError {
 impl From<serde_json::Error> for ReadError {
     fn from(error: serde_json::Error) -> Self {
         ReadError::Json(error)
+    }
+}
+
+pub enum WriteError {
+    Io(io::Error),
+    Json(serde_json::Error),
+}
+
+impl Display for WriteError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WriteError::Io(error) => write!(f, "IO error: {}", error),
+            WriteError::Json(error) => write!(f, "JSON error: {}", error),
+        }
+    }
+}
+
+impl From<io::Error> for WriteError {
+    fn from(error: io::Error) -> Self {
+        WriteError::Io(error)
+    }
+}
+
+impl From<serde_json::Error> for WriteError {
+    fn from(error: serde_json::Error) -> Self {
+        WriteError::Json(error)
     }
 }
 
@@ -82,7 +109,7 @@ pub fn extract(vpx_file_path: &Path, expanded_path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> io::Result<()> {
+pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
     // write the version as utf8 to version.txt
     let version_path = expanded_dir.as_ref().join("version.txt");
     let mut version_file = std::fs::File::create(&version_path)?;
@@ -97,10 +124,7 @@ pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> io::Result<()> {
     }
 
     // write table metadata as json
-    let json_path = expanded_dir.as_ref().join("info.json");
-    let mut json_file = std::fs::File::create(&json_path)?;
-    let info = info_to_json(&vpx.info, &vpx.custominfotags);
-    serde_json::to_writer_pretty(&mut json_file, &info)?;
+    write_info(&vpx, expanded_dir)?;
 
     // collections
     let collections_json_path = expanded_dir.as_ref().join("collections.json");
@@ -108,7 +132,22 @@ pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> io::Result<()> {
     let json_collections = collections_json(&vpx.collections);
     serde_json::to_writer_pretty(&mut collections_json_file, &json_collections)?;
 
+    // write the gameitems index as array with names being the type and the name
+    let gameitems_index_path = expanded_dir.as_ref().join("gameitems.json");
+    let mut gameitems_index_file = std::fs::File::create(&gameitems_index_path)?;
+    let gameitems_index: Vec<String> = vpx
+        .gameitems
+        .iter()
+        .map(|gameitem| game_item_file_name(gameitem))
+        .collect();
+    serde_json::to_writer_pretty(&mut gameitems_index_file, &gameitems_index)?;
+
+    write_gameitems(&vpx, expanded_dir)?;
     Ok(())
+}
+
+fn game_item_file_name(gameitem: &GameItemEnum) -> String {
+    format!("{}.{}.json", gameitem.type_name(), gameitem.name())
 }
 
 pub fn read<P: AsRef<Path>>(expanded_dir: &P) -> Result<VPX, ReadError> {
@@ -134,28 +173,81 @@ pub fn read<P: AsRef<Path>>(expanded_dir: &P) -> Result<VPX, ReadError> {
         None
     };
 
-    let info_path = expanded_dir.as_ref().join("info.json");
-    let mut info_file = std::fs::File::open(&info_path)?;
-    let value: Value = serde_json::from_reader(&mut info_file)?;
-    let (info, custominfotags) = json_to_info(value, screenshot)?;
-
-    let collections_path = expanded_dir.as_ref().join("collections.json");
-    let mut collections_file = std::fs::File::open(&collections_path)?;
-    let value = serde_json::from_reader(&mut collections_file)?;
-    let collections: Vec<Collection> = json_to_collections(value)?;
+    let (info, custominfotags) = read_info(expanded_dir, screenshot)?;
+    let collections = read_collections(expanded_dir)?;
+    let gameitems = read_gameitems(expanded_dir)?;
 
     let vpx = VPX {
         custominfotags,
         info,
         version,
         gamedata: Default::default(),
-        gameitems: vec![],
+        gameitems,
         images: vec![],
         sounds: vec![],
         fonts: vec![],
         collections,
     };
     Ok(vpx)
+}
+
+fn write_gameitems<P: AsRef<Path>>(vpx: &&VPX, expanded_dir: &P) -> Result<(), WriteError> {
+    let gameitems_dir = expanded_dir.as_ref().join("gameitems");
+    std::fs::create_dir_all(&gameitems_dir)?;
+    for gameitem in &vpx.gameitems {
+        let gameitem_path = gameitems_dir.join(game_item_file_name(gameitem));
+        let mut gameitem_file = std::fs::File::create(&gameitem_path)?;
+        let json = serde_json::to_string_pretty(gameitem).unwrap();
+        gameitem_file.write_all(json.as_bytes())?;
+    }
+    Ok(())
+}
+
+fn read_gameitems<P: AsRef<Path>>(expanded_dir: &P) -> Result<Vec<GameItemEnum>, ReadError> {
+    let gameitems_index_path = expanded_dir.as_ref().join("gameitems.json");
+    let mut gameitems_index_file = std::fs::File::open(&gameitems_index_path)?;
+    let gameitems_index: Vec<String> = serde_json::from_reader(&mut gameitems_index_file)?;
+    // for each item in the index read the items
+    let gameitems_dir = expanded_dir.as_ref().join("gameitems");
+    let gameitems: Result<Vec<GameItemEnum>, ReadError> = gameitems_index
+        .into_iter()
+        .map(|gameitem_file_name| {
+            let gameitem_path = gameitems_dir.join(gameitem_file_name);
+            let mut gameitem_file = std::fs::File::open(&gameitem_path)?;
+            let mut gameitem_string = String::new();
+            gameitem_file.read_to_string(&mut gameitem_string)?;
+            let res = serde_json::from_str(&gameitem_string)?;
+            Ok(res)
+        })
+        .collect();
+    gameitems
+}
+
+fn write_info<P: AsRef<Path>>(vpx: &&VPX, expanded_dir: &P) -> Result<(), WriteError> {
+    let json_path = expanded_dir.as_ref().join("info.json");
+    let mut json_file = File::create(&json_path)?;
+    let info = info_to_json(&vpx.info, &vpx.custominfotags);
+    serde_json::to_writer_pretty(&mut json_file, &info)?;
+    Ok(())
+}
+
+fn read_info<P: AsRef<Path>>(
+    expanded_dir: &P,
+    screenshot: Option<Vec<u8>>,
+) -> Result<(TableInfo, CustomInfoTags), ReadError> {
+    let info_path = expanded_dir.as_ref().join("info.json");
+    let mut info_file = std::fs::File::open(&info_path)?;
+    let value: Value = serde_json::from_reader(&mut info_file)?;
+    let (info, custominfotags) = json_to_info(value, screenshot)?;
+    Ok((info, custominfotags))
+}
+
+fn read_collections<P: AsRef<Path>>(expanded_dir: &P) -> Result<Vec<Collection>, ReadError> {
+    let collections_path = expanded_dir.as_ref().join("collections.json");
+    let mut collections_file = std::fs::File::open(&collections_path)?;
+    let value = serde_json::from_reader(&mut collections_file)?;
+    let collections: Vec<Collection> = json_to_collections(value)?;
+    Ok(collections)
 }
 
 pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
@@ -539,11 +631,12 @@ fn extract_binaries(comp: &mut CompoundFile<std::fs::File>, root_dir_path: &Path
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::vpx::gameitem::GameItemEnum;
     use crate::vpx::tableinfo::TableInfo;
+    use fake::{Fake, Faker};
     use pretty_assertions::assert_eq;
     use std::collections::HashMap;
     use std::path::PathBuf;
-    use testdir::testdir;
     use testresult::TestResult;
 
     #[test]
@@ -562,6 +655,15 @@ mod test {
         screenshot_file.read_to_end(&mut screenshot)?;
 
         let version = Version::new(1074);
+
+        let mut bumper: bumper::Bumper = Faker.fake();
+        bumper.name = "test bumper".to_string();
+        let mut collection: gameitem::collection::Collection = Faker.fake();
+        collection.name = "test collection".to_string();
+        let mut decal: gameitem::decal::Decal = Faker.fake();
+        decal.name = "test decal".to_string();
+        let mut dragpoint: gameitem::dragpoint::DragPoint = Faker.fake();
+
         let vpx = VPX {
             custominfotags: vec!["test prop 2".to_string(), "test prop".to_string()],
             info: TableInfo {
@@ -584,7 +686,19 @@ mod test {
             },
             version,
             gamedata: Default::default(),
-            gameitems: vec![],
+            gameitems: vec![
+                GameItemEnum::Bumper(bumper),
+                GameItemEnum::Collection(collection),
+                GameItemEnum::Decal(decal),
+                GameItemEnum::DragPoint(dragpoint),
+                GameItemEnum::Generic(
+                    100,
+                    gameitem::generic::Generic {
+                        name: "test gameitem".to_string(),
+                        fields: vec![],
+                    },
+                ),
+            ],
             images: vec![],
             sounds: vec![],
             fonts: vec![],

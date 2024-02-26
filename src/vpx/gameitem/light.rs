@@ -2,56 +2,106 @@ use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
 };
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{dragpoint::DragPoint, vertex2d::Vertex2D};
 
 #[derive(Debug, PartialEq)]
 pub struct Light {
-    pub center: Vertex2D,                   // VCEN
-    pub height: Option<f32>,                // HGHT added in 10.8
-    pub falloff_radius: f32,                // RADI
-    pub falloff_power: f32,                 // FAPO
-    pub status: u32,                        // STAT
-    pub state: Option<f32>,                 // STTF added in 10.8
-    pub color: Color,                       // COLR
-    pub color2: Color,                      // COL2
-    pub is_timer_enabled: bool,             // TMON
-    pub timer_interval: u32,                // TMIN
-    pub blink_pattern: String,              // BPAT
-    pub off_image: String,                  // IMG1
-    pub blink_interval: u32,                // BINT
-    pub intensity: f32,                     // BWTH
-    pub transmission_scale: f32,            // TRMS
-    pub surface: String,                    // SURF
-    pub name: String,                       // NAME
-    pub is_backglass: bool,                 // BGLS
-    pub depth_bias: f32,                    // LIDB
-    pub fade_speed_up: f32,                 // FASP
-    pub fade_speed_down: f32,               // FASD
-    pub is_bulb_light: bool,                // BULT
-    pub is_image_mode: bool,                // IMMO
-    pub show_bulb_mesh: bool,               // SHBM
-    pub has_static_bulb_mesh: Option<bool>, // STBM (added in 10.?)
-    pub show_reflection_on_ball: bool,      // SHRB
-    pub mesh_radius: f32,                   // BMSC
-    pub bulb_modulate_vs_add: f32,          // BMVA
-    pub bulb_halo_height: f32,              // BHHI
-    pub shadows: Option<u32>,               // SHDW added in 10.8
-    pub fader: Option<u32>,                 // FADE added in 10.8
-    pub visible: Option<bool>,              // VSBL added in 10.8
+    pub center: Vertex2D,
+    // VCEN
+    pub height: Option<f32>,
+    // HGHT added in 10.8
+    pub falloff_radius: f32,
+    // RADI
+    pub falloff_power: f32,
+    // FAPO
+    pub status: u32,
+    // STAT
+    pub state: Option<f32>,
+    // STTF added in 10.8
+    pub color: Color,
+    // COLR
+    pub color2: Color,
+    // COL2
+    pub is_timer_enabled: bool,
+    // TMON
+    pub timer_interval: u32,
+    // TMIN
+    pub blink_pattern: String,
+    // BPAT
+    pub off_image: String,
+    // IMG1
+    pub blink_interval: u32,
+    // BINT
+    pub intensity: f32,
+    // BWTH
+    pub transmission_scale: f32,
+    // TRMS
+    pub surface: String,
+    // SURF
+    pub name: String,
+    // NAME
+    pub is_backglass: bool,
+    // BGLS
+    pub depth_bias: f32,
+    // LIDB
+    pub fade_speed_up: f32,
+    // FASP
+    pub fade_speed_down: f32,
+    // FASD
+    pub is_bulb_light: bool,
+    // BULT
+    pub is_image_mode: bool,
+    // IMMO
+    pub show_bulb_mesh: bool,
+    // SHBM
+    pub has_static_bulb_mesh: Option<bool>,
+    // STBM (added in 10.?)
+    pub show_reflection_on_ball: bool,
+    // SHRB
+    pub mesh_radius: f32,
+    // BMSC
+    pub bulb_modulate_vs_add: f32,
+    // BMVA
+    pub bulb_halo_height: f32,
+    // BHHI
+    pub shadows: Option<u32>,
+    // SHDW added in 10.8
+    pub fader: Option<u32>,
+    // FADE added in 10.8
+    pub visible: Option<bool>, // VSBL added in 10.8
 
     // these are shared between all items
     pub is_locked: bool,
     pub editor_layer: u32,
-    pub editor_layer_name: Option<String>, // default "Layer_{editor_layer + 1}"
+    pub editor_layer_name: Option<String>,
+    // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
     // last
     pub drag_points: Vec<DragPoint>,
 }
 
-impl Light {
-    // default
-    pub fn default() -> Self {
+impl Serialize for Light {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        todo!()
+    }
+}
+
+impl<'de> Deserialize<'de> for Light {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        todo!()
+    }
+}
+
+impl Default for Light {
+    fn default() -> Self {
         let name = Default::default();
         let height: Option<f32> = None;
         let center: Vertex2D = Default::default();

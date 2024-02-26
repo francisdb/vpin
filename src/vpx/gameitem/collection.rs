@@ -1,14 +1,58 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader};
+use fake::Dummy;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Dummy)]
 pub struct Collection {
     pub name: String,
 
     // these are shared between all items
     pub is_locked: bool,
     pub editor_layer: u32,
-    pub editor_layer_name: String, // default "Layer_{editor_layer + 1}"
+    pub editor_layer_name: String,
+    // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: bool,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct CollectionJson {
+    name: String,
+    is_locked: bool,
+    editor_layer: u32,
+    editor_layer_name: String,
+    editor_layer_visibility: bool,
+}
+
+impl Serialize for Collection {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        CollectionJson {
+            name: self.name.clone(),
+            is_locked: self.is_locked,
+            editor_layer: self.editor_layer,
+            editor_layer_name: self.editor_layer_name.clone(),
+            editor_layer_visibility: self.editor_layer_visibility,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Collection {
+    fn deserialize<D>(deserializer: D) -> Result<Collection, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let json = CollectionJson::deserialize(deserializer)?;
+        Ok(Collection {
+            name: json.name,
+            is_locked: json.is_locked,
+            editor_layer: json.editor_layer,
+            editor_layer_name: json.editor_layer_name,
+            editor_layer_visibility: json.editor_layer_visibility,
+        })
+    }
 }
 
 impl BiffRead for Collection {

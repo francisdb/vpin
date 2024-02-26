@@ -1,4 +1,5 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::vertex2d::Vertex2D;
 
@@ -15,10 +16,31 @@ pub struct LightSequencer {
     backglass: bool,
 
     // these are shared between all items
-    pub is_locked: Option<bool>,               // LOCK (added in 10.7?)
-    pub editor_layer: Option<u32>,             // LAYR (added in 10.7?)
-    pub editor_layer_name: Option<String>, // LANR (added in 10.7?) default "Layer_{editor_layer + 1}"
+    pub is_locked: Option<bool>,
+    // LOCK (added in 10.7?)
+    pub editor_layer: Option<u32>,
+    // LAYR (added in 10.7?)
+    pub editor_layer_name: Option<String>,
+    // LANR (added in 10.7?) default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>, // LVIS (added in 10.7?)
+}
+
+impl Serialize for LightSequencer {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        todo!()
+    }
+}
+
+impl<'de> Deserialize<'de> for LightSequencer {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        todo!()
+    }
 }
 
 impl BiffRead for LightSequencer {

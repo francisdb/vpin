@@ -1,4 +1,5 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{vertex2d::Vertex2D, GameItem};
 
@@ -19,20 +20,29 @@ pub struct Flipper {
     material: String,
     pub name: String,
     rubber_material: String,
-    rthk: f32,                     // RTHK deprecated?
-    rubber_thickness: Option<f32>, // RTHF (added in 10.?)
-    rhgt: f32,                     // RHGT deprecated?
-    rubber_height: Option<f32>,    // RHGF (added in 10.?)
-    rwdt: f32,                     // RWDT deprecated?
-    rubber_width: Option<f32>,     // RHGF (added in 10.?)
+    rthk: f32,
+    // RTHK deprecated?
+    rubber_thickness: Option<f32>,
+    // RTHF (added in 10.?)
+    rhgt: f32,
+    // RHGT deprecated?
+    rubber_height: Option<f32>,
+    // RHGF (added in 10.?)
+    rwdt: f32,
+    // RWDT deprecated?
+    rubber_width: Option<f32>,
+    // RHGF (added in 10.?)
     strength: f32,
     elasticity: f32,
     elasticity_falloff: f32,
     friction: f32,
     ramp_up: f32,
-    scatter: Option<f32>,              // SCTR (added in 10.?)
-    torque_damping: Option<f32>,       // TODA (added in 10.?)
-    torque_damping_angle: Option<f32>, // TDAA (added in 10.?)
+    scatter: Option<f32>,
+    // SCTR (added in 10.?)
+    torque_damping: Option<f32>,
+    // TODA (added in 10.?)
+    torque_damping_angle: Option<f32>,
+    // TDAA (added in 10.?)
     flipper_radius_min: f32,
     is_visible: bool,
     is_enabled: bool,
@@ -43,8 +53,27 @@ pub struct Flipper {
     // these are shared between all items
     pub is_locked: bool,
     pub editor_layer: u32,
-    pub editor_layer_name: Option<String>, // default "Layer_{editor_layer + 1}"
+    pub editor_layer_name: Option<String>,
+    // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+}
+
+impl Serialize for Flipper {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        todo!()
+    }
+}
+
+impl<'de> Deserialize<'de> for Flipper {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        todo!()
+    }
 }
 
 impl GameItem for Flipper {

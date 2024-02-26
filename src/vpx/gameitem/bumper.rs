@@ -1,40 +1,204 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use fake::Dummy;
+use serde::{Deserialize, Serialize};
 
 use super::{vertex2d::Vertex2D, GameItem};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Dummy, PartialEq)]
 pub struct Bumper {
+    pub center: Vertex2D,
+    pub radius: f32,
+    pub is_timer_enabled: bool,
+    pub timer_interval: i32,
+    pub threshold: f32,
+    pub force: f32,
+    pub scatter: Option<f32>,
+    // BSCT (added in ?)
+    pub height_scale: f32,
+    pub ring_speed: f32,
+    pub orientation: f32,
+    pub ring_drop_offset: Option<f32>,
+    // RDLI (added in ?)
+    pub cap_material: String,
+    pub base_material: String,
+    pub socket_material: String,
+    pub ring_material: Option<String>,
+    // RIMA (added in ?)
+    surface: String,
+    pub name: String,
+    pub is_cap_visible: bool,
+    pub is_base_visible: bool,
+    pub is_ring_visible: Option<bool>,       // RIVS (added in ?)
+    pub is_socket_visible: Option<bool>,     // SKVS (added in ?)
+    pub hit_event: Option<bool>,             // HAHE (added in ?)
+    pub is_collidable: Option<bool>,         // COLI (added in ?)
+    pub is_reflection_enabled: Option<bool>, // REEN (was missing in 10.01)
+
+    // these are shared between all items
+    pub is_locked: bool,
+    pub editor_layer: u32,
+    pub editor_layer_name: Option<String>,
+    // default "Layer_{editor_layer + 1}"
+    pub editor_layer_visibility: Option<bool>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct BumperJson {
     center: Vertex2D,
     radius: f32,
     is_timer_enabled: bool,
     timer_interval: i32,
     threshold: f32,
     force: f32,
-    scatter: Option<f32>, // BSCT (added in ?)
+    scatter: Option<f32>,
+    // BSCT (added in ?)
     height_scale: f32,
     ring_speed: f32,
     orientation: f32,
-    ring_drop_offset: Option<f32>, // RDLI (added in ?)
+    ring_drop_offset: Option<f32>,
+    // RDLI (added in ?)
     cap_material: String,
     base_material: String,
     socket_material: String,
-    ring_material: Option<String>, // RIMA (added in ?)
+    ring_material: Option<String>,
+    // RIMA (added in ?)
     surface: String,
     name: String,
     is_cap_visible: bool,
     is_base_visible: bool,
-    is_ring_visible: Option<bool>,       // RIVS (added in ?)
-    is_socket_visible: Option<bool>,     // SKVS (added in ?)
-    hit_event: Option<bool>,             // HAHE (added in ?)
-    is_collidable: Option<bool>,         // COLI (added in ?)
-    is_reflection_enabled: Option<bool>, // REEN (was missing in 10.01)
+    is_ring_visible: Option<bool>,
+    is_socket_visible: Option<bool>,
+    hit_event: Option<bool>,
+    is_collidable: Option<bool>,
+    is_reflection_enabled: Option<bool>,
 
     // these are shared between all items
     pub is_locked: bool,
     pub editor_layer: u32,
-    pub editor_layer_name: Option<String>, // default "Layer_{editor_layer + 1}"
+    pub editor_layer_name: Option<String>,
+    // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
 }
+
+impl From<&Bumper> for BumperJson {
+    fn from(bumper: &Bumper) -> Self {
+        Self {
+            center: bumper.center,
+            radius: bumper.radius,
+            is_timer_enabled: bumper.is_timer_enabled,
+            timer_interval: bumper.timer_interval,
+            threshold: bumper.threshold,
+            force: bumper.force,
+            scatter: bumper.scatter,
+            height_scale: bumper.height_scale,
+            ring_speed: bumper.ring_speed,
+            orientation: bumper.orientation,
+            ring_drop_offset: bumper.ring_drop_offset,
+            cap_material: bumper.cap_material.clone(),
+            base_material: bumper.base_material.clone(),
+            socket_material: bumper.socket_material.clone(),
+            ring_material: bumper.ring_material.clone(),
+            surface: bumper.surface.clone(),
+            name: bumper.name.clone(),
+            is_cap_visible: bumper.is_cap_visible,
+            is_base_visible: bumper.is_base_visible,
+            is_ring_visible: bumper.is_ring_visible,
+            is_socket_visible: bumper.is_socket_visible,
+            hit_event: bumper.hit_event,
+            is_collidable: bumper.is_collidable,
+            is_reflection_enabled: bumper.is_reflection_enabled,
+            is_locked: bumper.is_locked,
+            editor_layer: bumper.editor_layer,
+            editor_layer_name: bumper.editor_layer_name.clone(),
+            editor_layer_visibility: bumper.editor_layer_visibility,
+        }
+    }
+}
+
+impl Default for Bumper {
+    fn default() -> Self {
+        Self {
+            center: Vertex2D::default(),
+            radius: 45.0,
+            is_timer_enabled: false,
+            timer_interval: 0,
+            threshold: 1.0,
+            force: 15.0,
+            scatter: None,
+            height_scale: 90.0,
+            ring_speed: 0.5,
+            orientation: 0.0,
+            ring_drop_offset: None,
+            cap_material: Default::default(),
+            base_material: Default::default(),
+            socket_material: Default::default(),
+            ring_material: None,
+            surface: Default::default(),
+            name: Default::default(),
+            is_cap_visible: true,
+            is_base_visible: true,
+            is_ring_visible: None,
+            is_socket_visible: None,
+            hit_event: None,
+            is_collidable: None,
+            is_reflection_enabled: None,
+            is_locked: false,
+            editor_layer: Default::default(),
+            editor_layer_name: None,
+            editor_layer_visibility: None,
+        }
+    }
+}
+
+impl Serialize for Bumper {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let bumper_json = BumperJson::from(self);
+        bumper_json.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Bumper {
+    fn deserialize<D>(deserializer: D) -> Result<Bumper, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let bumper_json = BumperJson::deserialize(deserializer)?;
+        let mut bumper = Bumper::default();
+        bumper.center = bumper_json.center;
+        bumper.radius = bumper_json.radius;
+        bumper.is_timer_enabled = bumper_json.is_timer_enabled;
+        bumper.timer_interval = bumper_json.timer_interval;
+        bumper.threshold = bumper_json.threshold;
+        bumper.force = bumper_json.force;
+        bumper.scatter = bumper_json.scatter;
+        bumper.height_scale = bumper_json.height_scale;
+        bumper.ring_speed = bumper_json.ring_speed;
+        bumper.orientation = bumper_json.orientation;
+        bumper.ring_drop_offset = bumper_json.ring_drop_offset;
+        bumper.cap_material = bumper_json.cap_material;
+        bumper.base_material = bumper_json.base_material;
+        bumper.socket_material = bumper_json.socket_material;
+        bumper.ring_material = bumper_json.ring_material;
+        bumper.surface = bumper_json.surface;
+        bumper.name = bumper_json.name;
+        bumper.is_cap_visible = bumper_json.is_cap_visible;
+        bumper.is_base_visible = bumper_json.is_base_visible;
+        bumper.is_ring_visible = bumper_json.is_ring_visible;
+        bumper.is_socket_visible = bumper_json.is_socket_visible;
+        bumper.hit_event = bumper_json.hit_event;
+        bumper.is_collidable = bumper_json.is_collidable;
+        bumper.is_reflection_enabled = bumper_json.is_reflection_enabled;
+        bumper.is_locked = bumper_json.is_locked;
+        bumper.editor_layer = bumper_json.editor_layer;
+        bumper.editor_layer_name = bumper_json.editor_layer_name;
+        bumper.editor_layer_visibility = bumper_json.editor_layer_visibility;
+        Ok(bumper)
+    }
+}
+
 impl GameItem for Bumper {
     fn name(&self) -> &str {
         &self.name
@@ -43,36 +207,7 @@ impl GameItem for Bumper {
 
 impl BiffRead for Bumper {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
-        let mut center = Vertex2D::default();
-        let mut radius: f32 = 45.0;
-        let mut is_timer_enabled: bool = false;
-        let mut timer_interval: i32 = 0;
-        let mut threshold: f32 = 1.0;
-        let mut force: f32 = 15.0;
-        let mut scatter: Option<f32> = None; //0.0;
-        let mut height_scale: f32 = 90.0;
-        let mut ring_speed: f32 = 0.5;
-        let mut orientation: f32 = 0.0;
-        let mut ring_drop_offset: Option<f32> = None; //0.0;
-        let mut cap_material: String = Default::default();
-        let mut base_material: String = Default::default();
-        let mut socket_material: String = Default::default();
-        let mut ring_material: Option<String> = None;
-        let mut surface: String = Default::default();
-        let mut name = Default::default();
-        let mut is_cap_visible: bool = true;
-        let mut is_base_visible: bool = true;
-        let mut is_ring_visible: Option<bool> = None; //true;
-        let mut is_socket_visible: Option<bool> = None; //true;
-        let mut hit_event: Option<bool> = None; //true;
-        let mut is_collidable: Option<bool> = None; //true;
-        let mut is_reflection_enabled: Option<bool> = None;
-
-        // these are shared between all items
-        let mut is_locked: bool = false;
-        let mut editor_layer: u32 = Default::default();
-        let mut editor_layer_name: Option<String> = None;
-        let mut editor_layer_visibility: Option<bool> = None;
+        let mut bumper = Bumper::default();
 
         loop {
             reader.next(biff::WARN);
@@ -83,90 +218,90 @@ impl BiffRead for Bumper {
             let tag_str = tag.as_str();
             match tag_str {
                 "VCEN" => {
-                    center = Vertex2D::biff_read(reader);
+                    bumper.center = Vertex2D::biff_read(reader);
                 }
                 "RADI" => {
-                    radius = reader.get_f32();
+                    bumper.radius = reader.get_f32();
                 }
                 "TMON" => {
-                    is_timer_enabled = reader.get_bool();
+                    bumper.is_timer_enabled = reader.get_bool();
                 }
                 "TMIN" => {
-                    timer_interval = reader.get_i32();
+                    bumper.timer_interval = reader.get_i32();
                 }
                 "THRS" => {
-                    threshold = reader.get_f32();
+                    bumper.threshold = reader.get_f32();
                 }
                 "FORC" => {
-                    force = reader.get_f32();
+                    bumper.force = reader.get_f32();
                 }
                 "BSCT" => {
-                    scatter = Some(reader.get_f32());
+                    bumper.scatter = Some(reader.get_f32());
                 }
                 "HISC" => {
-                    height_scale = reader.get_f32();
+                    bumper.height_scale = reader.get_f32();
                 }
                 "RISP" => {
-                    ring_speed = reader.get_f32();
+                    bumper.ring_speed = reader.get_f32();
                 }
                 "ORIN" => {
-                    orientation = reader.get_f32();
+                    bumper.orientation = reader.get_f32();
                 }
                 "RDLI" => {
-                    ring_drop_offset = Some(reader.get_f32());
+                    bumper.ring_drop_offset = Some(reader.get_f32());
                 }
                 "MATR" => {
-                    cap_material = reader.get_string();
+                    bumper.cap_material = reader.get_string();
                 }
                 "BAMA" => {
-                    base_material = reader.get_string();
+                    bumper.base_material = reader.get_string();
                 }
                 "SKMA" => {
-                    socket_material = reader.get_string();
+                    bumper.socket_material = reader.get_string();
                 }
                 "RIMA" => {
-                    ring_material = Some(reader.get_string());
+                    bumper.ring_material = Some(reader.get_string());
                 }
                 "SURF" => {
-                    surface = reader.get_string();
+                    bumper.surface = reader.get_string();
                 }
                 "NAME" => {
-                    name = reader.get_wide_string();
+                    bumper.name = reader.get_wide_string();
                 }
                 "CAVI" => {
-                    is_cap_visible = reader.get_bool();
+                    bumper.is_cap_visible = reader.get_bool();
                 }
                 "BSVS" => {
-                    is_base_visible = reader.get_bool();
+                    bumper.is_base_visible = reader.get_bool();
                 }
                 "RIVS" => {
-                    is_ring_visible = Some(reader.get_bool());
+                    bumper.is_ring_visible = Some(reader.get_bool());
                 }
                 "SKVS" => {
-                    is_socket_visible = Some(reader.get_bool());
+                    bumper.is_socket_visible = Some(reader.get_bool());
                 }
                 "HAHE" => {
-                    hit_event = Some(reader.get_bool());
+                    bumper.hit_event = Some(reader.get_bool());
                 }
                 "COLI" => {
-                    is_collidable = Some(reader.get_bool());
+                    bumper.is_collidable = Some(reader.get_bool());
                 }
                 "REEN" => {
-                    is_reflection_enabled = Some(reader.get_bool());
+                    bumper.is_reflection_enabled = Some(reader.get_bool());
                 }
 
                 // shared
                 "LOCK" => {
-                    is_locked = reader.get_bool();
+                    bumper.is_locked = reader.get_bool();
                 }
                 "LAYR" => {
-                    editor_layer = reader.get_u32();
+                    bumper.editor_layer = reader.get_u32();
                 }
                 "LANR" => {
-                    editor_layer_name = Some(reader.get_string());
+                    bumper.editor_layer_name = Some(reader.get_string());
                 }
                 "LVIS" => {
-                    editor_layer_visibility = Some(reader.get_bool());
+                    bumper.editor_layer_visibility = Some(reader.get_bool());
                 }
                 _ => {
                     println!(
@@ -178,36 +313,7 @@ impl BiffRead for Bumper {
                 }
             }
         }
-        Self {
-            center,
-            radius,
-            is_timer_enabled,
-            timer_interval,
-            threshold,
-            force,
-            scatter,
-            height_scale,
-            ring_speed,
-            orientation,
-            ring_drop_offset,
-            cap_material,
-            base_material,
-            socket_material,
-            ring_material,
-            surface,
-            name,
-            is_cap_visible,
-            is_base_visible,
-            is_ring_visible,
-            is_socket_visible,
-            hit_event,
-            is_collidable,
-            is_reflection_enabled,
-            is_locked,
-            editor_layer,
-            editor_layer_name,
-            editor_layer_visibility,
-        }
+        bumper
     }
 }
 

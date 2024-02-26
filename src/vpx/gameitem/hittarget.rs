@@ -1,4 +1,5 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use serde::{Deserialize, Serialize};
 
 use super::vertex3d::Vertex3D;
 
@@ -29,15 +30,120 @@ pub struct HitTarget {
     pub drop_speed: f32,
     pub is_timer_enabled: bool,
     pub timer_interval: u32,
-    pub raise_delay: Option<u32>,         // RADE (added in 10.?)
-    pub physics_material: Option<String>, // MAPH (added in 10.?)
-    pub overwrite_physics: Option<bool>,  // OVPH (added in 10.?)
+    pub raise_delay: Option<u32>,
+    // RADE (added in 10.?)
+    pub physics_material: Option<String>,
+    // MAPH (added in 10.?)
+    pub overwrite_physics: Option<bool>, // OVPH (added in 10.?)
 
     // these are shared between all items
     pub is_locked: bool,
     pub editor_layer: u32,
-    pub editor_layer_name: Option<String>, // default "Layer_{editor_layer + 1}"
+    pub editor_layer_name: Option<String>,
+    // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+}
+
+impl Default for HitTarget {
+    fn default() -> Self {
+        let position: Vertex3D = Default::default();
+        let size = Vertex3D::new(32.0, 32.0, 32.0);
+        let rot_z: f32 = 0.0;
+        let image: String = Default::default();
+        let target_type: i32 = HitTarget::TARGET_TYPE_DROP_TARGET_SIMPLE;
+        let name: String = Default::default();
+        let material: String = Default::default();
+        let is_visible: bool = true;
+        let is_legacy: bool = false;
+        let use_hit_event: bool = true;
+        let threshold: f32 = 2.0;
+        let elasticity: f32 = 0.0;
+        let elasticity_falloff: f32 = 0.0;
+        let friction: f32 = 0.0;
+        let scatter: f32 = 0.0;
+        let is_collidable: bool = true;
+        let disable_lighting_top_old: Option<f32> = None; //0.0;
+        let disable_lighting_top: Option<f32> = None; // 0.0;
+        let disable_lighting_below: Option<f32> = None; //0.0;
+        let depth_bias: f32 = 0.0;
+        let is_reflection_enabled: bool = true;
+        let is_dropped: bool = false;
+        let drop_speed: f32 = 0.5;
+        let is_timer_enabled: bool = false;
+        let timer_interval: u32 = 0;
+        let raise_delay: Option<u32> = None; //100;
+        let physics_material: Option<String> = None;
+        let overwrite_physics: Option<bool> = None; //false;
+
+        // these are shared between all items
+        let is_locked: bool = false;
+        let editor_layer: u32 = Default::default();
+        let editor_layer_name: Option<String> = None;
+        let editor_layer_visibility: Option<bool> = None;
+        HitTarget {
+            position,
+            size,
+            rot_z,
+            image,
+            target_type,
+            name,
+            material,
+            is_visible,
+            is_legacy,
+            use_hit_event,
+            threshold,
+            elasticity,
+            elasticity_falloff,
+            friction,
+            scatter,
+            is_collidable,
+            disable_lighting_top_old,
+            disable_lighting_top,
+            disable_lighting_below,
+            depth_bias,
+            is_reflection_enabled,
+            is_dropped,
+            drop_speed,
+            is_timer_enabled,
+            timer_interval,
+            raise_delay,
+            physics_material,
+            overwrite_physics,
+            is_locked,
+            editor_layer,
+            editor_layer_name,
+            editor_layer_visibility,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct HitTargetJson {
+    name: String,
+}
+
+impl Serialize for HitTarget {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        HitTargetJson {
+            name: self.name.clone(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for HitTarget {
+    fn deserialize<D>(deserializer: D) -> Result<HitTarget, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let json = HitTargetJson::deserialize(deserializer)?;
+        let mut hit_target = HitTarget::default();
+        hit_target.name = json.name;
+        Ok(hit_target)
+    }
 }
 
 impl HitTarget {

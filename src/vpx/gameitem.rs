@@ -1,32 +1,33 @@
-mod bumper;
-mod collection;
-mod decal;
-mod dragpoint;
-mod flasher;
-mod flipper;
-mod font;
-mod gate;
-mod generic;
-mod hittarget;
-mod kicker;
-mod light;
-mod lightcenter;
-mod lightsequencer;
-mod plunger;
-mod primitive;
-mod ramp;
-mod reel;
-mod rubber;
-mod spinner;
-mod table;
-mod textbox;
-mod timer;
-mod trigger;
-mod vertex2d;
-mod vertex3d;
-mod wall;
+pub mod bumper;
+pub mod collection;
+pub mod decal;
+pub mod dragpoint;
+pub mod flasher;
+pub mod flipper;
+pub mod font;
+pub mod gate;
+pub mod generic;
+pub mod hittarget;
+pub mod kicker;
+pub mod light;
+pub mod lightcenter;
+pub mod lightsequencer;
+pub mod plunger;
+pub mod primitive;
+pub mod ramp;
+pub mod reel;
+pub mod rubber;
+pub mod spinner;
+pub mod table;
+pub mod textbox;
+pub mod timer;
+pub mod trigger;
+pub mod vertex2d;
+pub mod vertex3d;
+pub mod wall;
 
 use crate::vpx::biff::BiffRead;
+use serde::{Deserialize, Serialize};
 
 use super::biff::{BiffReader, BiffWrite, BiffWriter};
 
@@ -37,7 +38,8 @@ trait GameItem: BiffRead {
     fn name(&self) -> &str;
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Serialize, Deserialize)]
+// #[serde(tag = "type")]
 pub enum GameItemEnum {
     Wall(wall::Wall),
     Flipper(flipper::Flipper),
@@ -66,7 +68,7 @@ pub enum GameItemEnum {
 }
 
 impl GameItemEnum {
-    fn name(&self) -> &str {
+    pub fn name(&self) -> &str {
         match self {
             GameItemEnum::Wall(wall) => &wall.name,
             GameItemEnum::Flipper(flipper) => flipper.name(),
@@ -92,6 +94,65 @@ impl GameItemEnum {
             GameItemEnum::Rubber(rubber) => &rubber.name,
             GameItemEnum::HitTarget(hittarget) => &hittarget.name,
             GameItemEnum::Generic(_item_type, generic) => generic.name(),
+        }
+    }
+
+    pub fn type_name(&self) -> String {
+        match self {
+            GameItemEnum::Wall(_) => "Wall".to_string(),
+            GameItemEnum::Flipper(_) => "Flipper".to_string(),
+            GameItemEnum::Timer(_) => "Timer".to_string(),
+            GameItemEnum::Plunger(_) => "Plunger".to_string(),
+            GameItemEnum::TextBox(_) => "TextBox".to_string(),
+            GameItemEnum::Bumper(_) => "Bumper".to_string(),
+            GameItemEnum::Trigger(_) => "Trigger".to_string(),
+            GameItemEnum::Light(_) => "Light".to_string(),
+            GameItemEnum::Kicker(_) => "Kicker".to_string(),
+            GameItemEnum::Decal(_) => "Decal".to_string(),
+            GameItemEnum::Gate(_) => "Gate".to_string(),
+            GameItemEnum::Spinner(_) => "Spinner".to_string(),
+            GameItemEnum::Ramp(_) => "Ramp".to_string(),
+            GameItemEnum::Table(_) => "Table".to_string(),
+            GameItemEnum::LightCenter(_) => "LightCenter".to_string(),
+            GameItemEnum::DragPoint(_) => "DragPoint".to_string(),
+            GameItemEnum::Collection(_) => "Collection".to_string(),
+            GameItemEnum::Reel(_) => "Reel".to_string(),
+            GameItemEnum::LightSequencer(_) => "LightSequencer".to_string(),
+            GameItemEnum::Primitive(_) => "Primitive".to_string(),
+            GameItemEnum::Flasher(_) => "Flasher".to_string(),
+            GameItemEnum::Rubber(_) => "Rubber".to_string(),
+            GameItemEnum::HitTarget(_) => "HitTarget".to_string(),
+            GameItemEnum::Generic(item_type, _) => format!("Generic_{}", item_type),
+        }
+    }
+
+    // from type name to type id
+    pub fn type_id(type_name: &str) -> u32 {
+        match type_name {
+            "Wall" => ITEM_TYPE_WALL,
+            "Flipper" => ITEM_TYPE_FLIPPER,
+            "Timer" => ITEM_TYPE_TIMER,
+            "Plunger" => ITEM_TYPE_PLUNGER,
+            "TextBox" => ITEM_TYPE_TEXT_BOX,
+            "Bumper" => ITEM_TYPE_BUMPER,
+            "Trigger" => ITEM_TYPE_TRIGGER,
+            "Light" => ITEM_TYPE_LIGHT,
+            "Kicker" => ITEM_TYPE_KICKER,
+            "Decal" => ITEM_TYPE_DECAL,
+            "Gate" => ITEM_TYPE_GATE,
+            "Spinner" => ITEM_TYPE_SPINNER,
+            "Ramp" => ITEM_TYPE_RAMP,
+            "Table" => ITEM_TYPE_TABLE,
+            "LightCenter" => ITEM_TYPE_LIGHT_CENTER,
+            "DragPoint" => ITEM_TYPE_DRAG_POINT,
+            "Collection" => ITEM_TYPE_COLLECTION,
+            "Reel" => ITEM_TYPE_REEL,
+            "LightSequencer" => ITEM_TYPE_LIGHT_SEQUENCER,
+            "Primitive" => ITEM_TYPE_PRIMITIVE,
+            "Flasher" => ITEM_TYPE_FLASHER,
+            "Rubber" => ITEM_TYPE_RUBBER,
+            "HitTarget" => ITEM_TYPE_HIT_TARGET,
+            _ => unimplemented!("type_id for {}", type_name),
         }
     }
 }

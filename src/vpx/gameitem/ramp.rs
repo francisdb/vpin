@@ -1,4 +1,5 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::dragpoint::DragPoint;
 
@@ -40,7 +41,8 @@ pub struct Ramp {
     // these are shared between all items
     pub is_locked: bool,
     pub editor_layer: u32,
-    pub editor_layer_name: Option<String>, // default "Layer_{editor_layer + 1}"
+    pub editor_layer_name: Option<String>,
+    // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
 }
 
@@ -54,6 +56,24 @@ impl Ramp {
     pub const RAMP_TYPE_3_WIRE_LEFT: u32 = 3;
     pub const RAMP_TYPE_3_WIRE_RIGHT: u32 = 4;
     pub const RAMP_TYPE_1_WIRE: u32 = 5;
+}
+
+impl Serialize for Ramp {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        todo!()
+    }
+}
+
+impl<'de> Deserialize<'de> for Ramp {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        todo!()
+    }
 }
 
 impl BiffRead for Ramp {
