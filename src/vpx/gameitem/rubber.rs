@@ -6,8 +6,7 @@ use super::dragpoint::DragPoint;
 #[derive(Debug, PartialEq)]
 pub struct Rubber {
     pub height: f32,
-    pub hit_height: Option<f32>,
-    // HTHI (added in 10.?)
+    pub hit_height: Option<f32>, // HTHI (added in 10.?)
     pub thickness: i32,
     pub hit_event: bool,
     pub material: String,
@@ -63,6 +62,7 @@ impl Default for Rubber {
         let scatter: f32 = Default::default();
         let is_collidable: bool = true;
         let is_visible: bool = true;
+        let radb: Option<f32> = None; //0.0;
         let static_rendering: bool = true;
         let show_in_editor: bool = true;
         let rot_x: f32 = 0.0;

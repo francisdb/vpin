@@ -4,7 +4,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::GameItem;
 
-#[derive(Debug, PartialEq, Dummy)]
+#[derive(Debug, PartialEq, Clone, Dummy)]
 pub struct DragPoint {
     x: f32,
     y: f32,
@@ -117,19 +117,7 @@ impl<'de> Deserialize<'de> for DragPoint {
         D: Deserializer<'de>,
     {
         let json = DragPointJson::deserialize(deserializer)?;
-        Ok(DragPoint {
-            x: json.x,
-            y: json.y,
-            z: json.z,
-            smooth: json.smooth,
-            is_slingshot: json.is_slingshot,
-            has_auto_texture: json.has_auto_texture,
-            tex_coord: json.tex_coord,
-            is_locked: json.is_locked,
-            editor_layer: json.editor_layer,
-            editor_layer_name: json.editor_layer_name,
-            editor_layer_visibility: json.editor_layer_visibility,
-        })
+        Ok(json.to_dragpoint())
     }
 }
 

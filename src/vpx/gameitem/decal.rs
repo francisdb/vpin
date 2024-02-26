@@ -58,6 +58,56 @@ struct DecalJson {
     editor_layer_visibility: Option<bool>,
 }
 
+impl DecalJson {
+    pub fn from_decal(decal: &Decal) -> Self {
+        Self {
+            center: decal.center,
+            width: decal.width,
+            height: decal.height,
+            rotation: decal.rotation,
+            image: decal.image.clone(),
+            surface: decal.surface.clone(),
+            name: decal.name.clone(),
+            text: decal.text.clone(),
+            decal_type: decal.decal_type,
+            material: decal.material.clone(),
+            color: ColorJson::from_color(&decal.color),
+            sizing_type: decal.sizing_type,
+            vertical_text: decal.vertical_text,
+            backglass: decal.backglass,
+            font: FontJson::from_font(&decal.font),
+            is_locked: decal.is_locked,
+            editor_layer: decal.editor_layer,
+            editor_layer_name: decal.editor_layer_name.clone(),
+            editor_layer_visibility: decal.editor_layer_visibility,
+        }
+    }
+
+    pub fn to_decal(&self) -> Decal {
+        Decal {
+            center: self.center,
+            width: self.width,
+            height: self.height,
+            rotation: self.rotation,
+            image: self.image.clone(),
+            surface: self.surface.clone(),
+            name: self.name.clone(),
+            text: self.text.clone(),
+            decal_type: self.decal_type,
+            material: self.material.clone(),
+            color: self.color.to_color(),
+            sizing_type: self.sizing_type,
+            vertical_text: self.vertical_text,
+            backglass: self.backglass,
+            font: self.font.to_font(),
+            is_locked: self.is_locked,
+            editor_layer: self.editor_layer,
+            editor_layer_name: self.editor_layer_name.clone(),
+            editor_layer_visibility: self.editor_layer_visibility,
+        }
+    }
+}
+
 impl Default for Decal {
     fn default() -> Self {
         Self {
@@ -89,31 +139,7 @@ impl Serialize for Decal {
     where
         S: Serializer,
     {
-        let font_json = FontJson::from_font(&self.font);
-        let color_json = ColorJson::from_color(&self.color);
-
-        DecalJson {
-            center: self.center,
-            width: self.width,
-            height: self.height,
-            rotation: self.rotation,
-            image: self.image.clone(),
-            surface: self.surface.clone(),
-            name: self.name.clone(),
-            text: self.text.clone(),
-            decal_type: self.decal_type,
-            material: self.material.clone(),
-            color: color_json,
-            sizing_type: self.sizing_type,
-            vertical_text: self.vertical_text,
-            backglass: self.backglass,
-            font: font_json,
-            is_locked: self.is_locked,
-            editor_layer: self.editor_layer,
-            editor_layer_name: self.editor_layer_name.clone(),
-            editor_layer_visibility: self.editor_layer_visibility,
-        }
-        .serialize(serializer)
+        DecalJson::from_decal(self).serialize(serializer)
     }
 }
 
@@ -123,27 +149,7 @@ impl<'de> Deserialize<'de> for Decal {
         D: Deserializer<'de>,
     {
         let json = DecalJson::deserialize(deserializer)?;
-        Ok(Decal {
-            center: json.center,
-            width: json.width,
-            height: json.height,
-            rotation: json.rotation,
-            image: json.image,
-            surface: json.surface,
-            name: json.name,
-            text: json.text,
-            decal_type: json.decal_type,
-            material: json.material,
-            color: json.color.to_color(),
-            sizing_type: json.sizing_type,
-            vertical_text: json.vertical_text,
-            backglass: json.backglass,
-            font: json.font.to_font(),
-            is_locked: json.is_locked,
-            editor_layer: json.editor_layer,
-            editor_layer_name: json.editor_layer_name,
-            editor_layer_visibility: json.editor_layer_visibility,
-        })
+        Ok(json.to_decal())
     }
 }
 

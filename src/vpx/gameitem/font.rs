@@ -2,15 +2,24 @@ use crate::vpx::biff::{BiffRead, BiffReader, BiffWrite, BiffWriter};
 use fake::Dummy;
 use serde::{Deserialize, Serialize};
 
+const TTF_STYLE_NORMAL: u8 = 0x00;
+const TTF_STYLE_BOLD: u8 = 0x01;
+const TTF_STYLE_ITALIC: u8 = 0x02;
+const TTF_STYLE_UNDERLINE: u8 = 0x04;
+const TTF_STYLE_STRIKETHROUGH: u8 = 0x08;
+
 #[derive(PartialEq, Debug, Dummy)]
 pub struct Font {
-    // Font style flags
-    //
-    // #define TTF_STYLE_NORMAL        0x00
-    // #define TTF_STYLE_BOLD          0x01
-    // #define TTF_STYLE_ITALIC        0x02
-    // #define TTF_STYLE_UNDERLINE     0x04
-    // #define TTF_STYLE_STRIKETHROUGH 0x08
+    /**
+     * The style of the font.
+     * This is a bitfield, so multiple styles can be combined.
+     * The styles are:
+     * - 0x00: normal
+     * - 0x01: bold
+     * - 0x02: italic
+     * - 0x04: underline
+     * - 0x08: strikethrough
+     */
     style: u8,
     weight: u16,
     size: u32,

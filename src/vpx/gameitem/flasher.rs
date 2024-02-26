@@ -1,12 +1,14 @@
+use crate::vpx::color::ColorJson;
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
 };
+use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{dragpoint::DragPoint, FILTER_OVERLAY, IMAGE_ALIGN_TOP_LEFT};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Dummy)]
 pub struct Flasher {
     pub height: f32,
     pub pos_x: f32,
@@ -43,12 +45,111 @@ pub struct Flasher {
     pub editor_layer_visibility: Option<bool>,
 }
 
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct FlasherJson {
+    height: f32,
+    pos_x: f32,
+    pos_y: f32,
+    rot_x: f32,
+    rot_y: f32,
+    rot_z: f32,
+    color: ColorJson,
+    is_timer_enabled: bool,
+    timer_interval: i32,
+    name: String,
+    image_a: String,
+    image_b: String,
+    alpha: i32,
+    modulate_vs_add: f32,
+    is_visible: bool,
+    add_blend: bool,
+    is_dmd: Option<bool>,
+    display_texture: bool,
+    depth_bias: f32,
+    image_alignment: u32,
+    filter: u32,
+    filter_amount: u32,
+    light_map: Option<String>,
+    drag_points: Vec<DragPoint>,
+    is_locked: bool,
+    editor_layer: u32,
+    editor_layer_name: Option<String>,
+    editor_layer_visibility: Option<bool>,
+}
+
+impl FlasherJson {
+    pub fn from_flasher(flasher: &Flasher) -> Self {
+        Self {
+            height: flasher.height,
+            pos_x: flasher.pos_x,
+            pos_y: flasher.pos_y,
+            rot_x: flasher.rot_x,
+            rot_y: flasher.rot_y,
+            rot_z: flasher.rot_z,
+            color: ColorJson::from_color(&flasher.color),
+            is_timer_enabled: flasher.is_timer_enabled,
+            timer_interval: flasher.timer_interval,
+            name: flasher.name.clone(),
+            image_a: flasher.image_a.clone(),
+            image_b: flasher.image_b.clone(),
+            alpha: flasher.alpha,
+            modulate_vs_add: flasher.modulate_vs_add,
+            is_visible: flasher.is_visible,
+            add_blend: flasher.add_blend,
+            is_dmd: flasher.is_dmd,
+            display_texture: flasher.display_texture,
+            depth_bias: flasher.depth_bias,
+            image_alignment: flasher.image_alignment,
+            filter: flasher.filter,
+            filter_amount: flasher.filter_amount,
+            light_map: flasher.light_map.clone(),
+            drag_points: flasher.drag_points.clone(),
+            is_locked: flasher.is_locked,
+            editor_layer: flasher.editor_layer,
+            editor_layer_name: flasher.editor_layer_name.clone(),
+            editor_layer_visibility: flasher.editor_layer_visibility,
+        }
+    }
+    pub fn to_flasher(&self) -> Flasher {
+        Flasher {
+            height: self.height,
+            pos_x: self.pos_x,
+            pos_y: self.pos_y,
+            rot_x: self.rot_x,
+            rot_y: self.rot_y,
+            rot_z: self.rot_z,
+            color: self.color.to_color(),
+            is_timer_enabled: self.is_timer_enabled,
+            timer_interval: self.timer_interval,
+            name: self.name.clone(),
+            image_a: self.image_a.clone(),
+            image_b: self.image_b.clone(),
+            alpha: self.alpha,
+            modulate_vs_add: self.modulate_vs_add,
+            is_visible: self.is_visible,
+            add_blend: self.add_blend,
+            is_dmd: self.is_dmd,
+            display_texture: self.display_texture,
+            depth_bias: self.depth_bias,
+            image_alignment: self.image_alignment,
+            filter: self.filter,
+            filter_amount: self.filter_amount,
+            light_map: self.light_map.clone(),
+            drag_points: self.drag_points.clone(),
+            is_locked: self.is_locked,
+            editor_layer: self.editor_layer,
+            editor_layer_name: self.editor_layer_name.clone(),
+            editor_layer_visibility: self.editor_layer_visibility,
+        }
+    }
+}
+
 impl Serialize for Flasher {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        todo!()
+        FlasherJson::from_flasher(self).serialize(serializer)
     }
 }
 
@@ -57,7 +158,8 @@ impl<'de> Deserialize<'de> for Flasher {
     where
         D: Deserializer<'de>,
     {
-        todo!()
+        let json = FlasherJson::deserialize(deserializer)?;
+        Ok(json.to_flasher())
     }
 }
 

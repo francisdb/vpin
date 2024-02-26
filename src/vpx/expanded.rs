@@ -662,7 +662,13 @@ mod test {
         collection.name = "test collection".to_string();
         let mut decal: gameitem::decal::Decal = Faker.fake();
         decal.name = "test decal".to_string();
-        let mut dragpoint: gameitem::dragpoint::DragPoint = Faker.fake();
+        let dragpoint: gameitem::dragpoint::DragPoint = Faker.fake();
+        let mut flasher: gameitem::flasher::Flasher = Faker.fake();
+        flasher.name = "test flasher".to_string();
+        let mut flipper: gameitem::flipper::Flipper = Faker.fake();
+        flipper.name = "test flipper".to_string();
+        let mut gate: gameitem::gate::Gate = Faker.fake();
+        gate.name = "test gate".to_string();
 
         let vpx = VPX {
             custominfotags: vec!["test prop 2".to_string(), "test prop".to_string()],
@@ -691,6 +697,9 @@ mod test {
                 GameItemEnum::Collection(collection),
                 GameItemEnum::Decal(decal),
                 GameItemEnum::DragPoint(dragpoint),
+                GameItemEnum::Flasher(flasher),
+                GameItemEnum::Flipper(flipper),
+                GameItemEnum::Gate(gate),
                 GameItemEnum::Generic(
                     100,
                     gameitem::generic::Generic {
