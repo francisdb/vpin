@@ -1,4 +1,5 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite, BiffWriter};
+use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::dragpoint::DragPoint;
@@ -6,7 +7,7 @@ use super::dragpoint::DragPoint;
 /**
  * Surface
  */
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Dummy)]
 pub struct Wall {
     pub hit_event: bool,
     pub is_droppable: bool,
@@ -28,7 +29,7 @@ pub struct Wall {
     pub slingshot_force: f32,
     pub slingshot_threshold: f32,
     pub elasticity: f32,
-    pub elasticity_falloff: Option<f32>,
+    pub elasticity_falloff: Option<f32>, // added in ?
     pub friction: f32,
     pub scatter: f32,
     pub is_top_bottom_visible: bool,
@@ -51,12 +52,139 @@ pub struct Wall {
     drag_points: Vec<DragPoint>,
 }
 
+#[derive(Serialize, Deserialize)]
+struct WallJson {
+    hit_event: bool,
+    is_droppable: bool,
+    is_flipbook: bool,
+    is_bottom_solid: bool,
+    is_collidable: bool,
+    is_timer_enabled: bool,
+    timer_interval: u32,
+    threshold: f32,
+    image: String,
+    side_image: String,
+    side_material: String,
+    top_material: String,
+    slingshot_material: String,
+    height_bottom: f32,
+    height_top: f32,
+    name: String,
+    display_texture: bool,
+    slingshot_force: f32,
+    slingshot_threshold: f32,
+    elasticity: f32,
+    elasticity_falloff: Option<f32>,
+    friction: f32,
+    scatter: f32,
+    is_top_bottom_visible: bool,
+    slingshot_animation: bool,
+    is_side_visible: bool,
+    disable_lighting_top_old: Option<f32>,
+    disable_lighting_top: Option<f32>,
+    disable_lighting_below: Option<f32>,
+    is_reflection_enabled: Option<bool>,
+    physics_material: Option<String>,
+    overwrite_physics: Option<bool>,
+    is_locked: bool,
+    editor_layer: u32,
+    editor_layer_name: Option<String>,
+    editor_layer_visibility: Option<bool>,
+    drag_points: Vec<DragPoint>,
+}
+
+impl WallJson {
+    pub fn from_wall(wall: &Wall) -> Self {
+        Self {
+            hit_event: wall.hit_event,
+            is_droppable: wall.is_droppable,
+            is_flipbook: wall.is_flipbook,
+            is_bottom_solid: wall.is_bottom_solid,
+            is_collidable: wall.is_collidable,
+            is_timer_enabled: wall.is_timer_enabled,
+            timer_interval: wall.timer_interval,
+            threshold: wall.threshold,
+            image: wall.image.clone(),
+            side_image: wall.side_image.clone(),
+            side_material: wall.side_material.clone(),
+            top_material: wall.top_material.clone(),
+            slingshot_material: wall.slingshot_material.clone(),
+            height_bottom: wall.height_bottom,
+            height_top: wall.height_top,
+            name: wall.name.clone(),
+            display_texture: wall.display_texture,
+            slingshot_force: wall.slingshot_force,
+            slingshot_threshold: wall.slingshot_threshold,
+            elasticity: wall.elasticity,
+            elasticity_falloff: wall.elasticity_falloff,
+            friction: wall.friction,
+            scatter: wall.scatter,
+            is_top_bottom_visible: wall.is_top_bottom_visible,
+            slingshot_animation: wall.slingshot_animation,
+            is_side_visible: wall.is_side_visible,
+            disable_lighting_top_old: wall.disable_lighting_top_old,
+            disable_lighting_top: wall.disable_lighting_top,
+            disable_lighting_below: wall.disable_lighting_below,
+            is_reflection_enabled: wall.is_reflection_enabled,
+            physics_material: wall.physics_material.clone(),
+            overwrite_physics: wall.overwrite_physics,
+            is_locked: wall.is_locked,
+            editor_layer: wall.editor_layer,
+            editor_layer_name: wall.editor_layer_name.clone(),
+            editor_layer_visibility: wall.editor_layer_visibility,
+            drag_points: wall.drag_points.clone(),
+        }
+    }
+
+    pub fn to_wall(&self) -> Wall {
+        Wall {
+            hit_event: self.hit_event,
+            is_droppable: self.is_droppable,
+            is_flipbook: self.is_flipbook,
+            is_bottom_solid: self.is_bottom_solid,
+            is_collidable: self.is_collidable,
+            is_timer_enabled: self.is_timer_enabled,
+            timer_interval: self.timer_interval,
+            threshold: self.threshold,
+            image: self.image.clone(),
+            side_image: self.side_image.clone(),
+            side_material: self.side_material.clone(),
+            top_material: self.top_material.clone(),
+            slingshot_material: self.slingshot_material.clone(),
+            height_bottom: self.height_bottom,
+            height_top: self.height_top,
+            name: self.name.clone(),
+            display_texture: self.display_texture,
+            slingshot_force: self.slingshot_force,
+            slingshot_threshold: self.slingshot_threshold,
+            elasticity: self.elasticity,
+            elasticity_falloff: self.elasticity_falloff,
+            friction: self.friction,
+            scatter: self.scatter,
+            is_top_bottom_visible: self.is_top_bottom_visible,
+            slingshot_animation: self.slingshot_animation,
+            is_side_visible: self.is_side_visible,
+            disable_lighting_top_old: self.disable_lighting_top_old,
+            disable_lighting_top: self.disable_lighting_top,
+            disable_lighting_below: self.disable_lighting_below,
+            is_reflection_enabled: self.is_reflection_enabled,
+            physics_material: self.physics_material.clone(),
+            overwrite_physics: self.overwrite_physics,
+            is_locked: self.is_locked,
+            editor_layer: self.editor_layer,
+            editor_layer_name: self.editor_layer_name.clone(),
+            editor_layer_visibility: self.editor_layer_visibility,
+            drag_points: self.drag_points.clone(),
+        }
+    }
+}
+
 impl Serialize for Wall {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        todo!()
+        WallJson::from_wall(self).serialize(serializer)
     }
 }
 
@@ -65,52 +193,58 @@ impl<'de> Deserialize<'de> for Wall {
     where
         D: Deserializer<'de>,
     {
-        todo!()
+        let json = WallJson::deserialize(deserializer)?;
+        Ok(json.to_wall())
+    }
+}
+
+impl Default for Wall {
+    fn default() -> Self {
+        Self {
+            hit_event: false,
+            is_droppable: false,
+            is_flipbook: false,
+            is_bottom_solid: false,
+            is_collidable: true,
+            is_timer_enabled: false,
+            timer_interval: 0,
+            threshold: 2.0,
+            image: Default::default(),
+            side_image: Default::default(),
+            side_material: Default::default(),
+            top_material: Default::default(),
+            slingshot_material: Default::default(),
+            height_bottom: Default::default(),
+            height_top: 50.0,
+            name: Default::default(),
+            display_texture: false,
+            slingshot_force: 80.0,
+            slingshot_threshold: 0.0,
+            elasticity: 0.3,
+            elasticity_falloff: None,
+            friction: 0.3,
+            scatter: Default::default(),
+            is_top_bottom_visible: true,
+            slingshot_animation: true,
+            is_side_visible: true,
+            disable_lighting_top_old: None, //0.0;
+            disable_lighting_top: Default::default(),
+            disable_lighting_below: None,
+            is_reflection_enabled: None, //true,
+            physics_material: None,
+            overwrite_physics: None, //true;
+            is_locked: false,
+            editor_layer: Default::default(),
+            editor_layer_name: None,
+            editor_layer_visibility: None,
+            drag_points: Default::default(),
+        }
     }
 }
 
 impl BiffRead for Wall {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
-        let mut hit_event: bool = false;
-        let mut is_droppable: bool = false;
-        let mut is_flipbook: bool = false;
-        let mut is_bottom_solid: bool = false;
-        let mut is_collidable: bool = true;
-        let mut threshold: f32 = 2.0;
-        let mut image: String = Default::default();
-        let mut side_image: String = Default::default();
-        let mut side_material: String = Default::default();
-        let mut top_material: String = Default::default();
-        let mut slingshot_material: String = Default::default();
-        let mut height_bottom: f32 = Default::default();
-        let mut height_top: f32 = 50.0;
-        let mut name = Default::default();
-        let mut display_texture: bool = false;
-        let mut slingshot_force: f32 = 80.0;
-        let mut slingshot_threshold: f32 = 0.0;
-        let mut slingshot_animation: bool = true;
-        let mut elasticity: f32 = 0.3;
-        let mut elasticity_falloff: Option<f32> = None; // added in ?
-        let mut friction: f32 = 0.3;
-        let mut scatter: f32 = Default::default();
-        let mut is_top_bottom_visible: bool = true;
-        let mut overwrite_physics: Option<bool> = None; //true;
-        let mut disable_lighting_top_old: Option<f32> = None; //0.0;
-        let mut disable_lighting_top: Option<f32> = None; //0.0;
-        let mut disable_lighting_below: Option<f32> = None;
-        let mut is_side_visible: bool = true;
-        let mut is_reflection_enabled: Option<bool> = None;
-        let mut is_timer_enabled: bool = false;
-        let mut timer_interval: u32 = Default::default();
-        let mut physics_material: Option<String> = None;
-
-        // these are shared between all items
-        let mut is_locked: bool = false;
-        let mut editor_layer: u32 = Default::default();
-        let mut editor_layer_name: Option<String> = None;
-        let mut editor_layer_visibility: Option<bool> = None;
-
-        let mut drag_points: Vec<DragPoint> = Default::default();
+        let mut wall = Wall::default();
 
         loop {
             reader.next(biff::WARN);
@@ -121,165 +255,171 @@ impl BiffRead for Wall {
             let tag_str = tag.as_str();
             match tag_str {
                 "HTEV" => {
-                    hit_event = reader.get_bool();
+                    wall.hit_event = reader.get_bool();
                 }
                 "DROP" => {
-                    is_droppable = reader.get_bool();
+                    wall.is_droppable = reader.get_bool();
                 }
                 "FLIP" => {
-                    is_flipbook = reader.get_bool();
+                    wall.is_flipbook = reader.get_bool();
                 }
                 "BOTS" => {
-                    is_bottom_solid = reader.get_bool();
+                    wall.is_bottom_solid = reader.get_bool();
                 }
                 "COLL" => {
-                    is_collidable = reader.get_bool();
+                    wall.is_collidable = reader.get_bool();
                 }
                 "THRS" => {
-                    threshold = reader.get_f32();
+                    wall.threshold = reader.get_f32();
                 }
                 "IMGF" => {
-                    image = reader.get_string();
+                    wall.image = reader.get_string();
                 }
                 "IMGS" => {
-                    side_image = reader.get_string();
+                    wall.side_image = reader.get_string();
                 }
                 "MATR" => {
-                    side_material = reader.get_string();
+                    wall.side_material = reader.get_string();
                 }
                 "MATP" => {
-                    top_material = reader.get_string();
+                    wall.top_material = reader.get_string();
                 }
                 "MATL" => {
-                    slingshot_material = reader.get_string();
+                    wall.slingshot_material = reader.get_string();
                 }
                 "HTBT" => {
-                    height_bottom = reader.get_f32();
+                    wall.height_bottom = reader.get_f32();
                 }
                 "NAME" => {
-                    name = reader.get_wide_string();
+                    wall.name = reader.get_wide_string();
                 }
                 "DTEX" => {
-                    display_texture = reader.get_bool();
+                    wall.display_texture = reader.get_bool();
                 }
                 "SLFO" => {
-                    slingshot_force = reader.get_f32();
+                    wall.slingshot_force = reader.get_f32();
                 }
                 "SLTH" => {
-                    slingshot_threshold = reader.get_f32();
+                    wall.slingshot_threshold = reader.get_f32();
                 }
                 "SLAN" => {
-                    slingshot_animation = reader.get_bool();
+                    wall.slingshot_animation = reader.get_bool();
                 }
                 "ELAS" => {
-                    elasticity = reader.get_f32();
+                    wall.elasticity = reader.get_f32();
                 }
                 "ELFO" => {
-                    elasticity_falloff = Some(reader.get_f32());
+                    wall.elasticity_falloff = Some(reader.get_f32());
                 }
                 "FRIC" => {
-                    friction = reader.get_f32();
+                    wall.friction = reader.get_f32();
                 }
                 "SCAT" => {
-                    scatter = reader.get_f32();
+                    wall.scatter = reader.get_f32();
                 }
                 "TBVI" => {
-                    is_top_bottom_visible = reader.get_bool();
+                    wall.is_top_bottom_visible = reader.get_bool();
                 }
                 "OVPH" => {
-                    overwrite_physics = Some(reader.get_bool());
+                    wall.overwrite_physics = Some(reader.get_bool());
+                }
+                "DLTO" => {
+                    wall.disable_lighting_top = Some(reader.get_f32());
                 }
                 "DLBE" => {
-                    disable_lighting_below = Some(reader.get_f32());
+                    wall.disable_lighting_below = Some(reader.get_f32());
                 }
                 "SIVI" => {
-                    is_side_visible = reader.get_bool();
+                    wall.is_side_visible = reader.get_bool();
+                }
+                "REFL" => {
+                    wall.is_reflection_enabled = Some(reader.get_bool());
                 }
                 "TMRN" => {
-                    is_timer_enabled = reader.get_bool();
+                    wall.is_timer_enabled = reader.get_bool();
                 }
                 "TMIN" => {
-                    timer_interval = reader.get_u32();
+                    wall.timer_interval = reader.get_u32();
                 }
                 "PMAT" => {
-                    physics_material = Some(reader.get_string());
+                    wall.physics_material = Some(reader.get_string());
                 }
                 "ISBS" => {
-                    is_bottom_solid = reader.get_bool();
+                    wall.is_bottom_solid = reader.get_bool();
                 }
                 "CLDW" => {
-                    is_collidable = reader.get_bool();
+                    wall.is_collidable = reader.get_bool();
                 }
                 "TMON" => {
-                    is_timer_enabled = reader.get_bool();
+                    wall.is_timer_enabled = reader.get_bool();
                 }
                 "VSBL" => {
-                    is_top_bottom_visible = reader.get_bool();
+                    wall.is_top_bottom_visible = reader.get_bool();
                 }
                 "SLGA" => {
-                    slingshot_animation = reader.get_bool();
+                    wall.slingshot_animation = reader.get_bool();
                 }
                 "SVBL" => {
-                    is_side_visible = reader.get_bool();
+                    wall.is_side_visible = reader.get_bool();
                 }
                 "DILI" => {
-                    disable_lighting_top_old = Some(reader.get_f32());
+                    wall.disable_lighting_top_old = Some(reader.get_f32());
                 }
                 "DILT" => {
-                    disable_lighting_top = Some(reader.get_f32());
+                    wall.disable_lighting_top = Some(reader.get_f32());
                 }
                 "DILB" => {
-                    disable_lighting_below = Some(reader.get_f32());
+                    wall.disable_lighting_below = Some(reader.get_f32());
                 }
                 "MAPH" => {
-                    physics_material = Some(reader.get_string());
+                    wall.physics_material = Some(reader.get_string());
                 }
                 "REEN" => {
-                    is_reflection_enabled = Some(reader.get_bool());
+                    wall.is_reflection_enabled = Some(reader.get_bool());
                 }
                 "IMAG" => {
-                    image = reader.get_string();
+                    wall.image = reader.get_string();
                 }
                 "SIMG" => {
-                    side_image = reader.get_string();
+                    wall.side_image = reader.get_string();
                 }
                 "SIMA" => {
-                    side_material = reader.get_string();
+                    wall.side_material = reader.get_string();
                 }
                 "TOMA" => {
-                    top_material = reader.get_string();
+                    wall.top_material = reader.get_string();
                 }
                 "SLMA" => {
-                    slingshot_material = reader.get_string();
+                    wall.slingshot_material = reader.get_string();
                 }
                 "HTTP" => {
-                    height_top = reader.get_f32();
+                    wall.height_top = reader.get_f32();
                 }
                 "DSPT" => {
-                    display_texture = reader.get_bool();
+                    wall.display_texture = reader.get_bool();
                 }
                 "SLGF" => {
-                    slingshot_force = reader.get_f32();
+                    wall.slingshot_force = reader.get_f32();
                 }
                 "WFCT" => {
-                    friction = reader.get_f32();
+                    wall.friction = reader.get_f32();
                 }
                 "WSCT" => {
-                    scatter = reader.get_f32();
+                    wall.scatter = reader.get_f32();
                 }
 
                 // shared
                 "LOCK" => {
-                    is_locked = reader.get_bool();
+                    wall.is_locked = reader.get_bool();
                 }
                 "LAYR" => {
-                    editor_layer = reader.get_u32();
+                    wall.editor_layer = reader.get_u32();
                 }
                 "LANR" => {
-                    editor_layer_name = Some(reader.get_string());
+                    wall.editor_layer_name = Some(reader.get_string());
                 }
                 "LVIS" => {
-                    editor_layer_visibility = Some(reader.get_bool());
+                    wall.editor_layer_visibility = Some(reader.get_bool());
                 }
                 "PNTS" => {
                     // this is just a tag with no data
@@ -287,7 +427,7 @@ impl BiffRead for Wall {
                 "DPNT" => {
                     // many of these
                     let point = DragPoint::biff_read(reader);
-                    drag_points.push(point);
+                    wall.drag_points.push(point);
                 }
                 _ => {
                     println!(
@@ -299,45 +439,7 @@ impl BiffRead for Wall {
                 }
             }
         }
-        Wall {
-            hit_event,
-            is_droppable,
-            is_flipbook,
-            is_bottom_solid,
-            is_collidable,
-            is_timer_enabled,
-            timer_interval,
-            threshold,
-            image,
-            side_image,
-            side_material,
-            top_material,
-            slingshot_material,
-            height_bottom,
-            height_top,
-            name,
-            display_texture,
-            slingshot_force,
-            slingshot_threshold,
-            elasticity,
-            elasticity_falloff,
-            friction,
-            scatter,
-            is_top_bottom_visible,
-            slingshot_animation,
-            is_side_visible,
-            disable_lighting_top_old,
-            disable_lighting_top,
-            disable_lighting_below,
-            is_reflection_enabled,
-            physics_material,
-            overwrite_physics,
-            is_locked,
-            editor_layer,
-            editor_layer_name,
-            editor_layer_visibility,
-            drag_points,
-        }
+        wall
     }
 }
 

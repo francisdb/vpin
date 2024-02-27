@@ -1,13 +1,16 @@
+use crate::vpx::color::ColorJson;
+use crate::vpx::gameitem::font::FontJson;
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
     gameitem::font::Font,
 };
+use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::vertex2d::Vertex2D;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Dummy)]
 pub struct TextBox {
     ver1: Vertex2D,
     // VER1
@@ -45,12 +48,79 @@ pub struct TextBox {
     pub editor_layer_visibility: Option<bool>, // LVIS
 }
 
+#[derive(Serialize, Deserialize)]
+struct TextBoxJson {
+    ver1: Vertex2D,
+    ver2: Vertex2D,
+    back_color: ColorJson,
+    font_color: ColorJson,
+    intensity_scale: f32,
+    text: String,
+    is_timer_enabled: bool,
+    timer_interval: u32,
+    name: String,
+    align: u32,
+    is_transparent: bool,
+    is_dmd: Option<bool>,
+    font: FontJson,
+    is_locked: bool,
+    editor_layer: u32,
+    editor_layer_name: Option<String>,
+    editor_layer_visibility: Option<bool>,
+}
+
+impl TextBoxJson {
+    fn from_textbox(textbox: &TextBox) -> Self {
+        Self {
+            ver1: textbox.ver1,
+            ver2: textbox.ver2,
+            back_color: ColorJson::from_color(&textbox.back_color),
+            font_color: ColorJson::from_color(&textbox.font_color),
+            intensity_scale: textbox.intensity_scale,
+            text: textbox.text.clone(),
+            is_timer_enabled: textbox.is_timer_enabled,
+            timer_interval: textbox.timer_interval,
+            name: textbox.name.clone(),
+            align: textbox.align,
+            is_transparent: textbox.is_transparent,
+            is_dmd: textbox.is_dmd,
+            font: FontJson::from_font(&textbox.font),
+            is_locked: textbox.is_locked,
+            editor_layer: textbox.editor_layer,
+            editor_layer_name: textbox.editor_layer_name.clone(),
+            editor_layer_visibility: textbox.editor_layer_visibility,
+        }
+    }
+
+    fn into_textbox(self) -> TextBox {
+        TextBox {
+            ver1: self.ver1,
+            ver2: self.ver2,
+            back_color: self.back_color.to_color(),
+            font_color: self.font_color.to_color(),
+            intensity_scale: self.intensity_scale,
+            text: self.text,
+            is_timer_enabled: self.is_timer_enabled,
+            timer_interval: self.timer_interval,
+            name: self.name,
+            align: self.align,
+            is_transparent: self.is_transparent,
+            is_dmd: self.is_dmd,
+            font: self.font.to_font(),
+            is_locked: self.is_locked,
+            editor_layer: self.editor_layer,
+            editor_layer_name: self.editor_layer_name,
+            editor_layer_visibility: self.editor_layer_visibility,
+        }
+    }
+}
+
 impl Serialize for TextBox {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        todo!()
+        TextBoxJson::from_textbox(self).serialize(serializer)
     }
 }
 
@@ -59,32 +129,38 @@ impl<'de> Deserialize<'de> for TextBox {
     where
         D: Deserializer<'de>,
     {
-        todo!()
+        let textbox_json = TextBoxJson::deserialize(deserializer)?;
+        Ok(textbox_json.into_textbox())
+    }
+}
+
+impl Default for TextBox {
+    fn default() -> Self {
+        Self {
+            ver1: Vertex2D::default(),
+            ver2: Vertex2D::default(),
+            back_color: Color::new_bgr(0x000000f),
+            font_color: Color::new_bgr(0xfffffff),
+            intensity_scale: 1.0,
+            text: Default::default(),
+            is_timer_enabled: false,
+            timer_interval: Default::default(),
+            name: Default::default(),
+            align: Default::default(),
+            is_transparent: false,
+            is_dmd: None,
+            font: Font::default(),
+            is_locked: false,
+            editor_layer: Default::default(),
+            editor_layer_name: None,
+            editor_layer_visibility: None,
+        }
     }
 }
 
 impl BiffRead for TextBox {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
-        let mut ver1 = Vertex2D::default();
-        let mut ver2 = Vertex2D::default();
-        let mut back_color = Color::new_bgr(0x000000f);
-        let mut font_color = Color::new_bgr(0xfffffff);
-        let mut intensity_scale: f32 = 1.0;
-        let mut text: String = Default::default();
-        let mut is_timer_enabled: bool = false;
-        let mut timer_interval: u32 = Default::default();
-        let mut name = Default::default();
-        let mut align: u32 = Default::default();
-        let mut is_transparent: bool = false;
-        let mut is_dmd: Option<bool> = None;
-
-        let mut font = Default::default();
-
-        // these are shared between all items
-        let mut is_locked: bool = false;
-        let mut editor_layer: u32 = Default::default();
-        let mut editor_layer_name: Option<String> = None;
-        let mut editor_layer_visibility: Option<bool> = None;
+        let mut textbox = TextBox::default();
 
         loop {
             reader.next(biff::WARN);
@@ -95,57 +171,57 @@ impl BiffRead for TextBox {
             let tag_str = tag.as_str();
             match tag_str {
                 "VER1" => {
-                    ver1 = Vertex2D::biff_read(reader);
+                    textbox.ver1 = Vertex2D::biff_read(reader);
                 }
                 "VER2" => {
-                    ver2 = Vertex2D::biff_read(reader);
+                    textbox.ver2 = Vertex2D::biff_read(reader);
                 }
                 "CLRB" => {
-                    back_color = Color::biff_read_bgr(reader);
+                    textbox.back_color = Color::biff_read_bgr(reader);
                 }
                 "CLRF" => {
-                    font_color = Color::biff_read_bgr(reader);
+                    textbox.font_color = Color::biff_read_bgr(reader);
                 }
                 "INSC" => {
-                    intensity_scale = reader.get_f32();
+                    textbox.intensity_scale = reader.get_f32();
                 }
                 "TEXT" => {
-                    text = reader.get_string();
+                    textbox.text = reader.get_string();
                 }
                 "TMON" => {
-                    is_timer_enabled = reader.get_bool();
+                    textbox.is_timer_enabled = reader.get_bool();
                 }
                 "TMIN" => {
-                    timer_interval = reader.get_u32();
+                    textbox.timer_interval = reader.get_u32();
                 }
                 "NAME" => {
-                    name = reader.get_wide_string();
+                    textbox.name = reader.get_wide_string();
                 }
                 "ALGN" => {
-                    align = reader.get_u32();
+                    textbox.align = reader.get_u32();
                 }
                 "TRNS" => {
-                    is_transparent = reader.get_bool();
+                    textbox.is_transparent = reader.get_bool();
                 }
                 "IDMD" => {
-                    is_dmd = Some(reader.get_bool());
+                    textbox.is_dmd = Some(reader.get_bool());
                 }
 
                 "FONT" => {
-                    font = Font::biff_read(reader);
+                    textbox.font = Font::biff_read(reader);
                 }
                 // shared
                 "LOCK" => {
-                    is_locked = reader.get_bool();
+                    textbox.is_locked = reader.get_bool();
                 }
                 "LAYR" => {
-                    editor_layer = reader.get_u32();
+                    textbox.editor_layer = reader.get_u32();
                 }
                 "LANR" => {
-                    editor_layer_name = Some(reader.get_string());
+                    textbox.editor_layer_name = Some(reader.get_string());
                 }
                 "LVIS" => {
-                    editor_layer_visibility = Some(reader.get_bool());
+                    textbox.editor_layer_visibility = Some(reader.get_bool());
                 }
                 _ => {
                     println!(
@@ -157,25 +233,7 @@ impl BiffRead for TextBox {
                 }
             }
         }
-        Self {
-            ver1,
-            ver2,
-            back_color,
-            font_color,
-            intensity_scale,
-            text,
-            is_timer_enabled,
-            timer_interval,
-            name,
-            align,
-            is_transparent,
-            is_dmd,
-            font,
-            is_locked,
-            editor_layer,
-            editor_layer_name,
-            editor_layer_visibility,
-        }
+        textbox
     }
 }
 

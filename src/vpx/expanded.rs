@@ -11,7 +11,6 @@ use super::collection::{self, Collection};
 use super::font;
 use super::gamedata::GameData;
 use super::gameitem;
-use super::gameitem::bumper;
 use super::sound;
 use super::sound::write_sound;
 use super::version;
@@ -656,14 +655,10 @@ mod test {
 
         let version = Version::new(1074);
 
-        let mut bumper: bumper::Bumper = Faker.fake();
+        let mut bumper: gameitem::bumper::Bumper = Faker.fake();
         bumper.name = "test bumper".to_string();
-        let mut collection: gameitem::collection::Collection = Faker.fake();
-        collection.name = "test collection".to_string();
         let mut decal: gameitem::decal::Decal = Faker.fake();
         decal.name = "test decal".to_string();
-        let dragpoint: gameitem::dragpoint::DragPoint = Faker.fake();
-        let dragpoint2: gameitem::dragpoint::DragPoint = Faker.fake();
         let mut flasher: gameitem::flasher::Flasher = Faker.fake();
         flasher.name = "test flasher".to_string();
         let mut flipper: gameitem::flipper::Flipper = Faker.fake();
@@ -676,14 +671,28 @@ mod test {
         kicker.name = "test kicker".to_string();
         let mut light: gameitem::light::Light = Faker.fake();
         light.name = "test light".to_string();
-        let mut light_center: gameitem::lightcenter::LightCenter = Faker.fake();
-        light_center.name = "test light center".to_string();
         let mut light_sequencer: gameitem::lightsequencer::LightSequencer = Faker.fake();
         light_sequencer.name = "test light sequencer".to_string();
         let mut plunger: gameitem::plunger::Plunger = Faker.fake();
         plunger.name = "test plunger".to_string();
         let mut primitive: gameitem::primitive::Primitive = Faker.fake();
         primitive.name = "test primitive".to_string();
+        let mut ramp: gameitem::ramp::Ramp = Faker.fake();
+        ramp.name = "test ramp".to_string();
+        let mut reel: gameitem::reel::Reel = Faker.fake();
+        reel.name = "test reel".to_string();
+        let mut rubber: gameitem::rubber::Rubber = Faker.fake();
+        rubber.name = "test rubber".to_string();
+        let mut spinner: gameitem::spinner::Spinner = Faker.fake();
+        spinner.name = "test spinner".to_string();
+        let mut textbox: gameitem::textbox::TextBox = Faker.fake();
+        textbox.name = "test textbox".to_string();
+        let mut timer: gameitem::timer::Timer = Faker.fake();
+        timer.name = "test timer".to_string();
+        let mut trigger: gameitem::trigger::Trigger = Faker.fake();
+        trigger.name = "test trigger".to_string();
+        let mut wall: gameitem::wall::Wall = Faker.fake();
+        wall.name = "test wall".to_string();
 
         let vpx = VPX {
             custominfotags: vec!["test prop 2".to_string(), "test prop".to_string()],
@@ -709,21 +718,24 @@ mod test {
             gamedata: Default::default(),
             gameitems: vec![
                 GameItemEnum::Bumper(bumper),
-                GameItemEnum::Collection(collection),
                 GameItemEnum::Decal(decal),
-                GameItemEnum::DragPoint(dragpoint),
-                // TODO since we don't have any unique id for dragpoint we add 2
-                // GameItemEnum::DragPoint(dragpoint2),
                 GameItemEnum::Flasher(flasher),
                 GameItemEnum::Flipper(flipper),
                 GameItemEnum::Gate(gate),
                 GameItemEnum::HitTarget(hittarget),
                 GameItemEnum::Kicker(kicker),
                 GameItemEnum::Light(light),
-                GameItemEnum::LightCenter(light_center),
                 GameItemEnum::LightSequencer(light_sequencer),
                 GameItemEnum::Plunger(plunger),
                 GameItemEnum::Primitive(primitive),
+                GameItemEnum::Ramp(ramp),
+                GameItemEnum::Reel(reel),
+                GameItemEnum::Rubber(rubber),
+                GameItemEnum::Spinner(spinner),
+                GameItemEnum::TextBox(textbox),
+                GameItemEnum::Timer(timer),
+                GameItemEnum::Trigger(trigger),
+                GameItemEnum::Wall(wall),
                 GameItemEnum::Generic(
                     100,
                     gameitem::generic::Generic {

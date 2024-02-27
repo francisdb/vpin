@@ -54,10 +54,6 @@ pub enum GameItemEnum {
     Gate(gate::Gate),
     Spinner(spinner::Spinner),
     Ramp(ramp::Ramp),
-    Table(table::Table),
-    LightCenter(lightcenter::LightCenter),
-    DragPoint(dragpoint::DragPoint),
-    Collection(collection::Collection),
     Reel(reel::Reel),
     LightSequencer(lightsequencer::LightSequencer),
     Primitive(primitive::Primitive),
@@ -83,10 +79,6 @@ impl GameItemEnum {
             GameItemEnum::Gate(gate) => &gate.name,
             GameItemEnum::Spinner(spinner) => &spinner.name,
             GameItemEnum::Ramp(ramp) => &ramp.name,
-            GameItemEnum::Table(table) => &table.name,
-            GameItemEnum::LightCenter(lightcenter) => &lightcenter.name,
-            GameItemEnum::DragPoint(dragpoint) => dragpoint.name(),
-            GameItemEnum::Collection(collection) => &collection.name,
             GameItemEnum::Reel(reel) => &reel.name,
             GameItemEnum::LightSequencer(lightsequencer) => &lightsequencer.name,
             GameItemEnum::Primitive(primitive) => &primitive.name,
@@ -112,10 +104,6 @@ impl GameItemEnum {
             GameItemEnum::Gate(_) => "Gate".to_string(),
             GameItemEnum::Spinner(_) => "Spinner".to_string(),
             GameItemEnum::Ramp(_) => "Ramp".to_string(),
-            GameItemEnum::Table(_) => "Table".to_string(),
-            GameItemEnum::LightCenter(_) => "LightCenter".to_string(),
-            GameItemEnum::DragPoint(_) => "DragPoint".to_string(),
-            GameItemEnum::Collection(_) => "Collection".to_string(),
             GameItemEnum::Reel(_) => "Reel".to_string(),
             GameItemEnum::LightSequencer(_) => "LightSequencer".to_string(),
             GameItemEnum::Primitive(_) => "Primitive".to_string(),
@@ -268,16 +256,10 @@ pub fn read(input: &[u8]) -> GameItemEnum {
         ITEM_TYPE_GATE => GameItemEnum::Gate(gate::Gate::biff_read(&mut reader)),
         ITEM_TYPE_SPINNER => GameItemEnum::Spinner(spinner::Spinner::biff_read(&mut reader)),
         ITEM_TYPE_RAMP => GameItemEnum::Ramp(ramp::Ramp::biff_read(&mut reader)),
-        ITEM_TYPE_TABLE => GameItemEnum::Table(table::Table::biff_read(&mut reader)),
-        ITEM_TYPE_LIGHT_CENTER => {
-            GameItemEnum::LightCenter(lightcenter::LightCenter::biff_read(&mut reader))
-        }
-        ITEM_TYPE_DRAG_POINT => {
-            GameItemEnum::DragPoint(dragpoint::DragPoint::biff_read(&mut reader))
-        }
-        ITEM_TYPE_COLLECTION => {
-            GameItemEnum::Collection(collection::Collection::biff_read(&mut reader))
-        }
+        ITEM_TYPE_TABLE => panic!("Table should not be read on it's own"),
+        ITEM_TYPE_LIGHT_CENTER => panic!("LightCenter should not be read on it's own"),
+        ITEM_TYPE_DRAG_POINT => panic!("DragPoint should not be read on it's own"),
+        ITEM_TYPE_COLLECTION => panic!("Collection should not be read on it's own"),
         ITEM_TYPE_REEL => GameItemEnum::Reel(reel::Reel::biff_read(&mut reader)),
         ITEM_TYPE_LIGHT_SEQUENCER => {
             GameItemEnum::LightSequencer(lightsequencer::LightSequencer::biff_read(&mut reader))
@@ -311,12 +293,6 @@ pub(crate) fn write(gameitem: &GameItemEnum) -> Vec<u8> {
         GameItemEnum::Gate(gate) => write_with_type(ITEM_TYPE_GATE, gate),
         GameItemEnum::Spinner(spinner) => write_with_type(ITEM_TYPE_SPINNER, spinner),
         GameItemEnum::Ramp(ramp) => write_with_type(ITEM_TYPE_RAMP, ramp),
-        // GameItemEnum::Table(table) => write_with_type(ITEM_TYPE_TABLE, table),
-        // GameItemEnum::LightCenter(lightcenter) => {
-        //     write_with_type(ITEM_TYPE_LIGHT_CENTER, lightcenter)
-        // }
-        // GameItemEnum::DragPoint(dragpoint) => write_with_type(ITEM_TYPE_DRAG_POINT, dragpoint),
-        // GameItemEnum::Collection(collection) => write_with_type(ITEM_TYPE_COLLECTION, collection),
         GameItemEnum::Reel(reel) => write_with_type(ITEM_TYPE_REEL, reel),
         GameItemEnum::LightSequencer(lightsequencer) => {
             write_with_type(ITEM_TYPE_LIGHT_SEQUENCER, lightsequencer)

@@ -1,9 +1,10 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::dragpoint::DragPoint;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Dummy)]
 pub struct Ramp {
     pub height_bottom: f32,                  // 1
     pub height_top: f32,                     // 2
@@ -46,6 +47,130 @@ pub struct Ramp {
     pub editor_layer_visibility: Option<bool>,
 }
 
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct RampJson {
+    height_bottom: f32,
+    height_top: f32,
+    width_bottom: f32,
+    width_top: f32,
+    material: String,
+    is_timer_enabled: bool,
+    timer_interval: u32,
+    ramp_type: u32,
+    name: String,
+    image: String,
+    image_alignment: u32,
+    image_walls: bool,
+    left_wall_height: f32,
+    right_wall_height: f32,
+    left_wall_height_visible: f32,
+    right_wall_height_visible: f32,
+    hit_event: Option<bool>,
+    threshold: Option<f32>,
+    elasticity: f32,
+    friction: f32,
+    scatter: f32,
+    is_collidable: bool,
+    is_visible: bool,
+    depth_bias: f32,
+    wire_diameter: f32,
+    wire_distance_x: f32,
+    wire_distance_y: f32,
+    is_reflection_enabled: Option<bool>,
+    physics_material: Option<String>,
+    overwrite_physics: Option<bool>, // true;
+
+    drag_points: Vec<DragPoint>,
+
+    // these are shared between all items
+    is_locked: bool,
+    editor_layer: u32,
+    editor_layer_name: Option<String>,
+    editor_layer_visibility: Option<bool>,
+}
+
+impl RampJson {
+    fn from_ramp(ramp: &Ramp) -> Self {
+        Self {
+            height_bottom: ramp.height_bottom,
+            height_top: ramp.height_top,
+            width_bottom: ramp.width_bottom,
+            width_top: ramp.width_top,
+            material: ramp.material.clone(),
+            is_timer_enabled: ramp.is_timer_enabled,
+            timer_interval: ramp.timer_interval,
+            ramp_type: ramp.ramp_type,
+            name: ramp.name.clone(),
+            image: ramp.image.clone(),
+            image_alignment: ramp.image_alignment,
+            image_walls: ramp.image_walls,
+            left_wall_height: ramp.left_wall_height,
+            right_wall_height: ramp.right_wall_height,
+            left_wall_height_visible: ramp.left_wall_height_visible,
+            right_wall_height_visible: ramp.right_wall_height_visible,
+            hit_event: ramp.hit_event,
+            threshold: ramp.threshold,
+            elasticity: ramp.elasticity,
+            friction: ramp.friction,
+            scatter: ramp.scatter,
+            is_collidable: ramp.is_collidable,
+            is_visible: ramp.is_visible,
+            depth_bias: ramp.depth_bias,
+            wire_diameter: ramp.wire_diameter,
+            wire_distance_x: ramp.wire_distance_x,
+            wire_distance_y: ramp.wire_distance_y,
+            is_reflection_enabled: ramp.is_reflection_enabled,
+            physics_material: ramp.physics_material.clone(),
+            overwrite_physics: ramp.overwrite_physics,
+            drag_points: ramp.drag_points.clone(),
+            is_locked: ramp.is_locked,
+            editor_layer: ramp.editor_layer,
+            editor_layer_name: ramp.editor_layer_name.clone(),
+            editor_layer_visibility: ramp.editor_layer_visibility,
+        }
+    }
+
+    fn to_ramp(&self) -> Ramp {
+        Ramp {
+            height_bottom: self.height_bottom,
+            height_top: self.height_top,
+            width_bottom: self.width_bottom,
+            width_top: self.width_top,
+            material: self.material.clone(),
+            is_timer_enabled: self.is_timer_enabled,
+            timer_interval: self.timer_interval,
+            ramp_type: self.ramp_type,
+            name: self.name.clone(),
+            image: self.image.clone(),
+            image_alignment: self.image_alignment,
+            image_walls: self.image_walls,
+            left_wall_height: self.left_wall_height,
+            right_wall_height: self.right_wall_height,
+            left_wall_height_visible: self.left_wall_height_visible,
+            right_wall_height_visible: self.right_wall_height_visible,
+            hit_event: self.hit_event,
+            threshold: self.threshold,
+            elasticity: self.elasticity,
+            friction: self.friction,
+            scatter: self.scatter,
+            is_collidable: self.is_collidable,
+            is_visible: self.is_visible,
+            depth_bias: self.depth_bias,
+            wire_diameter: self.wire_diameter,
+            wire_distance_x: self.wire_distance_x,
+            wire_distance_y: self.wire_distance_y,
+            is_reflection_enabled: self.is_reflection_enabled,
+            physics_material: self.physics_material.clone(),
+            overwrite_physics: self.overwrite_physics,
+            drag_points: self.drag_points.clone(),
+            is_locked: self.is_locked,
+            editor_layer: self.editor_layer,
+            editor_layer_name: self.editor_layer_name.clone(),
+            editor_layer_visibility: self.editor_layer_visibility,
+        }
+    }
+}
+
 impl Ramp {
     pub const RAMP_IMAGE_ALIGNMENT_MODE_WORLD: u32 = 0;
     pub const RAMP_IMAGE_ALIGNMENT_MODE_WRAP: u32 = 1;
@@ -63,7 +188,7 @@ impl Serialize for Ramp {
     where
         S: Serializer,
     {
-        todo!()
+        RampJson::from_ramp(self).serialize(serializer)
     }
 }
 
@@ -72,50 +197,56 @@ impl<'de> Deserialize<'de> for Ramp {
     where
         D: Deserializer<'de>,
     {
-        todo!()
+        let ramp_json = RampJson::deserialize(deserializer)?;
+        Ok(ramp_json.to_ramp())
+    }
+}
+
+impl Default for Ramp {
+    fn default() -> Self {
+        Self {
+            height_bottom: 0.0,
+            height_top: 50.0,
+            width_bottom: 75.0,
+            width_top: 60.0,
+            material: Default::default(),
+            is_timer_enabled: Default::default(),
+            timer_interval: Default::default(),
+            ramp_type: Ramp::RAMP_TYPE_FLAT,
+            name: Default::default(),
+            image: Default::default(),
+            image_alignment: Ramp::RAMP_IMAGE_ALIGNMENT_MODE_WORLD,
+            image_walls: true,
+            left_wall_height: 62.0,
+            right_wall_height: 62.0,
+            left_wall_height_visible: 30.0,
+            right_wall_height_visible: 30.0,
+            hit_event: None,
+            threshold: None,
+            elasticity: Default::default(),
+            friction: Default::default(),
+            scatter: Default::default(),
+            is_collidable: true,
+            is_visible: true,
+            depth_bias: 0.0,
+            wire_diameter: 8.0,
+            wire_distance_x: 38.0,
+            wire_distance_y: 88.0,
+            is_reflection_enabled: None, // true,
+            physics_material: None,
+            overwrite_physics: None, // true;
+            drag_points: Default::default(),
+            is_locked: false,
+            editor_layer: Default::default(),
+            editor_layer_name: None,
+            editor_layer_visibility: None,
+        }
     }
 }
 
 impl BiffRead for Ramp {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
-        let mut height_bottom: f32 = 0.0;
-        let mut height_top: f32 = 50.0;
-        let mut width_bottom: f32 = 75.0;
-        let mut width_top: f32 = 60.0;
-        let mut material: String = Default::default();
-        let mut is_timer_enabled: bool = Default::default();
-        let mut timer_interval: u32 = Default::default();
-        let mut ramp_type: u32 = Ramp::RAMP_TYPE_FLAT;
-        let mut name = Default::default();
-        let mut image = Default::default();
-        let mut image_alignment: u32 = Ramp::RAMP_IMAGE_ALIGNMENT_MODE_WORLD;
-        let mut image_walls: bool = true;
-        let mut left_wall_height: f32 = 62.0;
-        let mut right_wall_height: f32 = 62.0;
-        let mut left_wall_height_visible: f32 = 30.0;
-        let mut right_wall_height_visible: f32 = 30.0;
-        let mut hit_event: Option<bool> = None;
-        let mut threshold: Option<f32> = None;
-        let mut elasticity: f32 = Default::default();
-        let mut friction: f32 = Default::default();
-        let mut scatter: f32 = Default::default();
-        let mut is_collidable: bool = true;
-        let mut is_visible: bool = true;
-        let mut depth_bias: f32 = 0.0;
-        let mut wire_diameter: f32 = 8.0;
-        let mut wire_distance_x: f32 = 38.0;
-        let mut wire_distance_y: f32 = 88.0;
-        let mut is_reflection_enabled: Option<bool> = None; // true
-        let mut physics_material: Option<String> = None;
-        let mut overwrite_physics: Option<bool> = None; // true;
-
-        let mut drag_points: Vec<DragPoint> = Default::default();
-
-        // these are shared between all items
-        let mut is_locked: bool = false;
-        let mut editor_layer: u32 = Default::default();
-        let mut editor_layer_name: Option<String> = None;
-        let mut editor_layer_visibility: Option<bool> = None;
+        let mut ramp = Ramp::default();
 
         loop {
             reader.next(biff::WARN);
@@ -126,118 +257,118 @@ impl BiffRead for Ramp {
             let tag_str = tag.as_str();
             match tag_str {
                 "HTBT" => {
-                    height_bottom = reader.get_f32();
+                    ramp.height_bottom = reader.get_f32();
                 }
                 "HTTP" => {
-                    height_top = reader.get_f32();
+                    ramp.height_top = reader.get_f32();
                 }
                 "WDBT" => {
-                    width_bottom = reader.get_f32();
+                    ramp.width_bottom = reader.get_f32();
                 }
                 "WDTP" => {
-                    width_top = reader.get_f32();
+                    ramp.width_top = reader.get_f32();
                 }
                 "MATR" => {
-                    material = reader.get_string();
+                    ramp.material = reader.get_string();
                 }
                 "TMON" => {
-                    is_timer_enabled = reader.get_bool();
+                    ramp.is_timer_enabled = reader.get_bool();
                 }
                 "TMIN" => {
-                    timer_interval = reader.get_u32();
+                    ramp.timer_interval = reader.get_u32();
                 }
                 "TYPE" => {
-                    ramp_type = reader.get_u32();
+                    ramp.ramp_type = reader.get_u32();
                 }
                 "NAME" => {
-                    name = reader.get_wide_string();
+                    ramp.name = reader.get_wide_string();
                 }
                 "IMAG" => {
-                    image = reader.get_string();
+                    ramp.image = reader.get_string();
                 }
                 "ALGN" => {
-                    image_alignment = reader.get_u32();
+                    ramp.image_alignment = reader.get_u32();
                 }
                 "IMGW" => {
-                    image_walls = reader.get_bool();
+                    ramp.image_walls = reader.get_bool();
                 }
                 "WLHL" => {
-                    left_wall_height = reader.get_f32();
+                    ramp.left_wall_height = reader.get_f32();
                 }
                 "WLHR" => {
-                    right_wall_height = reader.get_f32();
+                    ramp.right_wall_height = reader.get_f32();
                 }
                 "WVHL" => {
-                    left_wall_height_visible = reader.get_f32();
+                    ramp.left_wall_height_visible = reader.get_f32();
                 }
                 "WVHR" => {
-                    right_wall_height_visible = reader.get_f32();
+                    ramp.right_wall_height_visible = reader.get_f32();
                 }
                 "HTEV" => {
-                    hit_event = Some(reader.get_bool());
+                    ramp.hit_event = Some(reader.get_bool());
                 }
                 "THRS" => {
-                    threshold = Some(reader.get_f32());
+                    ramp.threshold = Some(reader.get_f32());
                 }
                 "ELAS" => {
-                    elasticity = reader.get_f32();
+                    ramp.elasticity = reader.get_f32();
                 }
                 "RFCT" => {
-                    friction = reader.get_f32();
+                    ramp.friction = reader.get_f32();
                 }
                 "RSCT" => {
-                    scatter = reader.get_f32();
+                    ramp.scatter = reader.get_f32();
                 }
                 "CLDR" => {
-                    is_collidable = reader.get_bool();
+                    ramp.is_collidable = reader.get_bool();
                 }
                 "RVIS" => {
-                    is_visible = reader.get_bool();
+                    ramp.is_visible = reader.get_bool();
                 }
                 "RAMP" => {
-                    ramp_type = reader.get_u32();
+                    ramp.ramp_type = reader.get_u32();
                 }
                 "RADB" => {
-                    depth_bias = reader.get_f32();
+                    ramp.depth_bias = reader.get_f32();
                 }
                 "RADI" => {
-                    wire_diameter = reader.get_f32();
+                    ramp.wire_diameter = reader.get_f32();
                 }
                 "RADX" => {
-                    wire_distance_x = reader.get_f32();
+                    ramp.wire_distance_x = reader.get_f32();
                 }
                 "RADY" => {
-                    wire_distance_y = reader.get_f32();
+                    ramp.wire_distance_y = reader.get_f32();
                 }
                 "REEN" => {
-                    is_reflection_enabled = Some(reader.get_bool());
+                    ramp.is_reflection_enabled = Some(reader.get_bool());
                 }
                 "MAPH" => {
-                    physics_material = Some(reader.get_string());
+                    ramp.physics_material = Some(reader.get_string());
                 }
                 "OVPH" => {
-                    overwrite_physics = Some(reader.get_bool());
+                    ramp.overwrite_physics = Some(reader.get_bool());
                 }
                 "PNTS" => {
                     // this is just a tag with no data
                 }
                 "DPNT" => {
                     let point = DragPoint::biff_read(reader);
-                    drag_points.push(point);
+                    ramp.drag_points.push(point);
                 }
 
                 // shared
                 "LOCK" => {
-                    is_locked = reader.get_bool();
+                    ramp.is_locked = reader.get_bool();
                 }
                 "LAYR" => {
-                    editor_layer = reader.get_u32();
+                    ramp.editor_layer = reader.get_u32();
                 }
                 "LANR" => {
-                    editor_layer_name = Some(reader.get_string());
+                    ramp.editor_layer_name = Some(reader.get_string());
                 }
                 "LVIS" => {
-                    editor_layer_visibility = Some(reader.get_bool());
+                    ramp.editor_layer_visibility = Some(reader.get_bool());
                 }
                 _ => {
                     println!(
@@ -249,43 +380,7 @@ impl BiffRead for Ramp {
                 }
             }
         }
-        Ramp {
-            height_bottom,
-            height_top,
-            width_bottom,
-            width_top,
-            material,
-            is_timer_enabled,
-            timer_interval,
-            ramp_type,
-            name,
-            image,
-            image_alignment,
-            image_walls,
-            left_wall_height,
-            right_wall_height,
-            left_wall_height_visible,
-            right_wall_height_visible,
-            hit_event,
-            threshold,
-            elasticity,
-            friction,
-            scatter,
-            is_collidable,
-            is_visible,
-            depth_bias,
-            wire_diameter,
-            wire_distance_x,
-            wire_distance_y,
-            is_reflection_enabled,
-            physics_material,
-            overwrite_physics,
-            drag_points,
-            is_locked,
-            editor_layer,
-            editor_layer_name,
-            editor_layer_visibility,
-        }
+        ramp
     }
 }
 

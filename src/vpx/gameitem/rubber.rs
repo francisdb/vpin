@@ -1,9 +1,10 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::dragpoint::DragPoint;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Dummy)]
 pub struct Rubber {
     pub height: f32,
     pub hit_height: Option<f32>, // HTHI (added in 10.?)
@@ -41,8 +42,106 @@ pub struct Rubber {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-struct RubberJsn {
+struct RubberJson {
+    height: f32,
+    hit_height: Option<f32>,
+    thickness: i32,
+    hit_event: bool,
+    material: String,
+    is_timer_enabled: bool,
+    timer_interval: i32,
     name: String,
+    image: String,
+    elasticity: f32,
+    elasticity_falloff: f32,
+    friction: f32,
+    scatter: f32,
+    is_collidable: bool,
+    is_visible: bool,
+    radb: Option<f32>,
+    static_rendering: bool,
+    show_in_editor: bool,
+    rot_x: f32,
+    rot_y: f32,
+    rot_z: f32,
+    is_reflection_enabled: Option<bool>,
+    physics_material: Option<String>,
+    overwrite_physics: Option<bool>,
+    is_locked: bool,
+    editor_layer: u32,
+    editor_layer_name: Option<String>,
+    editor_layer_visibility: Option<bool>,
+    points: Vec<DragPoint>,
+}
+
+impl RubberJson {
+    fn from_rubber(rubber: &Rubber) -> Self {
+        RubberJson {
+            height: rubber.height,
+            hit_height: rubber.hit_height,
+            thickness: rubber.thickness,
+            hit_event: rubber.hit_event,
+            material: rubber.material.clone(),
+            is_timer_enabled: rubber.is_timer_enabled,
+            timer_interval: rubber.timer_interval,
+            name: rubber.name.clone(),
+            image: rubber.image.clone(),
+            elasticity: rubber.elasticity,
+            elasticity_falloff: rubber.elasticity_falloff,
+            friction: rubber.friction,
+            scatter: rubber.scatter,
+            is_collidable: rubber.is_collidable,
+            is_visible: rubber.is_visible,
+            radb: rubber.radb,
+            static_rendering: rubber.static_rendering,
+            show_in_editor: rubber.show_in_editor,
+            rot_x: rubber.rot_x,
+            rot_y: rubber.rot_y,
+            rot_z: rubber.rot_z,
+            is_reflection_enabled: rubber.is_reflection_enabled,
+            physics_material: rubber.physics_material.clone(),
+            overwrite_physics: rubber.overwrite_physics,
+            is_locked: rubber.is_locked,
+            editor_layer: rubber.editor_layer,
+            editor_layer_name: rubber.editor_layer_name.clone(),
+            editor_layer_visibility: rubber.editor_layer_visibility,
+            points: rubber.points.clone(),
+        }
+    }
+
+    fn to_rubber(&self) -> Rubber {
+        Rubber {
+            height: self.height,
+            hit_height: self.hit_height,
+            thickness: self.thickness,
+            hit_event: self.hit_event,
+            material: self.material.clone(),
+            is_timer_enabled: self.is_timer_enabled,
+            timer_interval: self.timer_interval,
+            name: self.name.clone(),
+            image: self.image.clone(),
+            elasticity: self.elasticity,
+            elasticity_falloff: self.elasticity_falloff,
+            friction: self.friction,
+            scatter: self.scatter,
+            is_collidable: self.is_collidable,
+            is_visible: self.is_visible,
+            radb: self.radb,
+            static_rendering: self.static_rendering,
+            show_in_editor: self.show_in_editor,
+            rot_x: self.rot_x,
+            rot_y: self.rot_y,
+            rot_z: self.rot_z,
+            is_reflection_enabled: self.is_reflection_enabled,
+            physics_material: self.physics_material.clone(),
+            overwrite_physics: self.overwrite_physics,
+            is_locked: self.is_locked,
+            editor_layer: self.editor_layer,
+            editor_layer_name: self.editor_layer_name.clone(),
+            editor_layer_visibility: self.editor_layer_visibility,
+            points: self.points.clone(),
+        }
+    }
 }
 
 impl Default for Rubber {
@@ -118,10 +217,7 @@ impl Serialize for Rubber {
     where
         S: Serializer,
     {
-        RubberJsn {
-            name: self.name.clone(),
-        }
-        .serialize(serializer)
+        RubberJson::from_rubber(self).serialize(serializer)
     }
 }
 
@@ -130,10 +226,8 @@ impl<'de> Deserialize<'de> for Rubber {
     where
         D: Deserializer<'de>,
     {
-        let json = RubberJsn::deserialize(deserializer)?;
-        let mut rubber = Rubber::default();
-        rubber.name = json.name;
-        Ok(rubber)
+        let rubber_json = RubberJson::deserialize(deserializer)?;
+        Ok(rubber_json.to_rubber())
     }
 }
 

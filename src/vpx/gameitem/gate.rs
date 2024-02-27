@@ -1,9 +1,71 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::vertex2d::Vertex2D;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Dummy)]
+pub enum GateType {
+    WireW = 1,
+    WireRectangle = 2,
+    Plate = 3,
+    LongPlate = 4,
+}
+
+impl From<u32> for GateType {
+    fn from(value: u32) -> Self {
+        match value {
+            1 => GateType::WireW,
+            2 => GateType::WireRectangle,
+            3 => GateType::Plate,
+            4 => GateType::LongPlate,
+            _ => panic!("Unknown GateType: {}", value),
+        }
+    }
+}
+
+impl From<GateType> for u32 {
+    fn from(gate_type: GateType) -> Self {
+        match gate_type {
+            GateType::WireW => 1,
+            GateType::WireRectangle => 2,
+            GateType::Plate => 3,
+            GateType::LongPlate => 4,
+        }
+    }
+}
+
+impl Serialize for GateType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            GateType::WireW => serializer.serialize_str("WireW"),
+            GateType::WireRectangle => serializer.serialize_str("WireRectangle"),
+            GateType::Plate => serializer.serialize_str("Plate"),
+            GateType::LongPlate => serializer.serialize_str("LongPlate"),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for GateType {
+    fn deserialize<D>(deserializer: D) -> Result<GateType, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        match s.as_str() {
+            "WireW" => Ok(GateType::WireW),
+            "WireRectangle" => Ok(GateType::WireRectangle),
+            "Plate" => Ok(GateType::Plate),
+            "LongPlate" => Ok(GateType::LongPlate),
+            _ => Err(serde::de::Error::custom(format!("Unknown GateType: {}", s))),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Dummy)]
 pub struct Gate {
     pub center: Vertex2D,                    // 1 VCEN
     pub length: f32,                         // 2 LGTH
