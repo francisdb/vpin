@@ -1,9 +1,10 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::vertex2d::Vertex2D;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Dummy)]
 pub struct LightSequencer {
     center: Vertex2D,
     collection: String,
@@ -25,12 +26,66 @@ pub struct LightSequencer {
     pub editor_layer_visibility: Option<bool>, // LVIS (added in 10.7?)
 }
 
+#[derive(Serialize, Deserialize)]
+struct LightSequencerJson {
+    center: Vertex2D,
+    collection: String,
+    pos_x: f32,
+    pos_y: f32,
+    update_interval: u32,
+    is_timer_enabled: bool,
+    timer_interval: u32,
+    name: String,
+    backglass: bool,
+    is_locked: Option<bool>,
+    editor_layer: Option<u32>,
+    editor_layer_name: Option<String>,
+    editor_layer_visibility: Option<bool>,
+}
+
+impl LightSequencerJson {
+    pub fn from_light_sequencer(light_sequencer: &LightSequencer) -> Self {
+        Self {
+            center: light_sequencer.center,
+            collection: light_sequencer.collection.clone(),
+            pos_x: light_sequencer.pos_x,
+            pos_y: light_sequencer.pos_y,
+            update_interval: light_sequencer.update_interval,
+            is_timer_enabled: light_sequencer.is_timer_enabled,
+            timer_interval: light_sequencer.timer_interval,
+            name: light_sequencer.name.clone(),
+            backglass: light_sequencer.backglass,
+            is_locked: light_sequencer.is_locked,
+            editor_layer: light_sequencer.editor_layer,
+            editor_layer_name: light_sequencer.editor_layer_name.clone(),
+            editor_layer_visibility: light_sequencer.editor_layer_visibility,
+        }
+    }
+    pub fn to_light_sequencer(&self) -> LightSequencer {
+        LightSequencer {
+            center: self.center,
+            collection: self.collection.clone(),
+            pos_x: self.pos_x,
+            pos_y: self.pos_y,
+            update_interval: self.update_interval,
+            is_timer_enabled: self.is_timer_enabled,
+            timer_interval: self.timer_interval,
+            name: self.name.clone(),
+            backglass: self.backglass,
+            is_locked: self.is_locked,
+            editor_layer: self.editor_layer,
+            editor_layer_name: self.editor_layer_name.clone(),
+            editor_layer_visibility: self.editor_layer_visibility,
+        }
+    }
+}
+
 impl Serialize for LightSequencer {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        todo!()
+        LightSequencerJson::from_light_sequencer(self).serialize(serializer)
     }
 }
 
@@ -39,28 +94,34 @@ impl<'de> Deserialize<'de> for LightSequencer {
     where
         D: Deserializer<'de>,
     {
-        todo!()
+        let json = LightSequencerJson::deserialize(deserializer)?;
+        Ok(json.to_light_sequencer())
+    }
+}
+
+impl Default for LightSequencer {
+    fn default() -> Self {
+        Self {
+            center: Vertex2D::default(),
+            collection: Default::default(),
+            pos_x: Default::default(),
+            pos_y: Default::default(),
+            update_interval: 25,
+            is_timer_enabled: false,
+            timer_interval: 0,
+            name: Default::default(),
+            backglass: false,
+            is_locked: None,
+            editor_layer: None,
+            editor_layer_name: None,
+            editor_layer_visibility: None,
+        }
     }
 }
 
 impl BiffRead for LightSequencer {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
-        let mut center = Vertex2D::default();
-        let mut collection = Default::default();
-        let mut pos_x: f32 = Default::default();
-        let mut pos_y: f32 = Default::default();
-        let mut update_interval: u32 = 25;
-        let mut is_timer_enabled: bool = false;
-        let mut timer_interval: u32 = 0;
-        let mut name = Default::default();
-        let mut backglass: bool = false;
-
-        // these are shared between all items
-        let mut is_locked: Option<bool> = None; //false;
-        let mut editor_layer: Option<u32> = None;
-        let mut editor_layer_name: Option<String> = None;
-        let mut editor_layer_visibility: Option<bool> = None;
-
+        let mut light_sequencer = LightSequencer::default();
         loop {
             reader.next(biff::WARN);
             if reader.is_eof() {
@@ -70,45 +131,45 @@ impl BiffRead for LightSequencer {
             let tag_str = tag.as_str();
             match tag_str {
                 "VCEN" => {
-                    center = Vertex2D::biff_read(reader);
+                    light_sequencer.center = Vertex2D::biff_read(reader);
                 }
                 "COLC" => {
-                    collection = reader.get_wide_string();
+                    light_sequencer.collection = reader.get_wide_string();
                 }
                 "CTRX" => {
-                    pos_x = reader.get_f32();
+                    light_sequencer.pos_x = reader.get_f32();
                 }
                 "CTRY" => {
-                    pos_y = reader.get_f32();
+                    light_sequencer.pos_y = reader.get_f32();
                 }
                 "UPTM" => {
-                    update_interval = reader.get_u32();
+                    light_sequencer.update_interval = reader.get_u32();
                 }
                 "TMON" => {
-                    is_timer_enabled = reader.get_bool();
+                    light_sequencer.is_timer_enabled = reader.get_bool();
                 }
                 "TMIN" => {
-                    timer_interval = reader.get_u32();
+                    light_sequencer.timer_interval = reader.get_u32();
                 }
                 "NAME" => {
-                    name = reader.get_wide_string();
+                    light_sequencer.name = reader.get_wide_string();
                 }
                 "BGLS" => {
-                    backglass = reader.get_bool();
+                    light_sequencer.backglass = reader.get_bool();
                 }
 
                 // shared
                 "LOCK" => {
-                    is_locked = Some(reader.get_bool());
+                    light_sequencer.is_locked = Some(reader.get_bool());
                 }
                 "LAYR" => {
-                    editor_layer = Some(reader.get_u32());
+                    light_sequencer.editor_layer = Some(reader.get_u32());
                 }
                 "LANR" => {
-                    editor_layer_name = Some(reader.get_string());
+                    light_sequencer.editor_layer_name = Some(reader.get_string());
                 }
                 "LVIS" => {
-                    editor_layer_visibility = Some(reader.get_bool());
+                    light_sequencer.editor_layer_visibility = Some(reader.get_bool());
                 }
                 _ => {
                     println!(
@@ -120,21 +181,7 @@ impl BiffRead for LightSequencer {
                 }
             }
         }
-        Self {
-            center,
-            collection,
-            pos_x,
-            pos_y,
-            update_interval,
-            is_timer_enabled,
-            timer_interval,
-            name,
-            backglass,
-            is_locked,
-            editor_layer,
-            editor_layer_name,
-            editor_layer_visibility,
-        }
+        light_sequencer
     }
 }
 

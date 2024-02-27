@@ -1,9 +1,10 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use fake::Dummy;
 use serde::{Deserialize, Serialize};
 
 use super::vertex3d::Vertex3D;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Dummy)]
 pub struct HitTarget {
     pub position: Vertex3D,
     pub size: Vertex3D,
@@ -119,7 +120,114 @@ impl Default for HitTarget {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct HitTargetJson {
+    position: Vertex3D,
+    size: Vertex3D,
+    rot_z: f32,
+    image: String,
+    target_type: i32,
     name: String,
+    material: String,
+    is_visible: bool,
+    is_legacy: bool,
+    use_hit_event: bool,
+    threshold: f32,
+    elasticity: f32,
+    elasticity_falloff: f32,
+    friction: f32,
+    scatter: f32,
+    is_collidable: bool,
+    disable_lighting_top_old: Option<f32>,
+    disable_lighting_top: Option<f32>,
+    disable_lighting_below: Option<f32>,
+    depth_bias: f32,
+    is_reflection_enabled: bool,
+    is_dropped: bool,
+    drop_speed: f32,
+    is_timer_enabled: bool,
+    timer_interval: u32,
+    raise_delay: Option<u32>,
+    physics_material: Option<String>,
+    overwrite_physics: Option<bool>,
+    is_locked: bool,
+    editor_layer: u32,
+    editor_layer_name: Option<String>,
+    editor_layer_visibility: Option<bool>,
+}
+
+impl HitTargetJson {
+    fn from_hit_target(hit_target: &HitTarget) -> Self {
+        Self {
+            position: hit_target.position,
+            size: hit_target.size,
+            rot_z: hit_target.rot_z,
+            image: hit_target.image.clone(),
+            target_type: hit_target.target_type,
+            name: hit_target.name.clone(),
+            material: hit_target.material.clone(),
+            is_visible: hit_target.is_visible,
+            is_legacy: hit_target.is_legacy,
+            use_hit_event: hit_target.use_hit_event,
+            threshold: hit_target.threshold,
+            elasticity: hit_target.elasticity,
+            elasticity_falloff: hit_target.elasticity_falloff,
+            friction: hit_target.friction,
+            scatter: hit_target.scatter,
+            is_collidable: hit_target.is_collidable,
+            disable_lighting_top_old: hit_target.disable_lighting_top_old,
+            disable_lighting_top: hit_target.disable_lighting_top,
+            disable_lighting_below: hit_target.disable_lighting_below,
+            depth_bias: hit_target.depth_bias,
+            is_reflection_enabled: hit_target.is_reflection_enabled,
+            is_dropped: hit_target.is_dropped,
+            drop_speed: hit_target.drop_speed,
+            is_timer_enabled: hit_target.is_timer_enabled,
+            timer_interval: hit_target.timer_interval,
+            raise_delay: hit_target.raise_delay,
+            physics_material: hit_target.physics_material.clone(),
+            overwrite_physics: hit_target.overwrite_physics,
+            is_locked: hit_target.is_locked,
+            editor_layer: hit_target.editor_layer,
+            editor_layer_name: hit_target.editor_layer_name.clone(),
+            editor_layer_visibility: hit_target.editor_layer_visibility,
+        }
+    }
+
+    fn to_hit_target(&self) -> HitTarget {
+        HitTarget {
+            position: self.position,
+            size: self.size,
+            rot_z: self.rot_z,
+            image: self.image.clone(),
+            target_type: self.target_type,
+            name: self.name.clone(),
+            material: self.material.clone(),
+            is_visible: self.is_visible,
+            is_legacy: self.is_legacy,
+            use_hit_event: self.use_hit_event,
+            threshold: self.threshold,
+            elasticity: self.elasticity,
+            elasticity_falloff: self.elasticity_falloff,
+            friction: self.friction,
+            scatter: self.scatter,
+            is_collidable: self.is_collidable,
+            disable_lighting_top_old: self.disable_lighting_top_old,
+            disable_lighting_top: self.disable_lighting_top,
+            disable_lighting_below: self.disable_lighting_below,
+            depth_bias: self.depth_bias,
+            is_reflection_enabled: self.is_reflection_enabled,
+            is_dropped: self.is_dropped,
+            drop_speed: self.drop_speed,
+            is_timer_enabled: self.is_timer_enabled,
+            timer_interval: self.timer_interval,
+            raise_delay: self.raise_delay,
+            physics_material: self.physics_material.clone(),
+            overwrite_physics: self.overwrite_physics,
+            is_locked: self.is_locked,
+            editor_layer: self.editor_layer,
+            editor_layer_name: self.editor_layer_name.clone(),
+            editor_layer_visibility: self.editor_layer_visibility,
+        }
+    }
 }
 
 impl Serialize for HitTarget {
@@ -127,10 +235,7 @@ impl Serialize for HitTarget {
     where
         S: serde::Serializer,
     {
-        HitTargetJson {
-            name: self.name.clone(),
-        }
-        .serialize(serializer)
+        HitTargetJson::from_hit_target(self).serialize(serializer)
     }
 }
 
@@ -140,9 +245,7 @@ impl<'de> Deserialize<'de> for HitTarget {
         D: serde::Deserializer<'de>,
     {
         let json = HitTargetJson::deserialize(deserializer)?;
-        let mut hit_target = HitTarget::default();
-        hit_target.name = json.name;
-        Ok(hit_target)
+        Ok(json.to_hit_target())
     }
 }
 

@@ -1,12 +1,14 @@
+use crate::vpx::color::ColorJson;
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
 };
+use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{dragpoint::DragPoint, vertex2d::Vertex2D};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Dummy)]
 pub struct Light {
     pub center: Vertex2D,
     // VCEN
@@ -82,12 +84,139 @@ pub struct Light {
     pub drag_points: Vec<DragPoint>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct LightJson {
+    center: Vertex2D,
+    height: Option<f32>,
+    falloff_radius: f32,
+    falloff_power: f32,
+    status: u32,
+    state: Option<f32>,
+    color: ColorJson,
+    color2: ColorJson,
+    is_timer_enabled: bool,
+    timer_interval: u32,
+    blink_pattern: String,
+    off_image: String,
+    blink_interval: u32,
+    intensity: f32,
+    transmission_scale: f32,
+    surface: String,
+    name: String,
+    is_backglass: bool,
+    depth_bias: f32,
+    fade_speed_up: f32,
+    fade_speed_down: f32,
+    is_bulb_light: bool,
+    is_image_mode: bool,
+    show_bulb_mesh: bool,
+    has_static_bulb_mesh: Option<bool>,
+    show_reflection_on_ball: bool,
+    mesh_radius: f32,
+    bulb_modulate_vs_add: f32,
+    bulb_halo_height: f32,
+    shadows: Option<u32>,
+    fader: Option<u32>,
+    visible: Option<bool>,
+    is_locked: bool,
+    editor_layer: u32,
+    editor_layer_name: Option<String>,
+    editor_layer_visibility: Option<bool>,
+    drag_points: Vec<DragPoint>,
+}
+
+impl LightJson {
+    fn from_light(light: &Light) -> Self {
+        Self {
+            center: light.center,
+            height: light.height,
+            falloff_radius: light.falloff_radius,
+            falloff_power: light.falloff_power,
+            status: light.status,
+            state: light.state,
+            color: ColorJson::from_color(&light.color),
+            color2: ColorJson::from_color(&light.color2),
+            is_timer_enabled: light.is_timer_enabled,
+            timer_interval: light.timer_interval,
+            blink_pattern: light.blink_pattern.clone(),
+            off_image: light.off_image.clone(),
+            blink_interval: light.blink_interval,
+            intensity: light.intensity,
+            transmission_scale: light.transmission_scale,
+            surface: light.surface.clone(),
+            name: light.name.clone(),
+            is_backglass: light.is_backglass,
+            depth_bias: light.depth_bias,
+            fade_speed_up: light.fade_speed_up,
+            fade_speed_down: light.fade_speed_down,
+            is_bulb_light: light.is_bulb_light,
+            is_image_mode: light.is_image_mode,
+            show_bulb_mesh: light.show_bulb_mesh,
+            has_static_bulb_mesh: light.has_static_bulb_mesh,
+            show_reflection_on_ball: light.show_reflection_on_ball,
+            mesh_radius: light.mesh_radius,
+            bulb_modulate_vs_add: light.bulb_modulate_vs_add,
+            bulb_halo_height: light.bulb_halo_height,
+            shadows: light.shadows,
+            fader: light.fader,
+            visible: light.visible,
+            is_locked: light.is_locked,
+            editor_layer: light.editor_layer,
+            editor_layer_name: light.editor_layer_name.clone(),
+            editor_layer_visibility: light.editor_layer_visibility,
+            drag_points: light.drag_points.clone(),
+        }
+    }
+
+    fn to_light(&self) -> Light {
+        Light {
+            center: self.center,
+            height: self.height,
+            falloff_radius: self.falloff_radius,
+            falloff_power: self.falloff_power,
+            status: self.status,
+            state: self.state,
+            color: self.color.to_color(),
+            color2: self.color2.to_color(),
+            is_timer_enabled: self.is_timer_enabled,
+            timer_interval: self.timer_interval,
+            blink_pattern: self.blink_pattern.clone(),
+            off_image: self.off_image.clone(),
+            blink_interval: self.blink_interval,
+            intensity: self.intensity,
+            transmission_scale: self.transmission_scale,
+            surface: self.surface.clone(),
+            name: self.name.clone(),
+            is_backglass: self.is_backglass,
+            depth_bias: self.depth_bias,
+            fade_speed_up: self.fade_speed_up,
+            fade_speed_down: self.fade_speed_down,
+            is_bulb_light: self.is_bulb_light,
+            is_image_mode: self.is_image_mode,
+            show_bulb_mesh: self.show_bulb_mesh,
+            has_static_bulb_mesh: self.has_static_bulb_mesh,
+            show_reflection_on_ball: self.show_reflection_on_ball,
+            mesh_radius: self.mesh_radius,
+            bulb_modulate_vs_add: self.bulb_modulate_vs_add,
+            bulb_halo_height: self.bulb_halo_height,
+            shadows: self.shadows,
+            fader: self.fader,
+            visible: self.visible,
+            is_locked: self.is_locked,
+            editor_layer: self.editor_layer,
+            editor_layer_name: self.editor_layer_name.clone(),
+            editor_layer_visibility: self.editor_layer_visibility,
+            drag_points: self.drag_points.clone(),
+        }
+    }
+}
+
 impl Serialize for Light {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        todo!()
+        LightJson::from_light(self).serialize(serializer)
     }
 }
 
@@ -96,7 +225,8 @@ impl<'de> Deserialize<'de> for Light {
     where
         D: Deserializer<'de>,
     {
-        todo!()
+        let light_json = LightJson::deserialize(deserializer)?;
+        Ok(light_json.to_light())
     }
 }
 

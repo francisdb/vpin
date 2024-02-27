@@ -1,7 +1,8 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader};
+use fake::Dummy;
 use serde::{Deserialize, Serialize, Serializer};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Dummy)]
 pub struct LightCenter {
     pub name: String,
 }

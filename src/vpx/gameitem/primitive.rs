@@ -1,12 +1,14 @@
+use crate::vpx::color::ColorJson;
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
 };
+use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::vertex3d::Vertex3D;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Dummy)]
 pub struct Primitive {
     pub position: Vertex3D,                      // 0 VPOS
     pub size: Vertex3D,                          // 1 VSIZ
@@ -70,12 +72,198 @@ pub struct Primitive {
     pub editor_layer_visibility: Option<bool>,
 }
 
+#[derive(Serialize, Deserialize)]
+struct PrimitiveJson {
+    position: Vertex3D,
+    size: Vertex3D,
+    rot_and_tra: [f32; 9],
+    image: String,
+    normal_map: Option<String>,
+    sides: u32,
+    name: String,
+    material: String,
+    side_color: ColorJson,
+    is_visible: bool,
+    draw_textures_inside: bool,
+    hit_event: bool,
+    threshold: f32,
+    elasticity: f32,
+    elasticity_falloff: f32,
+    friction: f32,
+    scatter: f32,
+    edge_factor_ui: f32,
+    collision_reduction_factor: Option<f32>,
+    is_collidable: bool,
+    is_toy: bool,
+    use_3d_mesh: bool,
+    static_rendering: bool,
+    disable_lighting_top_old: Option<f32>,
+    disable_lighting_top: Option<f32>,
+    disable_lighting_below: Option<f32>,
+    is_reflection_enabled: Option<bool>,
+    backfaces_enabled: Option<bool>,
+    physics_material: Option<String>,
+    overwrite_physics: Option<bool>,
+    display_texture: Option<bool>,
+    object_space_normal_map: Option<bool>,
+    min_aa_bound: Option<Vec<u8>>,
+    max_aa_bound: Option<Vec<u8>>,
+    mesh_file_name: Option<String>,
+    num_vertices: Option<u32>,
+    compressed_vertices: Option<u32>,
+    m3cx: Option<Vec<u8>>,
+    num_indices: Option<u32>,
+    compressed_indices: Option<u32>,
+    m3ci: Option<Vec<u8>>,
+    m3ay: Option<Vec<Vec<u8>>>,
+    m3ax: Option<Vec<Vec<u8>>>,
+    depth_bias: f32,
+    add_blend: Option<bool>,
+    use_depth_mask: Option<bool>,
+    alpha: Option<f32>,
+    color: Option<ColorJson>,
+    light_map: Option<String>,
+    reflection_probe: Option<String>,
+    reflection_strength: Option<f32>,
+    refraction_probe: Option<String>,
+    refraction_thickness: Option<f32>,
+    is_locked: bool,
+    editor_layer: u32,
+    editor_layer_name: Option<String>,
+    editor_layer_visibility: Option<bool>,
+}
+
+impl PrimitiveJson {
+    pub fn from_primitive(primitive: &Primitive) -> Self {
+        Self {
+            position: primitive.position,
+            size: primitive.size,
+            rot_and_tra: primitive.rot_and_tra,
+            image: primitive.image.clone(),
+            normal_map: primitive.normal_map.clone(),
+            sides: primitive.sides,
+            name: primitive.name.clone(),
+            material: primitive.material.clone(),
+            side_color: ColorJson::from_color(&primitive.side_color),
+            is_visible: primitive.is_visible,
+            draw_textures_inside: primitive.draw_textures_inside,
+            hit_event: primitive.hit_event,
+            threshold: primitive.threshold,
+            elasticity: primitive.elasticity,
+            elasticity_falloff: primitive.elasticity_falloff,
+            friction: primitive.friction,
+            scatter: primitive.scatter,
+            edge_factor_ui: primitive.edge_factor_ui,
+            collision_reduction_factor: primitive.collision_reduction_factor,
+            is_collidable: primitive.is_collidable,
+            is_toy: primitive.is_toy,
+            use_3d_mesh: primitive.use_3d_mesh,
+            static_rendering: primitive.static_rendering,
+            disable_lighting_top_old: primitive.disable_lighting_top_old,
+            disable_lighting_top: primitive.disable_lighting_top,
+            disable_lighting_below: primitive.disable_lighting_below,
+            is_reflection_enabled: primitive.is_reflection_enabled,
+            backfaces_enabled: primitive.backfaces_enabled,
+            physics_material: primitive.physics_material.clone(),
+            overwrite_physics: primitive.overwrite_physics,
+            display_texture: primitive.display_texture,
+            object_space_normal_map: primitive.object_space_normal_map,
+            min_aa_bound: primitive.min_aa_bound.clone(),
+            max_aa_bound: primitive.max_aa_bound.clone(),
+            mesh_file_name: primitive.mesh_file_name.clone(),
+            num_vertices: primitive.num_vertices,
+            compressed_vertices: primitive.compressed_vertices,
+            m3cx: primitive.m3cx.clone(),
+            num_indices: primitive.num_indices,
+            compressed_indices: primitive.compressed_indices,
+            m3ci: primitive.m3ci.clone(),
+            m3ay: primitive.m3ay.clone(),
+            m3ax: primitive.m3ax.clone(),
+            depth_bias: primitive.depth_bias,
+            add_blend: primitive.add_blend,
+            use_depth_mask: primitive.use_depth_mask,
+            alpha: primitive.alpha,
+            color: primitive.color.map(|c| ColorJson::from_color(&c)),
+            light_map: primitive.light_map.clone(),
+            reflection_probe: primitive.reflection_probe.clone(),
+            reflection_strength: primitive.reflection_strength,
+            refraction_probe: primitive.refraction_probe.clone(),
+            refraction_thickness: primitive.refraction_thickness,
+            is_locked: primitive.is_locked,
+            editor_layer: primitive.editor_layer,
+            editor_layer_name: primitive.editor_layer_name.clone(),
+            editor_layer_visibility: primitive.editor_layer_visibility,
+        }
+    }
+    pub fn to_primitive(&self) -> Primitive {
+        Primitive {
+            position: self.position,
+            size: self.size,
+            rot_and_tra: self.rot_and_tra,
+            image: self.image.clone(),
+            normal_map: self.normal_map.clone(),
+            sides: self.sides,
+            name: self.name.clone(),
+            material: self.material.clone(),
+            side_color: self.side_color.to_color(),
+            is_visible: self.is_visible,
+            draw_textures_inside: self.draw_textures_inside,
+            hit_event: self.hit_event,
+            threshold: self.threshold,
+            elasticity: self.elasticity,
+            elasticity_falloff: self.elasticity_falloff,
+            friction: self.friction,
+            scatter: self.scatter,
+            edge_factor_ui: self.edge_factor_ui,
+            collision_reduction_factor: self.collision_reduction_factor,
+            is_collidable: self.is_collidable,
+            is_toy: self.is_toy,
+            use_3d_mesh: self.use_3d_mesh,
+            static_rendering: self.static_rendering,
+            disable_lighting_top_old: self.disable_lighting_top_old,
+            disable_lighting_top: self.disable_lighting_top,
+            disable_lighting_below: self.disable_lighting_below,
+            is_reflection_enabled: self.is_reflection_enabled,
+            backfaces_enabled: self.backfaces_enabled,
+            physics_material: self.physics_material.clone(),
+            overwrite_physics: self.overwrite_physics,
+            display_texture: self.display_texture,
+            object_space_normal_map: self.object_space_normal_map,
+            min_aa_bound: self.min_aa_bound.clone(),
+            max_aa_bound: self.max_aa_bound.clone(),
+            mesh_file_name: self.mesh_file_name.clone(),
+            num_vertices: self.num_vertices,
+            compressed_vertices: self.compressed_vertices,
+            m3cx: self.m3cx.clone(),
+            num_indices: self.num_indices,
+            compressed_indices: self.compressed_indices,
+            m3ci: self.m3ci.clone(),
+            m3ay: self.m3ay.clone(),
+            m3ax: self.m3ax.clone(),
+            depth_bias: self.depth_bias,
+            add_blend: self.add_blend,
+            use_depth_mask: self.use_depth_mask,
+            alpha: self.alpha,
+            color: self.color.as_ref().map(|c| ColorJson::to_color(c)),
+            light_map: self.light_map.clone(),
+            reflection_probe: self.reflection_probe.clone(),
+            reflection_strength: self.reflection_strength,
+            refraction_probe: self.refraction_probe.clone(),
+            refraction_thickness: self.refraction_thickness,
+            is_locked: self.is_locked,
+            editor_layer: self.editor_layer,
+            editor_layer_name: self.editor_layer_name.clone(),
+            editor_layer_visibility: self.editor_layer_visibility,
+        }
+    }
+}
+
 impl Serialize for Primitive {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        todo!()
+        PrimitiveJson::from_primitive(self).serialize(serializer)
     }
 }
 
@@ -84,7 +272,8 @@ impl<'de> Deserialize<'de> for Primitive {
     where
         D: Deserializer<'de>,
     {
-        todo!()
+        let json = PrimitiveJson::deserialize(deserializer)?;
+        Ok(json.to_primitive())
     }
 }
 
