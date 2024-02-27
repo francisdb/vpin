@@ -288,6 +288,9 @@ impl BiffRead for Rubber {
                 "RVIS" => {
                     rubber.is_visible = reader.get_bool();
                 }
+                "RADB" => {
+                    rubber.radb = Some(reader.get_f32());
+                }
                 "ESTR" => {
                     rubber.static_rendering = reader.get_bool();
                 }
