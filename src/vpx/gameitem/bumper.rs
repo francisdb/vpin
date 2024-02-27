@@ -141,7 +141,7 @@ impl Default for Bumper {
             is_socket_visible: None,
             hit_event: None,
             is_collidable: None,
-            is_reflection_enabled: None,
+            is_reflection_enabled: None, //true,
             is_locked: false,
             editor_layer: Default::default(),
             editor_layer_name: None,
