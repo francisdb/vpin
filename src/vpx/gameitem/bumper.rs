@@ -124,11 +124,11 @@ impl Default for Bumper {
             timer_interval: 0,
             threshold: 1.0,
             force: 15.0,
-            scatter: None,
+            scatter: None, //0.0
             height_scale: 90.0,
             ring_speed: 0.5,
             orientation: 0.0,
-            ring_drop_offset: None,
+            ring_drop_offset: None, //0.0
             cap_material: Default::default(),
             base_material: Default::default(),
             socket_material: Default::default(),
@@ -137,11 +137,11 @@ impl Default for Bumper {
             name: Default::default(),
             is_cap_visible: true,
             is_base_visible: true,
-            is_ring_visible: None,
-            is_socket_visible: None,
-            hit_event: None,
-            is_collidable: None,
-            is_reflection_enabled: None, //true,
+            is_ring_visible: None,       //true
+            is_socket_visible: None,     //true
+            hit_event: None,             //true
+            is_collidable: None,         //true
+            is_reflection_enabled: None, //true
             is_locked: false,
             editor_layer: Default::default(),
             editor_layer_name: None,
