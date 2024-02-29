@@ -240,8 +240,8 @@ impl Default for Light {
         let status: u32 = Default::default();
         let state: Option<f32> = None;
         // should these not have alpha ff?
-        let color: Color = Color::new_argb(0xffff00);
-        let color2: Color = Color::new_argb(0xffffff);
+        let color: Color = Color::from_argb(0xffff00);
+        let color2: Color = Color::from_argb(0xffffff);
         let is_timer_enabled: bool = false;
         let timer_interval: u32 = Default::default();
         let blink_pattern: String = "10".to_owned();
@@ -464,8 +464,8 @@ mod tests {
             falloff_power: 3.0,
             status: 4,
             state: Some(5.0),
-            color: Color::new_argb(0x123456),
-            color2: Color::new_argb(0x654321),
+            color: Color::from_argb(0x123456),
+            color2: Color::from_argb(0x654321),
             is_timer_enabled: true,
             timer_interval: 7,
             blink_pattern: "test pattern".to_string(),

@@ -58,6 +58,8 @@ pub mod sound;
 pub mod tableinfo;
 pub mod version;
 
+pub mod material;
+
 /// In-memory representation of a VPX file
 ///
 /// *We guarantee an exact copy when reading and writing this. Exact as in the same structure and data, the underlying compound file will be a bit different on the binary level.*

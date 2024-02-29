@@ -163,6 +163,29 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, u64)> {
                 let hash = hasher.finish();
                 tags.push(("CODE".to_string(), len as usize, hash));
             }
+            "MATE" => {
+                let data = reader.get_record_data(false);
+                // let mut hasher = DefaultHasher::new();
+                // Hash::hash_slice(&data, &mut hasher);
+                // let hash = hasher.finish();
+
+                // This field in gamedata has padding applied that has random data
+                // TODO one solution could be overwriting padding areas with 0's
+                // For now we ignore the contents of this field
+                tags.push(("MATE".to_string(), data.len(), 0));
+            }
+            "PHMA" => {
+                let data = reader.get_record_data(false);
+                // let mut hasher = DefaultHasher::new();
+                // Hash::hash_slice(&data, &mut hasher);
+                // let hash = hasher.finish();
+
+                // This field in gamedata has a cstring with fixed length,
+                // but again padding is applied that has random data
+                // TODO one solution could be overwriting padding areas with 0's
+                // For now we ignore the contents of this field
+                tags.push(("MATE".to_string(), data.len(), 0));
+            }
             other => {
                 let data = reader.get_record_data(false);
                 let mut hasher = DefaultHasher::new();
