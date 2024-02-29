@@ -1,6 +1,7 @@
 use std::fmt;
 
-use bytes::{BufMut, BytesMut};
+use bytes::{Buf, BufMut, BytesMut};
+use serde::{Deserialize, Serialize};
 
 use super::{
     biff::{BiffReader, BiffWriter},
@@ -8,14 +9,6 @@ use super::{
 };
 
 const NEW_SOUND_FORMAT_VERSION: u32 = 1031;
-
-/**
- * An bitmap blob, typically used by textures.
- */
-#[derive(PartialEq)]
-pub struct ImageDataBits {
-    pub data: Vec<u8>,
-}
 
 impl fmt::Debug for SoundData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -46,6 +39,46 @@ pub struct SoundData {
     pub volume: u32,
     pub balance: u32,
     pub output_target: u8,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SoundDataJson {
+    name: String,
+    path: String,
+    wave_form: WaveFormJson,
+    internal_name: String,
+    fade: u32,
+    volume: u32,
+    balance: u32,
+    output_target: u8,
+}
+
+impl SoundDataJson {
+    pub fn from_sound_data(sound_data: &SoundData) -> Self {
+        Self {
+            name: sound_data.name.clone(),
+            path: sound_data.path.clone(),
+            wave_form: WaveFormJson::from_wave_form(&sound_data.wave_form),
+            internal_name: sound_data.internal_name.clone(),
+            fade: sound_data.fade,
+            volume: sound_data.volume,
+            balance: sound_data.balance,
+            output_target: sound_data.output_target,
+        }
+    }
+    pub fn to_sound_data(&self) -> SoundData {
+        SoundData {
+            name: self.name.clone(),
+            path: self.path.clone(),
+            wave_form: self.wave_form.to_wave_form(),
+            data: Vec::new(),
+            internal_name: self.internal_name.clone(),
+            fade: self.fade,
+            volume: self.volume,
+            balance: self.balance,
+            output_target: self.output_target,
+        }
+    }
 }
 
 fn write_wav_header(sound_data: &SoundData) -> Vec<u8> {
@@ -83,6 +116,28 @@ pub fn write_sound(sound_data: &SoundData) -> Vec<u8> {
     buf.to_vec()
 }
 
+pub fn read_sound(data: &[u8], sound_data: &mut SoundData) {
+    if is_wav(&sound_data.path) {
+        let mut reader = bytes::BytesMut::from(data);
+        let _riff = reader.get_u32_le();
+        let _size = reader.get_u32_le();
+        let _wave = reader.get_u32_le();
+        let _fmt = reader.get_u32_le();
+        let _fmt_size = reader.get_u32_le();
+        let _format_tag = reader.get_u16_le();
+        let _channels = reader.get_u16_le();
+        let _samples_per_sec = reader.get_u32_le();
+        let _avg_bytes_per_sec = reader.get_u32_le();
+        let _block_align = reader.get_u16_le();
+        let _bits_per_sample = reader.get_u16_le();
+        let _data = reader.get_u32_le();
+        let _data_size = reader.get_u32_le();
+        sound_data.data = reader.to_vec();
+    } else {
+        sound_data.data = data.to_vec();
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct WaveForm {
     // Format type
@@ -99,6 +154,41 @@ pub struct WaveForm {
     bits_per_sample: u16,
     // The count in bytes of the size of extra information (after cbSize)
     cb_size: u16,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct WaveFormJson {
+    format_tag: u16,
+    channels: u16,
+    samples_per_sec: u32,
+    avg_bytes_per_sec: u32,
+    block_align: u16,
+    bits_per_sample: u16,
+    cb_size: u16,
+}
+impl WaveFormJson {
+    pub fn from_wave_form(wave_form: &WaveForm) -> Self {
+        Self {
+            format_tag: wave_form.format_tag,
+            channels: wave_form.channels,
+            samples_per_sec: wave_form.samples_per_sec,
+            avg_bytes_per_sec: wave_form.avg_bytes_per_sec,
+            block_align: wave_form.block_align,
+            bits_per_sample: wave_form.bits_per_sample,
+            cb_size: wave_form.cb_size,
+        }
+    }
+    pub fn to_wave_form(&self) -> WaveForm {
+        WaveForm {
+            format_tag: self.format_tag,
+            channels: self.channels,
+            samples_per_sec: self.samples_per_sec,
+            avg_bytes_per_sec: self.avg_bytes_per_sec,
+            block_align: self.block_align,
+            bits_per_sample: self.bits_per_sample,
+            cb_size: self.cb_size,
+        }
+    }
 }
 
 impl WaveForm {

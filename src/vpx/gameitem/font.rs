@@ -1,26 +1,68 @@
 use crate::vpx::biff::{BiffRead, BiffReader, BiffWrite, BiffWriter};
 use fake::Dummy;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
-const TTF_STYLE_NORMAL: u8 = 0x00;
-const TTF_STYLE_BOLD: u8 = 0x01;
-const TTF_STYLE_ITALIC: u8 = 0x02;
-const TTF_STYLE_UNDERLINE: u8 = 0x04;
-const TTF_STYLE_STRIKETHROUGH: u8 = 0x08;
+/**
+ * The style of the font.
+ * This is serialized as a bitfield, so multiple styles can be combined.
+ * The styles are:
+ * - 0x00: normal
+ * - 0x01: bold
+ * - 0x02: italic
+ * - 0x04: underline
+ * - 0x08: strikethrough
+ */
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Dummy, Hash, Eq)]
+pub enum FontStyle {
+    Normal,
+    Bold,
+    Italic,
+    Underline,
+    Strikethrough,
+}
+impl FontStyle {
+    fn to_u8(flag: &FontStyle) -> u8 {
+        match flag {
+            &FontStyle::Normal => 1 << 0,
+            &FontStyle::Bold => 1 << 1,
+            &FontStyle::Italic => 1 << 2,
+            &FontStyle::Underline => 1 << 3,
+            &FontStyle::Strikethrough => 1 << 4,
+        }
+    }
+    pub fn flags_to_styles(style: u8) -> HashSet<Self> {
+        let mut styles = HashSet::with_capacity(5);
+        if style & (1 << 0) != 0 {
+            styles.insert(Self::Normal);
+        }
+        if style & (1 << 1) != 0 {
+            styles.insert(Self::Bold);
+        }
+        if style & (1 << 2) != 0 {
+            styles.insert(Self::Italic);
+        }
+        if style & (1 << 3) != 0 {
+            styles.insert(Self::Underline);
+        }
+        if style & (1 << 4) != 0 {
+            styles.insert(Self::Strikethrough);
+        }
+        styles
+    }
+
+    pub fn styles_to_flags(flags: &HashSet<Self>) -> u8 {
+        let mut bitflags = 0u8;
+        for flag in flags {
+            bitflags |= Self::to_u8(flag);
+        }
+        return bitflags;
+    }
+}
 
 #[derive(PartialEq, Debug, Dummy)]
 pub struct Font {
-    /**
-     * The style of the font.
-     * This is a bitfield, so multiple styles can be combined.
-     * The styles are:
-     * - 0x00: normal
-     * - 0x01: bold
-     * - 0x02: italic
-     * - 0x04: underline
-     * - 0x08: strikethrough
-     */
-    style: u8,
+    style: HashSet<FontStyle>,
     weight: u16,
     size: u32,
     name: String,
@@ -28,7 +70,7 @@ pub struct Font {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct FontJson {
-    style: u8,
+    style: HashSet<FontStyle>,
     weight: u16,
     size: u32,
     name: String,
@@ -36,7 +78,7 @@ pub(crate) struct FontJson {
 impl FontJson {
     pub fn from_font(font: &Font) -> Self {
         Self {
-            style: font.style,
+            style: font.style.clone(),
             weight: font.weight,
             size: font.size,
             name: font.name.clone(),
@@ -44,7 +86,7 @@ impl FontJson {
     }
     pub fn to_font(&self) -> Font {
         Font {
-            style: self.style,
+            style: self.style.clone(),
             weight: self.weight,
             size: self.size,
             name: self.name.clone(),
@@ -53,7 +95,7 @@ impl FontJson {
 }
 
 impl Font {
-    pub fn new(style: u8, weight: u16, size: u32, name: String) -> Self {
+    pub fn new(style: HashSet<FontStyle>, weight: u16, size: u32, name: String) -> Self {
         Self {
             style,
             weight,
@@ -67,7 +109,7 @@ impl Default for Font {
     fn default() -> Self {
         // TODO get proper defaults
         Self {
-            style: 0,
+            style: HashSet::new(),
             weight: 0,
             size: 400,
             name: "Arial".to_string(),
@@ -85,7 +127,7 @@ impl BiffRead for Font {
         let name_len = reader.get_u8_no_remaining_update();
         let name = reader.get_str_no_remaining_update(name_len as usize);
         Font {
-            style,
+            style: FontStyle::flags_to_styles(style),
             weight,
             size,
             name,
@@ -96,7 +138,7 @@ impl BiffRead for Font {
 impl BiffWrite for Font {
     fn biff_write(&self, writer: &mut BiffWriter) {
         writer.write_data(&[0x01, 0x00, 0x00]);
-        writer.write_u8(self.style);
+        writer.write_u8(FontStyle::styles_to_flags(&self.style));
         writer.write_u16(self.weight);
         writer.write_u32(self.size);
         writer.write_short_string(&self.name);
@@ -114,9 +156,9 @@ mod test {
     #[test]
     fn write_read_font() {
         let font: Font = Font {
-            style: 0,
-            weight: 0,
-            size: 0,
+            style: HashSet::from([FontStyle::Bold, FontStyle::Italic, FontStyle::Underline]),
+            weight: 100,
+            size: 12,
             name: "Arial Black".to_string(),
         };
         let mut writer = BiffWriter::new();

@@ -271,8 +271,10 @@ impl BiffWrite for TextBox {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
+    use std::collections::HashSet;
 
     use super::*;
+    use crate::vpx::gameitem::font::FontStyle;
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -290,7 +292,12 @@ mod tests {
             align: 0,
             is_transparent: false,
             is_dmd: Some(false),
-            font: Font::new(2, 123, 456, "test font".to_string()),
+            font: Font::new(
+                HashSet::from([FontStyle::Bold, FontStyle::Underline]),
+                123,
+                456,
+                "test font".to_string(),
+            ),
             is_locked: false,
             editor_layer: 1,
             editor_layer_name: Some("test layer".to_string()),

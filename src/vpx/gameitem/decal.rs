@@ -289,6 +289,7 @@ impl BiffWrite for Decal {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
+    use fake::{Fake, Faker};
 
     use super::*;
     use pretty_assertions::assert_eq;
@@ -320,6 +321,17 @@ mod tests {
         let mut writer = BiffWriter::new();
         Decal::biff_write(&decal, &mut writer);
         let decal_read = Decal::biff_read(&mut BiffReader::new(writer.get_data()));
+        assert_eq!(decal, decal_read);
+    }
+
+    #[test]
+    fn test_write_read_json() {
+        // values not equal to the defaults
+        let decal: Decal = Faker.fake();
+        let decal_json = DecalJson::from_decal(&decal);
+        let json = serde_json::to_string(&decal_json).unwrap();
+        let decal_read_json: DecalJson = serde_json::from_str(&json).unwrap();
+        let decal_read = decal_read_json.to_decal();
         assert_eq!(decal, decal_read);
     }
 }
