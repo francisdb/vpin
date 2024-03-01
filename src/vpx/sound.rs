@@ -81,8 +81,10 @@ impl SoundDataJson {
     }
 }
 
+const WAV_HEADER_SIZE: usize = 44;
+
 fn write_wav_header(sound_data: &SoundData) -> Vec<u8> {
-    let mut buf = BytesMut::with_capacity(44);
+    let mut buf = BytesMut::with_capacity(WAV_HEADER_SIZE);
     buf.put(&b"RIFF"[..]); // 4
     buf.put_u32_le(sound_data.data.len() as u32 + 36); // 4
     buf.put(&b"WAVE"[..]); // 4
@@ -104,34 +106,38 @@ fn write_wav_header(sound_data: &SoundData) -> Vec<u8> {
     buf.to_vec() // total 44 bytes
 }
 
+fn skip_wav_header(reader: &mut BytesMut) {
+    let _riff = reader.get_u32_le();
+    let _size = reader.get_u32_le();
+    let _wave = reader.get_u32_le();
+    let _fmt = reader.get_u32_le();
+    let _fmt_size = reader.get_u32_le();
+    let _format_tag = reader.get_u16_le();
+    let _channels = reader.get_u16_le();
+    let _samples_per_sec = reader.get_u32_le();
+    let _avg_bytes_per_sec = reader.get_u32_le();
+    let _block_align = reader.get_u16_le();
+    let _bits_per_sample = reader.get_u16_le();
+    let _data = reader.get_u32_le();
+    let _data_size = reader.get_u32_le();
+}
+
 pub fn write_sound(sound_data: &SoundData) -> Vec<u8> {
-    let mut buf = if is_wav(&sound_data.path) {
-        let mut buf = BytesMut::with_capacity(44 + sound_data.data.len());
+    if is_wav(&sound_data.path) {
+        let mut buf = BytesMut::with_capacity(WAV_HEADER_SIZE + sound_data.data.len());
         buf.put_slice(&write_wav_header(sound_data));
-        buf
+        buf.put_slice(&sound_data.data);
+        buf.to_vec()
     } else {
-        BytesMut::with_capacity(sound_data.data.len())
-    };
-    buf.put_slice(&sound_data.data);
-    buf.to_vec()
+        sound_data.data.clone()
+    }
 }
 
 pub fn read_sound(data: &[u8], sound_data: &mut SoundData) {
     if is_wav(&sound_data.path) {
         let mut reader = bytes::BytesMut::from(data);
-        let _riff = reader.get_u32_le();
-        let _size = reader.get_u32_le();
-        let _wave = reader.get_u32_le();
-        let _fmt = reader.get_u32_le();
-        let _fmt_size = reader.get_u32_le();
-        let _format_tag = reader.get_u16_le();
-        let _channels = reader.get_u16_le();
-        let _samples_per_sec = reader.get_u32_le();
-        let _avg_bytes_per_sec = reader.get_u32_le();
-        let _block_align = reader.get_u16_le();
-        let _bits_per_sample = reader.get_u16_le();
-        let _data = reader.get_u32_le();
-        let _data_size = reader.get_u32_le();
+        skip_wav_header(&mut reader);
+        // read all remaining bits
         sound_data.data = reader.to_vec();
     } else {
         sound_data.data = data.to_vec();
@@ -192,7 +198,7 @@ impl WaveFormJson {
 }
 
 impl WaveForm {
-    fn new() -> WaveForm {
+    pub fn new() -> WaveForm {
         WaveForm {
             format_tag: 1,
             channels: 1,
@@ -360,7 +366,7 @@ mod test {
     // TODO add test for non-wav sound
 
     #[test]
-    fn test_write_read_wav() {
+    fn test_write_read_biff_wav() {
         let sound: SoundData = SoundData {
             name: "test name".to_string(),
             path: "test path.wav".to_string(),
@@ -387,10 +393,11 @@ mod test {
     }
 
     #[test]
-    fn test_write_read_other() {
+    fn test_write_read_biff_other() {
         let sound: SoundData = SoundData {
             name: "test name".to_string(),
             path: "test path.mp3".to_string(),
+            // 1MB of data
             data: vec![1, 2, 3, 4],
             wave_form: WaveForm::default(),
             internal_name: "test internalname".to_string(),
@@ -402,6 +409,36 @@ mod test {
         let mut writer = BiffWriter::new();
         write(&Version::new(1083), &sound, &mut writer);
         let sound_read = read(&Version::new(1083), &mut BiffReader::new(writer.get_data()));
+        assert_eq!(sound, sound_read);
+    }
+
+    #[test]
+    fn test_write_read_sound() {
+        let sound: SoundData = SoundData {
+            name: "test name".to_string(),
+            path: "test path.wav".to_string(),
+            // 10MB of data
+            data: vec![4, 3, 2, 1, 0],
+            wave_form: WaveForm::default(),
+            internal_name: "test internalname".to_string(),
+            fade: 1,
+            volume: 2,
+            balance: 3,
+            output_target: 4,
+        };
+        let sound_data = write_sound(&sound);
+        let mut sound_read = SoundData {
+            name: "test name".to_string(),
+            path: "test path.wav".to_string(),
+            data: Vec::new(),
+            wave_form: WaveForm::default(),
+            internal_name: "test internalname".to_string(),
+            fade: 1,
+            volume: 2,
+            balance: 3,
+            output_target: 4,
+        };
+        read_sound(&sound_data, &mut sound_read);
         assert_eq!(sound, sound_read);
     }
 }

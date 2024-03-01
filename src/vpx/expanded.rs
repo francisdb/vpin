@@ -19,7 +19,7 @@ use crate::vpx::biff::{BiffRead, BiffReader};
 use crate::vpx::custominfotags::CustomInfoTags;
 use crate::vpx::font::{FontData, FontDataJson};
 use crate::vpx::gameitem::GameItemEnum;
-use crate::vpx::image::{ImageData, ImageDataJson};
+use crate::vpx::image::{ImageData, ImageDataBits, ImageDataJson};
 use crate::vpx::jsonmodel::{collections_json, info_to_json, json_to_collections, json_to_info};
 use crate::vpx::tableinfo::TableInfo;
 
@@ -198,7 +198,12 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
             let mut jpeg_file = std::fs::File::create(&jpeg_path)?;
             jpeg_file.write_all(&jpeg.data)?;
         }
-        // TODO write other image types
+        if let Some(bits) = &image.bits {
+            let file_name = format!("{}.{}", image.name, image.ext());
+            let png_path = images_dir.join(file_name);
+            let mut file = File::create(&png_path)?;
+            file.write_all(&bits.data)?;
+        }
     }
     Ok(())
 }
@@ -229,8 +234,11 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> Result<Vec<ImageData>, ReadE
                 image_file.read_to_end(&mut image_data)?;
                 if let Some(jpg) = &mut image.jpeg {
                     jpg.data = image_data;
+                } else if image.bits.is_some() {
+                    // the json serializer makes sure we have a Some with empty data
+                    let image_data = ImageDataBits { data: image_data };
+                    image.bits = Some(image_data);
                 }
-                // TODO else fail?
                 Ok(image)
             } else {
                 Err(ReadError::Io(io::Error::new(
@@ -258,8 +266,18 @@ fn write_sounds<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
     vpx.sounds.iter().try_for_each(|sound| {
         let sound_file_name = format!("{}.{}", sound.name, sound.ext());
         let sound_path = sounds_dir.join(sound_file_name);
-        let mut file = File::create(sound_path)?;
-        file.write_all(&write_sound(&sound))
+        if !sound_path.exists() {
+            let mut file = File::create(sound_path)?;
+            file.write_all(&write_sound(&sound))
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!(
+                    "Two sounds with the same name detected {}",
+                    sound_path.display()
+                ),
+            ))
+        }
     })?;
     Ok(())
 }
@@ -281,7 +299,7 @@ fn read_sounds<P: AsRef<Path>>(expanded_dir: &P) -> Result<Vec<SoundData>, ReadE
         .into_iter()
         .map(|mut sound| {
             let sound_file_name = format!("{}.{}", sound.name, sound.ext());
-            let sound_path = sounds_dir.join(sound_file_name);
+            let sound_path = sounds_dir.join(&sound_file_name);
             let mut sound_file = File::open(&sound_path)?;
             let mut sound_data = Vec::new();
             sound_file.read_to_end(&mut sound_data)?;
@@ -654,6 +672,7 @@ mod test {
     use super::*;
     use crate::vpx::gameitem::GameItemEnum;
     use crate::vpx::image::ImageDataJpeg;
+    use crate::vpx::sound::WaveForm;
     use crate::vpx::tableinfo::TableInfo;
     use fake::{Fake, Faker};
     use pretty_assertions::assert_eq;
@@ -769,25 +788,65 @@ mod test {
                     },
                 ),
             ],
-            images: vec![ImageData {
-                name: "test image".to_string(),
-                inme: None,
-                path: "test.png".to_string(),
-                width: 0,
-                height: 0,
-                link: None,
-                alpha_test_value: 0.0,
-                is_opaque: Some(true),
-                is_signed: Some(false),
-                jpeg: Some(ImageDataJpeg {
-                    path: "test.png jpeg".to_string(),
-                    name: "test image jpeg".to_string(),
+            images: vec![
+                ImageData {
+                    name: "test image".to_string(),
                     inme: None,
+                    path: "test.png".to_string(),
+                    width: 0,
+                    height: 0,
+                    link: None,
+                    alpha_test_value: 0.0,
+                    is_opaque: Some(true),
+                    is_signed: Some(false),
+                    jpeg: Some(ImageDataJpeg {
+                        path: "test.png jpeg".to_string(),
+                        name: "test image jpeg".to_string(),
+                        inme: None,
+                        data: vec![0, 1, 2, 3],
+                    }),
+                    bits: None,
+                },
+                ImageData {
+                    name: "test image 2".to_string(),
+                    inme: None,
+                    path: "test2.png".to_string(),
+                    width: 0,
+                    height: 0,
+                    link: None,
+                    alpha_test_value: 0.0,
+                    is_opaque: Some(true),
+                    is_signed: Some(false),
+                    jpeg: None,
+                    bits: Some(ImageDataBits {
+                        data: vec![0, 1, 2, 3],
+                    }),
+                },
+            ],
+            sounds: vec![
+                SoundData {
+                    name: "test sound".to_string(),
+                    path: "test.wav".to_string(),
+                    wave_form: WaveForm::new(),
                     data: vec![0, 1, 2, 3],
-                }),
-                bits: None,
-            }],
-            sounds: vec![],
+                    internal_name: "test internal name".to_string(),
+                    fade: 0,
+                    volume: 0,
+                    balance: 0,
+                    output_target: 0,
+                },
+                SoundData {
+                    name: "test sound2".to_string(),
+                    path: "test.ogg".to_string(),
+                    wave_form: WaveForm::new(),
+                    data: vec![0, 1, 2, 3],
+                    internal_name: "test internal name2".to_string(),
+                    fade: 1,
+                    volume: 2,
+                    balance: 3,
+                    output_target: 4,
+                },
+            ],
             fonts: vec![],
             collections: vec![
                 Collection {

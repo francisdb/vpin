@@ -75,7 +75,13 @@ pub(crate) fn assert_equal_vpx(vpx_path: &PathBuf, test_vpx_path: PathBuf) {
                 // let mut file = std::fs::File::create("test.bin").unwrap();
                 // file.write_all(&test_data).unwrap();
 
-                assert!(original_data == test_data);
+                assert!(
+                    original_data == test_data,
+                    "non equal {:?} original:{} test:{} ",
+                    path,
+                    original_data.len(),
+                    test_data.len()
+                );
             } else {
                 let skip = if path.to_string_lossy().contains("GameItem") {
                     // we need to skip the first 32 bits because they are the type of gameitem
