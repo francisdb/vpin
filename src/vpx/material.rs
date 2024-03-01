@@ -2,9 +2,11 @@ use crate::vpx::biff;
 use crate::vpx::biff::{BiffRead, BiffReader, BiffWrite, BiffWriter};
 use crate::vpx::color::{Color, ColorJson};
 use bytes::{Buf, BufMut, BytesMut};
+use encoding_rs::mem::{decode_latin1, encode_latin1_lossy};
 use fake::Dummy;
 use serde::{Deserialize, Serialize};
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
+use std::io;
 
 const MAX_NAME_BUFFER: usize = 32;
 
@@ -144,7 +146,7 @@ impl SaveMaterial {
         }
         // total should be 76 bytes
         // string can have max size of 32 bytes (including null terminator)
-        let name = read_padded_cstring(bytes, MAX_NAME_BUFFER);
+        let name = read_padded_cstring(bytes, MAX_NAME_BUFFER).unwrap();
         let base_color = bytes.get_u32_le();
         let glossy_color = bytes.get_u32_le();
         let clearcoat_color = bytes.get_u32_le();
@@ -256,7 +258,7 @@ impl SavePhysicsMaterial {
         }
         // total should be 24 bytes
         // string can have max size of 32 bytes (including null terminator)
-        let name = read_padded_cstring(bytes, MAX_NAME_BUFFER);
+        let name = read_padded_cstring(bytes, MAX_NAME_BUFFER).unwrap();
         let elasticity = bytes.get_f32_le();
         let elasticity_falloff = bytes.get_f32_le();
         let friction = bytes.get_f32_le();
@@ -281,22 +283,39 @@ impl SavePhysicsMaterial {
     }
 }
 
+/**
+ * Writes a padded cstring to bytes
+ * Fills remaining bytes with 0
+ */
 fn write_padded_cstring(str: &str, bytes: &mut BytesMut, len: usize) {
-    // write name as cstring with fixed size of len
-    let cname = CString::new(str).unwrap();
-    let cname_bytes = cname.as_bytes_with_nul();
-    bytes.put_slice(&cname_bytes);
-    bytes.put_slice(&vec![0; len - cname_bytes.len()]);
+    let latin1_bytes = encode_latin1_lossy(str);
+    if latin1_bytes.len() > len - 1 {
+        panic!(
+            "String \"{}\" too long to write as padded cstring for size {}",
+            str, len
+        );
+    }
+    bytes.put_slice(&latin1_bytes);
+    // put terminator
+    bytes.put_u8(0);
+    // fill
+    bytes.put_slice(&vec![0; len - latin1_bytes.len() - 1]);
 }
 
-fn read_padded_cstring(bytes: &mut BytesMut, len: usize) -> String {
+/**
+ * Reads a padded cstring from bytes and returns the string
+ * Drops remaining bytes (which may contain random padding data in vpx files)
+ */
+fn read_padded_cstring(bytes: &mut BytesMut, len: usize) -> Result<String, io::Error> {
     let cname = bytes.copy_to_bytes(len);
-    // read cstring and drop remaining bytes which contain random padding data
-    CStr::from_bytes_until_nul(&cname)
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .to_string()
+    let cstr = CStr::from_bytes_until_nul(&cname).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::Other,
+            "Failed to read null-terminated string from bytes",
+        )
+    })?;
+    let s = decode_latin1(cstr.to_bytes());
+    Ok(s.to_string())
 }
 
 fn get_padding_3_validate(bytes: &mut BytesMut) {
@@ -581,5 +600,14 @@ mod tests {
         let mut reader = BiffReader::new(writer.get_data());
         let read_material = Material::biff_read(&mut reader);
         assert_eq!(material, read_material);
+    }
+
+    #[test]
+    fn test_padded_cstring() {
+        let s = "test";
+        let mut bytes = BytesMut::new();
+        write_padded_cstring(s, &mut bytes, 32);
+        let read_s = read_padded_cstring(&mut bytes, 32).unwrap();
+        assert_eq!(s, read_s);
     }
 }
