@@ -8,7 +8,7 @@ use std::ffi::{CStr, CString};
 
 const MAX_NAME_BUFFER: usize = 32;
 
-#[derive(Dummy, Debug, PartialEq)]
+#[derive(Dummy, Debug, Clone, PartialEq, Serialize, Deserialize)]
 enum MaterialType {
     Basic,
     Metal,
@@ -305,8 +305,8 @@ fn get_padding_3_validate(bytes: &mut BytesMut) {
     //assert_eq!(padding.to_vec(), [0, 0, 0]);
 }
 
-#[derive(Dummy, Debug)]
-struct Material {
+#[derive(Dummy, Debug, PartialEq)]
+pub struct Material {
     name: String,
 
     // shading properties
@@ -330,6 +330,75 @@ struct Material {
     scatter_angle: f32,
 
     refraction_tint: Color, // 10.8+ only
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct MaterialJson {
+    name: String,
+    type_: MaterialType,
+    wrap_lighting: f32,
+    roughness: f32,
+    glossy_image_lerp: f32,
+    thickness: f32,
+    edge: f32,
+    edge_alpha: f32,
+    opacity: f32,
+    base_color: ColorJson,
+    glossy_color: ColorJson,
+    clearcoat_color: ColorJson,
+    opacity_active: bool,
+    elasticity: f32,
+    elasticity_falloff: f32,
+    friction: f32,
+    scatter_angle: f32,
+    refraction_tint: ColorJson,
+}
+
+impl MaterialJson {
+    pub fn from_material(material: &Material) -> Self {
+        Self {
+            name: material.name.clone(),
+            type_: material.type_.clone(),
+            wrap_lighting: material.wrap_lighting,
+            roughness: material.roughness,
+            glossy_image_lerp: material.glossy_image_lerp,
+            thickness: material.thickness,
+            edge: material.edge,
+            edge_alpha: material.edge_alpha,
+            opacity: material.opacity,
+            base_color: ColorJson::from_color(&material.base_color),
+            glossy_color: ColorJson::from_color(&material.glossy_color),
+            clearcoat_color: ColorJson::from_color(&material.clearcoat_color),
+            opacity_active: material.opacity_active,
+            elasticity: material.elasticity,
+            elasticity_falloff: material.elasticity_falloff,
+            friction: material.friction,
+            scatter_angle: material.scatter_angle,
+            refraction_tint: ColorJson::from_color(&material.refraction_tint),
+        }
+    }
+    pub fn to_material(&self) -> Material {
+        Material {
+            name: self.name.clone(),
+            type_: self.type_.clone(),
+            wrap_lighting: self.wrap_lighting,
+            roughness: self.roughness,
+            glossy_image_lerp: self.glossy_image_lerp,
+            thickness: self.thickness,
+            edge: self.edge,
+            edge_alpha: self.edge_alpha,
+            opacity: self.opacity,
+            base_color: self.base_color.to_color(),
+            glossy_color: self.glossy_color.to_color(),
+            clearcoat_color: self.clearcoat_color.to_color(),
+            opacity_active: self.opacity_active,
+            elasticity: self.elasticity,
+            elasticity_falloff: self.elasticity_falloff,
+            friction: self.friction,
+            scatter_angle: self.scatter_angle,
+            refraction_tint: self.refraction_tint.to_color(),
+        }
+    }
 }
 
 impl Default for Material {
@@ -393,7 +462,7 @@ impl Serialize for Material {
     where
         S: serde::Serializer,
     {
-        todo!()
+        MaterialJson::from_material(self).serialize(serializer)
     }
 }
 
@@ -402,7 +471,8 @@ impl<'de> Deserialize<'de> for Material {
     where
         D: serde::Deserializer<'de>,
     {
-        todo!()
+        let material_json = MaterialJson::deserialize(_deserializer)?;
+        Ok(material_json.to_material())
     }
 }
 
@@ -422,58 +492,19 @@ impl BiffRead for Material {
                 "WLIG" => material.wrap_lighting = reader.get_f32(),
                 "ROUG" => material.roughness = reader.get_f32(),
                 "GIML" => material.glossy_image_lerp = reader.get_f32(),
-                "THCK" => {
-                    // pbr->GetFloat(m_fThickness);
-                    let _thickness = reader.get_f32();
-                }
-                "EDGE" => {
-                    // pbr->GetFloat(m_fEdge);
-                    let _edge = reader.get_f32();
-                }
-                "EALP" => {
-                    // pbr->GetFloat(m_fEdgeAlpha);
-                    let _edge_alpha = reader.get_f32();
-                }
-                "OPAC" => {
-                    // pbr->GetFloat(m_fOpacity);
-                    let _opacity = reader.get_f32();
-                }
-                "BASE" => {
-                    // pbr->GetInt(m_cBase);
-                    let _base = reader.get_u32();
-                }
-                "GLOS" => {
-                    // pbr->GetInt(m_cGlossy);
-                    let _glossy = reader.get_u32();
-                }
-                "COAT" => {
-                    // pbr->GetInt(m_cClearcoat);
-                    let _clearcoat = reader.get_u32();
-                }
-                "RTNT" => {
-                    // pbr->GetInt(m_cRefractionTint);
-                    let _refraction_tint = reader.get_u32();
-                }
-                "EOPA" => {
-                    // pbr->GetBool(m_bOpacityActive);
-                    let _opacity_active = reader.get_bool();
-                }
-                "ELAS" => {
-                    // pbr->GetFloat(m_fElasticity);
-                    let _elasticity = reader.get_f32();
-                }
-                "ELFO" => {
-                    // pbr->GetFloat(m_fElasticityFalloff
-                    let _elasticity_falloff = reader.get_f32();
-                }
-                "FRIC" => {
-                    // pbr->GetFloat(m_fFriction);
-                    let _friction = reader.get_f32();
-                }
-                "SCAT" => {
-                    // pbr->GetFloat(m_fScatterAngle);
-                    let _scatter_angle = reader.get_f32();
-                }
+                "THCK" => material.thickness = reader.get_f32(),
+                "EDGE" => material.edge = reader.get_f32(),
+                "EALP" => material.edge_alpha = reader.get_f32(),
+                "OPAC" => material.opacity = reader.get_f32(),
+                "BASE" => material.base_color = Color::from_argb(reader.get_u32()),
+                "GLOS" => material.glossy_color = Color::from_argb(reader.get_u32()),
+                "COAT" => material.clearcoat_color = Color::from_argb(reader.get_u32()),
+                "RTNT" => material.refraction_tint = Color::from_argb(reader.get_u32()),
+                "EOPA" => material.opacity_active = reader.get_bool(),
+                "ELAS" => material.elasticity = reader.get_f32(),
+                "ELFO" => material.elasticity_falloff = reader.get_f32(),
+                "FRIC" => material.friction = reader.get_f32(),
+                "SCAT" => material.scatter_angle = reader.get_f32(),
                 _ => {
                     println!(
                         "Unknown tag {} for {}",
@@ -512,68 +543,6 @@ impl BiffWrite for Material {
     }
 }
 
-impl BiffRead for SaveMaterial {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
-        let mut save_material = SaveMaterial::default();
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
-            let tag_str = tag.as_str();
-            match tag_str {
-                _ => {
-                    println!(
-                        "Unknown tag {} for {}",
-                        tag_str,
-                        std::any::type_name::<Self>()
-                    );
-                    reader.skip_tag();
-                }
-            }
-        }
-        save_material
-    }
-}
-
-impl BiffWrite for SaveMaterial {
-    fn biff_write(&self, writer: &mut BiffWriter) {
-        todo!()
-    }
-}
-
-impl BiffRead for SavePhysicsMaterial {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
-        let mut save_material = SavePhysicsMaterial::default();
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
-            let tag_str = tag.as_str();
-            match tag_str {
-                _ => {
-                    println!(
-                        "Unknown tag {} for {}",
-                        tag_str,
-                        std::any::type_name::<Self>()
-                    );
-                    reader.skip_tag();
-                }
-            }
-        }
-        save_material
-    }
-}
-
-impl BiffWrite for SavePhysicsMaterial {
-    fn biff_write(&self, writer: &mut BiffWriter) {
-        todo!()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -601,5 +570,15 @@ mod tests {
         bytes = BytesMut::from(bytes.to_vec().as_slice());
         let read_save_physics_material = SavePhysicsMaterial::read(&mut bytes);
         assert_eq!(save_physics_material, read_save_physics_material);
+    }
+
+    #[test]
+    fn test_material_biff_write_read() {
+        let material: Material = Faker.fake();
+        let mut writer = BiffWriter::new();
+        material.biff_write(&mut writer);
+        let mut reader = BiffReader::new(writer.get_data());
+        let read_material = Material::biff_read(&mut reader);
+        assert_eq!(material, read_material);
     }
 }

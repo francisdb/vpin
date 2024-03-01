@@ -6,6 +6,12 @@ use super::{
     model::StringWithEncoding,
     version::Version,
 };
+use crate::vpx::biff::{BiffRead, BiffWrite};
+use crate::vpx::material::{
+    Material, MaterialJson, SaveMaterial, SaveMaterialJson, SavePhysicsMaterial,
+    SavePhysicsMaterialJson,
+};
+use bytes::BytesMut;
 use serde::{Deserialize, Serialize};
 
 pub const VIEW_LAYOUT_MODE_LEGACY: u32 = 0; // All tables before 10.8 used a viewer position relative to a fitting of a set of bounding vertices (not all parts) with a standard perspective projection skewed by a layback angle
@@ -200,20 +206,20 @@ pub struct GameData {
     pub tone_mapper: Option<i32>,          // TMAP 102.5 (added in 10.8)
     pub bloom_strength: f32,               // BLST 103
     pub materials_size: u32,               // MASI 104
-    pub materials: Vec<u8>,                // MATE 105
-    pub materials_physics: Option<Vec<u8>>, // PHMA 106 (added in 10.?)
-    pub materials_new: Option<Vec<Vec<u8>>>, // MATR (added in 10.8)
-    pub render_probes: Option<Vec<Vec<u8>>>, // RPRB (added in 10.8)
-    pub gameitems_size: u32,               // SEDT 107
-    pub sounds_size: u32,                  // SSND 108
-    pub images_size: u32,                  // SIMG 109
-    pub fonts_size: u32,                   // SFNT 110
-    pub collections_size: u32,             // SCOL 111
-    pub name: String,                      // NAME 112
-    pub custom_colors: Vec<u8>,            //[Color; 16], // CCUS 113
-    pub protection_data: Option<Vec<u8>>,  // SECB (removed in ?)
-    pub code: StringWithEncoding,          // CODE 114
-    pub is_locked: Option<bool>,           // TLCK (added in 10.8 for tournament mode?)
+    pub materials: Vec<SaveMaterial>,      // MATE 105 (only for <10.8)
+    pub materials_physics: Option<Vec<SavePhysicsMaterial>>, // PHMA 106 (only for <10.8, added in 10.?)
+    pub materials_new: Option<Vec<Material>>,                // MATR (added in 10.8)
+    pub render_probes: Option<Vec<Vec<u8>>>,                 // RPRB (added in 10.8)
+    pub gameitems_size: u32,                                 // SEDT 107
+    pub sounds_size: u32,                                    // SSND 108
+    pub images_size: u32,                                    // SIMG 109
+    pub fonts_size: u32,                                     // SFNT 110
+    pub collections_size: u32,                               // SCOL 111
+    pub name: String,                                        // NAME 112
+    pub custom_colors: Vec<u8>,                              //[Color; 16], // CCUS 113
+    pub protection_data: Option<Vec<u8>>,                    // SECB (removed in ?)
+    pub code: StringWithEncoding,                            // CODE 114
+    pub is_locked: Option<bool>, // TLCK (added in 10.8 for tournament mode?)
     // This is a bit of a hack because we want reproducible builds.
     // 10.8.0 beta 1-4 had EFSS at the old location, but it was moved to the new location in beta 5
     // Some tables were released with these old betas, so we need to support both locations to be 100% reproducing the orignal table
@@ -360,9 +366,9 @@ pub(crate) struct GameDataJson {
     pub tone_mapper: Option<i32>,
     pub bloom_strength: f32,
     pub materials_size: u32,
-    pub materials: Vec<u8>,
-    pub materials_physics: Option<Vec<u8>>,
-    pub materials_new: Option<Vec<Vec<u8>>>,
+    pub materials: Vec<SaveMaterialJson>,
+    pub materials_physics: Option<Vec<SavePhysicsMaterialJson>>,
+    pub materials_new: Option<Vec<MaterialJson>>,
     pub render_probes: Option<Vec<Vec<u8>>>,
     pub gameitems_size: u32,
     pub sounds_size: u32,
@@ -526,9 +532,21 @@ impl GameDataJson {
             tone_mapper: self.tone_mapper,
             bloom_strength: self.bloom_strength,
             materials_size: self.materials_size,
-            materials: self.materials.clone(),
-            materials_physics: self.materials_physics.clone(),
-            materials_new: self.materials_new.clone(),
+            materials: self
+                .materials
+                .iter()
+                .map(|m| m.to_save_material())
+                .collect(),
+            materials_physics: self.materials_physics.as_ref().map(|materials| {
+                materials
+                    .iter()
+                    .map(|m| m.to_save_physics_material())
+                    .collect()
+            }),
+            materials_new: self
+                .materials_new
+                .as_ref()
+                .map(|materials| materials.iter().map(|m| m.to_material()).collect()),
             render_probes: self.render_probes.clone(),
             gameitems_size: self.gameitems_size,
             sounds_size: self.sounds_size,
@@ -693,9 +711,21 @@ impl GameDataJson {
             tone_mapper: game_data.tone_mapper,
             bloom_strength: game_data.bloom_strength,
             materials_size: game_data.materials_size,
-            materials: game_data.materials.clone(),
-            materials_physics: game_data.materials_physics.clone(),
-            materials_new: game_data.materials_new.clone(),
+            materials: game_data
+                .materials
+                .iter()
+                .map(|m| SaveMaterialJson::from_save_material(m))
+                .collect(),
+            materials_physics: game_data.materials_physics.as_ref().map(|materials| {
+                materials
+                    .iter()
+                    .map(|m| SavePhysicsMaterialJson::from_save_physics_material(m))
+                    .collect()
+            }),
+            materials_new: game_data
+                .materials_new
+                .as_ref()
+                .map(|v| v.into_iter().map(MaterialJson::from_material).collect()),
             render_probes: game_data.render_probes.clone(),
             gameitems_size: game_data.gameitems_size,
             sounds_size: game_data.sounds_size,
@@ -1174,14 +1204,23 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
     }
     writer.write_tagged_f32("BLST", gamedata.bloom_strength);
     writer.write_tagged_u32("MASI", gamedata.materials_size);
-    writer.write_tagged_data("MATE", &gamedata.materials);
+    let mut bytes = BytesMut::new();
+    for mat in &gamedata.materials {
+        mat.write(&mut bytes);
+    }
+    writer.write_tagged_data("MATE", &bytes);
     if let Some(phma) = &gamedata.materials_physics {
-        writer.write_tagged_data("PHMA", phma);
+        let mut bytes = BytesMut::new();
+        for mat in phma {
+            mat.write(&mut bytes);
+        }
+        writer.write_tagged_data("PHMA", &bytes);
     }
     if let Some(materials_new) = &gamedata.materials_new {
         for mat in materials_new {
-            // TODO proper new material reading?
-            writer.write_tagged_data("MATR", mat);
+            let mut mat_writer = BiffWriter::new();
+            mat.biff_write(&mut mat_writer);
+            writer.write_tagged_data("MATR", mat_writer.get_data());
         }
     }
     // multiple RPRB // added in 10.8.x
@@ -1378,15 +1417,35 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             "TMAP" => gamedata.tone_mapper = Some(reader.get_i32()),
             "BLST" => gamedata.bloom_strength = reader.get_f32(),
             "MASI" => gamedata.materials_size = reader.get_u32(),
-            "MATE" => gamedata.materials = reader.get_record_data(false).to_vec(),
-            "PHMA" => gamedata.materials_physics = Some(reader.get_record_data(false).to_vec()),
+            "MATE" => {
+                let data = reader.get_record_data(false).to_vec();
+                let mut materials: Vec<SaveMaterial> = Vec::new();
+                let mut buff = BytesMut::from(data.as_slice());
+                for i in 0..gamedata.materials_size {
+                    let material = SaveMaterial::read(&mut buff);
+                    materials.push(material);
+                }
+                gamedata.materials = materials;
+            }
+            "PHMA" => {
+                let data = reader.get_record_data(false).to_vec();
+                let mut materials: Vec<SavePhysicsMaterial> = Vec::new();
+                let mut buff = BytesMut::from(data.as_slice());
+                for i in 0..gamedata.materials_size {
+                    let material = SavePhysicsMaterial::read(&mut buff);
+                    materials.push(material);
+                }
+                gamedata.materials_physics = Some(materials);
+            }
             // see https://github.com/vpinball/vpinball/blob/1a994086a6092733272fda36a2f449753a1ca21a/pintable.cpp#L4429
             "MATR" => {
                 let data = reader.get_record_data(false).to_vec();
+                let mut reader = BiffReader::new(&data);
+                let material = Material::biff_read(&mut reader);
                 gamedata
                     .materials_new
                     .get_or_insert_with(Vec::new)
-                    .push(data);
+                    .push(material);
             }
             "RPRB" => {
                 let data = reader.get_record_data(false).to_vec();
