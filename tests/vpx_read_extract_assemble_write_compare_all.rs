@@ -42,7 +42,8 @@ fn read_and_write_vpx(dir: &PathBuf, path: &Path) -> io::Result<PathBuf> {
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
     let expanded_read = vpin::vpx::expanded::read(&extract_dir)
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-    // create temp file and write the vpx to it
+    // special case for comparing code
+    assert_eq!(original.gamedata.code, expanded_read.gamedata.code);
     let file_name = path.file_name().unwrap();
     let test_vpx_path = dir.join(file_name);
     vpin::vpx::write(&test_vpx_path, &expanded_read)?;

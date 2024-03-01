@@ -181,16 +181,8 @@ impl<'a> BiffReader<'a> {
         let data = &self.data[self.pos..self.pos + pos_0];
 
         self.pos += count;
-        match String::from_utf8(data.to_vec()) {
-            Ok(s) => StringWithEncoding {
-                encoding: StringEncoding::Utf8,
-                string: s.to_string(),
-            },
-            Err(_e) => StringWithEncoding {
-                encoding: StringEncoding::Latin1,
-                string: decode_latin1(data).to_string(),
-            },
-        }
+        let s: StringWithEncoding = data.into();
+        s
     }
 
     pub fn get_str_no_remaining_update(&mut self, count: usize) -> String {

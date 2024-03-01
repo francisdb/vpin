@@ -16,6 +16,15 @@ pub struct DragPoint {
 
     // Somehow below items don't belong here?
     // these are shared between all items
+    // They always seem to be the same for all items
+    //         "is_locked": false,
+    //         "editor_layer": 0,
+    //         "editor_layer_name": null,
+    //         "editor_layer_visibility": null
+    // TODO validate above with a big test run
+    //   * remove them from the struct (also json)
+    //   * ignore on read
+    //   * write as default
     pub is_locked: bool,
     pub editor_layer: u32,
     pub editor_layer_name: Option<String>,

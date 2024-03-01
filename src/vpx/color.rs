@@ -91,12 +91,6 @@ impl Color {
         Color { a, r, g, b }
     }
 
-    // deprecated
-    #[deprecated(since = "0.1.0", note = "Please use `from_argb` instead")]
-    pub fn new_argb(arg: u32) -> Color {
-        Self::from_argb(arg)
-    }
-
     pub fn new_bgr(arg: u32) -> Color {
         let a = ((arg >> 24) & 0xff) as u8;
         let b = ((arg >> 16) & 0xff) as u8;

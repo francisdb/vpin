@@ -34,7 +34,7 @@ impl MaterialType {
  * Only used for backward compatibility loading and saving (VPX version < 10.8)
 */
 #[derive(Dummy, Debug, PartialEq)]
-pub(crate) struct SaveMaterial {
+pub struct SaveMaterial {
     pub name: String,
     /**
      * Base color of the material
@@ -300,7 +300,8 @@ fn read_padded_cstring(bytes: &mut BytesMut, len: usize) -> String {
 }
 
 fn get_padding_3_validate(bytes: &mut BytesMut) {
-    let padding_ = bytes.copy_to_bytes(3);
+    bytes.advance(3);
+    //let padding = bytes.copy_to_bytes(3);
     // since we have random padding data, we can't validate it
     //assert_eq!(padding.to_vec(), [0, 0, 0]);
 }
@@ -412,15 +413,15 @@ impl Default for Material {
             edge: 1.0,
             edge_alpha: 1.0,
             opacity: 1.0,
-            base_color: Color::new_argb(0xB469FF),
-            glossy_color: Color::new_argb(0),
-            clearcoat_color: Color::new_argb(0),
+            base_color: Color::from_argb(0xB469FF),
+            glossy_color: Color::from_argb(0),
+            clearcoat_color: Color::from_argb(0),
             opacity_active: false,
             elasticity: 0.0,
             elasticity_falloff: 0.0,
             friction: 0.0,
             scatter_angle: 0.0,
-            refraction_tint: Color::new_argb(0xFFFFFF),
+            refraction_tint: Color::from_argb(0xFFFFFF),
             name: "dummyMaterial".to_string(),
         }
     }
@@ -430,9 +431,9 @@ impl Default for SaveMaterial {
     fn default() -> Self {
         SaveMaterial {
             name: "dummyMaterial".to_string(),
-            base_color: Color::new_argb(0xB469FF),
-            glossy_color: Color::new_argb(0),
-            clearcoat_color: Color::new_argb(0),
+            base_color: Color::from_argb(0xB469FF),
+            glossy_color: Color::from_argb(0),
+            clearcoat_color: Color::from_argb(0),
             wrap_lighting: 0.0,
             is_metal: false,
             roughness: 0.0,

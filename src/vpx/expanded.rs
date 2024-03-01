@@ -6,9 +6,9 @@ use std::{fs::File, path::Path};
 use cfb::CompoundFile;
 use serde_json::Value;
 
-use super::{extract_script, read_custominfotags, read_gamedata, tableinfo, Version, VPX};
+use super::{read_gamedata, Version, VPX};
 
-use super::collection::{self, Collection};
+use super::collection::Collection;
 use super::font;
 use super::gamedata::{GameData, GameDataJson};
 use super::gameitem;
@@ -74,40 +74,6 @@ impl From<serde_json::Error> for WriteError {
     fn from(error: serde_json::Error) -> Self {
         WriteError::Json(error)
     }
-}
-
-pub fn extract(vpx_file_path: &Path, expanded_path: &Path) -> io::Result<()> {
-    let vbs_path = expanded_path.join("script.vbs");
-
-    let mut root_dir = std::fs::DirBuilder::new();
-    root_dir.recursive(true);
-    root_dir.create(expanded_path).unwrap();
-
-    let mut comp = cfb::open(vpx_file_path).unwrap();
-    let version = version::read_version(&mut comp).unwrap();
-    let gamedata = read_gamedata(&mut comp, &version).unwrap();
-
-    extract_info(&mut comp, expanded_path)?;
-
-    extract_script(&gamedata, &vbs_path)?;
-    println!("VBScript file written to\n  {}", &vbs_path.display());
-    extract_binaries(&mut comp, expanded_path);
-    extract_images(&mut comp, &gamedata, expanded_path);
-    extract_sounds(&mut comp, &gamedata, expanded_path, &version);
-    extract_fonts(&mut comp, &gamedata, expanded_path);
-    extract_gameitems(&mut comp, &gamedata, expanded_path);
-    extract_collections(&mut comp, &gamedata, expanded_path);
-
-    // let mut file_version = String::new();
-    // comp.open_stream("/GameStg/Version")
-    //     .unwrap()
-    //     .read_to_string(&mut file_version)
-    //     .unwrap();
-    // println!("File version: {}", file_version);
-
-    // let mut stream = comp.open_stream(inner_path).unwrap();
-    // io::copy(&mut stream, &mut io::stdout()).unwrap();
-    Ok(())
 }
 
 pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
@@ -187,17 +153,29 @@ pub fn read<P: AsRef<Path>>(expanded_dir: &P) -> Result<VPX, ReadError> {
 
 fn write_game_data<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
     let game_data_path = expanded_dir.as_ref().join("gamedata.json");
-    let mut game_data_file = std::fs::File::create(&game_data_path)?;
+    let mut game_data_file = File::create(&game_data_path)?;
     let json = GameDataJson::from_game_data(&vpx.gamedata);
     serde_json::to_writer_pretty(&mut game_data_file, &json)?;
+    // write the code to script.vbs
+    let script_path = expanded_dir.as_ref().join("script.vbs");
+    let mut script_file = File::create(&script_path)?;
+    let script_bytes: Vec<u8> = vpx.gamedata.code.clone().into();
+    script_file.write_all(script_bytes.as_ref())?;
     Ok(())
 }
 
 fn read_game_data<P: AsRef<Path>>(expanded_dir: &P) -> Result<GameData, ReadError> {
     let game_data_path = expanded_dir.as_ref().join("gamedata.json");
-    let mut game_data_file = std::fs::File::open(&game_data_path)?;
+    let mut game_data_file = File::open(&game_data_path)?;
     let game_data_json: GameDataJson = serde_json::from_reader(&mut game_data_file)?;
-    Ok(game_data_json.to_game_data())
+    let mut game_data = game_data_json.to_game_data();
+    // read the code from script.vbs, and find out the correct encoding
+    let script_path = expanded_dir.as_ref().join("script.vbs");
+    let mut script_file = File::open(&script_path)?;
+    let mut code = Vec::new();
+    script_file.read_to_end(&mut code)?;
+    game_data.code = code.into();
+    Ok(game_data)
 }
 
 fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
@@ -373,6 +351,21 @@ fn write_gameitems<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Wr
         let gameitem_path = gameitems_dir.join(file_name);
         let gameitem_file = std::fs::File::create(&gameitem_path)?;
         serde_json::to_writer_pretty(&gameitem_file, &gameitem)?;
+        // for primitives we write fields m3cx and m3ci to separate files with bin extension
+        if let GameItemEnum::Primitive(primitive) = gameitem {
+            if let Some(m3cx) = &primitive.m3cx {
+                let m3cx_path =
+                    gameitems_dir.join(format!("{}.{}.m3cx.bin", gameitem.type_name(), name));
+                let mut m3cx_file = std::fs::File::create(&m3cx_path)?;
+                m3cx_file.write_all(m3cx)?;
+            }
+            if let Some(m3ci) = &primitive.m3ci {
+                let m3ci_path =
+                    gameitems_dir.join(format!("{}.{}.m3ci.bin", gameitem.type_name(), name));
+                let mut m3ci_file = std::fs::File::create(&m3ci_path)?;
+                m3ci_file.write_all(m3ci)?;
+            }
+        }
     }
     // write the gameitems index as array with names being the type and the name
     let gameitems_index_path = expanded_dir.as_ref().join("gameitems.json");
@@ -391,12 +384,30 @@ fn read_gameitems<P: AsRef<Path>>(expanded_dir: &P) -> Result<Vec<GameItemEnum>,
     let gameitems: Result<Vec<GameItemEnum>, ReadError> = gameitems_index
         .into_iter()
         .map(|gameitem_file_name| {
-            let gameitem_path = gameitems_dir.join(gameitem_file_name);
+            let gameitem_path = gameitems_dir.join(&gameitem_file_name);
             if gameitem_path.exists() {
                 let mut gameitem_file = std::fs::File::open(&gameitem_path)?;
                 let mut gameitem_string = String::new();
                 gameitem_file.read_to_string(&mut gameitem_string)?;
-                let res: GameItemEnum = serde_json::from_str(&gameitem_string)?;
+                let mut res: GameItemEnum = serde_json::from_str(&gameitem_string)?;
+                // for primitives we read fields m3cx and m3ci from separate files with bin extension
+                if let GameItemEnum::Primitive(primitive) = &mut res {
+                    let gameitem_file_name = gameitem_file_name.trim_end_matches(".json");
+                    let m3cx_path = gameitems_dir.join(format!("{}.m3cx.bin", &gameitem_file_name));
+                    if m3cx_path.exists() {
+                        let mut m3cx_file = std::fs::File::open(&m3cx_path)?;
+                        let mut m3cx = Vec::new();
+                        m3cx_file.read_to_end(&mut m3cx)?;
+                        primitive.m3cx = Some(m3cx);
+                    }
+                    let m3ci_path = gameitems_dir.join(format!("{}.m3ci.bin", &gameitem_file_name));
+                    if m3ci_path.exists() {
+                        let mut m3ci_file = std::fs::File::open(&m3ci_path)?;
+                        let mut m3ci = Vec::new();
+                        m3ci_file.read_to_end(&mut m3ci)?;
+                        primitive.m3ci = Some(m3ci);
+                    }
+                }
                 Ok(res)
             } else {
                 Err(ReadError::Io(io::Error::new(
@@ -575,130 +586,6 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
     files
 }
 
-fn extract_info(comp: &mut CompoundFile<File>, root_dir_path: &Path) -> std::io::Result<()> {
-    let json_path = root_dir_path.join("TableInfo.json");
-    let mut json_file = std::fs::File::create(&json_path).unwrap();
-    let table_info = tableinfo::read_tableinfo(comp)?;
-    let custom_info_tags = read_custominfotags(comp)?;
-    // TODO can we avoid the clone?
-    let screenshot = table_info
-        .screenshot
-        .as_ref()
-        .unwrap_or(&Vec::new())
-        .clone();
-    if !screenshot.is_empty() {
-        let screenshot_path = root_dir_path.join("screenshot.bin");
-        let mut screenshot_file = std::fs::File::create(screenshot_path).unwrap();
-        screenshot_file.write_all(&screenshot).unwrap();
-    }
-
-    let info = info_to_json(&table_info, &custom_info_tags);
-
-    serde_json::to_writer_pretty(&mut json_file, &info).unwrap();
-    println!("Info file written to\n  {}", &json_path.display());
-    Ok(())
-}
-
-fn extract_images(comp: &mut CompoundFile<File>, gamedata: &GameData, root_dir_path: &Path) {
-    let images_size = gamedata.images_size;
-
-    let images_path = root_dir_path.join("images");
-    std::fs::create_dir_all(&images_path).unwrap();
-
-    println!(
-        "Writing {} images to\n  {}",
-        images_size,
-        images_path.display()
-    );
-
-    for index in 0..images_size {
-        let path = format!("GameStg/Image{}", index);
-        let mut input = Vec::new();
-        comp.open_stream(&path)
-            .unwrap()
-            .read_to_end(&mut input)
-            .unwrap();
-        let mut reader = BiffReader::new(&input);
-        let img = ImageData::biff_read(&mut reader);
-        match &img.jpeg {
-            Some(jpeg) => {
-                let ext = img.ext();
-                let mut jpeg_path = images_path.clone();
-                jpeg_path.push(format!("Image{}.{}.{}", index, img.name, ext));
-                //dbg!(&jpeg_path);
-                let mut file = std::fs::File::create(jpeg_path).unwrap();
-                file.write_all(&jpeg.data).unwrap();
-            }
-            None => {
-                println!("Image {} has no jpeg data", index)
-                // nothing to do here
-            }
-        }
-    }
-}
-
-fn extract_collections(comp: &mut CompoundFile<File>, gamedata: &GameData, root_dir_path: &Path) {
-    let collections_size = gamedata.collections_size;
-
-    let collections_json_path = root_dir_path.join("collections.json");
-    println!(
-        "Writing {} collections to\n  {}",
-        collections_size,
-        collections_json_path.display()
-    );
-
-    let collections: Vec<Collection> = (0..collections_size)
-        .map(|index| {
-            let path = format!("GameStg/Collection{}", index);
-            let mut input = Vec::new();
-            comp.open_stream(&path)
-                .unwrap()
-                .read_to_end(&mut input)
-                .unwrap();
-            collection::read(&input)
-        })
-        .collect();
-
-    let json_collections = collections_json(&collections);
-    let mut json_file = std::fs::File::create(collections_json_path).unwrap();
-    serde_json::to_writer_pretty(&mut json_file, &json_collections).unwrap();
-}
-
-fn extract_sounds(
-    comp: &mut CompoundFile<File>,
-    gamedata: &GameData,
-    root_dir_path: &Path,
-    file_version: &Version,
-) {
-    let sounds_size = gamedata.sounds_size;
-    let sounds_path = root_dir_path.join("sounds");
-    std::fs::create_dir_all(&sounds_path).unwrap();
-
-    println!(
-        "Writing {} sounds to\n  {}",
-        sounds_size,
-        sounds_path.display()
-    );
-
-    for index in 0..sounds_size {
-        let path = format!("GameStg/Sound{}", index);
-        let mut input = Vec::new();
-        comp.open_stream(&path)
-            .unwrap()
-            .read_to_end(&mut input)
-            .unwrap();
-        let mut reader = BiffReader::new(&input);
-        let sound = sound::read(file_version, &mut reader);
-
-        let ext = sound.ext();
-        let mut sound_path = sounds_path.clone();
-        sound_path.push(format!("Sound{}.{}.{}", index, sound.name, ext));
-        //dbg!(&jpeg_path);
-        let mut file = std::fs::File::create(sound_path).unwrap();
-        file.write_all(&write_sound(&sound)).unwrap();
-    }
-}
-
 fn extract_fonts(comp: &mut CompoundFile<File>, gamedata: &GameData, root_dir_path: &Path) {
     let fonts_size = gamedata.fonts_size;
 
@@ -726,39 +613,6 @@ fn extract_fonts(comp: &mut CompoundFile<File>, gamedata: &GameData, root_dir_pa
         //dbg!(&jpeg_path);
         let mut file = std::fs::File::create(font_path).unwrap();
         file.write_all(&font.data).unwrap();
-    }
-}
-
-fn extract_gameitems(comp: &mut CompoundFile<File>, gamedata: &GameData, root_dir_path: &Path) {
-    let gameitems_size = gamedata.gameitems_size;
-
-    let gameitems_path = root_dir_path.join("gameitems");
-    std::fs::create_dir_all(&gameitems_path).unwrap();
-
-    println!(
-        "Writing {} gameitems to\n  {}",
-        gameitems_size,
-        gameitems_path.display()
-    );
-
-    for index in 0..gameitems_size {
-        let path = format!("GameStg/GameItem{}", index);
-        let mut input = Vec::new();
-        comp.open_stream(&path)
-            .unwrap()
-            .read_to_end(&mut input)
-            .unwrap();
-        //println!("GameItem {} size: {}", path, input.len());
-        let _gameitem = gameitem::read(&input);
-
-        //dbg!(gameitem);
-
-        // let ext = gameitem.ext();
-        // let mut gameitem_path = gameitems_path.clone();
-        // gameitem_path.push(format!("GameItem{}.{}.{}", index, gameitem.name, ext));
-        // //dbg!(&jpeg_path);
-        // let mut file = std::fs::File::create(gameitem_path).unwrap();
-        // file.write_all(&gameitem.data).unwrap();
     }
 }
 
@@ -793,25 +647,6 @@ fn retrieve_entries_from_compound_file(comp: &CompoundFile<std::fs::File>) -> Ve
         .collect();
 
     entries
-}
-
-fn extract_binaries(comp: &mut CompoundFile<std::fs::File>, root_dir_path: &Path) {
-    // write all remaining entries
-    let entries = retrieve_entries_from_compound_file(comp);
-
-    entries.iter().for_each(|path| {
-        let mut stream = comp.open_stream(path).unwrap();
-        // write the steam directly to a file
-        let file_path = root_dir_path.join(&path[1..]);
-        // println!("Writing to {}", file_path.display());
-        // make sure the parent directory exists
-        let parent = file_path.parent().unwrap();
-        std::fs::create_dir_all(parent).unwrap();
-        let mut file = std::fs::File::create(file_path).unwrap();
-        io::copy(&mut stream, &mut file).unwrap();
-    });
-
-    println!("Binaries written to\n  {}", root_dir_path.display());
 }
 
 #[cfg(test)]
@@ -880,6 +715,9 @@ mod test {
         trigger.name = "test trigger".to_string();
         let mut wall: gameitem::wall::Wall = Faker.fake();
         wall.name = "test wall".to_string();
+
+        let mut gamedata = GameData::default();
+        gamedata.code.string = r#"debug.print "Hello world""#.to_string();
 
         let vpx = VPX {
             custominfotags: vec!["test prop 2".to_string(), "test prop".to_string()],

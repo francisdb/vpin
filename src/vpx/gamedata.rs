@@ -378,7 +378,7 @@ pub(crate) struct GameDataJson {
     pub name: String,
     pub custom_colors: Vec<u8>,
     pub protection_data: Option<Vec<u8>>,
-    pub code: StringWithEncoding,
+    //pub code: StringWithEncoding,
     pub is_locked: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_10_8_0_beta1_to_beta4: Option<bool>,
@@ -556,7 +556,7 @@ impl GameDataJson {
             name: self.name.clone(),
             custom_colors: self.custom_colors.clone(),
             protection_data: self.protection_data.clone(),
-            code: self.code.clone(),
+            code: StringWithEncoding::empty(),
             is_locked: self.is_locked,
             is_10_8_0_beta1_to_beta4: self.is_10_8_0_beta1_to_beta4.unwrap_or(false),
         }
@@ -735,7 +735,7 @@ impl GameDataJson {
             name: game_data.name.clone(),
             custom_colors: game_data.custom_colors.clone(),
             protection_data: game_data.protection_data.clone(),
-            code: game_data.code.clone(),
+            // code: game_data.code.clone(),
             is_locked: game_data.is_locked,
             is_10_8_0_beta1_to_beta4: Some(game_data.is_10_8_0_beta1_to_beta4)
                 .filter(|x| x == &true),
@@ -1421,7 +1421,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
                 let data = reader.get_record_data(false).to_vec();
                 let mut materials: Vec<SaveMaterial> = Vec::new();
                 let mut buff = BytesMut::from(data.as_slice());
-                for i in 0..gamedata.materials_size {
+                for _ in 0..gamedata.materials_size {
                     let material = SaveMaterial::read(&mut buff);
                     materials.push(material);
                 }
@@ -1431,7 +1431,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
                 let data = reader.get_record_data(false).to_vec();
                 let mut materials: Vec<SavePhysicsMaterial> = Vec::new();
                 let mut buff = BytesMut::from(data.as_slice());
-                for i in 0..gamedata.materials_size {
+                for _ in 0..gamedata.materials_size {
                     let material = SavePhysicsMaterial::read(&mut buff);
                     materials.push(material);
                 }
