@@ -1,9 +1,11 @@
 use std::collections::HashSet;
+use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::io::{self, Read, Write};
 use std::{fs::File, path::Path};
 
 use cfb::CompoundFile;
+use serde::de;
 use serde_json::Value;
 
 use super::{read_gamedata, Version, VPX};
@@ -11,7 +13,6 @@ use super::{read_gamedata, Version, VPX};
 use super::collection::Collection;
 use super::font;
 use super::gamedata::{GameData, GameDataJson};
-use super::gameitem;
 use super::sound;
 use super::sound::{read_sound, write_sound, SoundData, SoundDataJson};
 use super::version;
@@ -24,36 +25,21 @@ use crate::vpx::jsonmodel::{collections_json, info_to_json, json_to_collections,
 use crate::vpx::tableinfo::TableInfo;
 
 #[derive(Debug)]
-pub enum ReadError {
-    Io(io::Error),
-    Json(serde_json::Error),
-}
-
-impl Display for ReadError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ReadError::Io(error) => write!(f, "IO error: {}", error),
-            ReadError::Json(error) => write!(f, "JSON error: {}", error),
-        }
-    }
-}
-
-impl From<io::Error> for ReadError {
-    fn from(error: io::Error) -> Self {
-        ReadError::Io(error)
-    }
-}
-
-impl From<serde_json::Error> for ReadError {
-    fn from(error: serde_json::Error) -> Self {
-        ReadError::Json(error)
-    }
-}
-
 pub enum WriteError {
     Io(io::Error),
     Json(serde_json::Error),
 }
+
+impl Error for WriteError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            WriteError::Io(error) => Some(error),
+            WriteError::Json(error) => Some(error),
+        }
+    }
+}
+
+// make the error compatible with io::Error keeping the source
 
 impl Display for WriteError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -79,7 +65,7 @@ impl From<serde_json::Error> for WriteError {
 pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
     // write the version as utf8 to version.txt
     let version_path = expanded_dir.as_ref().join("version.txt");
-    let mut version_file = std::fs::File::create(&version_path)?;
+    let mut version_file = File::create(&version_path)?;
     let version_string = vpx.version.to_string();
     version_file.write_all(version_string.as_bytes())?;
 
@@ -95,7 +81,7 @@ pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteErr
 
     // collections
     let collections_json_path = expanded_dir.as_ref().join("collections.json");
-    let mut collections_json_file = std::fs::File::create(&collections_json_path)?;
+    let mut collections_json_file = File::create(&collections_json_path)?;
     let json_collections = collections_json(&vpx.collections);
     serde_json::to_writer_pretty(&mut collections_json_file, &json_collections)?;
     write_gameitems(&vpx, expanded_dir)?;
@@ -106,10 +92,16 @@ pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteErr
     Ok(())
 }
 
-pub fn read<P: AsRef<Path>>(expanded_dir: &P) -> Result<VPX, ReadError> {
+pub fn read<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<VPX> {
     // read the version
     let version_path = expanded_dir.as_ref().join("version.txt");
-    let mut version_file = std::fs::File::open(&version_path)?;
+    if !version_path.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("Version file not found: {}", version_path.display()),
+        ));
+    }
+    let mut version_file = File::open(&version_path)?;
     let mut version_string = String::new();
     version_file.read_to_string(&mut version_string)?;
     let version = Version::parse(&version_string).map_err(|e| {
@@ -121,7 +113,7 @@ pub fn read<P: AsRef<Path>>(expanded_dir: &P) -> Result<VPX, ReadError> {
 
     let screenshot = expanded_dir.as_ref().join("screenshot.png");
     let screenshot = if screenshot.exists() {
-        let mut screenshot_file = std::fs::File::open(&screenshot)?;
+        let mut screenshot_file = File::open(&screenshot)?;
         let mut screenshot = Vec::new();
         screenshot_file.read_to_end(&mut screenshot)?;
         Some(screenshot)
@@ -164,13 +156,18 @@ fn write_game_data<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Wr
     Ok(())
 }
 
-fn read_game_data<P: AsRef<Path>>(expanded_dir: &P) -> Result<GameData, ReadError> {
+fn read_game_data<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<GameData> {
     let game_data_path = expanded_dir.as_ref().join("gamedata.json");
-    let mut game_data_file = File::open(&game_data_path)?;
-    let game_data_json: GameDataJson = serde_json::from_reader(&mut game_data_file)?;
+    let game_data_json: GameDataJson = read_json(&game_data_path)?;
     let mut game_data = game_data_json.to_game_data();
     // read the code from script.vbs, and find out the correct encoding
     let script_path = expanded_dir.as_ref().join("script.vbs");
+    if !script_path.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("Script file not found: {}", script_path.display()),
+        ));
+    }
     let mut script_file = File::open(&script_path)?;
     let mut code = Vec::new();
     script_file.read_to_end(&mut code)?;
@@ -178,73 +175,124 @@ fn read_game_data<P: AsRef<Path>>(expanded_dir: &P) -> Result<GameData, ReadErro
     Ok(game_data)
 }
 
+fn read_json<P: AsRef<Path>, T>(game_data_path: P) -> io::Result<T>
+where
+    T: de::DeserializeOwned,
+{
+    let path = game_data_path.as_ref();
+    if !path.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("Game data file not found: {}", path.display()),
+        ));
+    }
+    let mut game_data_file = File::open(&game_data_path)?;
+    serde_json::from_reader(&mut game_data_file).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::Other,
+            format!("Failed to parse/read json {}: {}", path.display(), e),
+        )
+    })
+}
+
 fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
     // create an image index
     let images_index_path = expanded_dir.as_ref().join("images.json");
     let mut images_index_file = std::fs::File::create(&images_index_path)?;
-    let images_index: Vec<ImageDataJson> = vpx
+    // on macOS/windows the file system is case-insensitive
+    let mut image_names_lower: HashSet<String> = HashSet::new();
+    let mut image_names_dupe_counter = 0;
+    let mut json_images = Vec::with_capacity(vpx.sounds.len());
+    let images: Vec<(String, &ImageData)> = vpx
         .images
         .iter()
-        .map(|image| ImageDataJson::from_image_data(image))
+        .map(|image| {
+            let mut json = ImageDataJson::from_image_data(image);
+            let lower_name = image.name.to_lowercase();
+            if image_names_lower.contains(&lower_name) {
+                image_names_dupe_counter += 1;
+                let name_dedup = format!("{}_dedup{}", image.name, image_names_dupe_counter);
+                eprintln!(
+                    "Image name {} is not unique, renaming file to {}",
+                    image.name, &name_dedup
+                );
+                json.name_dedup = Some(name_dedup);
+            }
+            image_names_lower.insert(lower_name);
+
+            let actual_name = json.name_dedup.as_ref().unwrap_or(&image.name);
+            let file_name = format!("{}.{}", actual_name, image.ext());
+            json_images.push(json);
+            (file_name, image)
+        })
         .collect();
-    serde_json::to_writer_pretty(&mut images_index_file, &images_index)?;
+    serde_json::to_writer_pretty(&mut images_index_file, &json_images)?;
 
     let images_dir = expanded_dir.as_ref().join("images");
     std::fs::create_dir_all(&images_dir)?;
-    for image in &vpx.images {
-        if let Some(jpeg) = &image.jpeg {
-            let file_name = format!("{}.{}", image.name, image.ext());
-            let jpeg_path = images_dir.join(file_name);
-            let mut jpeg_file = std::fs::File::create(&jpeg_path)?;
-            jpeg_file.write_all(&jpeg.data)?;
+    images.iter().try_for_each(|(image_file_name, image)| {
+        let file_path = images_dir.join(image_file_name);
+        if !file_path.exists() {
+            let mut file = File::create(&file_path)?;
+            if image.is_link() {
+                Ok(())
+            } else if let Some(jpeg) = &image.jpeg {
+                file.write_all(&jpeg.data)
+            } else if let Some(bits) = &image.bits {
+                file.write_all(&bits.data)
+            } else {
+                Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Image has no data: {}", file_path.display()),
+                ))
+            }
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!(
+                    "Two images with the same name detected, should not happen: {}",
+                    file_path.display()
+                ),
+            ))
         }
-        if let Some(bits) = &image.bits {
-            let file_name = format!("{}.{}", image.name, image.ext());
-            let png_path = images_dir.join(file_name);
-            let mut file = File::create(&png_path)?;
-            file.write_all(&bits.data)?;
-        }
-    }
+    })?;
     Ok(())
 }
 
-fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> Result<Vec<ImageData>, ReadError> {
+fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
     // TODO do we actually need an index?
     let images_index_path = expanded_dir.as_ref().join("images.json");
-    if !images_index_path.exists() {
-        return Ok(vec![]);
-    }
-    let mut images_index_file = std::fs::File::open(&images_index_path)?;
-    let images_index_json: Vec<ImageDataJson> = serde_json::from_reader(&mut images_index_file)?;
-    let images_index: Vec<ImageData> = images_index_json
-        .iter()
-        .map(|image_data_json| image_data_json.to_image_data())
-        .collect();
-    // for each item in the index read the items
+    let images_index_json: Vec<ImageDataJson> = read_json(&images_index_path)?;
     let images_dir = expanded_dir.as_ref().join("images");
-    let images: Result<Vec<ImageData>, ReadError> = images_index
+    let images: io::Result<Vec<ImageData>> = images_index_json
         .into_iter()
-        .map(|mut image| {
-            // read the file
-            let file_name = format!("{}.{}", image.name, image.ext());
-            let image_path = images_dir.join(file_name);
-            if image_path.exists() {
-                let mut image_file = std::fs::File::open(&image_path)?;
-                let mut image_data = Vec::new();
-                image_file.read_to_end(&mut image_data)?;
-                if let Some(jpg) = &mut image.jpeg {
-                    jpg.data = image_data;
-                } else if image.bits.is_some() {
-                    // the json serializer makes sure we have a Some with empty data
-                    let image_data = ImageDataBits { data: image_data };
-                    image.bits = Some(image_data);
-                }
-                Ok(image)
+        .map(|image_data_json| {
+            let mut image = image_data_json.to_image_data();
+            if image.is_link() {
+                // linked images have no data
+                return Ok(image);
             } else {
-                Err(ReadError::Io(io::Error::new(
-                    io::ErrorKind::NotFound,
-                    format!("Image file not found: {}", image_path.display()),
-                )))
+                let file_name = image_data_json.name_dedup.as_ref().unwrap_or(&image.name);
+                let full_file_name = format!("{}.{}", file_name, image.ext());
+                let file_path = images_dir.join(full_file_name);
+                if file_path.exists() {
+                    let mut image_file = File::open(&file_path)?;
+                    let mut image_data = Vec::new();
+                    image_file.read_to_end(&mut image_data)?;
+                    if let Some(jpg) = &mut image.jpeg {
+                        jpg.data = image_data;
+                    } else if image.bits.is_some() {
+                        // the json serializer makes sure we have a Some with empty data
+                        let image_data = ImageDataBits { data: image_data };
+                        image.bits = Some(image_data);
+                    }
+                    Ok(image)
+                } else {
+                    Err(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        format!("Image file not found: {}", file_path.display()),
+                    ))
+                }
             }
         })
         .collect();
@@ -254,17 +302,38 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> Result<Vec<ImageData>, ReadE
 fn write_sounds<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
     let sounds_index_path = expanded_dir.as_ref().join("sounds.json");
     let mut sounds_index_file = std::fs::File::create(&sounds_index_path)?;
-    let images_index: Vec<SoundDataJson> = vpx
+    // on macOS/windows the file system is case-insensitive
+    let mut sound_names_lower: HashSet<String> = HashSet::new();
+    let mut sound_names_dupe_counter = 0;
+    let mut json_sounds = Vec::with_capacity(vpx.sounds.len());
+    let sounds: Vec<(String, &SoundData)> = vpx
         .sounds
         .iter()
-        .map(|sound| SoundDataJson::from_sound_data(sound))
+        .map(|sound| {
+            let mut json = SoundDataJson::from_sound_data(sound);
+            let lower_name = sound.name.to_lowercase();
+            if sound_names_lower.contains(&lower_name) {
+                sound_names_dupe_counter += 1;
+                let name_dedup = format!("{}_dedup{}", sound.name, sound_names_dupe_counter);
+                eprintln!(
+                    "Sound name {} is not unique, renaming file to {}",
+                    sound.name, &name_dedup
+                );
+                json.name_dedup = Some(name_dedup);
+            }
+            sound_names_lower.insert(lower_name);
+
+            let actual_name = json.name_dedup.as_ref().unwrap_or(&sound.name);
+            let file_name = format!("{}.{}", actual_name, sound.ext());
+            json_sounds.push(json);
+            (file_name, sound)
+        })
         .collect();
-    serde_json::to_writer_pretty(&mut sounds_index_file, &images_index)?;
+    serde_json::to_writer_pretty(&mut sounds_index_file, &json_sounds)?;
 
     let sounds_dir = expanded_dir.as_ref().join("sounds");
     std::fs::create_dir_all(&sounds_dir)?;
-    vpx.sounds.iter().try_for_each(|sound| {
-        let sound_file_name = format!("{}.{}", sound.name, sound.ext());
+    sounds.iter().try_for_each(|(sound_file_name, sound)| {
         let sound_path = sounds_dir.join(sound_file_name);
         if !sound_path.exists() {
             let mut file = File::create(sound_path)?;
@@ -273,7 +342,7 @@ fn write_sounds<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
             Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
                 format!(
-                    "Two sounds with the same name detected {}",
+                    "Two sounds with the same name detected, should not happen: {}",
                     sound_path.display()
                 ),
             ))
@@ -282,29 +351,34 @@ fn write_sounds<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
     Ok(())
 }
 
-fn read_sounds<P: AsRef<Path>>(expanded_dir: &P) -> Result<Vec<SoundData>, ReadError> {
+fn read_sounds<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<SoundData>> {
     let sounds_json_path = expanded_dir.as_ref().join("sounds.json");
     if !sounds_json_path.exists() {
+        println!("No sounds.json found");
         return Ok(vec![]);
     }
-    let mut sounds_index_file = std::fs::File::open(&sounds_json_path)?;
-    let sounds_json: Vec<SoundDataJson> = serde_json::from_reader(&mut sounds_index_file)?;
-    let sounds: Vec<SoundData> = sounds_json
-        .iter()
-        .map(|sound_data_json| sound_data_json.to_sound_data())
-        .collect();
+    let sounds_json: Vec<SoundDataJson> = read_json(&sounds_json_path)?;
     // for each item in the index read the items
     let sounds_dir = expanded_dir.as_ref().join("sounds");
-    let sounds: Result<Vec<SoundData>, ReadError> = sounds
+    let sounds: io::Result<Vec<SoundData>> = sounds_json
         .into_iter()
-        .map(|mut sound| {
-            let sound_file_name = format!("{}.{}", sound.name, sound.ext());
-            let sound_path = sounds_dir.join(&sound_file_name);
-            let mut sound_file = File::open(&sound_path)?;
-            let mut sound_data = Vec::new();
-            sound_file.read_to_end(&mut sound_data)?;
-            read_sound(&sound_data, &mut sound);
-            Ok(sound)
+        .map(|sound_data_json| {
+            let mut sound = sound_data_json.to_sound_data();
+            let file_name = sound_data_json.name_dedup.as_ref().unwrap_or(&sound.name);
+            let full_file_name = format!("{}.{}", file_name, sound.ext());
+            let file_path = sounds_dir.join(&full_file_name);
+            if file_path.exists() {
+                let mut sound_file = File::open(&file_path)?;
+                let mut sound_data = Vec::new();
+                sound_file.read_to_end(&mut sound_data)?;
+                read_sound(&sound_data, &mut sound);
+                Ok(sound)
+            } else {
+                Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("Sound file not found: {}", file_path.display()),
+                ))
+            }
         })
         .collect();
     sounds
@@ -322,27 +396,45 @@ fn write_fonts<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteE
 
     let fonts_dir = expanded_dir.as_ref().join("fonts");
     std::fs::create_dir_all(&fonts_dir)?;
-    for font in &vpx.fonts {
-        // TODO write the font data
-    }
+    vpx.fonts.iter().try_for_each(|font| {
+        let file_name = format!("{}.{}", font.name, font.ext());
+        let font_path = fonts_dir.join(file_name);
+        let mut file = File::create(font_path)?;
+        file.write_all(&font.data)
+    })?;
     Ok(())
 }
 
-fn read_fonts<P: AsRef<Path>>(expanded_dir: &P) -> Result<Vec<font::FontData>, ReadError> {
+fn read_fonts<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<font::FontData>> {
     let fonts_index_path = expanded_dir.as_ref().join("fonts.json");
-    let mut fonts_index_file = std::fs::File::open(&fonts_index_path)?;
-    let fonts_json: Vec<FontDataJson> = serde_json::from_reader(&mut fonts_index_file)?;
+    if !fonts_index_path.exists() {
+        println!("No fonts.json found");
+        return Ok(vec![]);
+    }
+    let fonts_json: Vec<FontDataJson> = read_json(fonts_index_path)?;
     let fonts_index: Vec<FontData> = fonts_json
         .iter()
         .map(|font_data_json| font_data_json.to_font_data())
         .collect();
     // for each item in the index read the items
     let fonts_dir = expanded_dir.as_ref().join("fonts");
-    let fonts: Result<Vec<font::FontData>, ReadError> = fonts_index
+    let fonts: io::Result<Vec<FontData>> = fonts_index
         .into_iter()
-        .map(|font| {
-            // TODO load data
-            Ok(font)
+        .map(|mut font| {
+            let file_name = format!("{}.{}", font.name, font.ext());
+            let font_path = fonts_dir.join(file_name);
+            if font_path.exists() {
+                let mut font_file = File::open(&font_path)?;
+                let mut font_data = Vec::new();
+                font_file.read_to_end(&mut font_data)?;
+                font.data = font_data;
+                Ok(font)
+            } else {
+                Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("Font file not found: {}", font_path.display()),
+                ))
+            }
         })
         .collect();
     fonts
@@ -359,6 +451,9 @@ fn write_gameitems<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Wr
         if name.is_empty() {
             name = "unnamed".to_string();
         }
+        // escape any characters that are not allowed in file names, for any os
+        name = name.replace(|c: char| !c.is_alphanumeric(), "_");
+
         if used_names.contains(&name) {
             name = format!("{}_{}", name, id_gen);
             id_gen += 1;
@@ -367,7 +462,7 @@ fn write_gameitems<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Wr
         let file_name = format!("{}.{}.json", gameitem.type_name(), name);
         files.push(file_name.clone());
         let gameitem_path = gameitems_dir.join(file_name);
-        let gameitem_file = std::fs::File::create(&gameitem_path)?;
+        let gameitem_file = File::create(&gameitem_path)?;
         serde_json::to_writer_pretty(&gameitem_file, &gameitem)?;
         // for primitives we write fields m3cx and m3ci to separate files with bin extension
         if let GameItemEnum::Primitive(primitive) = gameitem {
@@ -393,34 +488,34 @@ fn write_gameitems<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Wr
     Ok(())
 }
 
-fn read_gameitems<P: AsRef<Path>>(expanded_dir: &P) -> Result<Vec<GameItemEnum>, ReadError> {
+fn read_gameitems<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<GameItemEnum>> {
     let gameitems_index_path = expanded_dir.as_ref().join("gameitems.json");
-    let mut gameitems_index_file = std::fs::File::open(&gameitems_index_path)?;
-    let gameitems_index: Vec<String> = serde_json::from_reader(&mut gameitems_index_file)?;
+    if !gameitems_index_path.exists() {
+        println!("No gameitems.json found");
+        return Ok(vec![]);
+    }
+    let gameitems_index: Vec<String> = read_json(gameitems_index_path)?;
     // for each item in the index read the items
     let gameitems_dir = expanded_dir.as_ref().join("gameitems");
-    let gameitems: Result<Vec<GameItemEnum>, ReadError> = gameitems_index
+    let gameitems: io::Result<Vec<GameItemEnum>> = gameitems_index
         .into_iter()
         .map(|gameitem_file_name| {
             let gameitem_path = gameitems_dir.join(&gameitem_file_name);
             if gameitem_path.exists() {
-                let mut gameitem_file = std::fs::File::open(&gameitem_path)?;
-                let mut gameitem_string = String::new();
-                gameitem_file.read_to_string(&mut gameitem_string)?;
-                let mut res: GameItemEnum = serde_json::from_str(&gameitem_string)?;
+                let mut res: GameItemEnum = read_json(&gameitem_path)?;
                 // for primitives we read fields m3cx and m3ci from separate files with bin extension
                 if let GameItemEnum::Primitive(primitive) = &mut res {
                     let gameitem_file_name = gameitem_file_name.trim_end_matches(".json");
                     let m3cx_path = gameitems_dir.join(format!("{}.m3cx.bin", &gameitem_file_name));
                     if m3cx_path.exists() {
-                        let mut m3cx_file = std::fs::File::open(&m3cx_path)?;
+                        let mut m3cx_file = File::open(&m3cx_path)?;
                         let mut m3cx = Vec::new();
                         m3cx_file.read_to_end(&mut m3cx)?;
                         primitive.m3cx = Some(m3cx);
                     }
                     let m3ci_path = gameitems_dir.join(format!("{}.m3ci.bin", &gameitem_file_name));
                     if m3ci_path.exists() {
-                        let mut m3ci_file = std::fs::File::open(&m3ci_path)?;
+                        let mut m3ci_file = File::open(&m3ci_path)?;
                         let mut m3ci = Vec::new();
                         m3ci_file.read_to_end(&mut m3ci)?;
                         primitive.m3ci = Some(m3ci);
@@ -428,10 +523,10 @@ fn read_gameitems<P: AsRef<Path>>(expanded_dir: &P) -> Result<Vec<GameItemEnum>,
                 }
                 Ok(res)
             } else {
-                Err(ReadError::Io(io::Error::new(
+                Err(io::Error::new(
                     io::ErrorKind::NotFound,
                     format!("GameItem file not found: {}", gameitem_path.display()),
-                )))
+                ))
             }
         })
         .collect();
@@ -449,18 +544,23 @@ fn write_info<P: AsRef<Path>>(vpx: &&VPX, expanded_dir: &P) -> Result<(), WriteE
 fn read_info<P: AsRef<Path>>(
     expanded_dir: &P,
     screenshot: Option<Vec<u8>>,
-) -> Result<(TableInfo, CustomInfoTags), ReadError> {
+) -> io::Result<(TableInfo, CustomInfoTags)> {
     let info_path = expanded_dir.as_ref().join("info.json");
-    let mut info_file = std::fs::File::open(&info_path)?;
-    let value: Value = serde_json::from_reader(&mut info_file)?;
+    if !info_path.exists() {
+        return Ok((TableInfo::default(), CustomInfoTags::default()));
+    }
+    let value: Value = read_json(&info_path)?;
     let (info, custominfotags) = json_to_info(value, screenshot)?;
     Ok((info, custominfotags))
 }
 
-fn read_collections<P: AsRef<Path>>(expanded_dir: &P) -> Result<Vec<Collection>, ReadError> {
+fn read_collections<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<Collection>> {
     let collections_path = expanded_dir.as_ref().join("collections.json");
-    let mut collections_file = std::fs::File::open(&collections_path)?;
-    let value = serde_json::from_reader(&mut collections_file)?;
+    if !collections_path.exists() {
+        println!("No collections.json found");
+        return Ok(vec![]);
+    }
+    let value = read_json(collections_path)?;
     let collections: Vec<Collection> = json_to_collections(value)?;
     Ok(collections)
 }
@@ -604,36 +704,6 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
     files
 }
 
-fn extract_fonts(comp: &mut CompoundFile<File>, gamedata: &GameData, root_dir_path: &Path) {
-    let fonts_size = gamedata.fonts_size;
-
-    let fonts_path = root_dir_path.join("fonts");
-    std::fs::create_dir_all(&fonts_path).unwrap();
-
-    println!(
-        "Writing {} fonts to\n  {}",
-        fonts_size,
-        fonts_path.display()
-    );
-
-    for index in 0..fonts_size {
-        let path = format!("GameStg/Font{}", index);
-        let mut input = Vec::new();
-        comp.open_stream(&path)
-            .unwrap()
-            .read_to_end(&mut input)
-            .unwrap();
-        let font = font::read(&input);
-
-        let ext = font.ext();
-        let mut font_path = fonts_path.clone();
-        font_path.push(format!("Font{}.{}.{}", index, font.name, ext));
-        //dbg!(&jpeg_path);
-        let mut file = std::fs::File::create(font_path).unwrap();
-        file.write_all(&font.data).unwrap();
-    }
-}
-
 fn retrieve_entries_from_compound_file(comp: &CompoundFile<std::fs::File>) -> Vec<String> {
     let entries: Vec<String> = comp
         .walk()
@@ -670,6 +740,7 @@ fn retrieve_entries_from_compound_file(comp: &CompoundFile<std::fs::File>) -> Ve
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::vpx::gameitem;
     use crate::vpx::gameitem::GameItemEnum;
     use crate::vpx::image::ImageDataJpeg;
     use crate::vpx::sound::WaveForm;
@@ -691,7 +762,7 @@ mod test {
 
         // read 1x1.png as a Vec<u8>
         let mut screenshot = Vec::new();
-        let mut screenshot_file = std::fs::File::open("testdata/1x1.png")?;
+        let mut screenshot_file = File::open("testdata/1x1.png")?;
         screenshot_file.read_to_end(&mut screenshot)?;
 
         let version = Version::new(1074);
@@ -847,7 +918,18 @@ mod test {
                     output_target: 4,
                 },
             ],
-            fonts: vec![],
+            fonts: vec![
+                font::FontData {
+                    name: "test font".to_string(),
+                    path: "test.ttf".to_string(),
+                    data: vec![0, 1, 2, 3],
+                },
+                font::FontData {
+                    name: "test font2".to_string(),
+                    path: "test2.ttf".to_string(),
+                    data: vec![5, 6, 7],
+                },
+            ],
             collections: vec![
                 Collection {
                     name: "test collection".to_string(),

@@ -50,6 +50,12 @@ impl TableInfo {
     }
 }
 
+impl Default for TableInfo {
+    fn default() -> Self {
+        TableInfo::new()
+    }
+}
+
 pub(crate) fn write_tableinfo<F: Read + Write + Seek>(
     comp: &mut CompoundFile<F>,
     table_info: &TableInfo,

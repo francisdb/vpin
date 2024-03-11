@@ -1,4 +1,5 @@
 use crate::vpx::color::ColorJson;
+use crate::vpx::json::{deserialize_f32_nan_inf_from_string, serialize_f32_nan_inf_as_string};
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
@@ -10,69 +11,38 @@ use super::{dragpoint::DragPoint, vertex2d::Vertex2D};
 
 #[derive(Debug, PartialEq, Dummy)]
 pub struct Light {
-    pub center: Vertex2D,
-    // VCEN
-    pub height: Option<f32>,
-    // HGHT added in 10.8
-    pub falloff_radius: f32,
-    // RADI
-    pub falloff_power: f32,
-    // FAPO
-    pub status: u32,
-    // STAT
-    pub state: Option<f32>,
-    // STTF added in 10.8
-    pub color: Color,
-    // COLR
-    pub color2: Color,
-    // COL2
-    pub is_timer_enabled: bool,
-    // TMON
-    pub timer_interval: u32,
-    // TMIN
-    pub blink_pattern: String,
-    // BPAT
-    pub off_image: String,
-    // IMG1
-    pub blink_interval: u32,
-    // BINT
-    pub intensity: f32,
-    // BWTH
-    pub transmission_scale: f32,
-    // TRMS
-    pub surface: String,
-    // SURF
-    pub name: String,
-    // NAME
-    pub is_backglass: bool,
-    // BGLS
-    pub depth_bias: f32,
-    // LIDB
-    pub fade_speed_up: f32,
-    // FASP
-    pub fade_speed_down: f32,
-    // FASD
-    pub is_bulb_light: bool,
-    // BULT
-    pub is_image_mode: bool,
-    // IMMO
-    pub show_bulb_mesh: bool,
-    // SHBM
-    pub has_static_bulb_mesh: Option<bool>,
-    // STBM (added in 10.?)
-    pub show_reflection_on_ball: bool,
-    // SHRB
-    pub mesh_radius: f32,
-    // BMSC
-    pub bulb_modulate_vs_add: f32,
-    // BMVA
-    pub bulb_halo_height: f32,
-    // BHHI
-    pub shadows: Option<u32>,
-    // SHDW added in 10.8
-    pub fader: Option<u32>,
-    // FADE added in 10.8
-    pub visible: Option<bool>, // VSBL added in 10.8
+    pub center: Vertex2D,                   // VCEN
+    pub height: Option<f32>,                // HGHT added in 10.8
+    pub falloff_radius: f32,                // RADI
+    pub falloff_power: f32,                 // FAPO
+    pub status: u32,                        // STAT
+    pub state: Option<f32>,                 // STTF added in 10.8
+    pub color: Color,                       // COLR
+    pub color2: Color,                      // COL2
+    pub is_timer_enabled: bool,             // TMON
+    pub timer_interval: u32,                // TMIN
+    pub blink_pattern: String,              // BPAT
+    pub off_image: String,                  // IMG1
+    pub blink_interval: u32,                // BINT
+    pub intensity: f32,                     // BWTH
+    pub transmission_scale: f32,            // TRMS
+    pub surface: String,                    // SURF
+    pub name: String,                       // NAME
+    pub is_backglass: bool,                 // BGLS
+    pub depth_bias: f32,                    // LIDB
+    pub fade_speed_up: f32,                 // FASP, can be Inf (Dr. Dude (Bally 1990)v3.0.vpx)
+    pub fade_speed_down: f32,               // FASD, can be Inf (Dr. Dude (Bally 1990)v3.0.vpx)
+    pub is_bulb_light: bool,                // BULT
+    pub is_image_mode: bool,                // IMMO
+    pub show_bulb_mesh: bool,               // SHBM
+    pub has_static_bulb_mesh: Option<bool>, // STBM (added in 10.?)
+    pub show_reflection_on_ball: bool,      // SHRB
+    pub mesh_radius: f32,                   // BMSC
+    pub bulb_modulate_vs_add: f32,          // BMVA
+    pub bulb_halo_height: f32,              // BHHI
+    pub shadows: Option<u32>,               // SHDW added in 10.8
+    pub fader: Option<u32>,                 // FADE added in 10.8
+    pub visible: Option<bool>,              // VSBL added in 10.8
 
     // these are shared between all items
     pub is_locked: bool,
@@ -105,7 +75,15 @@ struct LightJson {
     name: String,
     is_backglass: bool,
     depth_bias: f32,
+    #[serde(
+        serialize_with = "serialize_f32_nan_inf_as_string",
+        deserialize_with = "deserialize_f32_nan_inf_from_string"
+    )]
     fade_speed_up: f32,
+    #[serde(
+        serialize_with = "serialize_f32_nan_inf_as_string",
+        deserialize_with = "deserialize_f32_nan_inf_from_string"
+    )]
     fade_speed_down: f32,
     is_bulb_light: bool,
     is_image_mode: bool,
@@ -147,7 +125,9 @@ impl LightJson {
             name: light.name.clone(),
             is_backglass: light.is_backglass,
             depth_bias: light.depth_bias,
+            // this serializes Some(NaN) as null
             fade_speed_up: light.fade_speed_up,
+            // this serializes Some(NaN) as null
             fade_speed_down: light.fade_speed_down,
             is_bulb_light: light.is_bulb_light,
             is_image_mode: light.is_image_mode,

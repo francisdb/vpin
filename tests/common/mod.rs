@@ -53,7 +53,7 @@ pub(crate) fn assert_equal_vpx(vpx_path: &PathBuf, test_vpx_path: PathBuf) {
     // check all streams
     for (path, _) in &original_paths_sorted {
         if comp.is_stream(path) {
-            println!("path: {:?}", path);
+            // println!("path: {:?}", path);
 
             // TODO more precise sound path check
 

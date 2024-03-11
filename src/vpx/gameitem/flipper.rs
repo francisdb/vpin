@@ -21,18 +21,12 @@ pub struct Flipper {
     material: String,
     pub name: String,
     rubber_material: String,
-    rthk: f32,
-    // RTHK deprecated?
-    rubber_thickness: Option<f32>,
-    // RTHF (added in 10.?)
-    rhgt: f32,
-    // RHGT deprecated?
-    rubber_height: Option<f32>,
-    // RHGF (added in 10.?)
-    rwdt: f32,
-    // RWDT deprecated?
-    rubber_width: Option<f32>,
-    // RHGF (added in 10.?)
+    rubber_thickness_int: u32,     // RTHK deprecated
+    rubber_thickness: Option<f32>, // RTHF (added in 10.?)
+    rubber_height_int: u32,        // RHGT deprecated
+    rubber_height: Option<f32>,    // RHGF (added in 10.?)
+    rubber_width_int: u32,         // RWDT deprecated
+    rubber_width: Option<f32>,     // RHGF (added in 10.?)
     strength: f32,
     elasticity: f32,
     elasticity_falloff: f32,
@@ -76,11 +70,11 @@ pub(crate) struct FlipperJson {
     material: String,
     name: String,
     rubber_material: String,
-    rthk: f32,
+    rubber_thickness_int: u32,
     rubber_thickness: Option<f32>,
-    rhgt: f32,
+    rubber_height_int: u32,
     rubber_height: Option<f32>,
-    rwdt: f32,
+    rubber_width_int: u32,
     rubber_width: Option<f32>,
     strength: f32,
     elasticity: f32,
@@ -120,11 +114,11 @@ impl FlipperJson {
             material: flipper.material.clone(),
             name: flipper.name.clone(),
             rubber_material: flipper.rubber_material.clone(),
-            rthk: flipper.rthk,
+            rubber_thickness_int: flipper.rubber_thickness_int,
             rubber_thickness: flipper.rubber_thickness,
-            rhgt: flipper.rhgt,
+            rubber_height_int: flipper.rubber_height_int,
             rubber_height: flipper.rubber_height,
-            rwdt: flipper.rwdt,
+            rubber_width_int: flipper.rubber_width_int,
             rubber_width: flipper.rubber_width,
             strength: flipper.strength,
             elasticity: flipper.elasticity,
@@ -164,11 +158,11 @@ impl FlipperJson {
             material: self.material.clone(),
             name: self.name.clone(),
             rubber_material: self.rubber_material.clone(),
-            rthk: self.rthk,
+            rubber_thickness_int: self.rubber_thickness_int,
             rubber_thickness: self.rubber_thickness,
-            rhgt: self.rhgt,
+            rubber_height_int: self.rubber_height_int,
             rubber_height: self.rubber_height,
-            rwdt: self.rwdt,
+            rubber_width_int: self.rubber_width_int,
             rubber_width: self.rubber_width,
             strength: self.strength,
             elasticity: self.elasticity,
@@ -235,11 +229,11 @@ impl Default for Flipper {
             material: String::default(),
             name: String::default(),
             rubber_material: String::default(),
-            rthk: 0.0,
+            rubber_thickness_int: 0,
             rubber_thickness: None,
-            rhgt: 0.0,
+            rubber_height_int: 0,
             rubber_height: None,
-            rwdt: 0.0,
+            rubber_width_int: 0,
             rubber_width: None,
             strength: 2200.0,
             elasticity: 0.8,
@@ -321,19 +315,19 @@ impl BiffRead for Flipper {
                     flipper.rubber_material = reader.get_string();
                 }
                 "RTHK" => {
-                    flipper.rthk = reader.get_f32();
+                    flipper.rubber_thickness_int = reader.get_u32();
                 }
                 "RTHF" => {
                     flipper.rubber_thickness = Some(reader.get_f32());
                 }
                 "RHGT" => {
-                    flipper.rhgt = reader.get_f32();
+                    flipper.rubber_height_int = reader.get_u32();
                 }
                 "RHGF" => {
                     flipper.rubber_height = Some(reader.get_f32());
                 }
                 "RWDT" => {
-                    flipper.rwdt = reader.get_f32();
+                    flipper.rubber_width_int = reader.get_u32();
                 }
                 "RWDF" => {
                     flipper.rubber_width = Some(reader.get_f32());
@@ -425,15 +419,15 @@ impl BiffWrite for Flipper {
         writer.write_tagged_string("MATR", &self.material);
         writer.write_tagged_wide_string("NAME", &self.name);
         writer.write_tagged_string("RUMA", &self.rubber_material);
-        writer.write_tagged_f32("RTHK", self.rthk);
+        writer.write_tagged_u32("RTHK", self.rubber_thickness_int);
         if let Some(rubber_thickness) = self.rubber_thickness {
             writer.write_tagged_f32("RTHF", rubber_thickness);
         }
-        writer.write_tagged_f32("RHGT", self.rhgt);
+        writer.write_tagged_u32("RHGT", self.rubber_height_int);
         if let Some(rubber_height) = self.rubber_height {
             writer.write_tagged_f32("RHGF", rubber_height);
         }
-        writer.write_tagged_f32("RWDT", self.rwdt);
+        writer.write_tagged_u32("RWDT", self.rubber_width_int);
         if let Some(rubber_width) = self.rubber_width {
             writer.write_tagged_f32("RWDF", rubber_width);
         }
@@ -501,11 +495,11 @@ mod tests {
             material: String::from("test material"),
             name: String::from("test name"),
             rubber_material: String::from("test rubber material"),
-            rwdt: 0.0,
+            rubber_thickness_int: 0,
             rubber_thickness: Some(7.0),
-            rhgt: 0.0,
+            rubber_height_int: 0,
             rubber_height: Some(19.0),
-            rthk: 0.0,
+            rubber_width_int: 0,
             rubber_width: Some(24.0),
             strength: 2200.0,
             elasticity: 0.8,

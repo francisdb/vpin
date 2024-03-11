@@ -1,6 +1,7 @@
 use crate::vpx::biff;
 use crate::vpx::biff::{BiffRead, BiffReader, BiffWrite, BiffWriter};
 use crate::vpx::color::{Color, ColorJson};
+use crate::vpx::json::{deserialize_f32_nan_inf_from_string, serialize_f32_nan_inf_as_string};
 use bytes::{Buf, BufMut, BytesMut};
 use encoding_rs::mem::{decode_latin1, encode_latin1_lossy};
 use fake::Dummy;
@@ -224,9 +225,25 @@ pub struct SavePhysicsMaterial {
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct SavePhysicsMaterialJson {
     name: String,
+    #[serde(
+        serialize_with = "serialize_f32_nan_inf_as_string",
+        deserialize_with = "deserialize_f32_nan_inf_from_string"
+    )]
     elasticity: f32,
+    #[serde(
+        serialize_with = "serialize_f32_nan_inf_as_string",
+        deserialize_with = "deserialize_f32_nan_inf_from_string"
+    )]
     elasticity_falloff: f32,
+    #[serde(
+        serialize_with = "serialize_f32_nan_inf_as_string",
+        deserialize_with = "deserialize_f32_nan_inf_from_string"
+    )]
     friction: f32,
+    #[serde(
+        serialize_with = "serialize_f32_nan_inf_as_string",
+        deserialize_with = "deserialize_f32_nan_inf_from_string"
+    )]
     scatter_angle: f32,
 }
 
@@ -308,7 +325,7 @@ fn write_padded_cstring(str: &str, bytes: &mut BytesMut, len: usize) {
  */
 fn read_padded_cstring(bytes: &mut BytesMut, len: usize) -> Result<String, io::Error> {
     let cname = bytes.copy_to_bytes(len);
-    let cstr = CStr::from_bytes_until_nul(&cname).map_err(|e| {
+    let cstr = CStr::from_bytes_until_nul(&cname).map_err(|_e| {
         io::Error::new(
             io::ErrorKind::Other,
             "Failed to read null-terminated string from bytes",
@@ -367,9 +384,25 @@ pub(crate) struct MaterialJson {
     glossy_color: ColorJson,
     clearcoat_color: ColorJson,
     opacity_active: bool,
+    #[serde(
+        serialize_with = "serialize_f32_nan_inf_as_string",
+        deserialize_with = "deserialize_f32_nan_inf_from_string"
+    )]
     elasticity: f32,
+    #[serde(
+        serialize_with = "serialize_f32_nan_inf_as_string",
+        deserialize_with = "deserialize_f32_nan_inf_from_string"
+    )]
     elasticity_falloff: f32,
+    #[serde(
+        serialize_with = "serialize_f32_nan_inf_as_string",
+        deserialize_with = "deserialize_f32_nan_inf_from_string"
+    )]
     friction: f32,
+    #[serde(
+        serialize_with = "serialize_f32_nan_inf_as_string",
+        deserialize_with = "deserialize_f32_nan_inf_from_string"
+    )]
     scatter_angle: f32,
     refraction_tint: ColorJson,
 }

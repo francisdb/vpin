@@ -66,10 +66,17 @@ pub struct ImageData {
     pub bits: Option<ImageDataBits>,
 }
 
+impl ImageData {
+    pub fn is_link(&self) -> bool {
+        self.link == Some(1)
+    }
+}
+
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
 pub(crate) struct ImageDataJpegJson {
     path: String,
     name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     inme: Option<String>,
 }
 
@@ -95,6 +102,7 @@ impl ImageDataJpegJson {
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
 pub(crate) struct ImageDataJson {
     name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     inme: Option<String>,
     path: String,
     width: u32,
@@ -105,6 +113,9 @@ pub(crate) struct ImageDataJson {
     is_signed: Option<bool>,
     jpeg: Option<ImageDataJpegJson>,
     bits: bool,
+    // in case we have a duplicate name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) name_dedup: Option<String>,
 }
 
 impl ImageDataJson {
@@ -124,6 +135,7 @@ impl ImageDataJson {
                 .as_ref()
                 .map(|jpeg| ImageDataJpegJson::from_image_data_jpeg(jpeg)),
             bits: image_data.bits.is_some(),
+            name_dedup: None,
         }
     }
 

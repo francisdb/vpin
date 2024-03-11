@@ -60,6 +60,8 @@ pub mod version;
 
 pub mod material;
 
+pub(crate) mod json;
+
 /// In-memory representation of a VPX file
 ///
 /// *We guarantee an exact copy when reading and writing this. Exact as in the same structure and data, the underlying compound file will be a bit different on the binary level.*
@@ -189,6 +191,12 @@ pub fn open<P: AsRef<Path>>(path: P) -> io::Result<VpxFile<fs::File>> {
 ///
 /// **Note:** This might take up a lot of memory depending on the size of the VPX file.
 pub fn read(path: &PathBuf) -> io::Result<VPX> {
+    if !path.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("File not found: {}", path.display()),
+        ));
+    }
     let file = File::open(path)?;
     let mut comp = CompoundFile::open(file)?;
     read_vpx(&mut comp)

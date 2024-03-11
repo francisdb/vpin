@@ -51,6 +51,9 @@ pub(crate) struct SoundDataJson {
     volume: u32,
     balance: u32,
     output_target: u8,
+    // in case we have a duplicate name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) name_dedup: Option<String>,
 }
 
 impl SoundDataJson {
@@ -64,6 +67,7 @@ impl SoundDataJson {
             volume: sound_data.volume,
             balance: sound_data.balance,
             output_target: sound_data.output_target,
+            name_dedup: None,
         }
     }
     pub fn to_sound_data(&self) -> SoundData {
