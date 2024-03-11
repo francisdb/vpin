@@ -28,6 +28,7 @@ serde_json = { version = "1.0.107", features = ["preserve_order"] }
 utf16string = "0.2.0"
 quick-xml = { version = "0.31.0", features = ["serialize"] }
 serde_repr = "0.1.16"
+hex = "0.4.3"
 
 [dev-dependencies]
 dirs = "5.0.1"

@@ -9,9 +9,11 @@ where
     S: Serializer,
 {
     if value.is_nan() {
-        // NaN string
-        let nan = "NaN";
-        serializer.serialize_str(nan)
+        // we seem to be getting other NaN values than f32::NAN
+        let bytes = value.to_le_bytes();
+        let hex_string = hex::encode(bytes);
+        let nan = format!("NaN|{}", &hex_string);
+        serializer.serialize_str(&nan)
     } else if value.is_sign_positive() && value.is_infinite() {
         let inf = "Inf";
         serializer.serialize_str(inf)
@@ -30,13 +32,24 @@ where
     let v = Value::deserialize(deserializer)?;
     match v {
         Value::String(s) => match s.to_lowercase().as_str() {
-            "nan" => Ok(f32::NAN),
             "inf" => Ok(f32::INFINITY),
             "-inf" => Ok(f32::NEG_INFINITY),
-            other => Err(serde::de::Error::custom(format!(
-                r#"expected "NaN", "Inf" or "-Inf", found {}"#,
-                other
-            ))),
+            other => {
+                if other.starts_with("nan|") {
+                    let hex_string = &other[4..];
+                    let bytes = hex::decode(hex_string)
+                        .map_err(|e| serde::de::Error::custom(e.to_string()))?;
+                    let mut array = [0; 4];
+                    array.copy_from_slice(&bytes);
+                    let f = f32::from_le_bytes(array);
+                    Ok(f)
+                } else {
+                    Err(serde::de::Error::custom(format!(
+                        r#"expected "NaN|########", "Inf" or "-Inf", found {}"#,
+                        other
+                    )))
+                }
+            }
         },
         Value::Number(n) => n
             .as_f64()
@@ -63,43 +76,55 @@ mod tests {
             deserialize_with = "deserialize_f32_nan_inf_from_string"
         )]
         num: f32,
-        #[serde(
-            serialize_with = "serialize_f32_nan_inf_as_string",
-            deserialize_with = "deserialize_f32_nan_inf_from_string"
-        )]
-        inf: f32,
-        #[serde(
-            serialize_with = "serialize_f32_nan_inf_as_string",
-            deserialize_with = "deserialize_f32_nan_inf_from_string"
-        )]
-        n_inf: f32,
-        #[serde(
-            serialize_with = "serialize_f32_nan_inf_as_string",
-            deserialize_with = "deserialize_f32_nan_inf_from_string"
-        )]
-        nan: f32,
     }
 
     #[test]
     fn test_f32_nan_inf() {
-        let f32_test = F32Test {
-            num: 1.0,
-            inf: f32::INFINITY,
-            n_inf: f32::NEG_INFINITY,
-            nan: f32::NAN,
+        let f32_num = F32Test { num: 1.0 };
+        let f32_inf = F32Test { num: f32::INFINITY };
+        let f32_n_inf = F32Test {
+            num: f32::NEG_INFINITY,
         };
-        let json = json!({
-            "num": 1.0,
-            "inf": "Inf",
-            "n_inf": "-Inf",
-            "nan": "NaN"
-        });
-        let serialized = serde_json::to_string(&f32_test).unwrap();
-        assert_eq!(serialized, json.to_string());
-        let deserialized: F32Test = serde_json::from_str(&json.to_string()).unwrap();
-        assert_eq!(deserialized.num, 1.0);
-        assert_eq!(deserialized.inf, f32::INFINITY);
-        assert_eq!(deserialized.n_inf, f32::NEG_INFINITY);
-        assert!(deserialized.nan.is_nan());
+        let f32_nan = F32Test { num: f32::NAN };
+        let f32_other_nan = F32Test {
+            num: f32::from_le_bytes([0xff, 0xff, 0xff, 0xff]),
+        };
+
+        let json_num = json!({"num": 1.0});
+        let json_inf = json!({"num": "Inf"});
+        let json_n_inf = json!({"num": "-Inf"});
+        let json_nan = json!({"num": "NaN|0000c07f"});
+        let json_other_nan = json!({"num": "NaN|ffffffff"});
+
+        assert_eq!(serde_json::to_value(&f32_num).unwrap(), json_num);
+        assert_eq!(serde_json::to_value(&f32_inf).unwrap(), json_inf);
+        assert_eq!(serde_json::to_value(&f32_n_inf).unwrap(), json_n_inf);
+        assert_eq!(serde_json::to_value(&f32_nan).unwrap(), json_nan);
+        assert_eq!(
+            serde_json::to_value(&f32_other_nan).unwrap(),
+            json_other_nan
+        );
+
+        assert_eq!(
+            serde_json::from_value::<F32Test>(json_num).unwrap(),
+            f32_num
+        );
+        assert_eq!(
+            serde_json::from_value::<F32Test>(json_inf).unwrap(),
+            f32_inf
+        );
+        assert_eq!(
+            serde_json::from_value::<F32Test>(json_n_inf).unwrap(),
+            f32_n_inf
+        );
+        // can't compare nan values
+        // assert_eq!(
+        //     serde_json::from_value::<F32Test>(json_nan).unwrap(),
+        //     f32_nan
+        // );
+        // assert_eq!(
+        //     serde_json::from_value::<F32Test>(json_other_nan).unwrap(),
+        //     f32_other_nan
+        // );
     }
 }

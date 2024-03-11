@@ -26,12 +26,10 @@ fn read_extract_assemble_and_write_all() -> io::Result<()> {
     // TODO why is par_iter() not faster but just consuming all cpu cores?
     paths
         .iter()
-        .filter(|path| {
-            let name = path.file_name().unwrap().to_str().unwrap();
-            // TODO This one has Nan values for elasticity of material metal wire which we fixed but
-            //   something else does not add up on the binary level.
-            !name.eq("Sonic The Hedgehog (Brendan Bailey 2005) VPX_(MOD)1.21.vpx")
-        })
+        // .filter(|path| {
+        //     let name = path.file_name().unwrap().to_str().unwrap();
+        //     name.eq("Sonic The Hedgehog (Brendan Bailey 2005) VPX_(MOD)1.21.vpx")
+        // })
         .try_for_each(|path| {
             println!("testing: {:?}", path);
             let ReadAndWriteResult {
