@@ -190,15 +190,7 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, u64)> {
                 // but again padding is applied that has random data
                 // TODO one solution could be overwriting padding areas with 0's
                 // For now we ignore the contents of this field
-                tags.push(("MATE".to_string(), data.len(), 0));
-            }
-            "RPRB" => {
-                let data = reader.get_record_data(false);
-                println!("RPRB: {:?}", data);
-                let mut hasher = DefaultHasher::new();
-                Hash::hash_slice(&data, &mut hasher);
-                let hash = hasher.finish();
-                tags.push(("RPRB".to_string(), data.len(), hash));
+                tags.push(("PHMA".to_string(), data.len(), 0));
             }
             other => {
                 let data = reader.get_record_data(false);

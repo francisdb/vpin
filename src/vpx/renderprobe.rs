@@ -201,7 +201,6 @@ impl BiffRead for RenderProbeWithGarbage {
         reader.disable_warn_remaining();
         let render_probe = RenderProbe::biff_read(reader);
         let remaining = reader.get_no_remaining_update(12);
-        println!("remaining {:?}", remaining);
         // first part is a full ENDB tag
         let endb_tag = &remaining[0..8];
         if endb_tag != ENDB_TAG {
