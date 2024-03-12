@@ -23,6 +23,8 @@ enum ReflectionMode {
     StaticNDynamic = 4,
     /// All reflections are dynamic allowing for correct occlusion between them at the cost of performance (static are still prerendered)
     Dynamic = 5,
+    /// Unknown mode - seen on a blank table created a while ago
+    Unknown = 6,
 }
 
 #[derive(Debug, Clone, PartialEq, Dummy)]
@@ -115,6 +117,7 @@ impl ReflectionMode {
             3 => ReflectionMode::StaticNBalls,
             4 => ReflectionMode::StaticNDynamic,
             5 => ReflectionMode::Dynamic,
+            6 => ReflectionMode::Unknown,
             _ => panic!("Unknown ReflectionMode {}", i),
         }
     }
@@ -126,6 +129,7 @@ impl ReflectionMode {
             ReflectionMode::StaticNBalls => 3,
             ReflectionMode::StaticNDynamic => 4,
             ReflectionMode::Dynamic => 5,
+            ReflectionMode::Unknown => 6,
         }
     }
 }
