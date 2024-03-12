@@ -390,6 +390,10 @@ impl<'a> BiffReader<'a> {
         d
     }
 
+    pub(crate) fn get_remaining(&self) -> &[u8] {
+        &self.data[self.pos..]
+    }
+
     pub fn skip(&mut self, count: usize) {
         self.pos += count;
         self.bytes_in_record_remaining -= count;

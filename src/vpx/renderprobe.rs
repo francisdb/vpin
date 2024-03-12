@@ -41,13 +41,14 @@ pub struct RenderProbe {
 }
 
 /// This one is a mess and proof that the vpinball code needs unit tests
-/// The last 12 bytes are a second full ENDB tag + 4 bytes of random data
-/// because size calculation is done wrong.
+/// `trailing_data` can be:
+///  * a second full ENDB tag (8 bytes) + 4 bytes of random data
+///    because size calculation is done wrong.
+///  * empty for some tables created during a specific period of 10.8.0 development
 #[derive(Debug, Clone, PartialEq, Dummy)]
 pub struct RenderProbeWithGarbage {
     pub render_probe: RenderProbe,
-    /// 4 bytes of random data, but needed for reproducibility
-    pub(crate) trailing_data: [u8; 4],
+    pub(crate) trailing_data: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -59,12 +60,17 @@ pub(crate) struct RenderProbeJson {
     reflection_mode: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
     disable_light_reflection: Option<bool>,
-    trailing_data: Option<[u8; 4]>,
+    trailing_data: Option<Vec<u8>>,
 }
 
 impl RenderProbeJson {
     pub fn from_renderprobe(render_probe_with_garbage: &RenderProbeWithGarbage) -> Self {
         let render_probe = &render_probe_with_garbage.render_probe;
+        let trailing_data = if render_probe_with_garbage.trailing_data.is_empty() {
+            None
+        } else {
+            Some(render_probe_with_garbage.trailing_data.clone())
+        };
         Self {
             type_: render_probe.type_.to_i32(),
             name: render_probe.name.clone(),
@@ -72,7 +78,7 @@ impl RenderProbeJson {
             reflection_plane: render_probe.reflection_plane,
             reflection_mode: render_probe.reflection_mode.to_i32(),
             disable_light_reflection: render_probe.disable_light_reflection,
-            trailing_data: Some(render_probe_with_garbage.trailing_data.clone()),
+            trailing_data,
         }
     }
 
@@ -87,7 +93,7 @@ impl RenderProbeJson {
         };
         RenderProbeWithGarbage {
             render_probe: renderprobe,
-            trailing_data: self.trailing_data.unwrap_or([0; 4]),
+            trailing_data: self.trailing_data.clone().unwrap_or_default(),
         }
     }
 }
@@ -192,21 +198,12 @@ impl BiffWrite for RenderProbe {
     }
 }
 
-/// 4 bytes long + ENDB
-const ENDB_TAG: [u8; 8] = [4, 0, 0, 0, 69, 78, 68, 66];
-
 impl BiffRead for RenderProbeWithGarbage {
     fn biff_read(reader: &mut crate::vpx::biff::BiffReader<'_>) -> Self {
         // since this is not a proper record we disable the warning
         reader.disable_warn_remaining();
         let render_probe = RenderProbe::biff_read(reader);
-        let remaining = reader.get_no_remaining_update(12);
-        // first part is a full ENDB tag
-        let endb_tag = &remaining[0..8];
-        if endb_tag != ENDB_TAG {
-            panic!("Expected ENDB tag, got {:?}", endb_tag);
-        }
-        let trailing_data: [u8; 4] = <[u8; 4]>::try_from(&remaining[8..12]).unwrap();
+        let trailing_data = reader.get_remaining().to_vec();
         RenderProbeWithGarbage {
             render_probe,
             trailing_data,
@@ -217,7 +214,6 @@ impl BiffRead for RenderProbeWithGarbage {
 impl BiffWrite for RenderProbeWithGarbage {
     fn biff_write(&self, writer: &mut BiffWriter) {
         RenderProbe::biff_write(&self.render_probe, writer);
-        writer.write_data(&ENDB_TAG);
         writer.write_data(&self.trailing_data);
     }
 }
@@ -258,7 +254,7 @@ mod tests {
         };
         let render_probe_with_garbage = RenderProbeWithGarbage {
             render_probe,
-            trailing_data: [1, 2, 3, 4],
+            trailing_data: vec![1, 2, 3, 4],
         };
         let mut writer = BiffWriter::new();
         RenderProbeWithGarbage::biff_write(&render_probe_with_garbage, &mut writer);
@@ -279,7 +275,7 @@ mod tests {
         };
         let render_probe_with_garbage = RenderProbeWithGarbage {
             render_probe,
-            trailing_data: [1, 2, 3, 4],
+            trailing_data: vec![1, 2, 3, 4],
         };
         let json = serde_json::to_string(&RenderProbeJson::from_renderprobe(
             &render_probe_with_garbage,
