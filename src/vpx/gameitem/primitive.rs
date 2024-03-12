@@ -10,59 +10,59 @@ use super::vertex3d::Vertex3D;
 
 #[derive(Debug, PartialEq, Dummy)]
 pub struct Primitive {
-    pub position: Vertex3D,                      // 0 VPOS
-    pub size: Vertex3D,                          // 1 VSIZ
-    pub rot_and_tra: [f32; 9],                   // 2-11 RTV0-RTV8
-    pub image: String,                           // 12 IMAG
-    pub normal_map: Option<String>,              // 13 NRMA (added in 10.?)
-    pub sides: u32,                              // 14
-    pub name: String,                            // 15
-    pub material: String,                        // 16
-    pub side_color: Color,                       // 17
-    pub is_visible: bool,                        // 18
-    pub draw_textures_inside: bool,              // 19
-    pub hit_event: bool,                         // 20
-    pub threshold: f32,                          // 21
-    pub elasticity: f32,                         // 22
-    pub elasticity_falloff: f32,                 // 23
-    pub friction: f32,                           // 24
-    pub scatter: f32,                            // 25
-    pub edge_factor_ui: f32,                     // 26
-    pub collision_reduction_factor: Option<f32>, // 27 CORF (was missing in 10.01)
-    pub is_collidable: bool,                     // 28
-    pub is_toy: bool,                            // 29
-    pub use_3d_mesh: bool,                       // 30
-    pub static_rendering: bool,                  // 31
-    pub disable_lighting_top_old: Option<f32>,   // DILI (removed in 10.8)
-    pub disable_lighting_top: Option<f32>,       // DILT (added in 10.8)
-    pub disable_lighting_below: Option<f32>,     // 33 DILB (added in 10.?)
-    pub is_reflection_enabled: Option<bool>,     // 34 REEN (was missing in 10.01)
-    pub backfaces_enabled: Option<bool>,         // 35 EBFC (added in 10.?)
-    pub physics_material: Option<String>,        // 36 MAPH (added in 10.?)
-    pub overwrite_physics: Option<bool>,         // 37 OVPH (added in 10.?)
-    pub display_texture: Option<bool>,           // 38 DIPT (added in ?)
-    pub object_space_normal_map: Option<bool>,   // 38.5 OSNM (added in ?)
-    pub min_aa_bound: Option<Vec<u8>>,           // BMIN added in 10.8 ( TODO Vector3D)
-    pub max_aa_bound: Option<Vec<u8>>,           // BMAX added in 10.8( TODO Vector3D)
-    pub mesh_file_name: Option<String>,          // 39 M3DN
-    pub num_vertices: Option<u32>,               // 40 M3VN
-    pub compressed_vertices: Option<u32>,        // 41 M3CY
-    pub m3cx: Option<Vec<u8>>,                   // 42 M3CX
-    pub num_indices: Option<u32>,                // 43 M3FN
-    pub compressed_indices: Option<u32>,         // 44 M3CJ
-    pub m3ci: Option<Vec<u8>>,                   // 45 M3CI
-    pub m3ay: Option<Vec<Vec<u8>>>,              // 46 M3AY multiple
-    pub m3ax: Option<Vec<Vec<u8>>>,              // 47 M3AX multiple
-    pub depth_bias: f32,                         // 45 PIDB
-    pub add_blend: Option<bool>,                 // 46 ADDB - added in ?
-    pub use_depth_mask: Option<bool>,            // ZMSK added in 10.8
-    pub alpha: Option<f32>,                      // 47 FALP - added in ?
-    pub color: Option<Color>,                    // 48 COLR - added in ?
-    pub light_map: Option<String>,               // LMAP - added in 10.8
-    pub reflection_probe: Option<String>,        // REFL - added in 10.8
-    pub reflection_strength: Option<f32>,        // RSTR - added in 10.8
-    pub refraction_probe: Option<String>,        // REFR - added in 10.8
-    pub refraction_thickness: Option<f32>,       // RTHI - added in 10.8
+    pub position: Vertex3D,                                       // 0 VPOS
+    pub size: Vertex3D,                                           // 1 VSIZ
+    pub rot_and_tra: [f32; 9],                                    // 2-11 RTV0-RTV8
+    pub image: String,                                            // 12 IMAG
+    pub normal_map: Option<String>,                               // 13 NRMA (added in 10.?)
+    pub sides: u32,                                               // 14
+    pub name: String,                                             // 15
+    pub material: String,                                         // 16
+    pub side_color: Color,                                        // 17
+    pub is_visible: bool,                                         // 18
+    pub draw_textures_inside: bool,                               // 19
+    pub hit_event: bool,                                          // 20
+    pub threshold: f32,                                           // 21
+    pub elasticity: f32,                                          // 22
+    pub elasticity_falloff: f32,                                  // 23
+    pub friction: f32,                                            // 24
+    pub scatter: f32,                                             // 25
+    pub edge_factor_ui: f32,                                      // 26
+    pub collision_reduction_factor: Option<f32>,                  // 27 CORF (was missing in 10.01)
+    pub is_collidable: bool,                                      // 28
+    pub is_toy: bool,                                             // 29
+    pub use_3d_mesh: bool,                                        // 30
+    pub static_rendering: bool,                                   // 31
+    pub disable_lighting_top_old: Option<f32>,                    // DILI (removed in 10.8)
+    pub disable_lighting_top: Option<f32>,                        // DILT (added in 10.8)
+    pub disable_lighting_below: Option<f32>,                      // 33 DILB (added in 10.?)
+    pub is_reflection_enabled: Option<bool>,                      // 34 REEN (was missing in 10.01)
+    pub backfaces_enabled: Option<bool>,                          // 35 EBFC (added in 10.?)
+    pub physics_material: Option<String>,                         // 36 MAPH (added in 10.?)
+    pub overwrite_physics: Option<bool>,                          // 37 OVPH (added in 10.?)
+    pub display_texture: Option<bool>,                            // 38 DIPT (added in ?)
+    pub object_space_normal_map: Option<bool>,                    // 38.5 OSNM (added in ?)
+    pub min_aa_bound: Option<Vec<u8>>, // BMIN added in 10.8 ( TODO Vector3D)
+    pub max_aa_bound: Option<Vec<u8>>, // BMAX added in 10.8( TODO Vector3D)
+    pub mesh_file_name: Option<String>, // 39 M3DN
+    pub num_vertices: Option<u32>,     // 40 M3VN
+    pub compressed_vertices: Option<u32>, // 41 M3CY
+    pub compressed_vertices_data: Option<Vec<u8>>, // 42 M3CX
+    pub num_indices: Option<u32>,      // 43 M3FN
+    pub compressed_indices: Option<u32>, // 44 M3CJ
+    pub compressed_indices_data: Option<Vec<u8>>, // 45 M3CI
+    pub compressed_animation_vertices: Option<Vec<u32>>, // 46 M3AY multiple
+    pub compressed_animation_vertices_data: Option<Vec<Vec<u8>>>, // 47 M3AX multiple
+    pub depth_bias: f32,               // 45 PIDB
+    pub add_blend: Option<bool>,       // 46 ADDB - added in ?
+    pub use_depth_mask: Option<bool>,  // ZMSK added in 10.8
+    pub alpha: Option<f32>,            // 47 FALP - added in ?
+    pub color: Option<Color>,          // 48 COLR - added in ?
+    pub light_map: Option<String>,     // LMAP - added in 10.8
+    pub reflection_probe: Option<String>, // REFL - added in 10.8
+    pub reflection_strength: Option<f32>, // RSTR - added in 10.8
+    pub refraction_probe: Option<String>, // REFR - added in 10.8
+    pub refraction_thickness: Option<f32>, // RTHI - added in 10.8
 
     // these are shared between all items
     pub is_locked: bool,
@@ -111,12 +111,12 @@ struct PrimitiveJson {
     mesh_file_name: Option<String>,
     num_vertices: Option<u32>,
     compressed_vertices: Option<u32>,
-    //m3cx: Option<Vec<u8>>,
+    //compressed_vertices_data: Option<Vec<u8>>,
     num_indices: Option<u32>,
     compressed_indices: Option<u32>,
-    //m3ci: Option<Vec<u8>>,
-    m3ay: Option<Vec<Vec<u8>>>,
-    m3ax: Option<Vec<Vec<u8>>>,
+    //compressed_indices_data: Option<Vec<u8>>,
+    compressed_animation_vertices: Option<Vec<u32>>,
+    //compressed_animation_vertices_data: Option<Vec<Vec<u8>>>,
     depth_bias: f32,
     add_blend: Option<bool>,
     use_depth_mask: Option<bool>,
@@ -173,12 +173,14 @@ impl PrimitiveJson {
             mesh_file_name: primitive.mesh_file_name.clone(),
             num_vertices: primitive.num_vertices,
             compressed_vertices: primitive.compressed_vertices,
-            //m3cx: primitive.m3cx.clone(),
+            //compressed_vertices_data: primitive.m3cx.clone(),
             num_indices: primitive.num_indices,
             compressed_indices: primitive.compressed_indices,
-            //m3ci: primitive.m3ci.clone(),
-            m3ay: primitive.m3ay.clone(),
-            m3ax: primitive.m3ax.clone(),
+            //compressed_indices_Data: primitive.m3ci.clone(),
+            compressed_animation_vertices: primitive.compressed_animation_vertices.clone(),
+            // compressed_animation_vertices_data: primitive
+            //     .compressed_animation_vertices_data
+            //     .clone(),
             depth_bias: primitive.depth_bias,
             add_blend: primitive.add_blend,
             use_depth_mask: primitive.use_depth_mask,
@@ -234,12 +236,12 @@ impl PrimitiveJson {
             mesh_file_name: self.mesh_file_name.clone(),
             num_vertices: self.num_vertices,
             compressed_vertices: self.compressed_vertices,
-            m3cx: None, //self.m3cx.clone(),
+            compressed_vertices_data: None, //self.m3cx.clone(),
             num_indices: self.num_indices,
             compressed_indices: self.compressed_indices,
-            m3ci: None, //self.m3ci.clone(),
-            m3ay: self.m3ay.clone(),
-            m3ax: self.m3ax.clone(),
+            compressed_indices_data: None, //self.m3ci.clone(),
+            compressed_animation_vertices: self.compressed_animation_vertices.clone(),
+            compressed_animation_vertices_data: None, //self.compressed_animation_vertices_data.clone(),
             depth_bias: self.depth_bias,
             add_blend: self.add_blend,
             use_depth_mask: self.use_depth_mask,
@@ -320,8 +322,8 @@ impl BiffRead for Primitive {
         let mut m3cx: Option<Vec<u8>> = None;
         let mut num_indices: Option<u32> = None;
         let mut compressed_indices: Option<u32> = None;
-        let mut m3ci: Option<Vec<u8>> = None;
-        let mut m3ay: Option<Vec<Vec<u8>>> = None;
+        let mut compressed_indices_data: Option<Vec<u8>> = None;
+        let mut compressed_animation_vertices: Option<Vec<u32>> = None;
         let mut m3ax: Option<Vec<Vec<u8>>> = None;
 
         let mut depth_bias: f32 = 0.0;
@@ -509,14 +511,14 @@ impl BiffRead for Primitive {
                     compressed_indices = Some(reader.get_u32());
                 }
                 "M3CI" => {
-                    m3ci = Some(reader.get_record_data(false));
+                    compressed_indices_data = Some(reader.get_record_data(false));
                 }
                 "M3AY" => {
-                    match m3ay {
+                    match compressed_animation_vertices {
                         Some(ref mut m3ay) => {
-                            m3ay.push(reader.get_record_data(false));
+                            m3ay.push(reader.get_u32());
                         }
-                        None => m3ay = Some(vec![reader.get_record_data(false)]),
+                        None => compressed_animation_vertices = Some(vec![reader.get_u32()]),
                     };
                 }
                 "M3AX" => {
@@ -621,12 +623,12 @@ impl BiffRead for Primitive {
             mesh_file_name,
             num_vertices,
             compressed_vertices,
-            m3cx,
+            compressed_vertices_data: m3cx,
             num_indices,
             compressed_indices,
-            m3ci,
-            m3ay,
-            m3ax,
+            compressed_indices_data,
+            compressed_animation_vertices,
+            compressed_animation_vertices_data: m3ax,
             depth_bias,
             add_blend,
             use_depth_mask,
@@ -725,7 +727,7 @@ impl BiffWrite for Primitive {
         if let Some(compressed_vertices) = &self.compressed_vertices {
             writer.write_tagged_u32("M3CY", *compressed_vertices);
         }
-        if let Some(m3cx) = &self.m3cx {
+        if let Some(m3cx) = &self.compressed_vertices_data {
             writer.write_tagged_data("M3CX", m3cx);
         }
         if let Some(num_indices) = &self.num_indices {
@@ -734,16 +736,19 @@ impl BiffWrite for Primitive {
         if let Some(compressed_indices) = &self.compressed_indices {
             writer.write_tagged_u32("M3CJ", *compressed_indices);
         }
-        if let Some(m3ci) = &self.m3ci {
+        if let Some(m3ci) = &self.compressed_indices_data {
             writer.write_tagged_data("M3CI", m3ci);
         }
 
         // these should come in pairs
         // TODO rework in a better way
         // if both are present, write them in pairs
-        if let (Some(m3ays), Some(m3axs)) = (&self.m3ay, &self.m3ax) {
+        if let (Some(m3ays), Some(m3axs)) = (
+            &self.compressed_animation_vertices,
+            &self.compressed_animation_vertices_data,
+        ) {
             for (m3ay, m3ax) in m3ays.iter().zip(m3axs.iter()) {
-                writer.write_tagged_data("M3AY", m3ay);
+                writer.write_tagged_u32("M3AY", *m3ay);
                 writer.write_tagged_data("M3AX", m3ax);
             }
         }
@@ -842,17 +847,14 @@ mod tests {
             mesh_file_name: Some("mesh_file_name".to_string()),
             num_vertices: Some(8),
             compressed_vertices: Some(9),
-            m3cx: Some(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]),
+            compressed_vertices_data: Some(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]),
             num_indices: Some(10),
             compressed_indices: Some(11),
-            m3ci: Some(vec![2, 3, 4, 5, 6, 7, 8, 9, 10]),
-            m3ay: Some(vec![
-                vec![3, 4, 5, 6, 7, 8, 9, 10, 11],
+            compressed_indices_data: Some(vec![2, 3, 4, 5, 6, 7, 8, 9, 10]),
+            compressed_animation_vertices: Some(vec![9, 8]),
+            compressed_animation_vertices_data: Some(vec![
                 vec![4, 5, 6, 7, 8, 9, 10, 11, 12],
-            ]),
-            m3ax: Some(vec![
-                vec![4, 5, 6, 7, 8, 9, 10, 11, 12],
-                vec![5, 6, 7, 8, 9, 10, 11, 12, 13],
+                vec![5, 6, 7, 8, 9, 10, 11, 12],
             ]),
             depth_bias: 12.0,
             add_blend: rng.gen(),

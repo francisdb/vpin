@@ -9,8 +9,9 @@ pub struct ImageDataJpeg {
     pub name: String,
     // /**
     //  * Lowercased name?
+    //  * No longer in use
     //  */
-    pub inme: Option<String>,
+    pub internal_name: Option<String>,
     // alpha_test_value: f32,
     pub data: Vec<u8>,
 }
@@ -49,8 +50,10 @@ pub struct ImageData {
     pub name: String, // NAME
     // /**
     //  * Lowercased name?
+    //  * INME
+    //  * No longer in use
     //  */
-    pub inme: Option<String>,
+    pub internal_name: Option<String>,
     pub path: String, // PATH
     pub width: u32,   // WDTH
     pub height: u32,  // HGHT
@@ -85,7 +88,7 @@ impl ImageDataJpegJson {
         ImageDataJpegJson {
             path: image_data_jpeg.path.clone(),
             name: image_data_jpeg.name.clone(),
-            inme: image_data_jpeg.inme.clone(),
+            inme: image_data_jpeg.internal_name.clone(),
         }
     }
 
@@ -93,7 +96,7 @@ impl ImageDataJpegJson {
         ImageDataJpeg {
             path: self.path.clone(),
             name: self.name.clone(),
-            inme: self.inme.clone(),
+            internal_name: self.inme.clone(),
             data: vec![], // data is stored in a separate file
         }
     }
@@ -103,7 +106,7 @@ impl ImageDataJpegJson {
 pub(crate) struct ImageDataJson {
     name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    inme: Option<String>,
+    internal_name: Option<String>,
     path: String,
     width: u32,
     height: u32,
@@ -122,7 +125,7 @@ impl ImageDataJson {
     pub fn from_image_data(image_data: &ImageData) -> Self {
         ImageDataJson {
             name: image_data.name.clone(),
-            inme: image_data.inme.clone(),
+            internal_name: image_data.internal_name.clone(),
             path: image_data.path.clone(),
             width: image_data.width,
             height: image_data.height,
@@ -142,7 +145,7 @@ impl ImageDataJson {
     pub fn to_image_data(&self) -> ImageData {
         ImageData {
             name: self.name.clone(),
-            inme: self.inme.clone(),
+            internal_name: self.internal_name.clone(),
             path: self.path.clone(),
             width: self.width,
             height: self.height,
@@ -186,7 +189,7 @@ impl Default for ImageData {
     fn default() -> Self {
         ImageData {
             name: "".to_string(),
-            inme: None,
+            internal_name: None,
             path: "".to_string(),
             width: 0,
             height: 0,
@@ -217,7 +220,7 @@ fn read(reader: &mut BiffReader) -> ImageData {
                 image_data.path = reader.get_string();
             }
             "INME" => {
-                image_data.inme = Some(reader.get_string());
+                image_data.internal_name = Some(reader.get_string());
             }
             "WDTH" => {
                 image_data.width = reader.get_u32();
@@ -270,7 +273,7 @@ fn read(reader: &mut BiffReader) -> ImageData {
 
 fn write(data: &ImageData, writer: &mut BiffWriter) {
     writer.write_tagged_string("NAME", &data.name);
-    if let Some(inme) = &data.inme {
+    if let Some(inme) = &data.internal_name {
         writer.write_tagged_string("INME", inme);
     }
     writer.write_tagged_string("PATH", &data.path);
@@ -303,7 +306,7 @@ fn read_jpeg(reader: &mut BiffReader) -> ImageDataJpeg {
     let mut name: String = "".to_string();
     let mut data: Vec<u8> = vec![];
     // let mut alpha_test_value: f32 = 0.0;
-    let mut inme: Option<String> = None;
+    let mut internal_name: Option<String> = None;
     loop {
         reader.next(biff::WARN);
         if reader.is_eof() {
@@ -324,7 +327,7 @@ fn read_jpeg(reader: &mut BiffReader) -> ImageDataJpeg {
             "NAME" => name = reader.get_string(),
             "PATH" => path = reader.get_string(),
             // "ALTV" => alpha_test_value = reader.get_f32(), // TODO why are these duplicated?
-            "INME" => inme = Some(reader.get_string()),
+            "INME" => internal_name = Some(reader.get_string()),
             _ => {
                 // skip this record
                 println!("skipping tag inside JPEG {}", tag);
@@ -336,7 +339,7 @@ fn read_jpeg(reader: &mut BiffReader) -> ImageDataJpeg {
     ImageDataJpeg {
         path,
         name,
-        inme,
+        internal_name,
         // alpha_test_value,
         data,
     }
@@ -345,7 +348,7 @@ fn read_jpeg(reader: &mut BiffReader) -> ImageDataJpeg {
 fn write_jpg(img: &ImageDataJpeg) -> Vec<u8> {
     let mut writer = BiffWriter::new();
     writer.write_tagged_string("NAME", &img.name);
-    if let Some(inme) = &img.inme {
+    if let Some(inme) = &img.internal_name {
         writer.write_tagged_string("INME", inme);
     }
     writer.write_tagged_string("PATH", &img.path);
@@ -367,7 +370,7 @@ mod test {
         let img = ImageDataJpeg {
             path: "path_value".to_string(),
             name: "name_value".to_string(),
-            inme: Some("inme_value".to_string()),
+            internal_name: Some("inme_value".to_string()),
             // alpha_test_value: 1.0,
             data: vec![1, 2, 3],
         };
@@ -383,7 +386,7 @@ mod test {
     fn test_write_read() {
         let image: ImageData = ImageData {
             name: "name_value".to_string(),
-            inme: Some("inme_value".to_string()),
+            internal_name: Some("inme_value".to_string()),
             path: "path_value".to_string(),
             width: 1,
             height: 2,
@@ -394,7 +397,7 @@ mod test {
             jpeg: Some(ImageDataJpeg {
                 path: "path_value".to_string(),
                 name: "name_value".to_string(),
-                inme: Some("inme_value".to_string()),
+                internal_name: Some("inme_value".to_string()),
                 // alpha_test_value: 1.0,
                 data: vec![1, 2, 3],
             }),

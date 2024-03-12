@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::io::{self, Read, Write};
+use std::path::PathBuf;
 use std::{fs::File, path::Path};
 
 use cfb::CompoundFile;
@@ -466,17 +467,26 @@ fn write_gameitems<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Wr
         serde_json::to_writer_pretty(&gameitem_file, &gameitem)?;
         // for primitives we write fields m3cx and m3ci to separate files with bin extension
         if let GameItemEnum::Primitive(primitive) = gameitem {
-            if let Some(m3cx) = &primitive.m3cx {
+            if let Some(m3cx) = &primitive.compressed_vertices_data {
                 let m3cx_path =
                     gameitems_dir.join(format!("{}.{}.m3cx.bin", gameitem.type_name(), name));
                 let mut m3cx_file = std::fs::File::create(&m3cx_path)?;
                 m3cx_file.write_all(m3cx)?;
             }
-            if let Some(m3ci) = &primitive.m3ci {
+            if let Some(m3ci) = &primitive.compressed_indices_data {
                 let m3ci_path =
                     gameitems_dir.join(format!("{}.{}.m3ci.bin", gameitem.type_name(), name));
                 let mut m3ci_file = std::fs::File::create(&m3ci_path)?;
                 m3ci_file.write_all(m3ci)?;
+            }
+            if let Some(m3ays) = &primitive.compressed_animation_vertices_data {
+                let m3ays_path =
+                    gameitems_dir.join(format!("{}.{}.m3ays.bin", gameitem.type_name(), name));
+                let mut m3ays_file = File::create(&m3ays_path)?;
+                // write all sequentially, we have the counts in the json
+                m3ays
+                    .iter()
+                    .try_for_each(|m3ay| m3ays_file.write_all(m3ay))?;
             }
         }
     }
@@ -511,14 +521,19 @@ fn read_gameitems<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<GameItemEn
                         let mut m3cx_file = File::open(&m3cx_path)?;
                         let mut m3cx = Vec::new();
                         m3cx_file.read_to_end(&mut m3cx)?;
-                        primitive.m3cx = Some(m3cx);
+                        primitive.compressed_vertices_data = Some(m3cx);
                     }
                     let m3ci_path = gameitems_dir.join(format!("{}.m3ci.bin", &gameitem_file_name));
                     if m3ci_path.exists() {
                         let mut m3ci_file = File::open(&m3ci_path)?;
                         let mut m3ci = Vec::new();
                         m3ci_file.read_to_end(&mut m3ci)?;
-                        primitive.m3ci = Some(m3ci);
+                        primitive.compressed_indices_data = Some(m3ci);
+                    }
+                    if let Some(counts) = &primitive.compressed_animation_vertices {
+                        let m3ays =
+                            read_animation_vertices(&gameitems_dir, counts, &gameitem_file_name)?;
+                        primitive.compressed_animation_vertices_data = Some(m3ays);
                     }
                 }
                 Ok(res)
@@ -531,6 +546,32 @@ fn read_gameitems<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<GameItemEn
         })
         .collect();
     gameitems
+}
+
+fn read_animation_vertices(
+    gameitems_dir: &PathBuf,
+    lengths: &Vec<u32>,
+    gameitem_file_name: &&str,
+) -> io::Result<Vec<Vec<u8>>> {
+    let m3ays_path = gameitems_dir.join(format!("{}.m3ays.bin", &gameitem_file_name));
+    if m3ays_path.exists() {
+        let mut m3ays_file = File::open(&m3ays_path)?;
+        // for each primitive.compressed_animation_vertices
+        // read the data
+        let mut m3ays = Vec::with_capacity(lengths.len());
+        lengths.iter().try_for_each(|count| {
+            let mut m3ay = vec![0; *count as usize];
+            let res = m3ays_file.read_exact(&mut m3ay);
+            m3ays.push(m3ay);
+            res
+        })?;
+        Ok(m3ays)
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("M3ays file not found: {}", m3ays_path.display()),
+        ))
+    }
 }
 
 fn write_info<P: AsRef<Path>>(vpx: &&VPX, expanded_dir: &P) -> Result<(), WriteError> {
@@ -862,7 +903,7 @@ mod test {
             images: vec![
                 ImageData {
                     name: "test image".to_string(),
-                    inme: None,
+                    internal_name: None,
                     path: "test.png".to_string(),
                     width: 0,
                     height: 0,
@@ -873,14 +914,14 @@ mod test {
                     jpeg: Some(ImageDataJpeg {
                         path: "test.png jpeg".to_string(),
                         name: "test image jpeg".to_string(),
-                        inme: None,
+                        internal_name: None,
                         data: vec![0, 1, 2, 3],
                     }),
                     bits: None,
                 },
                 ImageData {
                     name: "test image 2".to_string(),
-                    inme: None,
+                    internal_name: None,
                     path: "test2.png".to_string(),
                     width: 0,
                     height: 0,

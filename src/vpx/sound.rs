@@ -33,7 +33,10 @@ pub struct SoundData {
     pub path: String,
     pub wave_form: WaveForm, // we probably want this to be optional
     pub data: Vec<u8>,
-    // seems to like the images be the lowercase of name
+    /// Removed: previously did write the same name again, but just in lower case
+    /// This rudimentary version here needs to stay as otherwise problems when loading, as one field less
+    /// Now just writes a short dummy/empty string.
+    /// see https://github.com/vpinball/vpinball/commit/3320dd11d66ecedba326197c7d4e85c48864cc19
     pub internal_name: String,
     pub fade: u32,
     pub volume: u32,
