@@ -28,7 +28,7 @@ fn read_extract_assemble_and_write_all() -> io::Result<()> {
         .iter()
         // .filter(|path| {
         //     let name = path.file_name().unwrap().to_str().unwrap();
-        //     name.eq("Sonic The Hedgehog (Brendan Bailey 2005) VPX_(MOD)1.21.vpx")
+        //     name.contains("Lightning")
         // })
         .try_for_each(|path| {
             println!("testing: {:?}", path);

@@ -1,7 +1,7 @@
 use crate::vpx::biff;
 use crate::vpx::biff::{BiffRead, BiffReader, BiffWrite, BiffWriter};
 use crate::vpx::color::{Color, ColorJson};
-use crate::vpx::json::{deserialize_f32_nan_inf_from_string, serialize_f32_nan_inf_as_string};
+use crate::vpx::json::F32WithNanInf;
 use bytes::{Buf, BufMut, BytesMut};
 use encoding_rs::mem::{decode_latin1, encode_latin1_lossy};
 use fake::Dummy;
@@ -225,45 +225,29 @@ pub struct SavePhysicsMaterial {
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct SavePhysicsMaterialJson {
     name: String,
-    #[serde(
-        serialize_with = "serialize_f32_nan_inf_as_string",
-        deserialize_with = "deserialize_f32_nan_inf_from_string"
-    )]
-    elasticity: f32,
-    #[serde(
-        serialize_with = "serialize_f32_nan_inf_as_string",
-        deserialize_with = "deserialize_f32_nan_inf_from_string"
-    )]
-    elasticity_falloff: f32,
-    #[serde(
-        serialize_with = "serialize_f32_nan_inf_as_string",
-        deserialize_with = "deserialize_f32_nan_inf_from_string"
-    )]
-    friction: f32,
-    #[serde(
-        serialize_with = "serialize_f32_nan_inf_as_string",
-        deserialize_with = "deserialize_f32_nan_inf_from_string"
-    )]
-    scatter_angle: f32,
+    elasticity: F32WithNanInf,
+    elasticity_falloff: F32WithNanInf,
+    friction: F32WithNanInf,
+    scatter_angle: F32WithNanInf,
 }
 
 impl SavePhysicsMaterialJson {
     pub fn from_save_physics_material(save_physics_material: &SavePhysicsMaterial) -> Self {
         Self {
             name: save_physics_material.name.clone(),
-            elasticity: save_physics_material.elasticity,
-            elasticity_falloff: save_physics_material.elasticity_falloff,
-            friction: save_physics_material.friction,
-            scatter_angle: save_physics_material.scatter_angle,
+            elasticity: save_physics_material.elasticity.into(),
+            elasticity_falloff: save_physics_material.elasticity_falloff.into(),
+            friction: save_physics_material.friction.into(),
+            scatter_angle: save_physics_material.scatter_angle.into(),
         }
     }
     pub fn to_save_physics_material(&self) -> SavePhysicsMaterial {
         SavePhysicsMaterial {
             name: self.name.clone(),
-            elasticity: self.elasticity,
-            elasticity_falloff: self.elasticity_falloff,
-            friction: self.friction,
-            scatter_angle: self.scatter_angle,
+            elasticity: self.elasticity.into(),
+            elasticity_falloff: self.elasticity_falloff.into(),
+            friction: self.friction.into(),
+            scatter_angle: self.scatter_angle.into(),
         }
     }
 }
@@ -384,26 +368,10 @@ pub(crate) struct MaterialJson {
     glossy_color: ColorJson,
     clearcoat_color: ColorJson,
     opacity_active: bool,
-    #[serde(
-        serialize_with = "serialize_f32_nan_inf_as_string",
-        deserialize_with = "deserialize_f32_nan_inf_from_string"
-    )]
-    elasticity: f32,
-    #[serde(
-        serialize_with = "serialize_f32_nan_inf_as_string",
-        deserialize_with = "deserialize_f32_nan_inf_from_string"
-    )]
-    elasticity_falloff: f32,
-    #[serde(
-        serialize_with = "serialize_f32_nan_inf_as_string",
-        deserialize_with = "deserialize_f32_nan_inf_from_string"
-    )]
-    friction: f32,
-    #[serde(
-        serialize_with = "serialize_f32_nan_inf_as_string",
-        deserialize_with = "deserialize_f32_nan_inf_from_string"
-    )]
-    scatter_angle: f32,
+    elasticity: F32WithNanInf,
+    elasticity_falloff: F32WithNanInf,
+    friction: F32WithNanInf,
+    scatter_angle: F32WithNanInf,
     refraction_tint: ColorJson,
 }
 
@@ -423,10 +391,10 @@ impl MaterialJson {
             glossy_color: ColorJson::from_color(&material.glossy_color),
             clearcoat_color: ColorJson::from_color(&material.clearcoat_color),
             opacity_active: material.opacity_active,
-            elasticity: material.elasticity,
-            elasticity_falloff: material.elasticity_falloff,
-            friction: material.friction,
-            scatter_angle: material.scatter_angle,
+            elasticity: material.elasticity.into(),
+            elasticity_falloff: material.elasticity_falloff.into(),
+            friction: material.friction.into(),
+            scatter_angle: material.scatter_angle.into(),
             refraction_tint: ColorJson::from_color(&material.refraction_tint),
         }
     }
@@ -445,10 +413,10 @@ impl MaterialJson {
             glossy_color: self.glossy_color.to_color(),
             clearcoat_color: self.clearcoat_color.to_color(),
             opacity_active: self.opacity_active,
-            elasticity: self.elasticity,
-            elasticity_falloff: self.elasticity_falloff,
-            friction: self.friction,
-            scatter_angle: self.scatter_angle,
+            elasticity: self.elasticity.into(),
+            elasticity_falloff: self.elasticity_falloff.into(),
+            friction: self.friction.into(),
+            scatter_angle: self.scatter_angle.into(),
             refraction_tint: self.refraction_tint.to_color(),
         }
     }

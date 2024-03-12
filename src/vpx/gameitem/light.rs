@@ -1,5 +1,5 @@
 use crate::vpx::color::ColorJson;
-use crate::vpx::json::{deserialize_f32_nan_inf_from_string, serialize_f32_nan_inf_as_string};
+use crate::vpx::json::F32WithNanInf;
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
@@ -75,16 +75,8 @@ struct LightJson {
     name: String,
     is_backglass: bool,
     depth_bias: f32,
-    #[serde(
-        serialize_with = "serialize_f32_nan_inf_as_string",
-        deserialize_with = "deserialize_f32_nan_inf_from_string"
-    )]
-    fade_speed_up: f32,
-    #[serde(
-        serialize_with = "serialize_f32_nan_inf_as_string",
-        deserialize_with = "deserialize_f32_nan_inf_from_string"
-    )]
-    fade_speed_down: f32,
+    fade_speed_up: F32WithNanInf,
+    fade_speed_down: F32WithNanInf,
     is_bulb_light: bool,
     is_image_mode: bool,
     show_bulb_mesh: bool,
@@ -125,10 +117,8 @@ impl LightJson {
             name: light.name.clone(),
             is_backglass: light.is_backglass,
             depth_bias: light.depth_bias,
-            // this serializes Some(NaN) as null
-            fade_speed_up: light.fade_speed_up,
-            // this serializes Some(NaN) as null
-            fade_speed_down: light.fade_speed_down,
+            fade_speed_up: light.fade_speed_up.into(),
+            fade_speed_down: light.fade_speed_down.into(),
             is_bulb_light: light.is_bulb_light,
             is_image_mode: light.is_image_mode,
             show_bulb_mesh: light.show_bulb_mesh,
@@ -169,8 +159,8 @@ impl LightJson {
             name: self.name.clone(),
             is_backglass: self.is_backglass,
             depth_bias: self.depth_bias,
-            fade_speed_up: self.fade_speed_up,
-            fade_speed_down: self.fade_speed_down,
+            fade_speed_up: self.fade_speed_up.into(),
+            fade_speed_down: self.fade_speed_down.into(),
             is_bulb_light: self.is_bulb_light,
             is_image_mode: self.is_image_mode,
             show_bulb_mesh: self.show_bulb_mesh,

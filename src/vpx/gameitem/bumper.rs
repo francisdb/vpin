@@ -1,4 +1,5 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::json::F32WithNanInf;
 use fake::Dummy;
 use serde::{Deserialize, Serialize};
 
@@ -55,7 +56,7 @@ struct BumperJson {
     height_scale: f32,
     ring_speed: f32,
     orientation: f32,
-    ring_drop_offset: Option<f32>,
+    ring_drop_offset: Option<F32WithNanInf>,
     // RDLI (added in ?)
     cap_material: String,
     base_material: String,
@@ -93,7 +94,7 @@ impl From<&Bumper> for BumperJson {
             height_scale: bumper.height_scale,
             ring_speed: bumper.ring_speed,
             orientation: bumper.orientation,
-            ring_drop_offset: bumper.ring_drop_offset,
+            ring_drop_offset: bumper.ring_drop_offset.map(F32WithNanInf::from),
             cap_material: bumper.cap_material.clone(),
             base_material: bumper.base_material.clone(),
             socket_material: bumper.socket_material.clone(),
@@ -177,7 +178,7 @@ impl<'de> Deserialize<'de> for Bumper {
         bumper.height_scale = bumper_json.height_scale;
         bumper.ring_speed = bumper_json.ring_speed;
         bumper.orientation = bumper_json.orientation;
-        bumper.ring_drop_offset = bumper_json.ring_drop_offset;
+        bumper.ring_drop_offset = bumper_json.ring_drop_offset.map(f32::from);
         bumper.cap_material = bumper_json.cap_material;
         bumper.base_material = bumper_json.base_material;
         bumper.socket_material = bumper_json.socket_material;
