@@ -31,7 +31,9 @@ enum ReflectionMode {
 pub struct RenderProbe {
     type_: RenderProbeType,
     name: String,
-    roughness: i32,
+    roughness: u32,
+    /// Old stuff, not used anymore, but still in the file
+    roughness_clear: Option<u32>,
     /// Plane equation: xyz is the normal, w is the projected distance
     reflection_plane: Vertex4D,
     reflection_mode: ReflectionMode,
@@ -55,11 +57,14 @@ pub struct RenderProbeWithGarbage {
 pub(crate) struct RenderProbeJson {
     type_: i32,
     name: String,
-    roughness: i32,
+    roughness: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    roughness_clear: Option<u32>,
     reflection_plane: Vertex4D,
     reflection_mode: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
     disable_light_reflection: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     trailing_data: Option<Vec<u8>>,
 }
 
@@ -75,6 +80,7 @@ impl RenderProbeJson {
             type_: render_probe.type_.to_i32(),
             name: render_probe.name.clone(),
             roughness: render_probe.roughness,
+            roughness_clear: render_probe.roughness_clear,
             reflection_plane: render_probe.reflection_plane,
             reflection_mode: render_probe.reflection_mode.to_i32(),
             disable_light_reflection: render_probe.disable_light_reflection,
@@ -87,6 +93,7 @@ impl RenderProbeJson {
             type_: RenderProbeType::from_i32(self.type_),
             name: self.name.clone(),
             roughness: self.roughness,
+            roughness_clear: self.roughness_clear,
             reflection_plane: self.reflection_plane,
             reflection_mode: ReflectionMode::from_i32(self.reflection_mode),
             disable_light_reflection: self.disable_light_reflection,
@@ -146,6 +153,7 @@ impl Default for RenderProbe {
             type_: RenderProbeType::PlaneReflection,
             name: String::new(),
             roughness: 0,
+            roughness_clear: None,
             reflection_plane: Vertex4D::default(),
             reflection_mode: ReflectionMode::None,
             disable_light_reflection: None, //false,
@@ -166,7 +174,8 @@ impl BiffRead for RenderProbe {
             match tag_str {
                 "TYPE" => render_probe.type_ = RenderProbeType::from_i32(reader.get_i32()),
                 "NAME" => render_probe.name = reader.get_string(),
-                "RBAS" => render_probe.roughness = reader.get_i32(),
+                "RBAS" => render_probe.roughness = reader.get_u32(),
+                "RCLE" => render_probe.roughness_clear = Some(reader.get_u32()),
                 "RPLA" => render_probe.reflection_plane = Vertex4D::biff_read(reader),
                 "RMOD" => render_probe.reflection_mode = ReflectionMode::from_i32(reader.get_i32()),
                 "RLMP" => render_probe.disable_light_reflection = Some(reader.get_bool()),
@@ -188,7 +197,10 @@ impl BiffWrite for RenderProbe {
     fn biff_write(&self, writer: &mut BiffWriter) {
         writer.write_tagged_i32("TYPE", self.type_.to_i32());
         writer.write_tagged_string("NAME", &self.name);
-        writer.write_tagged_i32("RBAS", self.roughness);
+        writer.write_tagged_u32("RBAS", self.roughness);
+        if let Some(rcle) = self.roughness_clear {
+            writer.write_tagged_u32("RCLE", rcle);
+        }
         writer.write_tagged("RPLA", &self.reflection_plane);
         writer.write_tagged_i32("RMOD", self.reflection_mode.to_i32());
         if let Some(disable_light_reflection) = self.disable_light_reflection {
@@ -231,6 +243,7 @@ mod tests {
             type_: RenderProbeType::ScreenSpaceTransparency,
             name: "test".to_string(),
             roughness: 1,
+            roughness_clear: Some(2),
             reflection_plane: Vertex4D::new(1.0, 2.0, 3.0, 4.0),
             reflection_mode: ReflectionMode::Dynamic,
             disable_light_reflection: Some(false),
@@ -248,6 +261,7 @@ mod tests {
             type_: RenderProbeType::ScreenSpaceTransparency,
             name: "test".to_string(),
             roughness: 1,
+            roughness_clear: Some(2),
             reflection_plane: Vertex4D::new(1.0, 2.0, 3.0, 4.0),
             reflection_mode: ReflectionMode::Dynamic,
             disable_light_reflection: Some(false),
@@ -269,6 +283,7 @@ mod tests {
             type_: RenderProbeType::ScreenSpaceTransparency,
             name: "test".to_string(),
             roughness: 1,
+            roughness_clear: Some(2),
             reflection_plane: Vertex4D::new(1.0, 2.0, 3.0, 4.0),
             reflection_mode: ReflectionMode::Dynamic,
             disable_light_reflection: Some(true),
