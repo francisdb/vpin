@@ -60,6 +60,8 @@ pub mod version;
 
 pub mod material;
 
+pub mod renderprobe;
+
 pub(crate) mod json;
 
 /// In-memory representation of a VPX file

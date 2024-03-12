@@ -47,6 +47,18 @@ impl<'a> BiffReader<'a> {
         reader
     }
 
+    pub fn with_remaining(data: &'a [u8], bytes_in_record_remaining: usize) -> Self {
+        let reader: BiffReader<'a> = BiffReader {
+            data,
+            pos: 0,
+            bytes_in_record_remaining,
+            record_start: 0,
+            tag: "".to_string(),
+            warn_remaining: true,
+        };
+        reader
+    }
+
     /**
      * Useful if you just want to read a bunch of tags and don't care about the data
      */

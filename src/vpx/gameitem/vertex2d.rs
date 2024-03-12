@@ -41,22 +41,21 @@ impl BiffWrite for Vertex2D {
     }
 }
 
-// TODO enable and fix this test
+#[cfg(test)]
+mod tests {
+    use crate::vpx::biff::BiffWriter;
 
-// #[cfg(test)]
-// mod tests {
-//     use crate::vpx::biff::BiffWriter;
+    use super::*;
+    use pretty_assertions::assert_eq;
 
-//     use super::*;
-//     use pretty_assertions::assert_eq;
-
-//     #[test]
-//     fn test_write_read() {
-//         // values not equal to the defaults
-//         let vertex = Vertex2D { x: 1.0, y: 2.0 };
-//         let mut writer = BiffWriter::new();
-//         Vertex2D::biff_write(&vertex, &mut writer);
-//         let vertex_read = Vertex2D::biff_read(&mut BiffReader::new(writer.get_data()));
-//         assert_eq!(vertex, vertex_read);
-//     }
-// }
+    #[test]
+    fn test_write_read() {
+        // values not equal to the defaults
+        let vertex = Vertex2D { x: 1.0, y: 2.0 };
+        let mut writer = BiffWriter::new();
+        Vertex2D::biff_write(&vertex, &mut writer);
+        let mut reader = BiffReader::with_remaining(writer.get_data(), 8);
+        let vertex_read = Vertex2D::biff_read(&mut reader);
+        assert_eq!(vertex, vertex_read);
+    }
+}

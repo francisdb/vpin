@@ -192,6 +192,14 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, u64)> {
                 // For now we ignore the contents of this field
                 tags.push(("MATE".to_string(), data.len(), 0));
             }
+            "RPRB" => {
+                let data = reader.get_record_data(false);
+                println!("RPRB: {:?}", data);
+                let mut hasher = DefaultHasher::new();
+                Hash::hash_slice(&data, &mut hasher);
+                let hash = hasher.finish();
+                tags.push(("RPRB".to_string(), data.len(), hash));
+            }
             other => {
                 let data = reader.get_record_data(false);
                 let mut hasher = DefaultHasher::new();

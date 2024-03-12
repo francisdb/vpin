@@ -24,6 +24,7 @@ pub mod timer;
 pub mod trigger;
 pub mod vertex2d;
 pub mod vertex3d;
+pub mod vertex4d;
 pub mod wall;
 
 use crate::vpx::biff::BiffRead;

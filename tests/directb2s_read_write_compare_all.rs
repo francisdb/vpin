@@ -79,17 +79,17 @@ fn read_all() -> TestResult {
     })
 }
 
-fn tail(written: &String, n: usize) -> String {
-    written
-        .chars()
-        .rev()
-        .take(n)
-        .collect::<String>()
-        .chars()
-        .rev()
-        .collect::<String>()
-        .to_owned()
-}
+// fn tail(written: &String, n: usize) -> String {
+//     written
+//         .chars()
+//         .rev()
+//         .take(n)
+//         .collect::<String>()
+//         .chars()
+//         .rev()
+//         .collect::<String>()
+//         .to_owned()
+// }
 
 fn doc_tree(doc: &Document) -> Result<String, std::fmt::Error> {
     let mut writer = String::new();

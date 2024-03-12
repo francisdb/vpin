@@ -11,6 +11,7 @@ use crate::vpx::material::{
     Material, MaterialJson, SaveMaterial, SaveMaterialJson, SavePhysicsMaterial,
     SavePhysicsMaterialJson,
 };
+use crate::vpx::renderprobe::{RenderProbeJson, RenderProbeWithGarbage};
 use bytes::BytesMut;
 use serde::{Deserialize, Serialize};
 
@@ -209,7 +210,7 @@ pub struct GameData {
     pub materials: Vec<SaveMaterial>,      // MATE 105 (only for <10.8)
     pub materials_physics: Option<Vec<SavePhysicsMaterial>>, // PHMA 106 (only for <10.8, added in 10.?)
     pub materials_new: Option<Vec<Material>>,                // MATR (added in 10.8)
-    pub render_probes: Option<Vec<Vec<u8>>>,                 // RPRB (added in 10.8)
+    pub render_probes: Option<Vec<RenderProbeWithGarbage>>,  // RPRB (added in 10.8)
     pub gameitems_size: u32,                                 // SEDT 107
     pub sounds_size: u32,                                    // SSND 108
     pub images_size: u32,                                    // SIMG 109
@@ -369,7 +370,7 @@ pub(crate) struct GameDataJson {
     pub materials: Vec<SaveMaterialJson>,
     pub materials_physics: Option<Vec<SavePhysicsMaterialJson>>,
     pub materials_new: Option<Vec<MaterialJson>>,
-    pub render_probes: Option<Vec<Vec<u8>>>,
+    pub render_probes: Option<Vec<RenderProbeJson>>,
     pub gameitems_size: u32,
     pub sounds_size: u32,
     pub images_size: u32,
@@ -547,7 +548,10 @@ impl GameDataJson {
                 .materials_new
                 .as_ref()
                 .map(|materials| materials.iter().map(|m| m.to_material()).collect()),
-            render_probes: self.render_probes.clone(),
+            render_probes: self
+                .render_probes
+                .as_ref()
+                .map(|probes| probes.iter().map(|p| p.to_renderprobe()).collect()),
             gameitems_size: self.gameitems_size,
             sounds_size: self.sounds_size,
             images_size: self.images_size,
@@ -726,7 +730,11 @@ impl GameDataJson {
                 .materials_new
                 .as_ref()
                 .map(|v| v.into_iter().map(MaterialJson::from_material).collect()),
-            render_probes: game_data.render_probes.clone(),
+            render_probes: game_data.render_probes.as_ref().map(|v| {
+                v.into_iter()
+                    .map(RenderProbeJson::from_renderprobe)
+                    .collect()
+            }),
             gameitems_size: game_data.gameitems_size,
             sounds_size: game_data.sounds_size,
             images_size: game_data.images_size,
@@ -1226,7 +1234,9 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
     // multiple RPRB // added in 10.8.x
     if let Some(render_probes) = &gamedata.render_probes {
         for render_probe in render_probes {
-            writer.write_tagged_data("RPRB", render_probe);
+            let mut probe_writer = BiffWriter::new();
+            render_probe.biff_write(&mut probe_writer);
+            writer.write_tagged_data("RPRB", probe_writer.get_data());
         }
     }
     writer.write_tagged_u32("SEDT", gamedata.gameitems_size);
@@ -1449,10 +1459,12 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             }
             "RPRB" => {
                 let data = reader.get_record_data(false).to_vec();
+                let mut reader = BiffReader::new(&data);
+                let render_probe = RenderProbeWithGarbage::biff_read(&mut reader);
                 gamedata
                     .render_probes
                     .get_or_insert_with(Vec::new)
-                    .push(data);
+                    .push(render_probe);
             }
             "SEDT" => gamedata.gameitems_size = reader.get_u32(),
             "SSND" => gamedata.sounds_size = reader.get_u32(),
@@ -1480,8 +1492,8 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
+    use fake::{Fake, Faker};
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -1616,7 +1628,7 @@ mod tests {
             materials: vec![],
             materials_physics: Some(vec![]),
             materials_new: None,
-            render_probes: None,
+            render_probes: Some(vec![Faker.fake(), Faker.fake()]),
             name: String::from("test name"),
             custom_colors: vec![1, 1, 2, 4], // [Color::RED; 16],
             protection_data: None,

@@ -830,6 +830,17 @@ mod test {
         plunger.name = "test plunger".to_string();
         let mut primitive: gameitem::primitive::Primitive = Faker.fake();
         primitive.name = "test primitive".to_string();
+        // the compressed_animation_vertices should match the data size
+        match &primitive.compressed_animation_vertices_data {
+            Some(data) => {
+                let mut sizes = Vec::new();
+                data.iter().for_each(|d| {
+                    sizes.push(d.len() as u32);
+                });
+                primitive.compressed_animation_vertices = Some(sizes);
+            }
+            None => primitive.compressed_animation_vertices = None,
+        }
         let mut ramp: gameitem::ramp::Ramp = Faker.fake();
         ramp.name = "test ramp".to_string();
         let mut reel: gameitem::reel::Reel = Faker.fake();
