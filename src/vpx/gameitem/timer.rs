@@ -27,10 +27,6 @@ struct TimerJson {
     timer_interval: i32,
     name: String,
     backglass: bool,
-    is_locked: bool,
-    editor_layer: u32,
-    editor_layer_name: Option<String>,
-    editor_layer_visibility: Option<bool>,
 }
 
 impl TimerJson {
@@ -41,10 +37,6 @@ impl TimerJson {
             timer_interval: timer.timer_interval,
             name: timer.name.clone(),
             backglass: timer.backglass,
-            is_locked: timer.is_locked,
-            editor_layer: timer.editor_layer,
-            editor_layer_name: timer.editor_layer_name.clone(),
-            editor_layer_visibility: timer.editor_layer_visibility,
         }
     }
     pub fn to_timer(&self) -> Timer {
@@ -54,10 +46,14 @@ impl TimerJson {
             timer_interval: self.timer_interval,
             name: self.name.clone(),
             backglass: self.backglass,
-            is_locked: self.is_locked,
-            editor_layer: self.editor_layer,
-            editor_layer_name: self.editor_layer_name.clone(),
-            editor_layer_visibility: self.editor_layer_visibility,
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
         }
     }
 }

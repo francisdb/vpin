@@ -86,10 +86,6 @@ struct WallJson {
     is_reflection_enabled: Option<bool>,
     physics_material: Option<String>,
     overwrite_physics: Option<bool>,
-    is_locked: bool,
-    editor_layer: u32,
-    editor_layer_name: Option<String>,
-    editor_layer_visibility: Option<bool>,
     drag_points: Vec<DragPoint>,
 }
 
@@ -128,10 +124,6 @@ impl WallJson {
             is_reflection_enabled: wall.is_reflection_enabled,
             physics_material: wall.physics_material.clone(),
             overwrite_physics: wall.overwrite_physics,
-            is_locked: wall.is_locked,
-            editor_layer: wall.editor_layer,
-            editor_layer_name: wall.editor_layer_name.clone(),
-            editor_layer_visibility: wall.editor_layer_visibility,
             drag_points: wall.drag_points.clone(),
         }
     }
@@ -170,10 +162,14 @@ impl WallJson {
             is_reflection_enabled: self.is_reflection_enabled,
             physics_material: self.physics_material.clone(),
             overwrite_physics: self.overwrite_physics,
-            is_locked: self.is_locked,
-            editor_layer: self.editor_layer,
-            editor_layer_name: self.editor_layer_name.clone(),
-            editor_layer_visibility: self.editor_layer_visibility,
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
             drag_points: self.drag_points.clone(),
         }
     }

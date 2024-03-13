@@ -52,10 +52,6 @@ struct DecalJson {
     vertical_text: bool,
     backglass: bool,
     font: FontJson,
-    is_locked: bool,
-    editor_layer: u32,
-    editor_layer_name: Option<String>,
-    editor_layer_visibility: Option<bool>,
 }
 
 impl DecalJson {
@@ -76,10 +72,6 @@ impl DecalJson {
             vertical_text: decal.vertical_text,
             backglass: decal.backglass,
             font: FontJson::from_font(&decal.font),
-            is_locked: decal.is_locked,
-            editor_layer: decal.editor_layer,
-            editor_layer_name: decal.editor_layer_name.clone(),
-            editor_layer_visibility: decal.editor_layer_visibility,
         }
     }
 
@@ -100,10 +92,14 @@ impl DecalJson {
             vertical_text: self.vertical_text,
             backglass: self.backglass,
             font: self.font.to_font(),
-            is_locked: self.is_locked,
-            editor_layer: self.editor_layer,
-            editor_layer_name: self.editor_layer_name.clone(),
-            editor_layer_visibility: self.editor_layer_visibility,
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
         }
     }
 }
@@ -331,7 +327,12 @@ mod tests {
         let decal_json = DecalJson::from_decal(&decal);
         let json = serde_json::to_string(&decal_json).unwrap();
         let decal_read_json: DecalJson = serde_json::from_str(&json).unwrap();
-        let decal_read = decal_read_json.to_decal();
+        let mut decal_read = decal_read_json.to_decal();
+        // json does not store the shared fields
+        decal_read.is_locked = decal.is_locked;
+        decal_read.editor_layer = decal.editor_layer;
+        decal_read.editor_layer_name = decal.editor_layer_name.clone();
+        decal_read.editor_layer_visibility = decal.editor_layer_visibility;
         assert_eq!(decal, decal_read);
     }
 }

@@ -127,10 +127,6 @@ struct PrimitiveJson {
     reflection_strength: Option<f32>,
     refraction_probe: Option<String>,
     refraction_thickness: Option<f32>,
-    is_locked: bool,
-    editor_layer: u32,
-    editor_layer_name: Option<String>,
-    editor_layer_visibility: Option<bool>,
 }
 
 impl PrimitiveJson {
@@ -191,10 +187,6 @@ impl PrimitiveJson {
             reflection_strength: primitive.reflection_strength,
             refraction_probe: primitive.refraction_probe.clone(),
             refraction_thickness: primitive.refraction_thickness,
-            is_locked: primitive.is_locked,
-            editor_layer: primitive.editor_layer,
-            editor_layer_name: primitive.editor_layer_name.clone(),
-            editor_layer_visibility: primitive.editor_layer_visibility,
         }
     }
     pub fn to_primitive(&self) -> Primitive {
@@ -252,10 +244,14 @@ impl PrimitiveJson {
             reflection_strength: self.reflection_strength,
             refraction_probe: self.refraction_probe.clone(),
             refraction_thickness: self.refraction_thickness,
-            is_locked: self.is_locked,
-            editor_layer: self.editor_layer,
-            editor_layer_name: self.editor_layer_name.clone(),
-            editor_layer_visibility: self.editor_layer_visibility,
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
         }
     }
 }

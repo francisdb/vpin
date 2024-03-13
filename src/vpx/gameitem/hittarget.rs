@@ -148,10 +148,6 @@ struct HitTargetJson {
     raise_delay: Option<u32>,
     physics_material: Option<String>,
     overwrite_physics: Option<bool>,
-    is_locked: bool,
-    editor_layer: u32,
-    editor_layer_name: Option<String>,
-    editor_layer_visibility: Option<bool>,
 }
 
 impl HitTargetJson {
@@ -185,10 +181,6 @@ impl HitTargetJson {
             raise_delay: hit_target.raise_delay,
             physics_material: hit_target.physics_material.clone(),
             overwrite_physics: hit_target.overwrite_physics,
-            is_locked: hit_target.is_locked,
-            editor_layer: hit_target.editor_layer,
-            editor_layer_name: hit_target.editor_layer_name.clone(),
-            editor_layer_visibility: hit_target.editor_layer_visibility,
         }
     }
 
@@ -222,10 +214,14 @@ impl HitTargetJson {
             raise_delay: self.raise_delay,
             physics_material: self.physics_material.clone(),
             overwrite_physics: self.overwrite_physics,
-            is_locked: self.is_locked,
-            editor_layer: self.editor_layer,
-            editor_layer_name: self.editor_layer_name.clone(),
-            editor_layer_visibility: self.editor_layer_visibility,
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
         }
     }
 }

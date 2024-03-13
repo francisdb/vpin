@@ -90,10 +90,6 @@ pub(crate) struct FlipperJson {
     height: f32,
     image: Option<String>,
     is_reflection_enabled: Option<bool>,
-    is_locked: bool,
-    editor_layer: u32,
-    editor_layer_name: Option<String>,
-    editor_layer_visibility: Option<bool>,
 }
 
 impl FlipperJson {
@@ -134,10 +130,6 @@ impl FlipperJson {
             height: flipper.height,
             image: flipper.image.clone(),
             is_reflection_enabled: flipper.is_reflection_enabled,
-            is_locked: flipper.is_locked,
-            editor_layer: flipper.editor_layer,
-            editor_layer_name: flipper.editor_layer_name.clone(),
-            editor_layer_visibility: flipper.editor_layer_visibility,
         }
     }
 
@@ -178,10 +170,14 @@ impl FlipperJson {
             height: self.height,
             image: self.image.clone(),
             is_reflection_enabled: self.is_reflection_enabled,
-            is_locked: self.is_locked,
-            editor_layer: self.editor_layer,
-            editor_layer_name: self.editor_layer_name.clone(),
-            editor_layer_visibility: self.editor_layer_visibility,
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
         }
     }
 }

@@ -37,10 +37,6 @@ struct LightSequencerJson {
     timer_interval: u32,
     name: String,
     backglass: bool,
-    is_locked: Option<bool>,
-    editor_layer: Option<u32>,
-    editor_layer_name: Option<String>,
-    editor_layer_visibility: Option<bool>,
 }
 
 impl LightSequencerJson {
@@ -55,10 +51,6 @@ impl LightSequencerJson {
             timer_interval: light_sequencer.timer_interval,
             name: light_sequencer.name.clone(),
             backglass: light_sequencer.backglass,
-            is_locked: light_sequencer.is_locked,
-            editor_layer: light_sequencer.editor_layer,
-            editor_layer_name: light_sequencer.editor_layer_name.clone(),
-            editor_layer_visibility: light_sequencer.editor_layer_visibility,
         }
     }
     pub fn to_light_sequencer(&self) -> LightSequencer {
@@ -72,10 +64,14 @@ impl LightSequencerJson {
             timer_interval: self.timer_interval,
             name: self.name.clone(),
             backglass: self.backglass,
-            is_locked: self.is_locked,
-            editor_layer: self.editor_layer,
-            editor_layer_name: self.editor_layer_name.clone(),
-            editor_layer_visibility: self.editor_layer_visibility,
+            // this is populated from a different file
+            is_locked: None,
+            // this is populated from a different file
+            editor_layer: None,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
         }
     }
 }

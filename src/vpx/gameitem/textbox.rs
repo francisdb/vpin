@@ -63,10 +63,6 @@ struct TextBoxJson {
     is_transparent: bool,
     is_dmd: Option<bool>,
     font: FontJson,
-    is_locked: bool,
-    editor_layer: u32,
-    editor_layer_name: Option<String>,
-    editor_layer_visibility: Option<bool>,
 }
 
 impl TextBoxJson {
@@ -85,10 +81,6 @@ impl TextBoxJson {
             is_transparent: textbox.is_transparent,
             is_dmd: textbox.is_dmd,
             font: FontJson::from_font(&textbox.font),
-            is_locked: textbox.is_locked,
-            editor_layer: textbox.editor_layer,
-            editor_layer_name: textbox.editor_layer_name.clone(),
-            editor_layer_visibility: textbox.editor_layer_visibility,
         }
     }
 
@@ -107,10 +99,14 @@ impl TextBoxJson {
             is_transparent: self.is_transparent,
             is_dmd: self.is_dmd,
             font: self.font.to_font(),
-            is_locked: self.is_locked,
-            editor_layer: self.editor_layer,
-            editor_layer_name: self.editor_layer_name,
-            editor_layer_visibility: self.editor_layer_visibility,
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
         }
     }
 }

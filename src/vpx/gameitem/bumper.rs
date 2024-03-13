@@ -72,13 +72,6 @@ struct BumperJson {
     hit_event: Option<bool>,
     is_collidable: Option<bool>,
     is_reflection_enabled: Option<bool>,
-
-    // these are shared between all items
-    pub is_locked: bool,
-    pub editor_layer: u32,
-    pub editor_layer_name: Option<String>,
-    // default "Layer_{editor_layer + 1}"
-    pub editor_layer_visibility: Option<bool>,
 }
 
 impl From<&Bumper> for BumperJson {
@@ -108,10 +101,6 @@ impl From<&Bumper> for BumperJson {
             hit_event: bumper.hit_event,
             is_collidable: bumper.is_collidable,
             is_reflection_enabled: bumper.is_reflection_enabled,
-            is_locked: bumper.is_locked,
-            editor_layer: bumper.editor_layer,
-            editor_layer_name: bumper.editor_layer_name.clone(),
-            editor_layer_visibility: bumper.editor_layer_visibility,
         }
     }
 }
@@ -192,10 +181,6 @@ impl<'de> Deserialize<'de> for Bumper {
         bumper.hit_event = bumper_json.hit_event;
         bumper.is_collidable = bumper_json.is_collidable;
         bumper.is_reflection_enabled = bumper_json.is_reflection_enabled;
-        bumper.is_locked = bumper_json.is_locked;
-        bumper.editor_layer = bumper_json.editor_layer;
-        bumper.editor_layer_name = bumper_json.editor_layer_name;
-        bumper.editor_layer_visibility = bumper_json.editor_layer_visibility;
         Ok(bumper)
     }
 }

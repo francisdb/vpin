@@ -60,10 +60,6 @@ struct ReelJson {
     use_image_grid: bool,
     is_visible: bool,
     images_per_grid_row: u32,
-    is_locked: bool,
-    editor_layer: u32,
-    editor_layer_name: Option<String>,
-    editor_layer_visibility: Option<bool>,
 }
 
 impl ReelJson {
@@ -88,10 +84,6 @@ impl ReelJson {
             use_image_grid: reel.use_image_grid,
             is_visible: reel.is_visible,
             images_per_grid_row: reel.images_per_grid_row,
-            is_locked: reel.is_locked,
-            editor_layer: reel.editor_layer,
-            editor_layer_name: reel.editor_layer_name.clone(),
-            editor_layer_visibility: reel.editor_layer_visibility,
         }
     }
     pub fn to_reel(&self) -> Reel {
@@ -115,10 +107,14 @@ impl ReelJson {
             use_image_grid: self.use_image_grid,
             is_visible: self.is_visible,
             images_per_grid_row: self.images_per_grid_row,
-            is_locked: self.is_locked,
-            editor_layer: self.editor_layer,
-            editor_layer_name: self.editor_layer_name.clone(),
-            editor_layer_visibility: self.editor_layer_visibility,
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
         }
     }
 }

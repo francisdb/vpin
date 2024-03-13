@@ -81,10 +81,6 @@ struct PlungerJson {
     spring_gauge: f32,
     spring_loops: f32,
     spring_end_loops: f32,
-    is_locked: bool,
-    editor_layer: u32,
-    editor_layer_name: Option<String>,
-    editor_layer_visibility: Option<bool>,
 }
 
 impl PlungerJson {
@@ -122,10 +118,6 @@ impl PlungerJson {
             spring_gauge: plunger.spring_gauge,
             spring_loops: plunger.spring_loops,
             spring_end_loops: plunger.spring_end_loops,
-            is_locked: plunger.is_locked,
-            editor_layer: plunger.editor_layer,
-            editor_layer_name: plunger.editor_layer_name.clone(),
-            editor_layer_visibility: plunger.editor_layer_visibility,
         }
     }
 
@@ -163,10 +155,14 @@ impl PlungerJson {
             spring_gauge: self.spring_gauge,
             spring_loops: self.spring_loops,
             spring_end_loops: self.spring_end_loops,
-            is_locked: self.is_locked,
-            editor_layer: self.editor_layer,
-            editor_layer_name: self.editor_layer_name.clone(),
-            editor_layer_visibility: self.editor_layer_visibility,
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
         }
     }
 }

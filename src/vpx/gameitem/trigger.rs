@@ -61,10 +61,6 @@ struct TriggerJson {
     shape: u32,
     anim_speed: f32,
     is_reflection_enabled: Option<bool>,
-    is_locked: bool,
-    editor_layer: u32,
-    editor_layer_name: Option<String>,
-    editor_layer_visibility: Option<bool>,
     drag_points: Vec<DragPoint>,
 }
 
@@ -88,10 +84,6 @@ impl TriggerJson {
             shape: trigger.shape,
             anim_speed: trigger.anim_speed,
             is_reflection_enabled: trigger.is_reflection_enabled,
-            is_locked: trigger.is_locked,
-            editor_layer: trigger.editor_layer,
-            editor_layer_name: trigger.editor_layer_name.clone(),
-            editor_layer_visibility: trigger.editor_layer_visibility,
             drag_points: trigger.drag_points.clone(),
         }
     }
@@ -114,10 +106,14 @@ impl TriggerJson {
             shape: self.shape,
             anim_speed: self.anim_speed,
             is_reflection_enabled: self.is_reflection_enabled,
-            is_locked: self.is_locked,
-            editor_layer: self.editor_layer,
-            editor_layer_name: self.editor_layer_name.clone(),
-            editor_layer_visibility: self.editor_layer_visibility,
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
             drag_points: self.drag_points.clone(),
         }
     }

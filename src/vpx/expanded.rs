@@ -559,11 +559,28 @@ fn read_old_materials_physics<P: AsRef<Path>>(
     Ok(Some(materials))
 }
 
+/// Since it's common to change layer visibility we don't want that to cause a
+/// difference in the item json, therefore we write this info in the index.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct GameItemInfoJson {
+    file_name: String,
+    // most require these, only lightsequencer does not
+    #[serde(skip_serializing_if = "Option::is_none")]
+    is_locked: Option<bool>,
+    // most require these, only lightsequencer does not
+    #[serde(skip_serializing_if = "Option::is_none")]
+    editor_layer: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    editor_layer_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    editor_layer_visibility: Option<bool>,
+}
+
 fn write_gameitems<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
     let gameitems_dir = expanded_dir.as_ref().join("gameitems");
     std::fs::create_dir_all(&gameitems_dir)?;
     let mut used_names_lowercase: HashSet<String> = HashSet::new();
-    let mut files: Vec<String> = Vec::new();
+    let mut files: Vec<GameItemInfoJson> = Vec::new();
     let mut id_gen = 0;
     for gameitem in &vpx.gameitems {
         let mut name = gameitem.name().to_string();
@@ -582,7 +599,14 @@ fn write_gameitems<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Wr
         used_names_lowercase.insert(lower_name);
 
         let file_name_json = format!("{}.json", &file_name);
-        files.push(file_name_json.clone());
+        let gameitem_info = GameItemInfoJson {
+            file_name: file_name_json.clone(),
+            is_locked: gameitem.is_locked(),
+            editor_layer: gameitem.editor_layer(),
+            editor_layer_name: gameitem.editor_layer_name().clone(),
+            editor_layer_visibility: gameitem.editor_layer_visibility(),
+        };
+        files.push(gameitem_info);
         let gameitem_path = gameitems_dir.join(file_name_json);
         // should not happen but we keep the check
         if gameitem_path.exists() {
@@ -637,16 +661,20 @@ fn read_gameitems<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<GameItemEn
         println!("No gameitems.json found");
         return Ok(vec![]);
     }
-    let gameitems_index: Vec<String> = read_json(gameitems_index_path)?;
+    let gameitems_index: Vec<GameItemInfoJson> = read_json(gameitems_index_path)?;
     // for each item in the index read the items
     let gameitems_dir = expanded_dir.as_ref().join("gameitems");
     let gameitems: io::Result<Vec<GameItemEnum>> = gameitems_index
         .into_iter()
-        .map(|gameitem_file_name| {
-            let gameitem_path = gameitems_dir.join(&gameitem_file_name);
+        .map(|gameitem_info| {
+            let gameitem_path = gameitems_dir.join(&gameitem_info.file_name);
             if gameitem_path.exists() {
-                let item: GameItemEnum = read_json(&gameitem_path)?;
-                read_gameitem_binaries(&gameitems_dir, gameitem_file_name, item)
+                let mut item: GameItemEnum = read_json(&gameitem_path)?;
+                item.set_locked(gameitem_info.is_locked);
+                item.set_editor_layer(gameitem_info.editor_layer);
+                item.set_editor_layer_name(gameitem_info.editor_layer_name);
+                item.set_editor_layer_visibility(gameitem_info.editor_layer_visibility);
+                read_gameitem_binaries(&gameitems_dir, gameitem_info.file_name, item)
             } else {
                 Err(io::Error::new(
                     io::ErrorKind::NotFound,

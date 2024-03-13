@@ -158,10 +158,6 @@ pub(crate) struct GateJson {
     two_way: bool,
     is_reflection_enabled: Option<bool>,
     gate_type: Option<GateType>,
-    is_locked: bool,
-    editor_layer: u32,
-    editor_layer_name: Option<String>,
-    editor_layer_visibility: Option<bool>,
 }
 
 impl GateJson {
@@ -190,10 +186,6 @@ impl GateJson {
             two_way: gate.two_way,
             is_reflection_enabled: gate.is_reflection_enabled,
             gate_type: gate.gate_type.clone(),
-            is_locked: gate.is_locked,
-            editor_layer: gate.editor_layer,
-            editor_layer_name: gate.editor_layer_name.clone(),
-            editor_layer_visibility: gate.editor_layer_visibility,
         }
     }
     pub fn to_gate(&self) -> Gate {
@@ -221,10 +213,14 @@ impl GateJson {
             two_way: self.two_way,
             is_reflection_enabled: self.is_reflection_enabled,
             gate_type: self.gate_type.clone(),
-            is_locked: self.is_locked,
-            editor_layer: self.editor_layer,
-            editor_layer_name: self.editor_layer_name.clone(),
-            editor_layer_visibility: self.editor_layer_visibility,
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
         }
     }
 }

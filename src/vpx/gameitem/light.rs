@@ -88,10 +88,6 @@ struct LightJson {
     shadows: Option<u32>,
     fader: Option<u32>,
     visible: Option<bool>,
-    is_locked: bool,
-    editor_layer: u32,
-    editor_layer_name: Option<String>,
-    editor_layer_visibility: Option<bool>,
     drag_points: Vec<DragPoint>,
 }
 
@@ -130,10 +126,6 @@ impl LightJson {
             shadows: light.shadows,
             fader: light.fader,
             visible: light.visible,
-            is_locked: light.is_locked,
-            editor_layer: light.editor_layer,
-            editor_layer_name: light.editor_layer_name.clone(),
-            editor_layer_visibility: light.editor_layer_visibility,
             drag_points: light.drag_points.clone(),
         }
     }
@@ -172,10 +164,15 @@ impl LightJson {
             shadows: self.shadows,
             fader: self.fader,
             visible: self.visible,
-            is_locked: self.is_locked,
-            editor_layer: self.editor_layer,
-            editor_layer_name: self.editor_layer_name.clone(),
-            editor_layer_visibility: self.editor_layer_visibility,
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
+            // this is populated from a different file
             drag_points: self.drag_points.clone(),
         }
     }

@@ -51,13 +51,6 @@ struct SpinnerJson {
     surface: String,
     name: String,
     is_reflection_enabled: Option<bool>, // added in ?
-
-    // these are shared between all items
-    is_locked: bool,
-    editor_layer: u32,
-    editor_layer_name: Option<String>,
-    // default "Layer_{editor_layer + 1}"
-    editor_layer_visibility: Option<bool>,
 }
 
 impl SpinnerJson {
@@ -80,10 +73,6 @@ impl SpinnerJson {
             surface: spinner.surface.clone(),
             name: spinner.name.clone(),
             is_reflection_enabled: spinner.is_reflection_enabled,
-            is_locked: spinner.is_locked,
-            editor_layer: spinner.editor_layer,
-            editor_layer_name: spinner.editor_layer_name.clone(),
-            editor_layer_visibility: spinner.editor_layer_visibility,
         }
     }
 
@@ -106,10 +95,14 @@ impl SpinnerJson {
             surface: self.surface.clone(),
             name: self.name.clone(),
             is_reflection_enabled: self.is_reflection_enabled,
-            is_locked: self.is_locked,
-            editor_layer: self.editor_layer,
-            editor_layer_name: self.editor_layer_name.clone(),
-            editor_layer_visibility: self.editor_layer_visibility,
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
         }
     }
 }

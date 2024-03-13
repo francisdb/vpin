@@ -71,10 +71,6 @@ pub(crate) struct FlasherJson {
     filter_amount: u32,
     light_map: Option<String>,
     drag_points: Vec<DragPoint>,
-    is_locked: bool,
-    editor_layer: u32,
-    editor_layer_name: Option<String>,
-    editor_layer_visibility: Option<bool>,
 }
 
 impl FlasherJson {
@@ -104,10 +100,6 @@ impl FlasherJson {
             filter_amount: flasher.filter_amount,
             light_map: flasher.light_map.clone(),
             drag_points: flasher.drag_points.clone(),
-            is_locked: flasher.is_locked,
-            editor_layer: flasher.editor_layer,
-            editor_layer_name: flasher.editor_layer_name.clone(),
-            editor_layer_visibility: flasher.editor_layer_visibility,
         }
     }
     pub fn to_flasher(&self) -> Flasher {
@@ -136,10 +128,14 @@ impl FlasherJson {
             filter_amount: self.filter_amount,
             light_map: self.light_map.clone(),
             drag_points: self.drag_points.clone(),
-            is_locked: self.is_locked,
-            editor_layer: self.editor_layer,
-            editor_layer_name: self.editor_layer_name.clone(),
-            editor_layer_visibility: self.editor_layer_visibility,
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
         }
     }
 }

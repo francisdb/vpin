@@ -67,10 +67,6 @@ struct RubberJson {
     is_reflection_enabled: Option<bool>,
     physics_material: Option<String>,
     overwrite_physics: Option<bool>,
-    is_locked: bool,
-    editor_layer: u32,
-    editor_layer_name: Option<String>,
-    editor_layer_visibility: Option<bool>,
     points: Vec<DragPoint>,
 }
 
@@ -101,10 +97,6 @@ impl RubberJson {
             is_reflection_enabled: rubber.is_reflection_enabled,
             physics_material: rubber.physics_material.clone(),
             overwrite_physics: rubber.overwrite_physics,
-            is_locked: rubber.is_locked,
-            editor_layer: rubber.editor_layer,
-            editor_layer_name: rubber.editor_layer_name.clone(),
-            editor_layer_visibility: rubber.editor_layer_visibility,
             points: rubber.points.clone(),
         }
     }
@@ -135,10 +127,14 @@ impl RubberJson {
             is_reflection_enabled: self.is_reflection_enabled,
             physics_material: self.physics_material.clone(),
             overwrite_physics: self.overwrite_physics,
-            is_locked: self.is_locked,
-            editor_layer: self.editor_layer,
-            editor_layer_name: self.editor_layer_name.clone(),
-            editor_layer_visibility: self.editor_layer_visibility,
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
             points: self.points.clone(),
         }
     }

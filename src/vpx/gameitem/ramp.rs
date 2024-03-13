@@ -79,14 +79,7 @@ struct RampJson {
     is_reflection_enabled: Option<bool>,
     physics_material: Option<String>,
     overwrite_physics: Option<bool>, // true;
-
     drag_points: Vec<DragPoint>,
-
-    // these are shared between all items
-    is_locked: bool,
-    editor_layer: u32,
-    editor_layer_name: Option<String>,
-    editor_layer_visibility: Option<bool>,
 }
 
 impl RampJson {
@@ -123,10 +116,6 @@ impl RampJson {
             physics_material: ramp.physics_material.clone(),
             overwrite_physics: ramp.overwrite_physics,
             drag_points: ramp.drag_points.clone(),
-            is_locked: ramp.is_locked,
-            editor_layer: ramp.editor_layer,
-            editor_layer_name: ramp.editor_layer_name.clone(),
-            editor_layer_visibility: ramp.editor_layer_visibility,
         }
     }
 
@@ -163,10 +152,14 @@ impl RampJson {
             physics_material: self.physics_material.clone(),
             overwrite_physics: self.overwrite_physics,
             drag_points: self.drag_points.clone(),
-            is_locked: self.is_locked,
-            editor_layer: self.editor_layer,
-            editor_layer_name: self.editor_layer_name.clone(),
-            editor_layer_visibility: self.editor_layer_visibility,
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
         }
     }
 }

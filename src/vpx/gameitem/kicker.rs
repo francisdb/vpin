@@ -47,10 +47,6 @@ struct KickerJson {
     orientation: f32,
     fall_through: bool,
     legacy_mode: bool,
-    is_locked: bool,
-    editor_layer: u32,
-    editor_layer_name: Option<String>,
-    editor_layer_visibility: Option<bool>,
 }
 
 impl KickerJson {
@@ -71,10 +67,6 @@ impl KickerJson {
             orientation: kicker.orientation,
             fall_through: kicker.fall_through,
             legacy_mode: kicker.legacy_mode,
-            is_locked: kicker.is_locked,
-            editor_layer: kicker.editor_layer,
-            editor_layer_name: kicker.editor_layer_name.clone(),
-            editor_layer_visibility: kicker.editor_layer_visibility,
         }
     }
 
@@ -95,10 +87,14 @@ impl KickerJson {
             orientation: self.orientation,
             fall_through: self.fall_through,
             legacy_mode: self.legacy_mode,
-            is_locked: self.is_locked,
-            editor_layer: self.editor_layer,
-            editor_layer_name: self.editor_layer_name,
-            editor_layer_visibility: self.editor_layer_visibility,
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
         }
     }
 }
