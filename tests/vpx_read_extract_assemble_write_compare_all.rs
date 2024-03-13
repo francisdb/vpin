@@ -24,10 +24,10 @@ mod test {
         // TODO why is par_iter() not faster but just consuming all cpu cores?
         paths
             .iter()
-            // .filter(|path| {
-            //     let name = path.file_name().unwrap().to_str().unwrap();
-            //     name.contains("Bob")
-            // })
+            .filter(|path| {
+                let name = path.file_name().unwrap().to_str().unwrap();
+                name.contains("Addams")
+            })
             .try_for_each(|path| {
                 println!("testing: {:?}", path);
                 let ReadAndWriteResult {

@@ -91,6 +91,14 @@ pub(crate) fn assert_equal_vpx(vpx_path: &PathBuf, test_vpx_path: PathBuf) {
                 };
                 let item_tags = tags_and_hashes(&mut comp, path, skip);
                 let test_item_tags = tags_and_hashes(&mut test_comp, path, skip);
+                if item_tags != test_item_tags {
+                    println!(
+                        "non equal {:?} for {} vs {}",
+                        path,
+                        vpx_path.display(),
+                        test_vpx_path.display()
+                    );
+                }
                 pretty_assertions::assert_eq!(item_tags, test_item_tags);
             }
         }

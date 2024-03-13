@@ -444,7 +444,7 @@ fn read_fonts<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<font::FontData
 fn write_gameitems<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
     let gameitems_dir = expanded_dir.as_ref().join("gameitems");
     std::fs::create_dir_all(&gameitems_dir)?;
-    let mut used_names: HashSet<String> = HashSet::new();
+    let mut used_names_lowercase: HashSet<String> = HashSet::new();
     let mut files: Vec<String> = Vec::new();
     let mut id_gen = 0;
     for gameitem in &vpx.gameitems {
@@ -454,47 +454,63 @@ fn write_gameitems<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Wr
         }
         // escape any characters that are not allowed in file names, for any os
         name = name.replace(|c: char| !c.is_alphanumeric(), "_");
+        let mut file_name = format!("{}.{}", gameitem.type_name(), name);
 
-        if used_names.contains(&name) {
-            name = format!("{}_{}", name, id_gen);
+        let lower_name = file_name.to_lowercase();
+        if used_names_lowercase.contains(&lower_name) {
+            file_name = format!("{}_{}", file_name, id_gen);
             id_gen += 1;
         }
-        used_names.insert(name.clone());
-        let file_name = format!("{}.{}.json", gameitem.type_name(), name);
-        files.push(file_name.clone());
-        let gameitem_path = gameitems_dir.join(file_name);
+        used_names_lowercase.insert(lower_name);
+
+        let file_name_json = format!("{}.json", &file_name);
+        files.push(file_name_json.clone());
+        let gameitem_path = gameitems_dir.join(file_name_json);
+        // should not happen but we keep the check
+        if gameitem_path.exists() {
+            return Err(WriteError::Io(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!("GameItem file already exists: {}", gameitem_path.display()),
+            )));
+        }
         let gameitem_file = File::create(&gameitem_path)?;
         serde_json::to_writer_pretty(&gameitem_file, &gameitem)?;
-        // for primitives we write fields m3cx and m3ci to separate files with bin extension
-        if let GameItemEnum::Primitive(primitive) = gameitem {
-            if let Some(m3cx) = &primitive.compressed_vertices_data {
-                let m3cx_path =
-                    gameitems_dir.join(format!("{}.{}.m3cx.bin", gameitem.type_name(), name));
-                let mut m3cx_file = std::fs::File::create(&m3cx_path)?;
-                m3cx_file.write_all(m3cx)?;
-            }
-            if let Some(m3ci) = &primitive.compressed_indices_data {
-                let m3ci_path =
-                    gameitems_dir.join(format!("{}.{}.m3ci.bin", gameitem.type_name(), name));
-                let mut m3ci_file = std::fs::File::create(&m3ci_path)?;
-                m3ci_file.write_all(m3ci)?;
-            }
-            if let Some(m3ays) = &primitive.compressed_animation_vertices_data {
-                let m3ays_path =
-                    gameitems_dir.join(format!("{}.{}.m3ays.bin", gameitem.type_name(), name));
-                let mut m3ays_file = File::create(&m3ays_path)?;
-                // write all sequentially, we have the counts in the json
-                m3ays
-                    .iter()
-                    .try_for_each(|m3ay| m3ays_file.write_all(m3ay))?;
-            }
-        }
+        write_gameitem_binaries(&gameitems_dir, gameitem, file_name)?;
     }
     // write the gameitems index as array with names being the type and the name
     let gameitems_index_path = expanded_dir.as_ref().join("gameitems.json");
     let mut gameitems_index_file = std::fs::File::create(&gameitems_index_path)?;
     serde_json::to_writer_pretty(&mut gameitems_index_file, &files)?;
 
+    Ok(())
+}
+
+/// for primitives we write fields m3cx, m3ci and m3ay's to separate files with bin extension
+fn write_gameitem_binaries(
+    gameitems_dir: &PathBuf,
+    gameitem: &GameItemEnum,
+    file_name: String,
+) -> Result<(), WriteError> {
+    if let GameItemEnum::Primitive(primitive) = gameitem {
+        if let Some(m3cx) = &primitive.compressed_vertices_data {
+            let m3cx_path = gameitems_dir.join(format!("{}.m3cx.bin", file_name));
+            let mut m3cx_file = std::fs::File::create(&m3cx_path)?;
+            m3cx_file.write_all(m3cx)?;
+        }
+        if let Some(m3ci) = &primitive.compressed_indices_data {
+            let m3ci_path = gameitems_dir.join(format!("{}.m3ci.bin", file_name));
+            let mut m3ci_file = std::fs::File::create(&m3ci_path)?;
+            m3ci_file.write_all(m3ci)?;
+        }
+        if let Some(m3ays) = &primitive.compressed_animation_vertices_data {
+            let m3ays_path = gameitems_dir.join(format!("{}.m3ays.bin", file_name));
+            let mut m3ays_file = File::create(&m3ays_path)?;
+            // write all sequentially, we have the counts in the json
+            m3ays
+                .iter()
+                .try_for_each(|m3ay| m3ays_file.write_all(m3ay))?;
+        }
+    }
     Ok(())
 }
 
@@ -512,31 +528,8 @@ fn read_gameitems<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<GameItemEn
         .map(|gameitem_file_name| {
             let gameitem_path = gameitems_dir.join(&gameitem_file_name);
             if gameitem_path.exists() {
-                let mut res: GameItemEnum = read_json(&gameitem_path)?;
-                // for primitives we read fields m3cx and m3ci from separate files with bin extension
-                if let GameItemEnum::Primitive(primitive) = &mut res {
-                    let gameitem_file_name = gameitem_file_name.trim_end_matches(".json");
-                    let m3cx_path = gameitems_dir.join(format!("{}.m3cx.bin", &gameitem_file_name));
-                    if m3cx_path.exists() {
-                        let mut m3cx_file = File::open(&m3cx_path)?;
-                        let mut m3cx = Vec::new();
-                        m3cx_file.read_to_end(&mut m3cx)?;
-                        primitive.compressed_vertices_data = Some(m3cx);
-                    }
-                    let m3ci_path = gameitems_dir.join(format!("{}.m3ci.bin", &gameitem_file_name));
-                    if m3ci_path.exists() {
-                        let mut m3ci_file = File::open(&m3ci_path)?;
-                        let mut m3ci = Vec::new();
-                        m3ci_file.read_to_end(&mut m3ci)?;
-                        primitive.compressed_indices_data = Some(m3ci);
-                    }
-                    if let Some(counts) = &primitive.compressed_animation_vertices {
-                        let m3ays =
-                            read_animation_vertices(&gameitems_dir, counts, &gameitem_file_name)?;
-                        primitive.compressed_animation_vertices_data = Some(m3ays);
-                    }
-                }
-                Ok(res)
+                let item: GameItemEnum = read_json(&gameitem_path)?;
+                read_gameitem_binaries(&gameitems_dir, gameitem_file_name, item)
             } else {
                 Err(io::Error::new(
                     io::ErrorKind::NotFound,
@@ -546,6 +539,36 @@ fn read_gameitems<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<GameItemEn
         })
         .collect();
     gameitems
+}
+
+/// for primitives we read fields m3cx, m3ci and m3ay's from separate files with bin extension
+fn read_gameitem_binaries(
+    gameitems_dir: &PathBuf,
+    gameitem_file_name: String,
+    mut item: GameItemEnum,
+) -> io::Result<GameItemEnum> {
+    if let GameItemEnum::Primitive(primitive) = &mut item {
+        let gameitem_file_name = gameitem_file_name.trim_end_matches(".json");
+        let m3cx_path = gameitems_dir.join(format!("{}.m3cx.bin", &gameitem_file_name));
+        if m3cx_path.exists() {
+            let mut m3cx_file = File::open(&m3cx_path)?;
+            let mut m3cx = Vec::new();
+            m3cx_file.read_to_end(&mut m3cx)?;
+            primitive.compressed_vertices_data = Some(m3cx);
+        }
+        let m3ci_path = gameitems_dir.join(format!("{}.m3ci.bin", &gameitem_file_name));
+        if m3ci_path.exists() {
+            let mut m3ci_file = File::open(&m3ci_path)?;
+            let mut m3ci = Vec::new();
+            m3ci_file.read_to_end(&mut m3ci)?;
+            primitive.compressed_indices_data = Some(m3ci);
+        }
+        if let Some(counts) = &primitive.compressed_animation_vertices {
+            let m3ays = read_animation_vertices(&gameitems_dir, counts, &gameitem_file_name)?;
+            primitive.compressed_animation_vertices_data = Some(m3ays);
+        }
+    }
+    Ok(item)
 }
 
 fn read_animation_vertices(
