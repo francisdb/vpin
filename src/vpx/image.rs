@@ -60,7 +60,8 @@ pub struct ImageData {
     // TODO seems to be 1 for some kind of link type img, related to screenshots.
     // we only see this where a screenshot is set on the table info.
     // https://github.com/vpinball/vpinball/blob/1a70aa35eb57ec7b5fbbb9727f6735e8ef3183e0/Texture.cpp#L588
-    pub link: Option<u32>,       // LINK
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub link: Option<u32>, // LINK
     pub alpha_test_value: f32,   // ALTV
     pub is_opaque: Option<bool>, // OPAQ (added in 10.8)
     pub is_signed: Option<bool>, // SIGN (added in 10.8)
