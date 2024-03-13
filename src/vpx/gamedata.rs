@@ -7,12 +7,13 @@ use super::{
     version::Version,
 };
 use crate::vpx::biff::{BiffRead, BiffWrite};
+use crate::vpx::color::{Color, ColorJson};
 use crate::vpx::material::{
     Material, MaterialJson, SaveMaterial, SaveMaterialJson, SavePhysicsMaterial,
     SavePhysicsMaterialJson,
 };
 use crate::vpx::renderprobe::{RenderProbeJson, RenderProbeWithGarbage};
-use bytes::BytesMut;
+use bytes::{Buf, BufMut, BytesMut};
 use serde::{Deserialize, Serialize};
 
 pub const VIEW_LAYOUT_MODE_LEGACY: u32 = 0; // All tables before 10.8 used a viewer position relative to a fitting of a set of bounding vertices (not all parts) with a standard perspective projection skewed by a layback angle
@@ -217,7 +218,7 @@ pub struct GameData {
     pub fonts_size: u32,                                     // SFNT 110
     pub collections_size: u32,                               // SCOL 111
     pub name: String,                                        // NAME 112
-    pub custom_colors: Vec<u8>,                              //[Color; 16], // CCUS 113
+    pub custom_colors: [Color; 16],                          //[Color; 16], // CCUS 113
     pub protection_data: Option<Vec<u8>>,                    // SECB (removed in ?)
     pub code: StringWithEncoding,                            // CODE 114
     pub is_locked: Option<bool>, // TLCK (added in 10.8 for tournament mode?)
@@ -377,7 +378,7 @@ pub(crate) struct GameDataJson {
     pub fonts_size: u32,
     pub collections_size: u32,
     pub name: String,
-    pub custom_colors: Vec<u8>,
+    pub custom_colors: [ColorJson; 16],
     pub protection_data: Option<Vec<u8>>,
     //pub code: StringWithEncoding,
     pub is_locked: Option<bool>,
@@ -387,6 +388,14 @@ pub(crate) struct GameDataJson {
 
 impl GameDataJson {
     pub fn to_game_data(&self) -> GameData {
+        let custom_colors: [Color; 16] = self
+            .custom_colors
+            .iter()
+            .map(|c| c.to_color())
+            .collect::<Vec<Color>>()
+            .try_into()
+            .unwrap();
+
         GameData {
             left: self.left,
             top: self.top,
@@ -558,7 +567,7 @@ impl GameDataJson {
             fonts_size: self.fonts_size,
             collections_size: self.collections_size,
             name: self.name.clone(),
-            custom_colors: self.custom_colors.clone(),
+            custom_colors,
             protection_data: self.protection_data.clone(),
             code: StringWithEncoding::empty(),
             is_locked: self.is_locked,
@@ -567,6 +576,11 @@ impl GameDataJson {
     }
 
     pub fn from_game_data(game_data: &GameData) -> GameDataJson {
+        let custom_colors: [ColorJson; 16] = game_data
+            .custom_colors
+            .map(|c| ColorJson::from_color(&c))
+            .try_into()
+            .unwrap();
         GameDataJson {
             left: game_data.left,
             top: game_data.top,
@@ -741,7 +755,7 @@ impl GameDataJson {
             fonts_size: game_data.fonts_size,
             collections_size: game_data.collections_size,
             name: game_data.name.clone(),
-            custom_colors: game_data.custom_colors.clone(),
+            custom_colors,
             protection_data: game_data.protection_data.clone(),
             // code: game_data.code.clone(),
             is_locked: game_data.is_locked,
@@ -890,7 +904,7 @@ impl Default for GameData {
             fonts_size: 0,
             collections_size: 0,
             name: "Table1".to_string(), // seems to be the default name
-            custom_colors: vec![],      //[Color::BLACK; 16],
+            custom_colors: [Color::BLACK; 16],
             protection_data: None,
             code: StringWithEncoding::empty(),
             bg_view_horizontal_offset_desktop: None,
@@ -1245,8 +1259,10 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
     writer.write_tagged_u32("SFNT", gamedata.fonts_size);
     writer.write_tagged_u32("SCOL", gamedata.collections_size);
     writer.write_tagged_wide_string("NAME", &gamedata.name);
-    // TODO proper color writing
-    writer.write_tagged_data("CCUS", &gamedata.custom_colors);
+
+    let custom_color_bytes = write_colors(&gamedata.custom_colors);
+
+    writer.write_tagged_data("CCUS", custom_color_bytes.as_slice());
     if let Some(protection_data) = &gamedata.protection_data {
         writer.write_tagged_data("SECB", protection_data);
     }
@@ -1472,7 +1488,11 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             "SFNT" => gamedata.fonts_size = reader.get_u32(),
             "SCOL" => gamedata.collections_size = reader.get_u32(),
             "NAME" => gamedata.name = reader.get_wide_string(),
-            "CCUS" => gamedata.custom_colors = reader.get_record_data(false).to_vec(),
+            "CCUS" => {
+                let data = reader.get_record_data(false);
+                let custom_colors = read_colors(data);
+                gamedata.custom_colors = custom_colors;
+            }
             "SECB" => gamedata.protection_data = Some(reader.get_record_data(false).to_vec()),
             "CODE" => {
                 let len = reader.get_u32_no_remaining_update();
@@ -1488,6 +1508,26 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
         previous_tag = tag;
     }
     gamedata
+}
+
+fn read_colors(data: Vec<u8>) -> [Color; 16] {
+    // COLORREF: 0x00BBGGRR
+    // sizeof(COLORREF) * 16
+    let mut colors = Vec::new();
+    let mut buff = BytesMut::from(data.as_slice());
+    for _ in 0..16 {
+        let color = Color::new_bgr(buff.get_u32_le());
+        colors.push(color);
+    }
+    <[Color; 16]>::try_from(colors).unwrap()
+}
+
+fn write_colors(colors: &[Color; 16]) -> Vec<u8> {
+    let mut bytes = BytesMut::new();
+    for color in colors {
+        bytes.put_u32_le(color.bgr());
+    }
+    bytes.to_vec()
 }
 
 #[cfg(test)]
@@ -1630,7 +1670,7 @@ mod tests {
             materials_new: None,
             render_probes: Some(vec![Faker.fake(), Faker.fake()]),
             name: String::from("test name"),
-            custom_colors: vec![1, 1, 2, 4], // [Color::RED; 16],
+            custom_colors: [Color::RED; 16],
             protection_data: None,
             code: StringWithEncoding::from("test code wit some unicode: Ǣ"),
             bg_view_horizontal_offset_desktop: None,
