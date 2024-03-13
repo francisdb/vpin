@@ -9,7 +9,7 @@ use crate::vpx::biff::{BiffRead, BiffWrite};
 use crate::vpx::color::{Color, ColorJson};
 use crate::vpx::material::{Material, SaveMaterial, SavePhysicsMaterial};
 use crate::vpx::math::{dequantize_u8, quantize_u8};
-use crate::vpx::renderprobe::{RenderProbeJson, RenderProbeWithGarbage};
+use crate::vpx::renderprobe::RenderProbeWithGarbage;
 use bytes::{Buf, BufMut, BytesMut};
 use serde::{Deserialize, Serialize};
 
@@ -367,7 +367,6 @@ pub(crate) struct GameDataJson {
     pub use_ssr: Option<i32>,
     pub tone_mapper: Option<i32>,
     pub bloom_strength: f32,
-    pub render_probes: Option<Vec<RenderProbeJson>>,
     pub name: String,
     pub custom_colors: [ColorJson; 16],
     pub protection_data: Option<Vec<u8>>,
@@ -540,10 +539,8 @@ impl GameDataJson {
             materials_physics_old: None,
             // this data is loaded from a separate file
             materials: None,
-            render_probes: self
-                .render_probes
-                .as_ref()
-                .map(|probes| probes.iter().map(|p| p.to_renderprobe()).collect()),
+            // this data is loaded from a separate file
+            render_probes: None,
             // this data is loaded from a separate file
             gameitems_size: 0,
             // this data is loaded from a separate file
@@ -716,11 +713,6 @@ impl GameDataJson {
             use_ssr: game_data.use_ssr,
             tone_mapper: game_data.tone_mapper,
             bloom_strength: game_data.bloom_strength,
-            render_probes: game_data.render_probes.as_ref().map(|v| {
-                v.into_iter()
-                    .map(RenderProbeJson::from_renderprobe)
-                    .collect()
-            }),
             name: game_data.name.clone(),
             custom_colors,
             protection_data: game_data.protection_data.clone(),

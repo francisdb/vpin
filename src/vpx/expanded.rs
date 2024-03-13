@@ -27,6 +27,7 @@ use crate::vpx::material::{
     Material, MaterialJson, SaveMaterial, SaveMaterialJson, SavePhysicsMaterial,
     SavePhysicsMaterialJson,
 };
+use crate::vpx::renderprobe::{RenderProbeJson, RenderProbeWithGarbage};
 use crate::vpx::tableinfo::TableInfo;
 
 #[derive(Debug)]
@@ -100,6 +101,7 @@ pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteErr
         write_old_materials(&vpx, expanded_dir)?;
         write_old_materials_physics(&vpx, expanded_dir)?;
     }
+    write_renderprobes(&vpx, expanded_dir)?;
     Ok(())
 }
 
@@ -160,6 +162,7 @@ pub fn read<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<VPX> {
             gamedata.materials_size = gamedata.materials_old.len() as u32;
         }
     }
+    gamedata.render_probes = read_renderprobes(expanded_dir)?;
 
     let vpx = VPX {
         custominfotags,
@@ -741,6 +744,31 @@ fn read_collections<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<Collecti
     let value = read_json(collections_path)?;
     let collections: Vec<Collection> = json_to_collections(value)?;
     Ok(collections)
+}
+
+fn read_renderprobes<P: AsRef<Path>>(
+    expanded_dir: &P,
+) -> io::Result<Option<Vec<RenderProbeWithGarbage>>> {
+    let renderprobes_path = expanded_dir.as_ref().join("renderprobes.json");
+    if !renderprobes_path.exists() {
+        return Ok(None);
+    }
+    let value: Vec<RenderProbeJson> = read_json(renderprobes_path)?;
+    let renderprobes = value.iter().map(|v| v.to_renderprobe()).collect();
+    Ok(Some(renderprobes))
+}
+
+fn write_renderprobes<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
+    if let Some(renderprobes) = &vpx.gamedata.render_probes {
+        let renderprobes_path = expanded_dir.as_ref().join("renderprobes.json");
+        let mut renderprobes_file = File::create(&renderprobes_path)?;
+        let renderprobes_index: Vec<RenderProbeJson> = renderprobes
+            .iter()
+            .map(RenderProbeJson::from_renderprobe)
+            .collect();
+        serde_json::to_writer_pretty(&mut renderprobes_file, &renderprobes_index)?;
+    }
+    Ok(())
 }
 
 pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
