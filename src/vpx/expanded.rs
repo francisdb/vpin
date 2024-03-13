@@ -23,6 +23,10 @@ use crate::vpx::font::{FontData, FontDataJson};
 use crate::vpx::gameitem::GameItemEnum;
 use crate::vpx::image::{ImageData, ImageDataBits, ImageDataJson};
 use crate::vpx::jsonmodel::{collections_json, info_to_json, json_to_collections, json_to_info};
+use crate::vpx::material::{
+    Material, MaterialJson, SaveMaterial, SaveMaterialJson, SavePhysicsMaterial,
+    SavePhysicsMaterialJson,
+};
 use crate::vpx::tableinfo::TableInfo;
 
 #[derive(Debug)]
@@ -90,6 +94,12 @@ pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteErr
     write_sounds(&vpx, expanded_dir)?;
     write_fonts(&vpx, expanded_dir)?;
     write_game_data(&vpx, expanded_dir)?;
+    if vpx.gamedata.materials.is_some() {
+        write_materials(&vpx, expanded_dir)?;
+    } else {
+        write_old_materials(&vpx, expanded_dir)?;
+        write_old_materials_physics(&vpx, expanded_dir)?;
+    }
     Ok(())
 }
 
@@ -128,7 +138,28 @@ pub fn read<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<VPX> {
     let images = read_images(expanded_dir)?;
     let sounds = read_sounds(expanded_dir)?;
     let fonts = read_fonts(expanded_dir)?;
-    let gamedata = read_game_data(expanded_dir)?;
+    let mut gamedata = read_game_data(expanded_dir)?;
+    gamedata.collections_size = collections.len() as u32;
+    gamedata.gameitems_size = gameitems.len() as u32;
+    gamedata.images_size = images.len() as u32;
+    gamedata.sounds_size = sounds.len() as u32;
+    gamedata.fonts_size = fonts.len() as u32;
+    let materials_opt = read_materials(expanded_dir)?;
+    match materials_opt {
+        Some(materials) => {
+            // we might want to warn if the other old material files are present
+            gamedata.materials_old = materials.iter().map(SaveMaterial::from).collect();
+            gamedata.materials_physics_old =
+                Some(materials.iter().map(SavePhysicsMaterial::from).collect());
+            gamedata.materials_size = materials.len() as u32;
+            gamedata.materials = Some(materials);
+        }
+        None => {
+            gamedata.materials_old = read_old_materials(expanded_dir)?;
+            gamedata.materials_physics_old = read_old_materials_physics(expanded_dir)?;
+            gamedata.materials_size = gamedata.materials_old.len() as u32;
+        }
+    }
 
     let vpx = VPX {
         custominfotags,
@@ -441,6 +472,90 @@ fn read_fonts<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<font::FontData
     fonts
 }
 
+fn write_materials<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
+    if let Some(materials) = &vpx.gamedata.materials {
+        let materials_path = expanded_dir.as_ref().join("materials.json");
+        let mut materials_file = File::create(&materials_path)?;
+        let materials_index: Vec<MaterialJson> =
+            materials.iter().map(MaterialJson::from_material).collect();
+        serde_json::to_writer_pretty(&mut materials_file, &materials_index)?;
+    }
+    Ok(())
+}
+
+fn read_materials<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Option<Vec<Material>>> {
+    let materials_path = expanded_dir.as_ref().join("materials.json");
+    if !materials_path.exists() {
+        return Ok(None);
+    }
+    let materials_file = File::open(&materials_path)?;
+    let materials_index: Vec<MaterialJson> = serde_json::from_reader(materials_file)?;
+    let materials: Vec<Material> = materials_index
+        .into_iter()
+        .map(|m| MaterialJson::to_material(&m))
+        .collect();
+    Ok(Some(materials))
+}
+
+fn write_old_materials<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
+    let materials_path = expanded_dir.as_ref().join("materials-old.json");
+    let mut materials_file = File::create(&materials_path)?;
+    let materials_index: Vec<SaveMaterialJson> = vpx
+        .gamedata
+        .materials_old
+        .iter()
+        .map(SaveMaterialJson::from_save_material)
+        .collect();
+    serde_json::to_writer_pretty(&mut materials_file, &materials_index)?;
+    Ok(())
+}
+
+fn read_old_materials<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<SaveMaterial>> {
+    let materials_path = expanded_dir.as_ref().join("materials-old.json");
+    if !materials_path.exists() {
+        return Ok(vec![]);
+    }
+    let materials_file = File::open(&materials_path)?;
+    let materials_index: Vec<SaveMaterialJson> = serde_json::from_reader(materials_file)?;
+    let materials: Vec<SaveMaterial> = materials_index
+        .into_iter()
+        .map(|m| SaveMaterialJson::to_save_material(&m))
+        .collect();
+    Ok(materials)
+}
+
+fn write_old_materials_physics<P: AsRef<Path>>(
+    vpx: &VPX,
+    expanded_dir: &P,
+) -> Result<(), WriteError> {
+    if let Some(materials) = &vpx.gamedata.materials_physics_old {
+        let materials_path = expanded_dir.as_ref().join("materials-physics-old.json");
+        let mut materials_file = File::create(&materials_path)?;
+        let materials_index: Vec<SavePhysicsMaterialJson> = materials
+            .iter()
+            .map(SavePhysicsMaterialJson::from_save_physics_material)
+            .collect();
+        serde_json::to_writer_pretty(&mut materials_file, &materials_index)?;
+    }
+    Ok(())
+}
+
+fn read_old_materials_physics<P: AsRef<Path>>(
+    expanded_dir: &P,
+) -> io::Result<Option<Vec<SavePhysicsMaterial>>> {
+    let materials_path = expanded_dir.as_ref().join("materials-physics-old.json");
+    if !materials_path.exists() {
+        return Ok(None);
+    }
+    let materials_file = File::open(&materials_path)?;
+    let materials_index: Vec<SavePhysicsMaterialJson> = serde_json::from_reader(materials_file)?;
+    let materials: Vec<SavePhysicsMaterial> = materials_index
+        .into_iter()
+        .map(|m| SavePhysicsMaterialJson::to_save_physics_material(&m))
+        .collect();
+    Ok(Some(materials))
+}
+
 fn write_gameitems<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
     let gameitems_dir = expanded_dir.as_ref().join("gameitems");
     std::fs::create_dir_all(&gameitems_dir)?;
@@ -479,9 +594,8 @@ fn write_gameitems<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Wr
     }
     // write the gameitems index as array with names being the type and the name
     let gameitems_index_path = expanded_dir.as_ref().join("gameitems.json");
-    let mut gameitems_index_file = std::fs::File::create(&gameitems_index_path)?;
+    let mut gameitems_index_file = File::create(&gameitems_index_path)?;
     serde_json::to_writer_pretty(&mut gameitems_index_file, &files)?;
-
     Ok(())
 }
 

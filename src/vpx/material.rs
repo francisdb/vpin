@@ -2,6 +2,7 @@ use crate::vpx::biff;
 use crate::vpx::biff::{BiffRead, BiffReader, BiffWrite, BiffWriter};
 use crate::vpx::color::{Color, ColorJson};
 use crate::vpx::json::F32WithNanInf;
+use crate::vpx::math::quantize_u8;
 use bytes::{Buf, BufMut, BytesMut};
 use encoding_rs::mem::{decode_latin1, encode_latin1_lossy};
 use fake::Dummy;
@@ -87,6 +88,66 @@ pub struct SaveMaterial {
      * Stupid encoding because of legacy loading/saving
      */
     pub opacity_active_edge_alpha: u8,
+}
+
+impl From<&Material> for SaveMaterial {
+    fn from(material: &Material) -> Self {
+        // FIXME this is the code used on the vpinball side
+
+        // template <typename T>
+        //     __forceinline T clamp(const T x, const T mn, const T mx)
+        // {
+        //     return max(min(x,mx),mn);
+        // }
+        //
+        // __forceinline int clamp(const int x, const int mn, const int mx)
+        // {
+        //     if (x < mn) return mn; else if (x > mx) return mx; else return x;
+        // }
+        // template <unsigned char bits> // bits to map to
+        //     __forceinline float dequantizeUnsigned(const unsigned int i)
+        // {
+        //     enum { N = (1 << bits) - 1 };
+        //     return min(precise_divide((float)i, (float)N), 1.f); //!! test: optimize div or does this break precision?
+        // }
+        //
+        // template <unsigned char bits> // bits to map to
+        //     __forceinline unsigned int quantizeUnsigned(const float x)
+        // {
+        //     enum { N = (1 << bits) - 1, Np1 = (1 << bits) };
+        //     assert(x >= 0.f);
+        //     return min((unsigned int)(x * (float)Np1), (unsigned int)N);
+        // }
+
+        // mats[i].fGlossyImageLerp = 255 - quantizeUnsigned<8>(clamp(m->m_fGlossyImageLerp, 0.f, 1.f)); // '255 -' to be compatible with previous table versions
+        // '255 -' to be compatible with previous table versions
+        let glossy_image_lerp: u8 =
+            255 - quantize_u8(8, material.glossy_image_lerp.clamp(0.0, 1.0));
+
+        // mats[i].fThickness = quantizeUnsigned<8>(clamp(m->m_fThickness, 0.05f, 1.f)); // clamp with 0.05f to be compatible with previous table versions
+        // clamp with 0.05f to be compatible with previous table versions
+        let thickness: u8 = quantize_u8(8, material.thickness.clamp(0.05, 1.0));
+
+        // mats[i].bOpacityActive_fEdgeAlpha = m->m_bOpacityActive ? 1 : 0;
+        // mats[i].bOpacityActive_fEdgeAlpha |= quantizeUnsigned<7>(clamp(m->m_fEdgeAlpha, 0.f, 1.f)) << 1;
+        let mut opacity_active_edge_alpha: u8 = if material.opacity_active { 1 } else { 0 };
+        opacity_active_edge_alpha |= quantize_u8(7, material.edge_alpha.clamp(0.0, 1.0)) << 1;
+
+        SaveMaterial {
+            name: material.name.clone(),
+            base_color: material.base_color,
+            glossy_color: material.glossy_color,
+            clearcoat_color: material.clearcoat_color,
+            wrap_lighting: material.wrap_lighting,
+            is_metal: material.type_ == MaterialType::Metal,
+            roughness: material.roughness,
+            glossy_image_lerp,
+            edge: material.edge,
+            thickness,
+            opacity: material.opacity,
+            opacity_active_edge_alpha,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -220,6 +281,18 @@ pub struct SavePhysicsMaterial {
     elasticity_falloff: f32,
     friction: f32,
     scatter_angle: f32,
+}
+
+impl From<&Material> for SavePhysicsMaterial {
+    fn from(material: &Material) -> Self {
+        SavePhysicsMaterial {
+            name: material.name.clone(),
+            elasticity: material.elasticity,
+            elasticity_falloff: material.elasticity_falloff,
+            friction: material.friction,
+            scatter_angle: material.scatter_angle,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -610,5 +683,34 @@ mod tests {
         write_padded_cstring(s, &mut bytes, 32);
         let read_s = read_padded_cstring(&mut bytes, 32).unwrap();
         assert_eq!(s, read_s);
+    }
+
+    #[test]
+    fn test_material_to_save_material() {
+        let material = Material {
+            name: "test".to_string(),
+            type_: MaterialType::Basic,
+            wrap_lighting: 0.5,
+            roughness: 0.5,
+            glossy_image_lerp: 0.1,
+            thickness: 0.5,
+            edge: 0.5,
+            edge_alpha: 0.9,
+            opacity: 0.5,
+            base_color: Color::from_argb(0x123456),
+            glossy_color: Color::from_argb(0x123456),
+            clearcoat_color: Color::from_argb(0x123456),
+            opacity_active: true,
+            elasticity: 0.5,
+            elasticity_falloff: 0.5,
+            friction: 0.5,
+            scatter_angle: 0.5,
+            refraction_tint: Color::from_argb(0x123456),
+        };
+        let save_material: SaveMaterial = (&material).into();
+        assert_eq!(save_material.name, "test");
+        assert_eq!(save_material.glossy_image_lerp, 230);
+        assert_eq!(save_material.thickness, 128);
+        assert_eq!(save_material.opacity_active_edge_alpha, 231);
     }
 }

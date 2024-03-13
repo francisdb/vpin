@@ -2,16 +2,13 @@
 
 use super::{
     biff::{self, BiffReader, BiffWriter},
-    math::{dequantize_unsigned, quantize_unsigned},
     model::StringWithEncoding,
     version::Version,
 };
 use crate::vpx::biff::{BiffRead, BiffWrite};
 use crate::vpx::color::{Color, ColorJson};
-use crate::vpx::material::{
-    Material, MaterialJson, SaveMaterial, SaveMaterialJson, SavePhysicsMaterial,
-    SavePhysicsMaterialJson,
-};
+use crate::vpx::material::{Material, SaveMaterial, SavePhysicsMaterial};
+use crate::vpx::math::{dequantize_u8, quantize_u8};
 use crate::vpx::renderprobe::{RenderProbeJson, RenderProbeWithGarbage};
 use bytes::{Buf, BufMut, BytesMut};
 use serde::{Deserialize, Serialize};
@@ -208,19 +205,22 @@ pub struct GameData {
     pub tone_mapper: Option<i32>,          // TMAP 102.5 (added in 10.8)
     pub bloom_strength: f32,               // BLST 103
     pub materials_size: u32,               // MASI 104
-    pub materials: Vec<SaveMaterial>,      // MATE 105 (only for <10.8)
-    pub materials_physics: Option<Vec<SavePhysicsMaterial>>, // PHMA 106 (only for <10.8, added in 10.?)
-    pub materials_new: Option<Vec<Material>>,                // MATR (added in 10.8)
-    pub render_probes: Option<Vec<RenderProbeWithGarbage>>,  // RPRB (added in 10.8)
-    pub gameitems_size: u32,                                 // SEDT 107
-    pub sounds_size: u32,                                    // SSND 108
-    pub images_size: u32,                                    // SIMG 109
-    pub fonts_size: u32,                                     // SFNT 110
-    pub collections_size: u32,                               // SCOL 111
-    pub name: String,                                        // NAME 112
-    pub custom_colors: [Color; 16],                          //[Color; 16], // CCUS 113
-    pub protection_data: Option<Vec<u8>>,                    // SECB (removed in ?)
-    pub code: StringWithEncoding,                            // CODE 114
+    /// Legacy material saving for backward compatibility
+    pub materials_old: Vec<SaveMaterial>, // MATE 105 (only for <10.8)
+    /// Legacy material saving for backward compatibility
+    pub materials_physics_old: Option<Vec<SavePhysicsMaterial>>, // PHMA 106 (only for <10.8, added in 10.?)
+    /// 10.8+ material saving (this format supports new properties, and can be extended in future versions, and does not perform quantizations)
+    pub materials: Option<Vec<Material>>, // MATR (added in 10.8)
+    pub render_probes: Option<Vec<RenderProbeWithGarbage>>, // RPRB (added in 10.8)
+    pub gameitems_size: u32,                                // SEDT 107
+    pub sounds_size: u32,                                   // SSND 108
+    pub images_size: u32,                                   // SIMG 109
+    pub fonts_size: u32,                                    // SFNT 110
+    pub collections_size: u32,                              // SCOL 111
+    pub name: String,                                       // NAME 112
+    pub custom_colors: [Color; 16],                         //[Color; 16], // CCUS 113
+    pub protection_data: Option<Vec<u8>>,                   // SECB (removed in ?)
+    pub code: StringWithEncoding,                           // CODE 114
     pub is_locked: Option<bool>, // TLCK (added in 10.8 for tournament mode?)
     // This is a bit of a hack because we want reproducible builds.
     // 10.8.0 beta 1-4 had EFSS at the old location, but it was moved to the new location in beta 5
@@ -367,16 +367,7 @@ pub(crate) struct GameDataJson {
     pub use_ssr: Option<i32>,
     pub tone_mapper: Option<i32>,
     pub bloom_strength: f32,
-    pub materials_size: u32,
-    pub materials: Vec<SaveMaterialJson>,
-    pub materials_physics: Option<Vec<SavePhysicsMaterialJson>>,
-    pub materials_new: Option<Vec<MaterialJson>>,
     pub render_probes: Option<Vec<RenderProbeJson>>,
-    pub gameitems_size: u32,
-    pub sounds_size: u32,
-    pub images_size: u32,
-    pub fonts_size: u32,
-    pub collections_size: u32,
     pub name: String,
     pub custom_colors: [ColorJson; 16],
     pub protection_data: Option<Vec<u8>>,
@@ -541,31 +532,28 @@ impl GameDataJson {
             use_ssr: self.use_ssr,
             tone_mapper: self.tone_mapper,
             bloom_strength: self.bloom_strength,
-            materials_size: self.materials_size,
-            materials: self
-                .materials
-                .iter()
-                .map(|m| m.to_save_material())
-                .collect(),
-            materials_physics: self.materials_physics.as_ref().map(|materials| {
-                materials
-                    .iter()
-                    .map(|m| m.to_save_physics_material())
-                    .collect()
-            }),
-            materials_new: self
-                .materials_new
-                .as_ref()
-                .map(|materials| materials.iter().map(|m| m.to_material()).collect()),
+            // this data is loaded from a separate file
+            materials_size: 0,
+            // this data is loaded from a separate file
+            materials_old: vec![],
+            // this data is loaded from a separate file
+            materials_physics_old: None,
+            // this data is loaded from a separate file
+            materials: None,
             render_probes: self
                 .render_probes
                 .as_ref()
                 .map(|probes| probes.iter().map(|p| p.to_renderprobe()).collect()),
-            gameitems_size: self.gameitems_size,
-            sounds_size: self.sounds_size,
-            images_size: self.images_size,
-            fonts_size: self.fonts_size,
-            collections_size: self.collections_size,
+            // this data is loaded from a separate file
+            gameitems_size: 0,
+            // this data is loaded from a separate file
+            sounds_size: 0,
+            // this data is loaded from a separate file
+            images_size: 0,
+            // this data is loaded from a separate file
+            fonts_size: 0,
+            // this data is loaded from a separate file
+            collections_size: 0,
             name: self.name.clone(),
             custom_colors,
             protection_data: self.protection_data.clone(),
@@ -728,32 +716,11 @@ impl GameDataJson {
             use_ssr: game_data.use_ssr,
             tone_mapper: game_data.tone_mapper,
             bloom_strength: game_data.bloom_strength,
-            materials_size: game_data.materials_size,
-            materials: game_data
-                .materials
-                .iter()
-                .map(|m| SaveMaterialJson::from_save_material(m))
-                .collect(),
-            materials_physics: game_data.materials_physics.as_ref().map(|materials| {
-                materials
-                    .iter()
-                    .map(|m| SavePhysicsMaterialJson::from_save_physics_material(m))
-                    .collect()
-            }),
-            materials_new: game_data
-                .materials_new
-                .as_ref()
-                .map(|v| v.into_iter().map(MaterialJson::from_material).collect()),
             render_probes: game_data.render_probes.as_ref().map(|v| {
                 v.into_iter()
                     .map(RenderProbeJson::from_renderprobe)
                     .collect()
             }),
-            gameitems_size: game_data.gameitems_size,
-            sounds_size: game_data.sounds_size,
-            images_size: game_data.images_size,
-            fonts_size: game_data.fonts_size,
-            collections_size: game_data.collections_size,
             name: game_data.name.clone(),
             custom_colors,
             protection_data: game_data.protection_data.clone(),
@@ -771,11 +738,11 @@ impl GameData {
     }
 
     pub fn get_ball_trail_strength(&self) -> Option<f32> {
-        self.ball_trail_strength.map(|v| dequantize_unsigned(8, v))
+        self.ball_trail_strength.map(|v| dequantize_u8(8, v as u8))
     }
 
     pub fn set_ball_trail_strength(&mut self, value: f32) {
-        self.ball_trail_strength = Some(quantize_unsigned(8, value));
+        self.ball_trail_strength = Some(quantize_u8(8, value) as u32);
     }
 }
 
@@ -894,9 +861,9 @@ impl Default for GameData {
             tone_mapper: None,                   // 0 = TM_REINHARD,
             bloom_strength: 1.8,
             materials_size: 0,
-            materials: Vec::new(),
-            materials_physics: None,
-            materials_new: None,
+            materials_old: Vec::new(),
+            materials_physics_old: None,
+            materials: None,
             render_probes: None,
             gameitems_size: 0,
             sounds_size: 0,
@@ -1227,18 +1194,18 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
     writer.write_tagged_f32("BLST", gamedata.bloom_strength);
     writer.write_tagged_u32("MASI", gamedata.materials_size);
     let mut bytes = BytesMut::new();
-    for mat in &gamedata.materials {
+    for mat in &gamedata.materials_old {
         mat.write(&mut bytes);
     }
     writer.write_tagged_data("MATE", &bytes);
-    if let Some(phma) = &gamedata.materials_physics {
+    if let Some(phma) = &gamedata.materials_physics_old {
         let mut bytes = BytesMut::new();
         for mat in phma {
             mat.write(&mut bytes);
         }
         writer.write_tagged_data("PHMA", &bytes);
     }
-    if let Some(materials_new) = &gamedata.materials_new {
+    if let Some(materials_new) = &gamedata.materials {
         for mat in materials_new {
             let mut mat_writer = BiffWriter::new();
             mat.biff_write(&mut mat_writer);
@@ -1451,7 +1418,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
                     let material = SaveMaterial::read(&mut buff);
                     materials.push(material);
                 }
-                gamedata.materials = materials;
+                gamedata.materials_old = materials;
             }
             "PHMA" => {
                 let data = reader.get_record_data(false).to_vec();
@@ -1461,7 +1428,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
                     let material = SavePhysicsMaterial::read(&mut buff);
                     materials.push(material);
                 }
-                gamedata.materials_physics = Some(materials);
+                gamedata.materials_physics_old = Some(materials);
             }
             // see https://github.com/vpinball/vpinball/blob/1a994086a6092733272fda36a2f449753a1ca21a/pintable.cpp#L4429
             "MATR" => {
@@ -1469,7 +1436,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
                 let mut reader = BiffReader::new(&data);
                 let material = Material::biff_read(&mut reader);
                 gamedata
-                    .materials_new
+                    .materials
                     .get_or_insert_with(Vec::new)
                     .push(material);
             }
@@ -1647,7 +1614,7 @@ mod tests {
             ball_decal_mode: true,
             ball_playfield_reflection_strength: Some(2.0),
             default_bulb_intensity_scale_on_ball: Some(2.0),
-            ball_trail_strength: Some(quantize_unsigned(8, 0.55)),
+            ball_trail_strength: Some(quantize_u8(8, 0.55) as u32),
             user_detail_level: Some(9),
             overwrite_global_detail_level: Some(true),
             overwrite_global_day_night: Some(false),
@@ -1665,9 +1632,9 @@ mod tests {
             images_size: 0,
             fonts_size: 0,
             collections_size: 0,
-            materials: vec![],
-            materials_physics: Some(vec![]),
-            materials_new: None,
+            materials_old: vec![],
+            materials_physics_old: Some(vec![]),
+            materials: None,
             render_probes: Some(vec![Faker.fake(), Faker.fake()]),
             name: String::from("test name"),
             custom_colors: [Color::RED; 16],
