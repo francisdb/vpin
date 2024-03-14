@@ -502,7 +502,8 @@ mod test {
     fn test_write_read_sound() {
         let data = vec![4, 3, 2, 1, 0];
         let mut wave_form = WaveForm::default();
-        wave_form.cb_size = data.len() as u16;
+        // this field is always 0
+        // wave_form.cb_size = data.len() as u16;
         let sound: SoundData = SoundData {
             name: "test name".to_string(),
             path: "test path.wav".to_string(),

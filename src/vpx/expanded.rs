@@ -1159,7 +1159,7 @@ mod test {
                         avg_bytes_per_sec: 0,
                         block_align: 0,
                         bits_per_sample: 0,
-                        cb_size: 4, // needs to be the length of below data vec
+                        cb_size: 0, // always 0
                     },
                     data: vec![0, 1, 2, 3],
                     internal_name: "test internal name".to_string(),
