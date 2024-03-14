@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf, MAIN_SEPARATOR_STR};
 use vpin::vpx::biff::BiffReader;
 use walkdir::WalkDir;
 
+#[cfg(test)]
 pub(crate) fn find_files<P: AsRef<Path>>(
     tables_path: P,
     extension: &str,
@@ -28,6 +29,7 @@ pub(crate) fn find_files<P: AsRef<Path>>(
     Ok(found)
 }
 
+#[cfg(test)]
 pub(crate) fn assert_equal_vpx(vpx_path: &PathBuf, test_vpx_path: PathBuf) {
     let mut comp = cfb::open(&vpx_path).unwrap();
     let mut test_comp = cfb::open(&test_vpx_path).unwrap();

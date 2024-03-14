@@ -1152,7 +1152,15 @@ mod test {
                 SoundData {
                     name: "test sound".to_string(),
                     path: "test.wav".to_string(),
-                    wave_form: WaveForm::new(),
+                    wave_form: WaveForm {
+                        format_tag: 0,
+                        channels: 0,
+                        samples_per_sec: 0,
+                        avg_bytes_per_sec: 0,
+                        block_align: 0,
+                        bits_per_sample: 0,
+                        cb_size: 4, // needs to be the length of below data vec
+                    },
                     data: vec![0, 1, 2, 3],
                     internal_name: "test internal name".to_string(),
                     fade: 0,

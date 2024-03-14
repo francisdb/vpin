@@ -31,7 +31,7 @@ impl fmt::Debug for SoundData {
 pub struct SoundData {
     pub name: String,
     pub path: String,
-    pub wave_form: WaveForm, // we probably want this to be optional
+    pub wave_form: WaveForm,
     pub data: Vec<u8>,
     /// Removed: previously did write the same name again, but just in lower case
     /// This rudimentary version here needs to stay as otherwise problems when loading, as one field less
@@ -48,7 +48,6 @@ pub struct SoundData {
 pub(crate) struct SoundDataJson {
     name: String,
     path: String,
-    wave_form: WaveFormJson,
     internal_name: String,
     fade: u32,
     volume: u32,
@@ -64,7 +63,6 @@ impl SoundDataJson {
         Self {
             name: sound_data.name.clone(),
             path: sound_data.path.clone(),
-            wave_form: WaveFormJson::from_wave_form(&sound_data.wave_form),
             internal_name: sound_data.internal_name.clone(),
             fade: sound_data.fade,
             volume: sound_data.volume,
@@ -77,7 +75,8 @@ impl SoundDataJson {
         SoundData {
             name: self.name.clone(),
             path: self.path.clone(),
-            wave_form: self.wave_form.to_wave_form(),
+            // this is populated by reading the wav or default for other files
+            wave_form: WaveForm::default(),
             data: Vec::new(),
             internal_name: self.internal_name.clone(),
             fade: self.fade,
@@ -90,7 +89,7 @@ impl SoundDataJson {
 
 const WAV_HEADER_SIZE: usize = 44;
 
-fn write_wav_header(sound_data: &SoundData) -> Vec<u8> {
+fn write_wav_header2(sound_data: &SoundData) -> Vec<u8> {
     let mut buf = BytesMut::with_capacity(WAV_HEADER_SIZE);
     buf.put(&b"RIFF"[..]); // 4
     buf.put_u32_le(sound_data.data.len() as u32 + 36); // 4
@@ -113,26 +112,136 @@ fn write_wav_header(sound_data: &SoundData) -> Vec<u8> {
     buf.to_vec() // total 44 bytes
 }
 
-fn skip_wav_header(reader: &mut BytesMut) {
-    let _riff = reader.get_u32_le();
-    let _size = reader.get_u32_le();
-    let _wave = reader.get_u32_le();
-    let _fmt = reader.get_u32_le();
-    let _fmt_size = reader.get_u32_le();
-    let _format_tag = reader.get_u16_le();
-    let _channels = reader.get_u16_le();
-    let _samples_per_sec = reader.get_u32_le();
-    let _avg_bytes_per_sec = reader.get_u32_le();
-    let _block_align = reader.get_u16_le();
-    let _bits_per_sample = reader.get_u16_le();
-    let _data = reader.get_u32_le();
-    let _data_size = reader.get_u32_le();
+#[derive(Debug, PartialEq)]
+struct WavHeader {
+    size: u32,
+    fmt_size: u32,
+    format_tag: u16,
+    channels: u16,
+    samples_per_sec: u32,
+    avg_bytes_per_sec: u32,
+    block_align: u16,
+    bits_per_sample: u16,
+    data_size: u32,
+}
+
+impl Default for WavHeader {
+    fn default() -> Self {
+        // These are some common values for the format_tag
+        // 1: PCM (Pulse Code Modulation) - Uncompressed data
+        // 2: Microsoft ADPCM
+        // 3: IEEE Float
+        // 6: 8-bit ITU-T G.711 A-law
+        // 7: 8-bit ITU-T G.711 µ-law
+        // 17: IMA ADPCM
+        // 20: ITU-T G.723 ADPCM (Yamaha)
+        // 49: GSM 6.10
+        // 64: ITU-T G.721 ADPCM
+        // 80: MPEG
+        // 65534: Experimental
+
+        // Typical 2-channel, 16-bit PCM WAV header
+        // format_tag: 1 (PCM)
+        // channels: 2 (stereo)
+        // samples_per_sec: 44100 (standard CD quality)
+        // avg_bytes_per_sec: 176400 (44100 samples/sec * 2 channels * 2 bytes/sample)
+        // block_align: 4 (2 channels * 2 bytes/sample)
+        // bits_per_sample: 16 (standard CD quality)
+        WavHeader {
+            size: 0,
+            fmt_size: 16,
+            format_tag: 1,
+            channels: 2,
+            samples_per_sec: 44100,
+            avg_bytes_per_sec: 176400,
+            block_align: 4,
+            bits_per_sample: 16,
+            data_size: 0,
+        }
+    }
+}
+
+impl From<WavHeader> for WaveForm {
+    fn from(header: WavHeader) -> Self {
+        WaveForm {
+            format_tag: header.format_tag,
+            channels: header.channels,
+            samples_per_sec: header.samples_per_sec,
+            avg_bytes_per_sec: header.avg_bytes_per_sec,
+            block_align: header.block_align,
+            bits_per_sample: header.bits_per_sample,
+            cb_size: 0,
+        }
+    }
+}
+
+fn write_wav_header(wav_header: &WavHeader, writer: &mut BytesMut) {
+    writer.put(&b"RIFF"[..]);
+    writer.put_u32_le(wav_header.size);
+    writer.put(&b"WAVE"[..]);
+    writer.put(&b"fmt "[..]);
+    writer.put_u32_le(wav_header.fmt_size);
+    writer.put_u16_le(wav_header.format_tag);
+    writer.put_u16_le(wav_header.channels);
+    writer.put_u32_le(wav_header.samples_per_sec);
+    writer.put_u32_le(wav_header.avg_bytes_per_sec);
+    writer.put_u16_le(wav_header.block_align);
+    writer.put_u16_le(wav_header.bits_per_sample);
+    writer.put(&b"data"[..]);
+    writer.put_u32_le(wav_header.data_size);
+}
+
+fn read_wav_header(reader: &mut BytesMut) -> WavHeader {
+    reader.expect_bytes(b"RIFF");
+    let size = reader.get_u32_le();
+    reader.expect_bytes(b"WAVE");
+    reader.expect_bytes(b"fmt ");
+    let fmt_size = reader.get_u32_le();
+    let format_tag = reader.get_u16_le();
+    let channels = reader.get_u16_le();
+    let samples_per_sec = reader.get_u32_le();
+    let avg_bytes_per_sec = reader.get_u32_le();
+    let block_align = reader.get_u16_le();
+    let bits_per_sample = reader.get_u16_le();
+    reader.expect_bytes(b"data");
+    let data_size = reader.get_u32_le();
+    WavHeader {
+        size,
+        fmt_size,
+        format_tag,
+        channels,
+        samples_per_sec,
+        avg_bytes_per_sec,
+        block_align,
+        bits_per_sample,
+        data_size,
+    }
+}
+
+trait ReadBytesExt {
+    fn read_bytes<const N: usize>(&mut self) -> [u8; N];
+    fn expect_bytes<const N: usize>(&mut self, expected: &[u8; N]);
+}
+
+impl ReadBytesExt for BytesMut {
+    fn read_bytes<const N: usize>(&mut self) -> [u8; N] {
+        let mut arr = [0; N];
+        for i in 0..N {
+            arr[i] = self.get_u8();
+        }
+        arr
+    }
+
+    fn expect_bytes<const N: usize>(&mut self, expected: &[u8; N]) {
+        let bytes = self.read_bytes();
+        assert_eq!(&bytes, expected);
+    }
 }
 
 pub fn write_sound(sound_data: &SoundData) -> Vec<u8> {
     if is_wav(&sound_data.path) {
         let mut buf = BytesMut::with_capacity(WAV_HEADER_SIZE + sound_data.data.len());
-        buf.put_slice(&write_wav_header(sound_data));
+        buf.put_slice(&write_wav_header2(sound_data));
         buf.put_slice(&sound_data.data);
         buf.to_vec()
     } else {
@@ -143,9 +252,13 @@ pub fn write_sound(sound_data: &SoundData) -> Vec<u8> {
 pub fn read_sound(data: &[u8], sound_data: &mut SoundData) {
     if is_wav(&sound_data.path) {
         let mut reader = bytes::BytesMut::from(data);
-        skip_wav_header(&mut reader);
+        let header = read_wav_header(&mut reader);
         // read all remaining bits
         sound_data.data = reader.to_vec();
+        let mut wave_form: WaveForm = header.into();
+        // looks like this field is always 0
+        // wave_form.cb_size = sound_data.data.len() as u16;
+        sound_data.wave_form = wave_form;
     } else {
         sound_data.data = data.to_vec();
     }
@@ -154,54 +267,20 @@ pub fn read_sound(data: &[u8], sound_data: &mut SoundData) {
 #[derive(Debug, PartialEq)]
 pub struct WaveForm {
     // Format type
-    format_tag: u16,
+    pub format_tag: u16,
     // Number of channels (i.e. mono, stereo...)
-    channels: u16,
+    pub channels: u16,
     // Sample rate
-    samples_per_sec: u32,
+    pub samples_per_sec: u32,
     // For buffer estimation
-    avg_bytes_per_sec: u32,
+    pub avg_bytes_per_sec: u32,
     // Block size of data
-    block_align: u16,
+    pub block_align: u16,
     // Number of bits per sample of mono data
-    bits_per_sample: u16,
+    pub bits_per_sample: u16,
     // The count in bytes of the size of extra information (after cbSize)
-    cb_size: u16,
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub(crate) struct WaveFormJson {
-    format_tag: u16,
-    channels: u16,
-    samples_per_sec: u32,
-    avg_bytes_per_sec: u32,
-    block_align: u16,
-    bits_per_sample: u16,
-    cb_size: u16,
-}
-impl WaveFormJson {
-    pub fn from_wave_form(wave_form: &WaveForm) -> Self {
-        Self {
-            format_tag: wave_form.format_tag,
-            channels: wave_form.channels,
-            samples_per_sec: wave_form.samples_per_sec,
-            avg_bytes_per_sec: wave_form.avg_bytes_per_sec,
-            block_align: wave_form.block_align,
-            bits_per_sample: wave_form.bits_per_sample,
-            cb_size: wave_form.cb_size,
-        }
-    }
-    pub fn to_wave_form(&self) -> WaveForm {
-        WaveForm {
-            format_tag: self.format_tag,
-            channels: self.channels,
-            samples_per_sec: self.samples_per_sec,
-            avg_bytes_per_sec: self.avg_bytes_per_sec,
-            block_align: self.block_align,
-            bits_per_sample: self.bits_per_sample,
-            cb_size: self.cb_size,
-        }
-    }
+    // Seems to always be 0 in the vpx file
+    pub cb_size: u16,
 }
 
 impl WaveForm {
@@ -421,12 +500,14 @@ mod test {
 
     #[test]
     fn test_write_read_sound() {
+        let data = vec![4, 3, 2, 1, 0];
+        let mut wave_form = WaveForm::default();
+        wave_form.cb_size = data.len() as u16;
         let sound: SoundData = SoundData {
             name: "test name".to_string(),
             path: "test path.wav".to_string(),
-            // 10MB of data
-            data: vec![4, 3, 2, 1, 0],
-            wave_form: WaveForm::default(),
+            data,
+            wave_form,
             internal_name: "test internalname".to_string(),
             fade: 1,
             volume: 2,
@@ -447,5 +528,25 @@ mod test {
         };
         read_sound(&sound_data, &mut sound_read);
         assert_eq!(sound, sound_read);
+    }
+
+    #[test]
+    fn test_write_read_wav_header() {
+        let header = WavHeader {
+            size: 120 + 36,
+            fmt_size: 16,
+            format_tag: 1,
+            channels: 1,
+            samples_per_sec: 44100,
+            avg_bytes_per_sec: 88200,
+            block_align: 2,
+            bits_per_sample: 16,
+            data_size: 120,
+        };
+        let mut writer = BytesMut::new();
+        write_wav_header(&header, &mut writer);
+        let mut reader = BytesMut::from(writer);
+        let header_read = read_wav_header(&mut reader);
+        assert_eq!(header, header_read);
     }
 }
