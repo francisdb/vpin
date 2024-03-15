@@ -109,12 +109,17 @@ struct PrimitiveJson {
     min_aa_bound: Option<Vec<u8>>,
     max_aa_bound: Option<Vec<u8>>,
     mesh_file_name: Option<String>,
+    // TODO remove this as we don't need it
     num_vertices: Option<u32>,
+    // TODO remove this as we don't need it
     compressed_vertices: Option<u32>,
     //compressed_vertices_data: Option<Vec<u8>>,
+    // TODO remove this as we don't need it
     num_indices: Option<u32>,
+    // TODO remove this as we don't need it
     compressed_indices: Option<u32>,
     //compressed_indices_data: Option<Vec<u8>>,
+    // TODO remove this as we don't need it
     compressed_animation_vertices: Option<Vec<u32>>,
     //compressed_animation_vertices_data: Option<Vec<Vec<u8>>>,
     depth_bias: f32,

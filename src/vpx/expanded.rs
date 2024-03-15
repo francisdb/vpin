@@ -1,3 +1,4 @@
+use bytes::{Buf, BufMut, BytesMut};
 use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -6,8 +7,12 @@ use std::path::PathBuf;
 use std::{fs::File, path::Path};
 
 use cfb::CompoundFile;
+use flate2::read::ZlibDecoder;
 use serde::de;
 use serde_json::Value;
+use wavefront_rs::obj::entity::{Entity, FaceVertex};
+use wavefront_rs::obj::parser::Parser;
+use wavefront_rs::obj::writer::Writer;
 
 use super::{read_gamedata, Version, VPX};
 
@@ -626,6 +631,34 @@ fn write_gameitems<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Wr
     Ok(())
 }
 
+// This is how they were compressed using zlib
+//
+// const mz_ulong slen = (mz_ulong)(sizeof(Vertex3dNoTex2)*m_mesh.NumVertices());
+// mz_ulong clen = compressBound(slen);
+// mz_uint8 * c = (mz_uint8 *)malloc(clen);
+// if (compress2(c, &clen, (const unsigned char *)m_mesh.m_vertices.data(), slen, MZ_BEST_COMPRESSION) != Z_OK)
+// ShowError("Could not compress primitive vertex data");
+fn decompress_data(compressed_data: &[u8]) -> io::Result<Vec<u8>> {
+    let mut decoder = ZlibDecoder::new(compressed_data);
+    let mut decompressed_data = Vec::new();
+    decoder.read_to_end(&mut decompressed_data)?;
+    Ok(decompressed_data)
+}
+
+fn compress_data(data: &[u8]) -> io::Result<Vec<u8>> {
+    // before 10.6.1, compression was always LZW
+    // "abuses the VP-Image-LZW compressor"
+    // see https://github.com/vpinball/vpinball/commit/09f5510d676cd6b204350dfc4a93b9bf93284c56
+    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::best());
+    encoder.write_all(data)?;
+    encoder.finish()
+}
+
+const BYTES_PER_VECTOR: usize = 32;
+
+/// when there are more than 65535 vertices we use 4 bytes per index value
+const MAX_VERTICES_FOR_2_BYTE_INDEX: usize = 65535;
+
 /// for primitives we write fields m3cx, m3ci and m3ay's to separate files with bin extension
 fn write_gameitem_binaries(
     gameitems_dir: &PathBuf,
@@ -633,15 +666,42 @@ fn write_gameitem_binaries(
     file_name: String,
 ) -> Result<(), WriteError> {
     if let GameItemEnum::Primitive(primitive) = gameitem {
+        // use wavefront-rs to write the vertices and indices
+        // we first have to decompress the data as they are stored compressed
+
         if let Some(m3cx) = &primitive.compressed_vertices_data {
-            let m3cx_path = gameitems_dir.join(format!("{}.m3cx.bin", file_name));
-            let mut m3cx_file = std::fs::File::create(&m3cx_path)?;
-            m3cx_file.write_all(m3cx)?;
-        }
-        if let Some(m3ci) = &primitive.compressed_indices_data {
-            let m3ci_path = gameitems_dir.join(format!("{}.m3ci.bin", file_name));
-            let mut m3ci_file = std::fs::File::create(&m3ci_path)?;
-            m3ci_file.write_all(m3ci)?;
+            if let Some(m3ci) = &primitive.compressed_indices_data {
+                let vertices = decompress_data(m3cx)?;
+                let indices = decompress_data(m3ci)?;
+                let calculated_num_vertices = vertices.len() / BYTES_PER_VECTOR;
+                assert_eq!(
+                    calculated_num_vertices,
+                    primitive.num_vertices.unwrap_or(0) as usize,
+                    "Vertices count mismatch"
+                );
+
+                let calculated_num_indices =
+                    if calculated_num_vertices > MAX_VERTICES_FOR_2_BYTE_INDEX {
+                        indices.len() / 4
+                    } else {
+                        indices.len() / 2
+                    };
+                assert_eq!(
+                    calculated_num_indices,
+                    primitive.num_indices.unwrap_or(0) as usize,
+                    "Indices count mismatch"
+                );
+
+                let obj_path = gameitems_dir.join(format!("{}.obj", file_name));
+                write_obj(gameitem.name().to_string(), vertices, indices, &obj_path).map_err(
+                    |e| WriteError::Io(io::Error::new(io::ErrorKind::Other, format!("{}", e))),
+                )?;
+            } else {
+                return Err(WriteError::Io(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("Vertics should always come with indices: {}", file_name),
+                )));
+            }
         }
         if let Some(m3ays) = &primitive.compressed_animation_vertices_data {
             let m3ays_path = gameitems_dir.join(format!("{}.m3ays.bin", file_name));
@@ -653,6 +713,243 @@ fn write_gameitem_binaries(
         }
     }
     Ok(())
+}
+
+/// Writes a wavefront obj file from the vertices and indices
+/// as they are stored in the m3cx and m3ci fields of the primitive
+fn write_obj(
+    name: String,
+    vertices: Vec<u8>,
+    indices: Vec<u8>,
+    obj_file_path: &PathBuf,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let num_vertices = vertices.len() / 32;
+
+    let bytes_per_index = if num_vertices > MAX_VERTICES_FOR_2_BYTE_INDEX {
+        4
+    } else {
+        2
+    };
+    let num_indices = indices.len() / bytes_per_index;
+
+    let mut obj_file = File::create(&obj_file_path)?;
+    let mut writer = std::io::BufWriter::new(&mut obj_file);
+    let obj_writer = Writer { auto_newline: true };
+
+    let comment = Entity::Comment {
+        content: "VPXTOOL table OBJ file".to_string(),
+    };
+
+    obj_writer.write(&mut writer, &comment)?;
+
+    // // material library
+    // let mtl_file_path = obj_file_path.with_extension("mtl");
+    // let mtllib = Entity::MtlLib {
+    //     name: mtl_file_path
+    //         .file_name()
+    //         .unwrap()
+    //         .to_str()
+    //         .unwrap()
+    //         .to_string(),
+    // };
+    // obj_writer.write(&mut writer, &mtllib)?;
+
+    let comment = Entity::Comment {
+        content: "VPXTOOL OBJ file".to_string(),
+    };
+    obj_writer.write(&mut writer, &comment)?;
+
+    // object name
+    let object = Entity::Object { name };
+    obj_writer.write(&mut writer, &object)?;
+
+    let mut buff = BytesMut::from(vertices.as_slice());
+    let mut vertices: Vec<Vertex3dNoTex2> = Vec::with_capacity(num_vertices as usize);
+    for _ in 0..num_vertices {
+        let vertex = read_vertex(&mut buff);
+        vertices.push(vertex);
+    }
+
+    // write all vertices to the wavefront obj file
+    for vertex in &vertices {
+        let vertex = Entity::Vertex {
+            x: vertex.x as f64,
+            y: vertex.y as f64,
+            z: vertex.z as f64,
+            w: None,
+        };
+        obj_writer.write(&mut writer, &vertex)?;
+    }
+    // write all vertex texture coordinates to the wavefront obj file
+    for vertex in &vertices {
+        let vertex = Entity::VertexTexture {
+            u: vertex.tu as f64,
+            v: Some(vertex.tv as f64),
+            w: None,
+        };
+        obj_writer.write(&mut writer, &vertex)?;
+    }
+    // write all vertex normals to the wavefront obj file
+    for vertex in &vertices {
+        let vertex = Entity::VertexNormal {
+            x: vertex.nx as f64,
+            y: vertex.ny as f64,
+            z: vertex.nz as f64,
+        };
+        obj_writer.write(&mut writer, &vertex)?;
+    }
+
+    // write all faces to the wavefront obj file
+    let mut buff = BytesMut::from(indices.as_slice());
+    let mut vertices: Vec<u32> = Vec::with_capacity(num_vertices as usize);
+    for _ in 0..num_indices {
+        let index = if bytes_per_index == 2 {
+            buff.get_u16_le() as u32
+        } else {
+            buff.get_u32_le()
+        };
+        vertices.push(index);
+    }
+    // write in groups of 3
+    for chunk in vertices.chunks(3) {
+        // obj indices are 1 based
+        let v1 = (chunk[0] as i64) + 1;
+        let v2 = (chunk[1] as i64) + 1;
+        let v3 = (chunk[2] as i64) + 1;
+        let face = Entity::Face {
+            vertices: vec![
+                FaceVertex::new_vtn(v1, Some(v1), Some(v1)),
+                FaceVertex::new_vtn(v2, Some(v2), Some(v2)),
+                FaceVertex::new_vtn(v3, Some(v3), Some(v3)),
+            ],
+        };
+        obj_writer.write(&mut writer, &face)?;
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+struct Vertex3dNoTex2 {
+    x: f32,
+    y: f32,
+    z: f32,
+    nx: f32,
+    ny: f32,
+    nz: f32,
+    tu: f32,
+    tv: f32,
+}
+
+fn read_vertex(buff: &mut BytesMut) -> Vertex3dNoTex2 {
+    let x = buff.get_f32_le();
+    let y = buff.get_f32_le();
+    let z = buff.get_f32_le();
+    // normals
+    let nx = buff.get_f32_le();
+    let ny = buff.get_f32_le();
+    let nz = buff.get_f32_le();
+    // texture coordinates
+    let tu = buff.get_f32_le();
+    let tv = buff.get_f32_le();
+    Vertex3dNoTex2 {
+        x,
+        y,
+        z,
+        nx,
+        ny,
+        nz,
+        tu,
+        tv,
+    }
+}
+
+fn write_vertex(buff: &mut BytesMut, vertex: &Vertex3dNoTex2) {
+    buff.put_f32_le(vertex.x);
+    buff.put_f32_le(vertex.y);
+    buff.put_f32_le(vertex.z);
+    // normals
+    buff.put_f32_le(vertex.nx);
+    buff.put_f32_le(vertex.ny);
+    buff.put_f32_le(vertex.nz);
+    // texture coordinates
+    buff.put_f32_le(vertex.tu);
+    buff.put_f32_le(vertex.tv);
+}
+
+fn read_obj(obj_file_path: &PathBuf) -> Result<(Vec<u8>, Vec<u8>), Box<dyn std::error::Error>> {
+    let obj_file = File::open(&obj_file_path)?;
+    let mut reader = std::io::BufReader::new(obj_file);
+    let mut indices: Vec<i64> = Vec::new();
+    let mut vertices: Vec<(f64, f64, f64, Option<f64>)> = Vec::new();
+    let mut texture_coordinates: Vec<(f64, Option<f64>, Option<f64>)> = Vec::new();
+    let mut normals: Vec<(f64, f64, f64)> = Vec::new();
+    let mut object_count = 0;
+    Parser::read_to_end(&mut reader, |entity| match entity {
+        Entity::Vertex { x, y, z, w } => {
+            vertices.push((x, y, z, w));
+        }
+        Entity::VertexTexture { u, v, w } => {
+            texture_coordinates.push((u, v, w));
+        }
+        Entity::VertexNormal { x, y, z } => {
+            normals.push((x, y, z));
+        }
+        Entity::Face { vertices } => {
+            indices.push(vertices[0].vertex);
+            indices.push(vertices[1].vertex);
+            indices.push(vertices[2].vertex);
+        }
+        Entity::Comment { content } => {
+            // ignored
+        }
+        Entity::Object { name } => {
+            object_count += 1;
+        }
+        other => {
+            println!(
+                "Warning, skipping OBJ file entity of type: {:?}",
+                other.token()
+            );
+        }
+    })?;
+    assert_eq!(
+        object_count, 1,
+        "Only a single object is supported, found {}",
+        object_count
+    );
+    // zip the vertices, texture coordinates and normals into a single buffer
+    let mut vpx_vertices = BytesMut::with_capacity(vertices.len() * 32);
+    for ((v, vt), vn) in vertices
+        .iter()
+        .zip(texture_coordinates.iter())
+        .zip(normals.iter())
+    {
+        let vertext = Vertex3dNoTex2 {
+            x: v.0 as f32,
+            y: v.1 as f32,
+            z: v.2 as f32,
+            nx: vn.0 as f32,
+            ny: vn.1 as f32,
+            nz: vn.2 as f32,
+            tu: vt.0 as f32,
+            tv: vt.1.unwrap_or(0.0) as f32,
+        };
+        write_vertex(&mut vpx_vertices, &vertext);
+    }
+    let bytes_per_index = if vertices.len() > MAX_VERTICES_FOR_2_BYTE_INDEX {
+        4
+    } else {
+        2
+    };
+    let mut vpx_indices = BytesMut::new();
+    for index in indices {
+        if bytes_per_index == 2 {
+            vpx_indices.put_u16_le(index as u16 - 1);
+        } else {
+            vpx_indices.put_u32_le(index as u32 - 1);
+        }
+    }
+    Ok((vpx_vertices.to_vec(), vpx_indices.to_vec()))
 }
 
 fn read_gameitems<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<GameItemEnum>> {
@@ -694,19 +991,15 @@ fn read_gameitem_binaries(
 ) -> io::Result<GameItemEnum> {
     if let GameItemEnum::Primitive(primitive) = &mut item {
         let gameitem_file_name = gameitem_file_name.trim_end_matches(".json");
-        let m3cx_path = gameitems_dir.join(format!("{}.m3cx.bin", &gameitem_file_name));
-        if m3cx_path.exists() {
-            let mut m3cx_file = File::open(&m3cx_path)?;
-            let mut m3cx = Vec::new();
-            m3cx_file.read_to_end(&mut m3cx)?;
-            primitive.compressed_vertices_data = Some(m3cx);
-        }
-        let m3ci_path = gameitems_dir.join(format!("{}.m3ci.bin", &gameitem_file_name));
-        if m3ci_path.exists() {
-            let mut m3ci_file = File::open(&m3ci_path)?;
-            let mut m3ci = Vec::new();
-            m3ci_file.read_to_end(&mut m3ci)?;
-            primitive.compressed_indices_data = Some(m3ci);
+        let obj_path = gameitems_dir.join(format!("{}.obj", gameitem_file_name));
+        if obj_path.exists() {
+            let (vertices, indices) = read_obj(&obj_path).map_err(|e| {
+                io::Error::new(io::ErrorKind::Other, format!("Error reading obj: {}", e))
+            })?;
+            let compressed_vertices = compress_data(&vertices)?;
+            let compressed_indices = compress_data(&indices)?;
+            primitive.compressed_vertices_data = Some(compressed_vertices);
+            primitive.compressed_indices_data = Some(compressed_indices);
         }
         if let Some(counts) = &primitive.compressed_animation_vertices {
             let m3ays = read_animation_vertices(&gameitems_dir, counts, &gameitem_file_name)?;
@@ -983,12 +1276,12 @@ mod test {
     use pretty_assertions::assert_eq;
     use std::collections::HashMap;
     use std::path::PathBuf;
+    use testdir::testdir;
     use testresult::TestResult;
 
     #[test]
     pub fn test_expand_write_read() -> TestResult {
-        //let expanded_path = testdir!();
-        let expanded_path = PathBuf::from("testing_expanded");
+        let expanded_path = testdir!();
         if expanded_path.exists() {
             std::fs::remove_dir_all(&expanded_path)?;
         }
@@ -1214,6 +1507,21 @@ mod test {
         let read = read(&expanded_path)?;
 
         assert_eq!(&vpx, &read);
+        Ok(())
+    }
+
+    #[test]
+    fn test_read_write_obj() -> TestResult {
+        let screw_path = PathBuf::from("testdata/screw.obj");
+        let testdir = testdir!();
+        let (vertices, indices) = read_obj(&screw_path)?;
+        let obj_path = testdir.join("screw.obj");
+        write_obj("screw".to_string(), vertices, indices, &obj_path)?;
+
+        // compare both files as strings
+        let original = std::fs::read_to_string(&screw_path)?;
+        let written = std::fs::read_to_string(&obj_path)?;
+        assert_eq!(original, written);
         Ok(())
     }
 }

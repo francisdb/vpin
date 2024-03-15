@@ -1,4 +1,5 @@
 use cfb::CompoundFile;
+use flate2::read::ZlibDecoder;
 use std::ffi::OsStr;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io;
@@ -114,9 +115,19 @@ fn compound_file_paths_and_lengths(compound_file_path: &Path) -> Vec<(PathBuf, u
     let comp3 = cfb::open(compound_file_path).unwrap();
     comp3
         .walk()
+        .filter(|entry| entry.is_stream())
         .map(|entry| {
             let path = entry.path();
-            let size = entry.len();
+            // Hack for compressed items
+            // If a GameItem is a promitive it's vertex data is compressed,
+            // so we ignore the size of those items.
+            // Later on in the test they will get a proper check on the decompressed data
+            let size = if path.to_string_lossy().contains("GameItem") {
+                // take something obviously recognizable
+                123456789
+            } else {
+                entry.len()
+            };
             (path.to_path_buf(), size)
         })
         .collect()
@@ -181,10 +192,6 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, u64)> {
             }
             "MATE" => {
                 let data = reader.get_record_data(false);
-                // let mut hasher = DefaultHasher::new();
-                // Hash::hash_slice(&data, &mut hasher);
-                // let hash = hasher.finish();
-
                 // This field in gamedata has padding applied that has random data
                 // TODO one solution could be overwriting padding areas with 0's
                 // For now we ignore the contents of this field
@@ -192,15 +199,35 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, u64)> {
             }
             "PHMA" => {
                 let data = reader.get_record_data(false);
-                // let mut hasher = DefaultHasher::new();
-                // Hash::hash_slice(&data, &mut hasher);
-                // let hash = hasher.finish();
-
                 // This field in gamedata has a cstring with fixed length,
                 // but again padding is applied that has random data
                 // TODO one solution could be overwriting padding areas with 0's
                 // For now we ignore the contents of this field
                 tags.push(("PHMA".to_string(), data.len(), 0));
+            }
+            "M3CX" => {
+                let compressed_data = reader.get_record_data(false);
+                // decompress the data as best compression might be different
+                let mut decoder: ZlibDecoder<&[u8]> = ZlibDecoder::new(compressed_data.as_ref());
+                let mut data = Vec::new();
+                decoder.read_to_end(&mut data).unwrap();
+
+                let mut hasher = DefaultHasher::new();
+                Hash::hash_slice(&data, &mut hasher);
+                let hash = hasher.finish();
+                tags.push(("M3CX (decompressed)".to_string(), data.len(), hash));
+            }
+            "M3CI" => {
+                let compressed_data = reader.get_record_data(false);
+                // decompress the data as best compression might be different
+                let mut decoder: ZlibDecoder<&[u8]> = ZlibDecoder::new(compressed_data.as_ref());
+                let mut data = Vec::new();
+                decoder.read_to_end(&mut data).unwrap();
+
+                let mut hasher = DefaultHasher::new();
+                Hash::hash_slice(&data, &mut hasher);
+                let hash = hasher.finish();
+                tags.push(("M3CI (decompressed)".to_string(), data.len(), hash));
             }
             other => {
                 let data = reader.get_record_data(false);

@@ -255,7 +255,7 @@ pub fn read_sound(data: &[u8], sound_data: &mut SoundData) {
         let header = read_wav_header(&mut reader);
         // read all remaining bits
         sound_data.data = reader.to_vec();
-        let mut wave_form: WaveForm = header.into();
+        let wave_form: WaveForm = header.into();
         // looks like this field is always 0
         // wave_form.cb_size = sound_data.data.len() as u16;
         sound_data.wave_form = wave_form;
@@ -501,7 +501,7 @@ mod test {
     #[test]
     fn test_write_read_sound() {
         let data = vec![4, 3, 2, 1, 0];
-        let mut wave_form = WaveForm::default();
+        let wave_form = WaveForm::default();
         // this field is always 0
         // wave_form.cb_size = data.len() as u16;
         let sound: SoundData = SoundData {

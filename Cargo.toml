@@ -29,6 +29,8 @@ utf16string = "0.2.0"
 quick-xml = { version = "0.31.0", features = ["serialize"] }
 serde_repr = "0.1.16"
 hex = "0.4.3"
+wavefront_rs = "2.0.0-beta.1"
+flate2 = "1.0.28"
 
 [dev-dependencies]
 dirs = "5.0.1"
