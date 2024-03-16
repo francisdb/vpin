@@ -1452,7 +1452,7 @@ mod test {
                     name: "test sound".to_string(),
                     path: "test.wav".to_string(),
                     wave_form: WaveForm {
-                        format_tag: 0,
+                        format_tag: 1,
                         channels: 0,
                         samples_per_sec: 0,
                         avg_bytes_per_sec: 0,

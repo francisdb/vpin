@@ -3,7 +3,7 @@ use flate2::read::ZlibDecoder;
 use std::ffi::OsStr;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io;
-use std::io::{Read, Seek};
+use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf, MAIN_SEPARATOR_STR};
 use vpin::vpx::biff::BiffReader;
 use walkdir::WalkDir;
@@ -72,19 +72,20 @@ pub(crate) fn assert_equal_vpx(vpx_path: &PathBuf, test_vpx_path: PathBuf) {
                 original_stream.read_to_end(&mut original_data).unwrap();
                 test_stream.read_to_end(&mut test_data).unwrap();
 
-                // let mut file = std::fs::File::create("original.bin").unwrap();
-                // file.write_all(&original_data).unwrap();
+                if original_data != test_data {
+                    let mut file = std::fs::File::create("original.bin").unwrap();
+                    file.write_all(&original_data).unwrap();
 
-                // let mut file = std::fs::File::create("test.bin").unwrap();
-                // file.write_all(&test_data).unwrap();
-
-                assert!(
-                    original_data == test_data,
-                    "non equal {:?} original:{} test:{} ",
-                    path,
-                    original_data.len(),
-                    test_data.len()
-                );
+                    let mut file = std::fs::File::create("test.bin").unwrap();
+                    file.write_all(&test_data).unwrap();
+                    panic!(
+                        "Non equal lengths for {:?} in {} original:{} test:{}, check the files original.bin and test.bin!",
+                        path,
+                        test_vpx_path.file_name().unwrap().to_string_lossy(),
+                        original_data.len(),
+                        test_data.len()
+                    );
+                }
             } else {
                 let skip = if path.to_string_lossy().contains("GameItem") {
                     // we need to skip the first 32 bits because they are the type of gameitem

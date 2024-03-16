@@ -108,7 +108,14 @@ fn write_wav_header2(sound_data: &SoundData) -> Vec<u8> {
     buf.put_u16_le(sound_data.wave_form.block_align); // 2
     buf.put_u16_le(sound_data.wave_form.bits_per_sample); // 2
     buf.put(&b"data"[..]); // 4
-    buf.put_u32_le(sound_data.data.len() as u32); // 4
+    let data_len = if sound_data.wave_form.format_tag == 1 {
+        // In the vpx file for PCM this is always 0,
+        // so we can use the length of the data.
+        sound_data.data.len() as u32 // 4
+    } else {
+        sound_data.wave_form.cb_size as u32 // 4
+    };
+    buf.put_u32_le(data_len); // 4
     buf.to_vec() // total 44 bytes
 }
 
@@ -122,6 +129,9 @@ struct WavHeader {
     avg_bytes_per_sec: u32,
     block_align: u16,
     bits_per_sample: u16,
+    // These fields are only present if format tag is not 1: PCM
+    extension_size: Option<u16>,
+    extra_fields: Vec<u8>,
     data_size: u32,
 }
 
@@ -156,6 +166,8 @@ impl Default for WavHeader {
             avg_bytes_per_sec: 176400,
             block_align: 4,
             bits_per_sample: 16,
+            extension_size: None,
+            extra_fields: Vec::new(),
             data_size: 0,
         }
     }
@@ -187,6 +199,10 @@ fn write_wav_header(wav_header: &WavHeader, writer: &mut BytesMut) {
     writer.put_u32_le(wav_header.avg_bytes_per_sec);
     writer.put_u16_le(wav_header.block_align);
     writer.put_u16_le(wav_header.bits_per_sample);
+    if let Some(extension_size) = wav_header.extension_size {
+        writer.put_u16_le(extension_size);
+        writer.put(&wav_header.extra_fields[..]);
+    }
     writer.put(&b"data"[..]);
     writer.put_u32_le(wav_header.data_size);
 }
@@ -203,6 +219,17 @@ fn read_wav_header(reader: &mut BytesMut) -> WavHeader {
     let avg_bytes_per_sec = reader.get_u32_le();
     let block_align = reader.get_u16_le();
     let bits_per_sample = reader.get_u16_le();
+    let (extension_size, extra_fields) = match format_tag {
+        1 => (None, Vec::<u8>::new()),
+        3 => (Some(0), Vec::<u8>::new()),
+        _ => {
+            panic!("unsupported format_tag: {}", format_tag);
+            // let extension_size = reader.get_u16_le();
+            // let extra_fields = reader.read_bytes_vec(extension_size as usize);
+            // (Some(extension_size), extra_fields)
+        }
+    };
+
     reader.expect_bytes(b"data");
     let data_size = reader.get_u32_le();
     WavHeader {
@@ -214,21 +241,28 @@ fn read_wav_header(reader: &mut BytesMut) -> WavHeader {
         avg_bytes_per_sec,
         block_align,
         bits_per_sample,
+        extension_size,
+        extra_fields: Vec::new(),
         data_size,
     }
 }
 
 trait ReadBytesExt {
+    fn read_bytes_vec(&mut self, n: usize) -> Vec<u8>;
     fn read_bytes<const N: usize>(&mut self) -> [u8; N];
     fn expect_bytes<const N: usize>(&mut self, expected: &[u8; N]);
 }
 
 impl ReadBytesExt for BytesMut {
+    fn read_bytes_vec(&mut self, n: usize) -> Vec<u8> {
+        let mut arr = Vec::with_capacity(n);
+        self.copy_to_slice(&mut arr);
+        arr
+    }
+
     fn read_bytes<const N: usize>(&mut self) -> [u8; N] {
         let mut arr = [0; N];
-        for i in 0..N {
-            arr[i] = self.get_u8();
-        }
+        self.copy_to_slice(&mut arr);
         arr
     }
 
@@ -240,6 +274,12 @@ impl ReadBytesExt for BytesMut {
 
 pub fn write_sound(sound_data: &SoundData) -> Vec<u8> {
     if is_wav(&sound_data.path) {
+        if sound_data.wave_form.format_tag != 1 {
+            println!(
+                "write_sound: {} {:?}",
+                sound_data.path, sound_data.wave_form
+            );
+        }
         let mut buf = BytesMut::with_capacity(WAV_HEADER_SIZE + sound_data.data.len());
         buf.put_slice(&write_wav_header2(sound_data));
         buf.put_slice(&sound_data.data);
@@ -253,11 +293,16 @@ pub fn read_sound(data: &[u8], sound_data: &mut SoundData) {
     if is_wav(&sound_data.path) {
         let mut reader = bytes::BytesMut::from(data);
         let header = read_wav_header(&mut reader);
+        let header_data_size = header.data_size;
         // read all remaining bits
         sound_data.data = reader.to_vec();
-        let wave_form: WaveForm = header.into();
-        // looks like this field is always 0
-        // wave_form.cb_size = sound_data.data.len() as u16;
+        let mut wave_form: WaveForm = header.into();
+        if wave_form.format_tag == 1 {
+            // in the vpx file this is always 0 for PCM
+            wave_form.cb_size = 0;
+        } else {
+            wave_form.cb_size = header_data_size as u16;
+        }
         sound_data.wave_form = wave_form;
     } else {
         sound_data.data = data.to_vec();
@@ -279,7 +324,7 @@ pub struct WaveForm {
     // Number of bits per sample of mono data
     pub bits_per_sample: u16,
     // The count in bytes of the size of extra information (after cbSize)
-    // Seems to always be 0 in the vpx file
+    // Seems to always be 0 in the vpx file if the format_tag is 1
     pub cb_size: u16,
 }
 
@@ -422,7 +467,7 @@ fn read_wave_form(reader: &mut BiffReader<'_>) -> WaveForm {
     let block_align = reader.get_u16_no_remaining_update();
     let bits_per_sample = reader.get_u16_no_remaining_update();
     let cb_size = reader.get_u16_no_remaining_update();
-    WaveForm {
+    let wave_form = WaveForm {
         format_tag,
         channels,
         samples_per_sec,
@@ -430,10 +475,17 @@ fn read_wave_form(reader: &mut BiffReader<'_>) -> WaveForm {
         block_align,
         bits_per_sample,
         cb_size,
+    };
+    if wave_form.format_tag != 1 {
+        println!("read wave_form: {:?}", wave_form);
     }
+    wave_form
 }
 
 fn write_wave_form(writer: &mut BiffWriter, wave_form: &WaveForm) {
+    if wave_form.format_tag != 1 {
+        println!("write wave_form: {:?}", wave_form);
+    }
     writer.write_u16(wave_form.format_tag);
     writer.write_u16(wave_form.channels);
     writer.write_u32(wave_form.samples_per_sec);
@@ -542,6 +594,29 @@ mod test {
             avg_bytes_per_sec: 88200,
             block_align: 2,
             bits_per_sample: 16,
+            extension_size: None,
+            extra_fields: Vec::new(),
+            data_size: 120,
+        };
+        let mut writer = BytesMut::new();
+        write_wav_header(&header, &mut writer);
+        let mut reader = BytesMut::from(writer);
+        let header_read = read_wav_header(&mut reader);
+        assert_eq!(header, header_read);
+    }
+
+    fn test_write_read_wav_header_pcm_float() {
+        let header = WavHeader {
+            size: 120 + 36,
+            fmt_size: 16,
+            format_tag: 3,
+            channels: 1,
+            samples_per_sec: 44100,
+            avg_bytes_per_sec: 88200,
+            block_align: 2,
+            bits_per_sample: 16,
+            extension_size: Some(0),
+            extra_fields: vec![],
             data_size: 120,
         };
         let mut writer = BytesMut::new();
