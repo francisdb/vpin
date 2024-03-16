@@ -1525,7 +1525,12 @@ mod test {
         write_obj("screw".to_string(), vertices, indices, &obj_path)?;
 
         // compare both files as strings
-        let original = std::fs::read_to_string(&screw_path)?;
+        let mut original = std::fs::read_to_string(&screw_path)?;
+        // When on Windows the original file will be checked out with \r\n line endings.
+        if cfg!(windows) {
+            original = original.replace("\r\n", "\n")
+        }
+        // The obj file will always be written with \n line endings.
         let written = std::fs::read_to_string(&obj_path)?;
         assert_eq!(original, written);
         Ok(())
