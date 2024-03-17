@@ -35,6 +35,7 @@ mod test {
                     test_vpx,
                 } = read_and_write_vpx(&dir, &path)?;
                 assert_equal_vpx(path, test_vpx.clone());
+                // panic!("stop");
                 // if all is good we remove the test file and the extracted dir
                 std::fs::remove_file(&test_vpx)?;
                 std::fs::remove_dir_all(&extracted)?;
