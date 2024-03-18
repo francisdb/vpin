@@ -3,6 +3,9 @@ use bytes::{Buf, BufMut, BytesMut};
 // TODO replace with a library that can read and write wav file headers
 //   one option could be "hound"
 
+// An example of a float format wav file can be found in
+// FirePower II (Williams 1983) 1.1.vpx Ding_01.wav
+
 #[derive(Debug, PartialEq)]
 pub(crate) struct WavHeader {
     pub(crate) size: u32,
@@ -69,6 +72,12 @@ pub(crate) fn write_wav_header(wav_header: &WavHeader, writer: &mut BytesMut) {
     writer.put_u32_le(wav_header.avg_bytes_per_sec);
     writer.put_u16_le(wav_header.block_align);
     writer.put_u16_le(wav_header.bits_per_sample);
+    if wav_header.format_tag != 1 && wav_header.extension_size.is_none() {
+        panic!(
+            "format_tag {} requires extension_size",
+            wav_header.format_tag
+        );
+    }
     if let Some(extension_size) = wav_header.extension_size {
         writer.put_u16_le(extension_size);
         writer.put(&wav_header.extra_fields[..]);

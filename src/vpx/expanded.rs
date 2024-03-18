@@ -900,10 +900,10 @@ fn read_gameitem_binaries(
                 .zip(normals.iter())
             {
                 let (normal, vpx_vertex_normal_data) = vn;
-                let mut nx = normal.0 as f32;
-                let mut ny = normal.1 as f32;
+                let nx = normal.0 as f32;
+                let ny = normal.1 as f32;
                 // invert the z axis
-                let mut nz = -(normal.2 as f32);
+                let nz = -(normal.2 as f32);
 
                 let vertext = crate::vpx::expanded::Vertex3dNoTex2 {
                     x: v.0 as f32,

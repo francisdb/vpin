@@ -1,6 +1,6 @@
 use std::error::Error;
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::BufRead;
 use std::path::PathBuf;
 use wavefront_rs::obj::entity::{Entity, FaceVertex};
 use wavefront_rs::obj::parser::Parser;
@@ -251,6 +251,7 @@ pub(crate) struct ObjData {
 mod test {
     use super::*;
     use pretty_assertions::assert_eq;
+    use std::io::BufReader;
     use testdir::testdir;
     use testresult::TestResult;
 

@@ -93,7 +93,7 @@ const WAV_HEADER_SIZE: usize = 44;
 fn write_wav_header2(sound_data: &SoundData) -> Vec<u8> {
     let data_len = if sound_data.wave_form.format_tag == 1 {
         // In the vpx file for PCM this is always 0,
-        // so we can use the length of the data.
+        // so we use the length of the data.
         sound_data.data.len() as u32 // 4
     } else {
         sound_data.wave_form.cb_size as u32 // 4
@@ -103,6 +103,12 @@ fn write_wav_header2(sound_data: &SoundData) -> Vec<u8> {
         * sound_data.wave_form.bits_per_sample as u32
         * sound_data.wave_form.channels as u32
         / 8;
+    let (extension_size, extra_fields) = if sound_data.wave_form.format_tag == 1 {
+        (None, Vec::<u8>::new())
+    } else {
+        (Some(0), Vec::<u8>::new())
+    };
+
     let wav_header = WavHeader {
         size: sound_data.data.len() as u32 + 36,
         fmt_size: 16,
@@ -112,8 +118,8 @@ fn write_wav_header2(sound_data: &SoundData) -> Vec<u8> {
         avg_bytes_per_sec: bytes_per_sec,
         block_align: sound_data.wave_form.block_align,
         bits_per_sample: sound_data.wave_form.bits_per_sample,
-        extension_size: None,
-        extra_fields: Vec::new(),
+        extension_size,
+        extra_fields,
         data_size: data_len,
     };
     let mut buf = BytesMut::with_capacity(WAV_HEADER_SIZE);
