@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1](https://github.com/francisdb/vpin/compare/v0.8.0...v0.8.1) - 2024-03-19
+
+### Other
+- *(deps)* update testresult requirement from 0.3.0 to 0.4.0 ([#36](https://github.com/francisdb/vpin/pull/36))
+- *(deps)* bump actions/cache from 3 to 4 ([#34](https://github.com/francisdb/vpin/pull/34))
+
 ## [0.8.0](https://github.com/francisdb/vpin/compare/v0.7.0...v0.8.0) - 2024-01-12
 
 ### Added
