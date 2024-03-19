@@ -1,5 +1,21 @@
 use encoding_rs::mem::{decode_latin1, encode_latin1_lossy};
 
+/// The enum used inside vpinball to represent a vertex in the vpx format (Vertex3D_NoTex2).
+/// https://github.com/vpinball/vpinball/blob/9bb99ca92ff7e7eb37c9fb42dd4dcc206b814132/def.h#L165C7-L181
+///
+/// This struct is used for serializing and deserializing in the vpinball C++ code
+#[derive(Debug, PartialEq, Clone)]
+pub(crate) struct Vertex3dNoTex2 {
+    pub(crate) x: f32,
+    pub(crate) y: f32,
+    pub(crate) z: f32,
+    pub(crate) nx: f32,
+    pub(crate) ny: f32,
+    pub(crate) nz: f32,
+    pub(crate) tu: f32,
+    pub(crate) tv: f32,
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum StringEncoding {
     Latin1,

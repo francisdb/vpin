@@ -1,3 +1,6 @@
+//! Wavefront OBJ file reader and writer
+
+use crate::vpx::model::Vertex3dNoTex2;
 use std::error::Error;
 use std::fs::File;
 use std::io::BufRead;
@@ -5,8 +8,6 @@ use std::path::PathBuf;
 use wavefront_rs::obj::entity::{Entity, FaceVertex};
 use wavefront_rs::obj::parser::Parser;
 use wavefront_rs::obj::writer::Writer;
-
-/// Wavefront OBJ file reader and writer
 
 // We have some issues where the data in the vpx file contains NaN values for normals.
 // Therefore, we came up with an elaborate way to store the vpx normals data as a comment in the obj file.
@@ -50,8 +51,8 @@ fn obj_parse_vpx_comment(comment: &str) -> Option<VpxNormalBytes> {
 /// so we have to negate the z values.
 pub(crate) fn write_obj(
     name: String,
-    vertices: Vec<([u8; 32], crate::vpx::expanded::Vertex3dNoTex2)>,
-    indices: Vec<i64>,
+    vertices: &Vec<([u8; 32], Vertex3dNoTex2)>,
+    indices: &Vec<i64>,
     obj_file_path: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut obj_file = File::create(&obj_file_path)?;
@@ -90,7 +91,7 @@ pub(crate) fn write_obj(
     obj_writer.write(&mut writer, &object)?;
 
     // write all vertices to the wavefront obj file
-    for (_, vertex) in &vertices {
+    for (_, vertex) in vertices {
         let vertex = Entity::Vertex {
             x: vertex.x as f64,
             y: vertex.y as f64,
@@ -100,7 +101,7 @@ pub(crate) fn write_obj(
         obj_writer.write(&mut writer, &vertex)?;
     }
     // write all vertex texture coordinates to the wavefront obj file
-    for (_, vertex) in &vertices {
+    for (_, vertex) in vertices {
         let vertex = Entity::VertexTexture {
             u: vertex.tu as f64,
             v: Some(vertex.tv as f64),
@@ -109,7 +110,7 @@ pub(crate) fn write_obj(
         obj_writer.write(&mut writer, &vertex)?;
     }
     // write all vertex normals to the wavefront obj file
-    for (bytes, vertex) in &vertices {
+    for (bytes, vertex) in vertices {
         // if one of the values is NaN we write a special comment with the bytes
         if vertex.nx.is_nan() || vertex.ny.is_nan() || vertex.nz.is_nan() {
             println!("NaN found in vertex normal: {:?}", vertex);
@@ -318,7 +319,7 @@ f 1/1/1 1/1/1 1/1/1
         let written_obj_path = testdir.join("screw.obj");
 
         // zip vertices, texture coordinates and normals into a single vec
-        let vertices: Vec<([u8; 32], crate::vpx::expanded::Vertex3dNoTex2)> = obj_data
+        let vertices: Vec<([u8; 32], Vertex3dNoTex2)> = obj_data
             .vertices
             .iter()
             .zip(&obj_data.texture_coordinates)
@@ -326,7 +327,7 @@ f 1/1/1 1/1/1 1/1/1
             .map(|((v, vt), (vn, _))| {
                 (
                     [0u8; 32],
-                    crate::vpx::expanded::Vertex3dNoTex2 {
+                    Vertex3dNoTex2 {
                         x: v.0 as f32,
                         y: v.1 as f32,
                         z: v.2 as f32,
@@ -340,7 +341,12 @@ f 1/1/1 1/1/1 1/1/1
             })
             .collect();
 
-        write_obj(obj_data.name, vertices, obj_data.indices, &written_obj_path)?;
+        write_obj(
+            obj_data.name,
+            &vertices,
+            &obj_data.indices,
+            &written_obj_path,
+        )?;
 
         // compare both files as strings
         let mut original = std::fs::read_to_string(&screw_path)?;

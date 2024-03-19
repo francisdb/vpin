@@ -64,6 +64,7 @@ pub mod renderprobe;
 
 pub(crate) mod json;
 mod obj;
+mod objloader;
 pub(crate) mod wav;
 
 /// In-memory representation of a VPX file

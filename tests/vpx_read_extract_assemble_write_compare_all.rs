@@ -21,6 +21,12 @@ mod test {
         let paths = find_files(&folder, "vpx")?;
         // testdir can not be used in non-main threads
         let dir: PathBuf = testdir!();
+        // Example tables caused problems in the past:
+        //
+        // * Inhabiting Mars RC 4 - for animation frame
+        // * DieHard_272.vpx - primitive "BM_pAirDuctGate" has a NaN value for nx
+        // * Johnny Mnemonic (Williams 1995) VPW v1.0.2.vpx - animated frames that overlap with primitive names
+
         // TODO why is par_iter() not faster but just consuming all cpu cores?
         paths
             .iter()

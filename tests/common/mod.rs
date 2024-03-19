@@ -177,18 +177,14 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, u64)> {
             }
             "BITS" => {
                 let data = reader.data_until("ALTV".as_bytes());
-                let mut hasher = DefaultHasher::new();
-                Hash::hash_slice(&data, &mut hasher);
-                let hash = hasher.finish();
+                let hash = hash_data(&data);
                 tags.push(("BITS".to_string(), data.len(), hash));
             }
             "CODE" => {
                 let len = reader.get_u32_no_remaining_update();
                 // at least at the time of 1060, some code was still encoded in latin1
                 let data = reader.get_str_with_encoding_no_remaining_update(len as usize);
-                let mut hasher = DefaultHasher::new();
-                Hash::hash_slice(&data.string.as_bytes(), &mut hasher);
-                let hash = hasher.finish();
+                let hash = hash_data(&data.string.as_bytes());
                 tags.push(("CODE".to_string(), len as usize, hash));
             }
             "MATE" => {
@@ -196,7 +192,8 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, u64)> {
                 // This field in gamedata has padding applied that has random data
                 // TODO one solution could be overwriting padding areas with 0's
                 // For now we ignore the contents of this field
-                tags.push(("MATE".to_string(), data.len(), 0));
+                let hash = 0;
+                tags.push(("MATE".to_string(), data.len(), hash));
             }
             "PHMA" => {
                 let data = reader.get_record_data(false);
@@ -204,40 +201,46 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, u64)> {
                 // but again padding is applied that has random data
                 // TODO one solution could be overwriting padding areas with 0's
                 // For now we ignore the contents of this field
-                tags.push(("PHMA".to_string(), data.len(), 0));
+                let hash = 0;
+                tags.push(("PHMA".to_string(), data.len(), hash));
             }
             "M3CX" => {
-                let compressed_data = reader.get_record_data(false);
-                // decompress the data as best compression might be different
-                let mut decoder: ZlibDecoder<&[u8]> = ZlibDecoder::new(compressed_data.as_ref());
-                let mut data = Vec::new();
-                decoder.read_to_end(&mut data).unwrap();
-
-                let mut hasher = DefaultHasher::new();
-                Hash::hash_slice(&data, &mut hasher);
-                let hash = hasher.finish();
+                let mut data = read_to_end_decompress(reader);
+                let hash = hash_data(&data);
                 tags.push(("M3CX (decompressed)".to_string(), data.len(), hash));
             }
             "M3CI" => {
-                let compressed_data = reader.get_record_data(false);
-                // decompress the data as best compression might be different
-                let mut decoder: ZlibDecoder<&[u8]> = ZlibDecoder::new(compressed_data.as_ref());
-                let mut data = Vec::new();
-                decoder.read_to_end(&mut data).unwrap();
-
-                let mut hasher = DefaultHasher::new();
-                Hash::hash_slice(&data, &mut hasher);
-                let hash = hasher.finish();
+                let mut data = read_to_end_decompress(reader);
+                let hash = hash_data(&data);
                 tags.push(("M3CI (decompressed)".to_string(), data.len(), hash));
+            }
+            "M3AX" => {
+                let data = read_to_end_decompress(reader);
+                let hash = hash_data(&data);
+                tags.push(("M3AX (decompressed)".to_string(), data.len(), hash));
             }
             other => {
                 let data = reader.get_record_data(false);
-                let mut hasher = DefaultHasher::new();
-                Hash::hash_slice(&data, &mut hasher);
-                let hash = hasher.finish();
+                let hash = hash_data(&data);
                 tags.push((other.to_string(), data.len(), hash));
             }
         }
     }
     tags
+}
+
+fn hash_data(data: &[u8]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    Hash::hash_slice(&data, &mut hasher);
+    let hash = hasher.finish();
+    hash
+}
+
+fn read_to_end_decompress(reader: &mut BiffReader) -> Vec<u8> {
+    let compressed_data = reader.get_record_data(false);
+    // decompress the data as best compression might be different
+    let mut decoder: ZlibDecoder<&[u8]> = ZlibDecoder::new(compressed_data.as_ref());
+    let mut data = Vec::new();
+    decoder.read_to_end(&mut data).unwrap();
+    data
 }

@@ -46,12 +46,12 @@ pub struct Primitive {
     pub max_aa_bound: Option<Vec<u8>>, // BMAX added in 10.8( TODO Vector3D)
     pub mesh_file_name: Option<String>, // 39 M3DN
     pub num_vertices: Option<u32>,     // 40 M3VN
-    pub compressed_vertices: Option<u32>, // 41 M3CY
+    pub compressed_vertices_len: Option<u32>, // 41 M3CY
     pub compressed_vertices_data: Option<Vec<u8>>, // 42 M3CX
     pub num_indices: Option<u32>,      // 43 M3FN
-    pub compressed_indices: Option<u32>, // 44 M3CJ
+    pub compressed_indices_len: Option<u32>, // 44 M3CJ
     pub compressed_indices_data: Option<Vec<u8>>, // 45 M3CI
-    pub compressed_animation_vertices: Option<Vec<u32>>, // 46 M3AY multiple
+    pub compressed_animation_vertices_len: Option<Vec<u32>>, // 46 M3AY multiple
     pub compressed_animation_vertices_data: Option<Vec<Vec<u8>>>, // 47 M3AX multiple
     pub depth_bias: f32,               // 45 PIDB
     pub add_blend: Option<bool>,       // 46 ADDB - added in ?
@@ -119,9 +119,6 @@ struct PrimitiveJson {
     // TODO remove this as we don't need it
     compressed_indices: Option<u32>,
     //compressed_indices_data: Option<Vec<u8>>,
-    // TODO remove this as we don't need it
-    compressed_animation_vertices: Option<Vec<u32>>,
-    //compressed_animation_vertices_data: Option<Vec<Vec<u8>>>,
     depth_bias: f32,
     add_blend: Option<bool>,
     use_depth_mask: Option<bool>,
@@ -173,12 +170,12 @@ impl PrimitiveJson {
             max_aa_bound: primitive.max_aa_bound.clone(),
             mesh_file_name: primitive.mesh_file_name.clone(),
             num_vertices: primitive.num_vertices,
-            compressed_vertices: primitive.compressed_vertices,
+            compressed_vertices: primitive.compressed_vertices_len,
             //compressed_vertices_data: primitive.m3cx.clone(),
             num_indices: primitive.num_indices,
-            compressed_indices: primitive.compressed_indices,
-            //compressed_indices_Data: primitive.m3ci.clone(),
-            compressed_animation_vertices: primitive.compressed_animation_vertices.clone(),
+            compressed_indices: primitive.compressed_indices_len,
+            // compressed_indices_Data: primitive.m3ci.clone(),
+            // compressed_animation_vertices: primitive.compressed_animation_vertices_len.clone(),
             // compressed_animation_vertices_data: primitive
             //     .compressed_animation_vertices_data
             //     .clone(),
@@ -232,12 +229,12 @@ impl PrimitiveJson {
             max_aa_bound: self.max_aa_bound.clone(),
             mesh_file_name: self.mesh_file_name.clone(),
             num_vertices: self.num_vertices,
-            compressed_vertices: self.compressed_vertices,
+            compressed_vertices_len: self.compressed_vertices,
             compressed_vertices_data: None, //self.m3cx.clone(),
             num_indices: self.num_indices,
-            compressed_indices: self.compressed_indices,
+            compressed_indices_len: self.compressed_indices,
             compressed_indices_data: None, //self.m3ci.clone(),
-            compressed_animation_vertices: self.compressed_animation_vertices.clone(),
+            compressed_animation_vertices_len: None, // self.compressed_animation_vertices.clone(),
             compressed_animation_vertices_data: None, //self.compressed_animation_vertices_data.clone(),
             depth_bias: self.depth_bias,
             add_blend: self.add_blend,
@@ -623,12 +620,12 @@ impl BiffRead for Primitive {
             max_aa_bound,
             mesh_file_name,
             num_vertices,
-            compressed_vertices,
+            compressed_vertices_len: compressed_vertices,
             compressed_vertices_data: m3cx,
             num_indices,
-            compressed_indices,
+            compressed_indices_len: compressed_indices,
             compressed_indices_data,
-            compressed_animation_vertices,
+            compressed_animation_vertices_len: compressed_animation_vertices,
             compressed_animation_vertices_data: m3ax,
             depth_bias,
             add_blend,
@@ -725,7 +722,7 @@ impl BiffWrite for Primitive {
         if let Some(num_vertices) = &self.num_vertices {
             writer.write_tagged_u32("M3VN", *num_vertices);
         }
-        if let Some(compressed_vertices) = &self.compressed_vertices {
+        if let Some(compressed_vertices) = &self.compressed_vertices_len {
             writer.write_tagged_u32("M3CY", *compressed_vertices);
         }
         if let Some(m3cx) = &self.compressed_vertices_data {
@@ -734,7 +731,7 @@ impl BiffWrite for Primitive {
         if let Some(num_indices) = &self.num_indices {
             writer.write_tagged_u32("M3FN", *num_indices);
         }
-        if let Some(compressed_indices) = &self.compressed_indices {
+        if let Some(compressed_indices) = &self.compressed_indices_len {
             writer.write_tagged_u32("M3CJ", *compressed_indices);
         }
         if let Some(m3ci) = &self.compressed_indices_data {
@@ -745,7 +742,7 @@ impl BiffWrite for Primitive {
         // TODO rework in a better way
         // if both are present, write them in pairs
         if let (Some(m3ays), Some(m3axs)) = (
-            &self.compressed_animation_vertices,
+            &self.compressed_animation_vertices_len,
             &self.compressed_animation_vertices_data,
         ) {
             for (m3ay, m3ax) in m3ays.iter().zip(m3axs.iter()) {
@@ -847,12 +844,12 @@ mod tests {
             max_aa_bound: Some(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]),
             mesh_file_name: Some("mesh_file_name".to_string()),
             num_vertices: Some(8),
-            compressed_vertices: Some(9),
+            compressed_vertices_len: Some(9),
             compressed_vertices_data: Some(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]),
             num_indices: Some(10),
-            compressed_indices: Some(11),
+            compressed_indices_len: Some(11),
             compressed_indices_data: Some(vec![2, 3, 4, 5, 6, 7, 8, 9, 10]),
-            compressed_animation_vertices: Some(vec![9, 8]),
+            compressed_animation_vertices_len: Some(vec![9, 8]),
             compressed_animation_vertices_data: Some(vec![
                 vec![4, 5, 6, 7, 8, 9, 10, 11, 12],
                 vec![5, 6, 7, 8, 9, 10, 11, 12],
