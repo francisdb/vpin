@@ -1,6 +1,8 @@
 use std::fmt;
 
+use crate::vpx::wav::{read_wav_header, write_wav_header, WavHeader};
 use bytes::{BufMut, BytesMut};
+use serde::{Deserialize, Serialize};
 
 use super::{
     biff::{BiffReader, BiffWriter},
@@ -8,14 +10,6 @@ use super::{
 };
 
 const NEW_SOUND_FORMAT_VERSION: u32 = 1031;
-
-/**
- * An bitmap blob, typically used by textures.
- */
-#[derive(PartialEq)]
-pub struct ImageDataBits {
-    pub data: Vec<u8>,
-}
 
 impl fmt::Debug for SoundData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -38,9 +32,12 @@ impl fmt::Debug for SoundData {
 pub struct SoundData {
     pub name: String,
     pub path: String,
-    pub wave_form: WaveForm, // we probably want this to be optional
+    pub wave_form: WaveForm,
     pub data: Vec<u8>,
-    // seems to like the images be the lowercase of name
+    /// Removed: previously did write the same name again, but just in lower case
+    /// This rudimentary version here needs to stay as otherwise problems when loading, as one field less
+    /// Now just writes a short dummy/empty string.
+    /// see https://github.com/vpinball/vpinball/commit/3320dd11d66ecedba326197c7d4e85c48864cc19
     pub internal_name: String,
     pub fade: u32,
     pub volume: u32,
@@ -48,61 +45,160 @@ pub struct SoundData {
     pub output_target: u8,
 }
 
-fn write_wav_header(sound_data: &SoundData) -> Vec<u8> {
-    let mut buf = BytesMut::with_capacity(44);
-    buf.put(&b"RIFF"[..]); // 4
-    buf.put_u32_le(sound_data.data.len() as u32 + 36); // 4
-    buf.put(&b"WAVE"[..]); // 4
-    buf.put(&b"fmt "[..]); // 4
-    buf.put_u32_le(16); // 4
-    buf.put_u16_le(sound_data.wave_form.format_tag); // 2
-    buf.put_u16_le(sound_data.wave_form.channels); // 2
-    buf.put_u32_le(sound_data.wave_form.samples_per_sec); // 4
-    buf.put_u32_le(
-        sound_data.wave_form.samples_per_sec
-            * sound_data.wave_form.bits_per_sample as u32
-            * sound_data.wave_form.channels as u32
-            / 8,
-    ); // 4
-    buf.put_u16_le(sound_data.wave_form.block_align); // 2
-    buf.put_u16_le(sound_data.wave_form.bits_per_sample); // 2
-    buf.put(&b"data"[..]); // 4
-    buf.put_u32_le(sound_data.data.len() as u32); // 4
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SoundDataJson {
+    name: String,
+    path: String,
+    internal_name: String,
+    fade: u32,
+    volume: u32,
+    balance: u32,
+    output_target: u8,
+    // in case we have a duplicate name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) name_dedup: Option<String>,
+}
+
+impl SoundDataJson {
+    pub fn from_sound_data(sound_data: &SoundData) -> Self {
+        Self {
+            name: sound_data.name.clone(),
+            path: sound_data.path.clone(),
+            internal_name: sound_data.internal_name.clone(),
+            fade: sound_data.fade,
+            volume: sound_data.volume,
+            balance: sound_data.balance,
+            output_target: sound_data.output_target,
+            name_dedup: None,
+        }
+    }
+    pub fn to_sound_data(&self) -> SoundData {
+        SoundData {
+            name: self.name.clone(),
+            path: self.path.clone(),
+            // this is populated by reading the wav or default for other files
+            wave_form: WaveForm::default(),
+            data: Vec::new(),
+            internal_name: self.internal_name.clone(),
+            fade: self.fade,
+            volume: self.volume,
+            balance: self.balance,
+            output_target: self.output_target,
+        }
+    }
+}
+
+const WAV_HEADER_SIZE: usize = 44;
+
+fn write_wav_header2(sound_data: &SoundData) -> Vec<u8> {
+    let data_len = if sound_data.wave_form.format_tag == 1 {
+        // In the vpx file for PCM this is always 0,
+        // so we use the length of the data.
+        sound_data.data.len() as u32 // 4
+    } else {
+        sound_data.wave_form.cb_size as u32 // 4
+    };
+    //let bytes_per_sec = sound_data.wave_form.avg_bytes_per_sec;
+    let bytes_per_sec = sound_data.wave_form.samples_per_sec
+        * sound_data.wave_form.bits_per_sample as u32
+        * sound_data.wave_form.channels as u32
+        / 8;
+    let (extension_size, extra_fields) = if sound_data.wave_form.format_tag == 1 {
+        (None, Vec::<u8>::new())
+    } else {
+        (Some(0), Vec::<u8>::new())
+    };
+
+    let wav_header = WavHeader {
+        size: sound_data.data.len() as u32 + 36,
+        fmt_size: 16,
+        format_tag: sound_data.wave_form.format_tag,
+        channels: sound_data.wave_form.channels,
+        samples_per_sec: sound_data.wave_form.samples_per_sec,
+        avg_bytes_per_sec: bytes_per_sec,
+        block_align: sound_data.wave_form.block_align,
+        bits_per_sample: sound_data.wave_form.bits_per_sample,
+        extension_size,
+        extra_fields,
+        data_size: data_len,
+    };
+    let mut buf = BytesMut::with_capacity(WAV_HEADER_SIZE);
+    write_wav_header(&wav_header, &mut buf);
     buf.to_vec() // total 44 bytes
 }
 
+impl From<WavHeader> for WaveForm {
+    fn from(header: WavHeader) -> Self {
+        WaveForm {
+            format_tag: header.format_tag,
+            channels: header.channels,
+            samples_per_sec: header.samples_per_sec,
+            avg_bytes_per_sec: header.avg_bytes_per_sec,
+            block_align: header.block_align,
+            bits_per_sample: header.bits_per_sample,
+            cb_size: 0,
+        }
+    }
+}
+
 pub fn write_sound(sound_data: &SoundData) -> Vec<u8> {
-    let mut buf = if is_wav(&sound_data.path) {
-        let mut buf = BytesMut::with_capacity(44 + sound_data.data.len());
-        buf.put_slice(&write_wav_header(sound_data));
-        buf
+    if is_wav(&sound_data.path) {
+        if sound_data.wave_form.format_tag != 1 {
+            println!(
+                "write_sound: {} {:?}",
+                sound_data.path, sound_data.wave_form
+            );
+        }
+        let mut buf = BytesMut::with_capacity(WAV_HEADER_SIZE + sound_data.data.len());
+        buf.put_slice(&write_wav_header2(sound_data));
+        buf.put_slice(&sound_data.data);
+        buf.to_vec()
     } else {
-        BytesMut::with_capacity(sound_data.data.len())
-    };
-    buf.put_slice(&sound_data.data);
-    buf.to_vec()
+        sound_data.data.clone()
+    }
+}
+
+pub fn read_sound(data: &[u8], sound_data: &mut SoundData) {
+    if is_wav(&sound_data.path) {
+        let mut reader = bytes::BytesMut::from(data);
+        let header = read_wav_header(&mut reader);
+        let header_data_size = header.data_size;
+        // read all remaining bits
+        sound_data.data = reader.to_vec();
+        let mut wave_form: WaveForm = header.into();
+        if wave_form.format_tag == 1 {
+            // in the vpx file this is always 0 for PCM
+            wave_form.cb_size = 0;
+        } else {
+            wave_form.cb_size = header_data_size as u16;
+        }
+        sound_data.wave_form = wave_form;
+    } else {
+        sound_data.data = data.to_vec();
+    }
 }
 
 #[derive(Debug, PartialEq)]
 pub struct WaveForm {
     // Format type
-    format_tag: u16,
+    pub format_tag: u16,
     // Number of channels (i.e. mono, stereo...)
-    channels: u16,
+    pub channels: u16,
     // Sample rate
-    samples_per_sec: u32,
+    pub samples_per_sec: u32,
     // For buffer estimation
-    avg_bytes_per_sec: u32,
+    pub avg_bytes_per_sec: u32,
     // Block size of data
-    block_align: u16,
+    pub block_align: u16,
     // Number of bits per sample of mono data
-    bits_per_sample: u16,
+    pub bits_per_sample: u16,
     // The count in bytes of the size of extra information (after cbSize)
-    cb_size: u16,
+    // Seems to always be 0 in the vpx file if the format_tag is 1
+    pub cb_size: u16,
 }
 
 impl WaveForm {
-    fn new() -> WaveForm {
+    pub fn new() -> WaveForm {
         WaveForm {
             format_tag: 1,
             channels: 1,
@@ -240,7 +336,7 @@ fn read_wave_form(reader: &mut BiffReader<'_>) -> WaveForm {
     let block_align = reader.get_u16_no_remaining_update();
     let bits_per_sample = reader.get_u16_no_remaining_update();
     let cb_size = reader.get_u16_no_remaining_update();
-    WaveForm {
+    let wave_form = WaveForm {
         format_tag,
         channels,
         samples_per_sec,
@@ -248,10 +344,17 @@ fn read_wave_form(reader: &mut BiffReader<'_>) -> WaveForm {
         block_align,
         bits_per_sample,
         cb_size,
+    };
+    if wave_form.format_tag != 1 {
+        println!("read wave_form: {:?}", wave_form);
     }
+    wave_form
 }
 
 fn write_wave_form(writer: &mut BiffWriter, wave_form: &WaveForm) {
+    if wave_form.format_tag != 1 {
+        println!("write wave_form: {:?}", wave_form);
+    }
     writer.write_u16(wave_form.format_tag);
     writer.write_u16(wave_form.channels);
     writer.write_u32(wave_form.samples_per_sec);
@@ -270,7 +373,7 @@ mod test {
     // TODO add test for non-wav sound
 
     #[test]
-    fn test_write_read_wav() {
+    fn test_write_read_biff_wav() {
         let sound: SoundData = SoundData {
             name: "test name".to_string(),
             path: "test path.wav".to_string(),
@@ -297,10 +400,11 @@ mod test {
     }
 
     #[test]
-    fn test_write_read_other() {
+    fn test_write_read_biff_other() {
         let sound: SoundData = SoundData {
             name: "test name".to_string(),
             path: "test path.mp3".to_string(),
+            // 1MB of data
             data: vec![1, 2, 3, 4],
             wave_form: WaveForm::default(),
             internal_name: "test internalname".to_string(),
@@ -312,6 +416,39 @@ mod test {
         let mut writer = BiffWriter::new();
         write(&Version::new(1083), &sound, &mut writer);
         let sound_read = read(&Version::new(1083), &mut BiffReader::new(writer.get_data()));
+        assert_eq!(sound, sound_read);
+    }
+
+    #[test]
+    fn test_write_read_sound() {
+        let data = vec![4, 3, 2, 1, 0];
+        let wave_form = WaveForm::default();
+        // this field is always 0
+        // wave_form.cb_size = data.len() as u16;
+        let sound: SoundData = SoundData {
+            name: "test name".to_string(),
+            path: "test path.wav".to_string(),
+            data,
+            wave_form,
+            internal_name: "test internalname".to_string(),
+            fade: 1,
+            volume: 2,
+            balance: 3,
+            output_target: 4,
+        };
+        let sound_data = write_sound(&sound);
+        let mut sound_read = SoundData {
+            name: "test name".to_string(),
+            path: "test path.wav".to_string(),
+            data: Vec::new(),
+            wave_form: WaveForm::default(),
+            internal_name: "test internalname".to_string(),
+            fade: 1,
+            volume: 2,
+            balance: 3,
+            output_target: 4,
+        };
+        read_sound(&sound_data, &mut sound_read);
         assert_eq!(sound, sound_read);
     }
 }

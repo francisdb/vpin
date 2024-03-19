@@ -58,6 +58,14 @@ pub mod sound;
 pub mod tableinfo;
 pub mod version;
 
+pub mod material;
+
+pub mod renderprobe;
+
+pub(crate) mod json;
+mod obj;
+pub(crate) mod wav;
+
 /// In-memory representation of a VPX file
 ///
 /// *We guarantee an exact copy when reading and writing this. Exact as in the same structure and data, the underlying compound file will be a bit different on the binary level.*
@@ -74,6 +82,8 @@ pub mod version;
 /// println!("version: {}", vpx.version);
 /// println!("table name: {}", vpx.info.table_name.unwrap_or("unknown".to_string()));
 /// ```
+
+#[derive(Debug, PartialEq)]
 pub struct VPX {
     /// This is mainly here to have an ordering for custom info tags
     pub custominfotags: custominfotags::CustomInfoTags, // this is a bit redundant
@@ -185,6 +195,12 @@ pub fn open<P: AsRef<Path>>(path: P) -> io::Result<VpxFile<fs::File>> {
 ///
 /// **Note:** This might take up a lot of memory depending on the size of the VPX file.
 pub fn read(path: &PathBuf) -> io::Result<VPX> {
+    if !path.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("File not found: {}", path.display()),
+        ));
+    }
     let file = File::open(path)?;
     let mut comp = CompoundFile::open(file)?;
     read_vpx(&mut comp)
@@ -832,7 +848,7 @@ mod tests {
 
         let mac = read_mac(&mut comp)?;
         let expected = [
-            253, 202, 56, 76, 29, 6, 168, 26, 28, 31, 78, 226, 178, 93, 29, 52,
+            197, 157, 117, 26, 180, 53, 40, 250, 243, 252, 134, 86, 190, 22, 83, 119,
         ];
         assert_eq!(mac, expected);
         Ok(())

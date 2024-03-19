@@ -1,8 +1,10 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use fake::Dummy;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::vertex2d::Vertex2D;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Dummy)]
 pub struct Kicker {
     center: Vertex2D,
     radius: f32,
@@ -23,8 +25,97 @@ pub struct Kicker {
     // these are shared between all items
     pub is_locked: bool,
     pub editor_layer: u32,
-    pub editor_layer_name: Option<String>, // default "Layer_{editor_layer + 1}"
+    pub editor_layer_name: Option<String>,
+    // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct KickerJson {
+    center: Vertex2D,
+    radius: f32,
+    is_timer_enabled: bool,
+    timer_interval: u32,
+    material: String,
+    surface: String,
+    is_enabled: bool,
+    name: String,
+    kicker_type: u32,
+    scatter: f32,
+    hit_accuracy: f32,
+    hit_height: Option<f32>,
+    orientation: f32,
+    fall_through: bool,
+    legacy_mode: bool,
+}
+
+impl KickerJson {
+    fn from_kicker(kicker: &Kicker) -> Self {
+        Self {
+            center: kicker.center,
+            radius: kicker.radius,
+            is_timer_enabled: kicker.is_timer_enabled,
+            timer_interval: kicker.timer_interval,
+            material: kicker.material.clone(),
+            surface: kicker.surface.clone(),
+            is_enabled: kicker.is_enabled,
+            name: kicker.name.clone(),
+            kicker_type: kicker.kicker_type,
+            scatter: kicker.scatter,
+            hit_accuracy: kicker.hit_accuracy,
+            hit_height: kicker.hit_height,
+            orientation: kicker.orientation,
+            fall_through: kicker.fall_through,
+            legacy_mode: kicker.legacy_mode,
+        }
+    }
+
+    fn into_kicker(self) -> Kicker {
+        Kicker {
+            center: self.center,
+            radius: self.radius,
+            is_timer_enabled: self.is_timer_enabled,
+            timer_interval: self.timer_interval,
+            material: self.material,
+            surface: self.surface,
+            is_enabled: self.is_enabled,
+            name: self.name,
+            kicker_type: self.kicker_type,
+            scatter: self.scatter,
+            hit_accuracy: self.hit_accuracy,
+            hit_height: self.hit_height,
+            orientation: self.orientation,
+            fall_through: self.fall_through,
+            legacy_mode: self.legacy_mode,
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
+        }
+    }
+}
+
+impl Serialize for Kicker {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        KickerJson::from_kicker(self).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Kicker {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let kicker_json = KickerJson::deserialize(deserializer)?;
+        Ok(kicker_json.into_kicker())
+    }
 }
 
 impl Kicker {
@@ -37,29 +128,35 @@ impl Kicker {
     pub const KICKER_TYPE_CUP2: u32 = 6;
 }
 
+impl Default for Kicker {
+    fn default() -> Self {
+        Self {
+            center: Default::default(),
+            radius: 25.0,
+            is_timer_enabled: false,
+            timer_interval: 0,
+            material: Default::default(),
+            surface: Default::default(),
+            is_enabled: true,
+            name: Default::default(),
+            kicker_type: Kicker::KICKER_TYPE_HOLE,
+            scatter: 0.0,
+            hit_accuracy: 0.7,
+            hit_height: None, //40.0,
+            orientation: 0.0,
+            fall_through: false,
+            legacy_mode: true,
+            is_locked: false,
+            editor_layer: Default::default(),
+            editor_layer_name: None,
+            editor_layer_visibility: None,
+        }
+    }
+}
+
 impl BiffRead for Kicker {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
-        let mut center = Vertex2D::default();
-        let mut radius: f32 = 25.0;
-        let mut is_timer_enabled: bool = false;
-        let mut timer_interval: u32 = 0;
-        let mut material = Default::default();
-        let mut surface = Default::default();
-        let mut is_enabled: bool = true;
-        let mut name = Default::default();
-        let mut kicker_type: u32 = Kicker::KICKER_TYPE_HOLE;
-        let mut scatter: f32 = 0.0;
-        let mut hit_accuracy: f32 = 0.7;
-        let mut hit_height: Option<f32> = None; //40.0;
-        let mut orientation: f32 = 0.0;
-        let mut fall_through: bool = false;
-        let mut legacy_mode: bool = true;
-
-        // these are shared between all items
-        let mut is_locked: bool = false;
-        let mut editor_layer: u32 = Default::default();
-        let mut editor_layer_name: Option<String> = None;
-        let mut editor_layer_visibility: Option<bool> = None;
+        let mut kicker = Kicker::default();
 
         loop {
             reader.next(biff::WARN);
@@ -70,63 +167,63 @@ impl BiffRead for Kicker {
             let tag_str = tag.as_str();
             match tag_str {
                 "VCEN" => {
-                    center = Vertex2D::biff_read(reader);
+                    kicker.center = Vertex2D::biff_read(reader);
                 }
                 "RADI" => {
-                    radius = reader.get_f32();
+                    kicker.radius = reader.get_f32();
                 }
                 "TMON" => {
-                    is_timer_enabled = reader.get_bool();
+                    kicker.is_timer_enabled = reader.get_bool();
                 }
                 "TMIN" => {
-                    timer_interval = reader.get_u32();
+                    kicker.timer_interval = reader.get_u32();
                 }
                 "MATR" => {
-                    material = reader.get_string();
+                    kicker.material = reader.get_string();
                 }
                 "SURF" => {
-                    surface = reader.get_string();
+                    kicker.surface = reader.get_string();
                 }
                 "EBLD" => {
-                    is_enabled = reader.get_bool();
+                    kicker.is_enabled = reader.get_bool();
                 }
                 "NAME" => {
-                    name = reader.get_wide_string();
+                    kicker.name = reader.get_wide_string();
                 }
                 "TYPE" => {
-                    kicker_type = reader.get_u32();
+                    kicker.kicker_type = reader.get_u32();
                 }
                 "KSCT" => {
-                    scatter = reader.get_f32();
+                    kicker.scatter = reader.get_f32();
                 }
                 "KHAC" => {
-                    hit_accuracy = reader.get_f32();
+                    kicker.hit_accuracy = reader.get_f32();
                 }
                 "KHHI" => {
-                    hit_height = Some(reader.get_f32());
+                    kicker.hit_height = Some(reader.get_f32());
                 }
                 "KORI" => {
-                    orientation = reader.get_f32();
+                    kicker.orientation = reader.get_f32();
                 }
                 "FATH" => {
-                    fall_through = reader.get_bool();
+                    kicker.fall_through = reader.get_bool();
                 }
                 "LEMO" => {
-                    legacy_mode = reader.get_bool();
+                    kicker.legacy_mode = reader.get_bool();
                 }
 
                 // shared
                 "LOCK" => {
-                    is_locked = reader.get_bool();
+                    kicker.is_locked = reader.get_bool();
                 }
                 "LAYR" => {
-                    editor_layer = reader.get_u32();
+                    kicker.editor_layer = reader.get_u32();
                 }
                 "LANR" => {
-                    editor_layer_name = Some(reader.get_string());
+                    kicker.editor_layer_name = Some(reader.get_string());
                 }
                 "LVIS" => {
-                    editor_layer_visibility = Some(reader.get_bool());
+                    kicker.editor_layer_visibility = Some(reader.get_bool());
                 }
                 _ => {
                     println!(
@@ -138,27 +235,7 @@ impl BiffRead for Kicker {
                 }
             }
         }
-        Self {
-            center,
-            radius,
-            is_timer_enabled,
-            timer_interval,
-            material,
-            surface,
-            is_enabled,
-            name,
-            kicker_type,
-            scatter,
-            hit_accuracy,
-            hit_height,
-            orientation,
-            fall_through,
-            legacy_mode,
-            is_locked,
-            editor_layer,
-            editor_layer_name,
-            editor_layer_visibility,
-        }
+        kicker
     }
 }
 

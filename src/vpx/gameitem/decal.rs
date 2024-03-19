@@ -1,11 +1,14 @@
+use crate::vpx::color::ColorJson;
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
 };
+use fake::Dummy;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use super::{font::Font, vertex2d::Vertex2D, GameItem};
+use super::{font::Font, font::FontJson, vertex2d::Vertex2D, GameItem};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Dummy)]
 pub struct Decal {
     pub center: Vertex2D,
     pub width: f32,
@@ -27,8 +30,123 @@ pub struct Decal {
     // these are shared between all items
     pub is_locked: bool,
     pub editor_layer: u32,
-    pub editor_layer_name: Option<String>, // default "Layer_{editor_layer + 1}"
+    pub editor_layer_name: Option<String>,
+    // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct DecalJson {
+    center: Vertex2D,
+    width: f32,
+    height: f32,
+    rotation: f32,
+    image: String,
+    surface: String,
+    name: String,
+    text: String,
+    decal_type: u32,
+    material: String,
+    color: ColorJson,
+    sizing_type: u32,
+    vertical_text: bool,
+    backglass: bool,
+    font: FontJson,
+}
+
+impl DecalJson {
+    pub fn from_decal(decal: &Decal) -> Self {
+        Self {
+            center: decal.center,
+            width: decal.width,
+            height: decal.height,
+            rotation: decal.rotation,
+            image: decal.image.clone(),
+            surface: decal.surface.clone(),
+            name: decal.name.clone(),
+            text: decal.text.clone(),
+            decal_type: decal.decal_type,
+            material: decal.material.clone(),
+            color: ColorJson::from_color(&decal.color),
+            sizing_type: decal.sizing_type,
+            vertical_text: decal.vertical_text,
+            backglass: decal.backglass,
+            font: FontJson::from_font(&decal.font),
+        }
+    }
+
+    pub fn to_decal(&self) -> Decal {
+        Decal {
+            center: self.center,
+            width: self.width,
+            height: self.height,
+            rotation: self.rotation,
+            image: self.image.clone(),
+            surface: self.surface.clone(),
+            name: self.name.clone(),
+            text: self.text.clone(),
+            decal_type: self.decal_type,
+            material: self.material.clone(),
+            color: self.color.to_color(),
+            sizing_type: self.sizing_type,
+            vertical_text: self.vertical_text,
+            backglass: self.backglass,
+            font: self.font.to_font(),
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
+        }
+    }
+}
+
+impl Default for Decal {
+    fn default() -> Self {
+        Self {
+            center: Vertex2D::default(),
+            width: 100.0,
+            height: 100.0,
+            rotation: 0.0,
+            image: Default::default(),
+            surface: Default::default(),
+            name: Default::default(),
+            text: Default::default(),
+            decal_type: Decal::DECAL_TYPE_IMAGE,
+            material: Default::default(),
+            color: Color::new_bgr(0x000000),
+            sizing_type: Decal::SIZING_TYPE_MANUAL_SIZE,
+            vertical_text: false,
+            backglass: false,
+            font: Font::default(),
+            is_locked: false,
+            editor_layer: Default::default(),
+            editor_layer_name: None,
+            editor_layer_visibility: None,
+        }
+    }
+}
+
+impl Serialize for Decal {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        DecalJson::from_decal(self).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Decal {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let json = DecalJson::deserialize(deserializer)?;
+        Ok(json.to_decal())
+    }
 }
 
 impl Decal {
@@ -48,29 +166,7 @@ impl GameItem for Decal {
 
 impl BiffRead for Decal {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
-        let mut center = Vertex2D::default();
-        let mut width: f32 = 100.0;
-        let mut height: f32 = 100.0;
-        let mut rotation: f32 = 0.0;
-        let mut image = Default::default();
-        let mut surface = Default::default();
-        let mut name = Default::default();
-        let mut text = Default::default();
-        let mut decal_type: u32 = Decal::DECAL_TYPE_IMAGE;
-        let mut material: String = Default::default();
-        let mut color = Color::new_bgr(0x000000);
-        let mut sizing_type: u32 = Decal::SIZING_TYPE_MANUAL_SIZE;
-        let mut vertical_text: bool = false;
-        let mut backglass: bool = false;
-
-        let mut font = Default::default();
-
-        // these are shared between all items
-        let mut is_locked: bool = false;
-        let mut editor_layer: u32 = Default::default();
-        let mut editor_layer_name: Option<String> = None;
-        let mut editor_layer_visibility: Option<bool> = None;
-
+        let mut decal = Decal::default();
         loop {
             reader.next(biff::WARN);
             if reader.is_eof() {
@@ -80,64 +176,64 @@ impl BiffRead for Decal {
             let tag_str = tag.as_str();
             match tag_str {
                 "VCEN" => {
-                    center = Vertex2D::biff_read(reader);
+                    decal.center = Vertex2D::biff_read(reader);
                 }
                 "WDTH" => {
-                    width = reader.get_f32();
+                    decal.width = reader.get_f32();
                 }
                 "HIGH" => {
-                    height = reader.get_f32();
+                    decal.height = reader.get_f32();
                 }
                 "ROTA" => {
-                    rotation = reader.get_f32();
+                    decal.rotation = reader.get_f32();
                 }
                 "IMAG" => {
-                    image = reader.get_string();
+                    decal.image = reader.get_string();
                 }
                 "SURF" => {
-                    surface = reader.get_string();
+                    decal.surface = reader.get_string();
                 }
                 "NAME" => {
-                    name = reader.get_wide_string();
+                    decal.name = reader.get_wide_string();
                 }
                 "TEXT" => {
-                    text = reader.get_string();
+                    decal.text = reader.get_string();
                 }
                 "TYPE" => {
-                    decal_type = reader.get_u32();
+                    decal.decal_type = reader.get_u32();
                 }
                 "MATR" => {
-                    material = reader.get_string();
+                    decal.material = reader.get_string();
                 }
                 "COLR" => {
-                    color = Color::biff_read_bgr(reader);
+                    decal.color = Color::biff_read_bgr(reader);
                 }
                 "SIZE" => {
-                    sizing_type = reader.get_u32();
+                    decal.sizing_type = reader.get_u32();
                 }
                 "VERT" => {
-                    vertical_text = reader.get_bool();
+                    decal.vertical_text = reader.get_bool();
                 }
                 "BGLS" => {
-                    backglass = reader.get_bool();
+                    decal.backglass = reader.get_bool();
                 }
 
                 "FONT" => {
-                    font = Font::biff_read(reader);
+                    decal.font = Font::biff_read(reader);
                 }
 
                 // shared
                 "LOCK" => {
-                    is_locked = reader.get_bool();
+                    decal.is_locked = reader.get_bool();
                 }
                 "LAYR" => {
-                    editor_layer = reader.get_u32();
+                    decal.editor_layer = reader.get_u32();
                 }
                 "LANR" => {
-                    editor_layer_name = Some(reader.get_string());
+                    decal.editor_layer_name = Some(reader.get_string());
                 }
                 "LVIS" => {
-                    editor_layer_visibility = Some(reader.get_bool());
+                    decal.editor_layer_visibility = Some(reader.get_bool());
                 }
                 _ => {
                     println!(
@@ -149,27 +245,7 @@ impl BiffRead for Decal {
                 }
             }
         }
-        Decal {
-            center,
-            width,
-            height,
-            rotation,
-            image,
-            surface,
-            name,
-            text,
-            decal_type,
-            material,
-            color,
-            sizing_type,
-            vertical_text,
-            backglass,
-            font,
-            is_locked,
-            editor_layer,
-            editor_layer_name,
-            editor_layer_visibility,
-        }
+        decal
     }
 }
 
@@ -209,6 +285,7 @@ impl BiffWrite for Decal {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
+    use fake::{Fake, Faker};
 
     use super::*;
     use pretty_assertions::assert_eq;
@@ -240,6 +317,22 @@ mod tests {
         let mut writer = BiffWriter::new();
         Decal::biff_write(&decal, &mut writer);
         let decal_read = Decal::biff_read(&mut BiffReader::new(writer.get_data()));
+        assert_eq!(decal, decal_read);
+    }
+
+    #[test]
+    fn test_write_read_json() {
+        // values not equal to the defaults
+        let decal: Decal = Faker.fake();
+        let decal_json = DecalJson::from_decal(&decal);
+        let json = serde_json::to_string(&decal_json).unwrap();
+        let decal_read_json: DecalJson = serde_json::from_str(&json).unwrap();
+        let mut decal_read = decal_read_json.to_decal();
+        // json does not store the shared fields
+        decal_read.is_locked = decal.is_locked;
+        decal_read.editor_layer = decal.editor_layer;
+        decal_read.editor_layer_name = decal.editor_layer_name.clone();
+        decal_read.editor_layer_visibility = decal.editor_layer_visibility;
         assert_eq!(decal, decal_read);
     }
 }

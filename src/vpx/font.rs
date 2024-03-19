@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 use super::biff::{self, BiffReader, BiffWriter};
@@ -9,6 +10,28 @@ pub struct FontData {
     pub name: String,
     pub path: String, // patho of original file for easy re-importing
     pub data: Vec<u8>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct FontDataJson {
+    name: String,
+    path: String,
+}
+
+impl FontDataJson {
+    pub fn from_font_data(font_data: &FontData) -> Self {
+        Self {
+            name: font_data.name.clone(),
+            path: font_data.path.clone(),
+        }
+    }
+    pub fn to_font_data(&self) -> FontData {
+        FontData {
+            name: self.name.clone(),
+            path: self.path.clone(),
+            data: vec![],
+        }
+    }
 }
 
 impl fmt::Debug for FontData {

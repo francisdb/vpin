@@ -1,8 +1,10 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use fake::Dummy;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::vertex2d::Vertex2D;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Dummy)]
 pub struct Plunger {
     center: Vertex2D,
     width: f32,
@@ -40,8 +42,148 @@ pub struct Plunger {
     // these are shared between all items
     pub is_locked: bool,
     pub editor_layer: u32,
-    pub editor_layer_name: Option<String>, // default "Layer_{editor_layer + 1}"
+    pub editor_layer_name: Option<String>,
+    // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct PlungerJson {
+    center: Vertex2D,
+    width: f32,
+    height: f32,
+    z_adjust: f32,
+    stroke: f32,
+    speed_pull: f32,
+    speed_fire: f32,
+    plunger_type: u32,
+    anim_frames: u32,
+    material: String,
+    image: String,
+    mech_strength: f32,
+    is_mech_plunger: bool,
+    auto_plunger: bool,
+    park_position: f32,
+    scatter_velocity: f32,
+    momentum_xfer: f32,
+    is_timer_enabled: bool,
+    timer_interval: u32,
+    is_visible: bool,
+    is_reflection_enabled: Option<bool>,
+    surface: String,
+    name: String,
+    tip_shape: String,
+    rod_diam: f32,
+    ring_gap: f32,
+    ring_diam: f32,
+    ring_width: f32,
+    spring_diam: f32,
+    spring_gauge: f32,
+    spring_loops: f32,
+    spring_end_loops: f32,
+}
+
+impl PlungerJson {
+    pub fn from_plunger(plunger: &Plunger) -> Self {
+        Self {
+            center: plunger.center,
+            width: plunger.width,
+            height: plunger.height,
+            z_adjust: plunger.z_adjust,
+            stroke: plunger.stroke,
+            speed_pull: plunger.speed_pull,
+            speed_fire: plunger.speed_fire,
+            plunger_type: plunger.plunger_type,
+            anim_frames: plunger.anim_frames,
+            material: plunger.material.clone(),
+            image: plunger.image.clone(),
+            mech_strength: plunger.mech_strength,
+            is_mech_plunger: plunger.is_mech_plunger,
+            auto_plunger: plunger.auto_plunger,
+            park_position: plunger.park_position,
+            scatter_velocity: plunger.scatter_velocity,
+            momentum_xfer: plunger.momentum_xfer,
+            is_timer_enabled: plunger.is_timer_enabled,
+            timer_interval: plunger.timer_interval,
+            is_visible: plunger.is_visible,
+            is_reflection_enabled: plunger.is_reflection_enabled,
+            surface: plunger.surface.clone(),
+            name: plunger.name.clone(),
+            tip_shape: plunger.tip_shape.clone(),
+            rod_diam: plunger.rod_diam,
+            ring_gap: plunger.ring_gap,
+            ring_diam: plunger.ring_diam,
+            ring_width: plunger.ring_width,
+            spring_diam: plunger.spring_diam,
+            spring_gauge: plunger.spring_gauge,
+            spring_loops: plunger.spring_loops,
+            spring_end_loops: plunger.spring_end_loops,
+        }
+    }
+
+    pub fn to_plunger(&self) -> Plunger {
+        Plunger {
+            center: self.center,
+            width: self.width,
+            height: self.height,
+            z_adjust: self.z_adjust,
+            stroke: self.stroke,
+            speed_pull: self.speed_pull,
+            speed_fire: self.speed_fire,
+            plunger_type: self.plunger_type,
+            anim_frames: self.anim_frames,
+            material: self.material.clone(),
+            image: self.image.clone(),
+            mech_strength: self.mech_strength,
+            is_mech_plunger: self.is_mech_plunger,
+            auto_plunger: self.auto_plunger,
+            park_position: self.park_position,
+            scatter_velocity: self.scatter_velocity,
+            momentum_xfer: self.momentum_xfer,
+            is_timer_enabled: self.is_timer_enabled,
+            timer_interval: self.timer_interval,
+            is_visible: self.is_visible,
+            is_reflection_enabled: self.is_reflection_enabled,
+            surface: self.surface.clone(),
+            name: self.name.clone(),
+            tip_shape: self.tip_shape.clone(),
+            rod_diam: self.rod_diam,
+            ring_gap: self.ring_gap,
+            ring_diam: self.ring_diam,
+            ring_width: self.ring_width,
+            spring_diam: self.spring_diam,
+            spring_gauge: self.spring_gauge,
+            spring_loops: self.spring_loops,
+            spring_end_loops: self.spring_end_loops,
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
+        }
+    }
+}
+
+impl Serialize for Plunger {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        PlungerJson::from_plunger(self).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Plunger {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let json = PlungerJson::deserialize(deserializer)?;
+        Ok(json.to_plunger())
+    }
 }
 
 impl Plunger {

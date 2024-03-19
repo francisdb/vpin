@@ -1,71 +1,280 @@
+use crate::vpx::color::ColorJson;
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
 };
+use fake::Dummy;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::vertex3d::Vertex3D;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Dummy)]
 pub struct Primitive {
-    pub position: Vertex3D,                      // 0 VPOS
-    pub size: Vertex3D,                          // 1 VSIZ
-    pub rot_and_tra: [f32; 9],                   // 2-11 RTV0-RTV8
-    pub image: String,                           // 12 IMAG
-    pub normal_map: Option<String>,              // 13 NRMA (added in 10.?)
-    pub sides: u32,                              // 14
-    pub name: String,                            // 15
-    pub material: String,                        // 16
-    pub side_color: Color,                       // 17
-    pub is_visible: bool,                        // 18
-    pub draw_textures_inside: bool,              // 19
-    pub hit_event: bool,                         // 20
-    pub threshold: f32,                          // 21
-    pub elasticity: f32,                         // 22
-    pub elasticity_falloff: f32,                 // 23
-    pub friction: f32,                           // 24
-    pub scatter: f32,                            // 25
-    pub edge_factor_ui: f32,                     // 26
-    pub collision_reduction_factor: Option<f32>, // 27 CORF (was missing in 10.01)
-    pub is_collidable: bool,                     // 28
-    pub is_toy: bool,                            // 29
-    pub use_3d_mesh: bool,                       // 30
-    pub static_rendering: bool,                  // 31
-    pub disable_lighting_top_old: Option<f32>,   // DILI (removed in 10.8)
-    pub disable_lighting_top: Option<f32>,       // DILT (added in 10.8)
-    pub disable_lighting_below: Option<f32>,     // 33 DILB (added in 10.?)
-    pub is_reflection_enabled: Option<bool>,     // 34 REEN (was missing in 10.01)
-    pub backfaces_enabled: Option<bool>,         // 35 EBFC (added in 10.?)
-    pub physics_material: Option<String>,        // 36 MAPH (added in 10.?)
-    pub overwrite_physics: Option<bool>,         // 37 OVPH (added in 10.?)
-    pub display_texture: Option<bool>,           // 38 DIPT (added in ?)
-    pub object_space_normal_map: Option<bool>,   // 38.5 OSNM (added in ?)
-    pub min_aa_bound: Option<Vec<u8>>,           // BMIN added in 10.8 ( TODO Vector3D)
-    pub max_aa_bound: Option<Vec<u8>>,           // BMAX added in 10.8( TODO Vector3D)
-    pub mesh_file_name: Option<String>,          // 39 M3DN
-    pub num_vertices: Option<u32>,               // 40 M3VN
-    pub compressed_vertices: Option<u32>,        // 41 M3CY
-    pub m3cx: Option<Vec<u8>>,                   // 42 M3CX
-    pub num_indices: Option<u32>,                // 43 M3FN
-    pub compressed_indices: Option<u32>,         // 44 M3CJ
-    pub m3ci: Option<Vec<u8>>,                   // 45 M3CI
-    pub m3ay: Option<Vec<Vec<u8>>>,              // 46 M3AY multiple
-    pub m3ax: Option<Vec<Vec<u8>>>,              // 47 M3AX multiple
-    pub depth_bias: f32,                         // 45 PIDB
-    pub add_blend: Option<bool>,                 // 46 ADDB - added in ?
-    pub use_depth_mask: Option<bool>,            // ZMSK added in 10.8
-    pub alpha: Option<f32>,                      // 47 FALP - added in ?
-    pub color: Option<Color>,                    // 48 COLR - added in ?
-    pub light_map: Option<String>,               // LMAP - added in 10.8
-    pub reflection_probe: Option<String>,        // REFL - added in 10.8
-    pub reflection_strength: Option<f32>,        // RSTR - added in 10.8
-    pub refraction_probe: Option<String>,        // REFR - added in 10.8
-    pub refraction_thickness: Option<f32>,       // RTHI - added in 10.8
+    pub position: Vertex3D,                                       // 0 VPOS
+    pub size: Vertex3D,                                           // 1 VSIZ
+    pub rot_and_tra: [f32; 9],                                    // 2-11 RTV0-RTV8
+    pub image: String,                                            // 12 IMAG
+    pub normal_map: Option<String>,                               // 13 NRMA (added in 10.?)
+    pub sides: u32,                                               // 14
+    pub name: String,                                             // 15
+    pub material: String,                                         // 16
+    pub side_color: Color,                                        // 17
+    pub is_visible: bool,                                         // 18
+    pub draw_textures_inside: bool,                               // 19
+    pub hit_event: bool,                                          // 20
+    pub threshold: f32,                                           // 21
+    pub elasticity: f32,                                          // 22
+    pub elasticity_falloff: f32,                                  // 23
+    pub friction: f32,                                            // 24
+    pub scatter: f32,                                             // 25
+    pub edge_factor_ui: f32,                                      // 26
+    pub collision_reduction_factor: Option<f32>,                  // 27 CORF (was missing in 10.01)
+    pub is_collidable: bool,                                      // 28
+    pub is_toy: bool,                                             // 29
+    pub use_3d_mesh: bool,                                        // 30
+    pub static_rendering: bool,                                   // 31
+    pub disable_lighting_top_old: Option<f32>,                    // DILI (removed in 10.8)
+    pub disable_lighting_top: Option<f32>,                        // DILT (added in 10.8)
+    pub disable_lighting_below: Option<f32>,                      // 33 DILB (added in 10.?)
+    pub is_reflection_enabled: Option<bool>,                      // 34 REEN (was missing in 10.01)
+    pub backfaces_enabled: Option<bool>,                          // 35 EBFC (added in 10.?)
+    pub physics_material: Option<String>,                         // 36 MAPH (added in 10.?)
+    pub overwrite_physics: Option<bool>,                          // 37 OVPH (added in 10.?)
+    pub display_texture: Option<bool>,                            // 38 DIPT (added in ?)
+    pub object_space_normal_map: Option<bool>,                    // 38.5 OSNM (added in ?)
+    pub min_aa_bound: Option<Vec<u8>>, // BMIN added in 10.8 ( TODO Vector3D)
+    pub max_aa_bound: Option<Vec<u8>>, // BMAX added in 10.8( TODO Vector3D)
+    pub mesh_file_name: Option<String>, // 39 M3DN
+    pub num_vertices: Option<u32>,     // 40 M3VN
+    pub compressed_vertices_len: Option<u32>, // 41 M3CY
+    pub compressed_vertices_data: Option<Vec<u8>>, // 42 M3CX
+    pub num_indices: Option<u32>,      // 43 M3FN
+    pub compressed_indices_len: Option<u32>, // 44 M3CJ
+    pub compressed_indices_data: Option<Vec<u8>>, // 45 M3CI
+    pub compressed_animation_vertices_len: Option<Vec<u32>>, // 46 M3AY multiple
+    pub compressed_animation_vertices_data: Option<Vec<Vec<u8>>>, // 47 M3AX multiple
+    pub depth_bias: f32,               // 45 PIDB
+    pub add_blend: Option<bool>,       // 46 ADDB - added in ?
+    pub use_depth_mask: Option<bool>,  // ZMSK added in 10.8
+    pub alpha: Option<f32>,            // 47 FALP - added in ?
+    pub color: Option<Color>,          // 48 COLR - added in ?
+    pub light_map: Option<String>,     // LMAP - added in 10.8
+    pub reflection_probe: Option<String>, // REFL - added in 10.8
+    pub reflection_strength: Option<f32>, // RSTR - added in 10.8
+    pub refraction_probe: Option<String>, // REFR - added in 10.8
+    pub refraction_thickness: Option<f32>, // RTHI - added in 10.8
 
     // these are shared between all items
     pub is_locked: bool,
     pub editor_layer: u32,
-    pub editor_layer_name: Option<String>, // default "Layer_{editor_layer + 1}"
+    pub editor_layer_name: Option<String>,
+    // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct PrimitiveJson {
+    position: Vertex3D,
+    size: Vertex3D,
+    rot_and_tra: [f32; 9],
+    image: String,
+    normal_map: Option<String>,
+    sides: u32,
+    name: String,
+    material: String,
+    side_color: ColorJson,
+    is_visible: bool,
+    draw_textures_inside: bool,
+    hit_event: bool,
+    threshold: f32,
+    elasticity: f32,
+    elasticity_falloff: f32,
+    friction: f32,
+    scatter: f32,
+    edge_factor_ui: f32,
+    collision_reduction_factor: Option<f32>,
+    is_collidable: bool,
+    is_toy: bool,
+    use_3d_mesh: bool,
+    static_rendering: bool,
+    disable_lighting_top_old: Option<f32>,
+    disable_lighting_top: Option<f32>,
+    disable_lighting_below: Option<f32>,
+    is_reflection_enabled: Option<bool>,
+    backfaces_enabled: Option<bool>,
+    physics_material: Option<String>,
+    overwrite_physics: Option<bool>,
+    display_texture: Option<bool>,
+    object_space_normal_map: Option<bool>,
+    min_aa_bound: Option<Vec<u8>>,
+    max_aa_bound: Option<Vec<u8>>,
+    mesh_file_name: Option<String>,
+    // TODO remove this as we don't need it
+    num_vertices: Option<u32>,
+    // TODO remove this as we don't need it
+    compressed_vertices: Option<u32>,
+    //compressed_vertices_data: Option<Vec<u8>>,
+    // TODO remove this as we don't need it
+    num_indices: Option<u32>,
+    // TODO remove this as we don't need it
+    compressed_indices: Option<u32>,
+    //compressed_indices_data: Option<Vec<u8>>,
+    depth_bias: f32,
+    add_blend: Option<bool>,
+    use_depth_mask: Option<bool>,
+    alpha: Option<f32>,
+    color: Option<ColorJson>,
+    light_map: Option<String>,
+    reflection_probe: Option<String>,
+    reflection_strength: Option<f32>,
+    refraction_probe: Option<String>,
+    refraction_thickness: Option<f32>,
+}
+
+impl PrimitiveJson {
+    pub fn from_primitive(primitive: &Primitive) -> Self {
+        Self {
+            position: primitive.position,
+            size: primitive.size,
+            rot_and_tra: primitive.rot_and_tra,
+            image: primitive.image.clone(),
+            normal_map: primitive.normal_map.clone(),
+            sides: primitive.sides,
+            name: primitive.name.clone(),
+            material: primitive.material.clone(),
+            side_color: ColorJson::from_color(&primitive.side_color),
+            is_visible: primitive.is_visible,
+            draw_textures_inside: primitive.draw_textures_inside,
+            hit_event: primitive.hit_event,
+            threshold: primitive.threshold,
+            elasticity: primitive.elasticity,
+            elasticity_falloff: primitive.elasticity_falloff,
+            friction: primitive.friction,
+            scatter: primitive.scatter,
+            edge_factor_ui: primitive.edge_factor_ui,
+            collision_reduction_factor: primitive.collision_reduction_factor,
+            is_collidable: primitive.is_collidable,
+            is_toy: primitive.is_toy,
+            use_3d_mesh: primitive.use_3d_mesh,
+            static_rendering: primitive.static_rendering,
+            disable_lighting_top_old: primitive.disable_lighting_top_old,
+            disable_lighting_top: primitive.disable_lighting_top,
+            disable_lighting_below: primitive.disable_lighting_below,
+            is_reflection_enabled: primitive.is_reflection_enabled,
+            backfaces_enabled: primitive.backfaces_enabled,
+            physics_material: primitive.physics_material.clone(),
+            overwrite_physics: primitive.overwrite_physics,
+            display_texture: primitive.display_texture,
+            object_space_normal_map: primitive.object_space_normal_map,
+            min_aa_bound: primitive.min_aa_bound.clone(),
+            max_aa_bound: primitive.max_aa_bound.clone(),
+            mesh_file_name: primitive.mesh_file_name.clone(),
+            num_vertices: primitive.num_vertices,
+            compressed_vertices: primitive.compressed_vertices_len,
+            //compressed_vertices_data: primitive.m3cx.clone(),
+            num_indices: primitive.num_indices,
+            compressed_indices: primitive.compressed_indices_len,
+            // compressed_indices_Data: primitive.m3ci.clone(),
+            // compressed_animation_vertices: primitive.compressed_animation_vertices_len.clone(),
+            // compressed_animation_vertices_data: primitive
+            //     .compressed_animation_vertices_data
+            //     .clone(),
+            depth_bias: primitive.depth_bias,
+            add_blend: primitive.add_blend,
+            use_depth_mask: primitive.use_depth_mask,
+            alpha: primitive.alpha,
+            color: primitive.color.map(|c| ColorJson::from_color(&c)),
+            light_map: primitive.light_map.clone(),
+            reflection_probe: primitive.reflection_probe.clone(),
+            reflection_strength: primitive.reflection_strength,
+            refraction_probe: primitive.refraction_probe.clone(),
+            refraction_thickness: primitive.refraction_thickness,
+        }
+    }
+    pub fn to_primitive(&self) -> Primitive {
+        Primitive {
+            position: self.position,
+            size: self.size,
+            rot_and_tra: self.rot_and_tra,
+            image: self.image.clone(),
+            normal_map: self.normal_map.clone(),
+            sides: self.sides,
+            name: self.name.clone(),
+            material: self.material.clone(),
+            side_color: self.side_color.to_color(),
+            is_visible: self.is_visible,
+            draw_textures_inside: self.draw_textures_inside,
+            hit_event: self.hit_event,
+            threshold: self.threshold,
+            elasticity: self.elasticity,
+            elasticity_falloff: self.elasticity_falloff,
+            friction: self.friction,
+            scatter: self.scatter,
+            edge_factor_ui: self.edge_factor_ui,
+            collision_reduction_factor: self.collision_reduction_factor,
+            is_collidable: self.is_collidable,
+            is_toy: self.is_toy,
+            use_3d_mesh: self.use_3d_mesh,
+            static_rendering: self.static_rendering,
+            disable_lighting_top_old: self.disable_lighting_top_old,
+            disable_lighting_top: self.disable_lighting_top,
+            disable_lighting_below: self.disable_lighting_below,
+            is_reflection_enabled: self.is_reflection_enabled,
+            backfaces_enabled: self.backfaces_enabled,
+            physics_material: self.physics_material.clone(),
+            overwrite_physics: self.overwrite_physics,
+            display_texture: self.display_texture,
+            object_space_normal_map: self.object_space_normal_map,
+            min_aa_bound: self.min_aa_bound.clone(),
+            max_aa_bound: self.max_aa_bound.clone(),
+            mesh_file_name: self.mesh_file_name.clone(),
+            num_vertices: self.num_vertices,
+            compressed_vertices_len: self.compressed_vertices,
+            compressed_vertices_data: None, //self.m3cx.clone(),
+            num_indices: self.num_indices,
+            compressed_indices_len: self.compressed_indices,
+            compressed_indices_data: None, //self.m3ci.clone(),
+            compressed_animation_vertices_len: None, // self.compressed_animation_vertices.clone(),
+            compressed_animation_vertices_data: None, //self.compressed_animation_vertices_data.clone(),
+            depth_bias: self.depth_bias,
+            add_blend: self.add_blend,
+            use_depth_mask: self.use_depth_mask,
+            alpha: self.alpha,
+            color: self.color.as_ref().map(|c| ColorJson::to_color(c)),
+            light_map: self.light_map.clone(),
+            reflection_probe: self.reflection_probe.clone(),
+            reflection_strength: self.reflection_strength,
+            refraction_probe: self.refraction_probe.clone(),
+            refraction_thickness: self.refraction_thickness,
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
+        }
+    }
+}
+
+impl Serialize for Primitive {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        PrimitiveJson::from_primitive(self).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Primitive {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let json = PrimitiveJson::deserialize(deserializer)?;
+        Ok(json.to_primitive())
+    }
 }
 
 impl BiffRead for Primitive {
@@ -111,8 +320,8 @@ impl BiffRead for Primitive {
         let mut m3cx: Option<Vec<u8>> = None;
         let mut num_indices: Option<u32> = None;
         let mut compressed_indices: Option<u32> = None;
-        let mut m3ci: Option<Vec<u8>> = None;
-        let mut m3ay: Option<Vec<Vec<u8>>> = None;
+        let mut compressed_indices_data: Option<Vec<u8>> = None;
+        let mut compressed_animation_vertices: Option<Vec<u32>> = None;
         let mut m3ax: Option<Vec<Vec<u8>>> = None;
 
         let mut depth_bias: f32 = 0.0;
@@ -300,14 +509,14 @@ impl BiffRead for Primitive {
                     compressed_indices = Some(reader.get_u32());
                 }
                 "M3CI" => {
-                    m3ci = Some(reader.get_record_data(false));
+                    compressed_indices_data = Some(reader.get_record_data(false));
                 }
                 "M3AY" => {
-                    match m3ay {
+                    match compressed_animation_vertices {
                         Some(ref mut m3ay) => {
-                            m3ay.push(reader.get_record_data(false));
+                            m3ay.push(reader.get_u32());
                         }
-                        None => m3ay = Some(vec![reader.get_record_data(false)]),
+                        None => compressed_animation_vertices = Some(vec![reader.get_u32()]),
                     };
                 }
                 "M3AX" => {
@@ -411,13 +620,13 @@ impl BiffRead for Primitive {
             max_aa_bound,
             mesh_file_name,
             num_vertices,
-            compressed_vertices,
-            m3cx,
+            compressed_vertices_len: compressed_vertices,
+            compressed_vertices_data: m3cx,
             num_indices,
-            compressed_indices,
-            m3ci,
-            m3ay,
-            m3ax,
+            compressed_indices_len: compressed_indices,
+            compressed_indices_data,
+            compressed_animation_vertices_len: compressed_animation_vertices,
+            compressed_animation_vertices_data: m3ax,
             depth_bias,
             add_blend,
             use_depth_mask,
@@ -513,28 +722,31 @@ impl BiffWrite for Primitive {
         if let Some(num_vertices) = &self.num_vertices {
             writer.write_tagged_u32("M3VN", *num_vertices);
         }
-        if let Some(compressed_vertices) = &self.compressed_vertices {
+        if let Some(compressed_vertices) = &self.compressed_vertices_len {
             writer.write_tagged_u32("M3CY", *compressed_vertices);
         }
-        if let Some(m3cx) = &self.m3cx {
+        if let Some(m3cx) = &self.compressed_vertices_data {
             writer.write_tagged_data("M3CX", m3cx);
         }
         if let Some(num_indices) = &self.num_indices {
             writer.write_tagged_u32("M3FN", *num_indices);
         }
-        if let Some(compressed_indices) = &self.compressed_indices {
+        if let Some(compressed_indices) = &self.compressed_indices_len {
             writer.write_tagged_u32("M3CJ", *compressed_indices);
         }
-        if let Some(m3ci) = &self.m3ci {
+        if let Some(m3ci) = &self.compressed_indices_data {
             writer.write_tagged_data("M3CI", m3ci);
         }
 
         // these should come in pairs
         // TODO rework in a better way
         // if both are present, write them in pairs
-        if let (Some(m3ays), Some(m3axs)) = (&self.m3ay, &self.m3ax) {
+        if let (Some(m3ays), Some(m3axs)) = (
+            &self.compressed_animation_vertices_len,
+            &self.compressed_animation_vertices_data,
+        ) {
             for (m3ay, m3ax) in m3ays.iter().zip(m3axs.iter()) {
-                writer.write_tagged_data("M3AY", m3ay);
+                writer.write_tagged_u32("M3AY", *m3ay);
                 writer.write_tagged_data("M3AX", m3ax);
             }
         }
@@ -632,18 +844,15 @@ mod tests {
             max_aa_bound: Some(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]),
             mesh_file_name: Some("mesh_file_name".to_string()),
             num_vertices: Some(8),
-            compressed_vertices: Some(9),
-            m3cx: Some(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]),
+            compressed_vertices_len: Some(9),
+            compressed_vertices_data: Some(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]),
             num_indices: Some(10),
-            compressed_indices: Some(11),
-            m3ci: Some(vec![2, 3, 4, 5, 6, 7, 8, 9, 10]),
-            m3ay: Some(vec![
-                vec![3, 4, 5, 6, 7, 8, 9, 10, 11],
+            compressed_indices_len: Some(11),
+            compressed_indices_data: Some(vec![2, 3, 4, 5, 6, 7, 8, 9, 10]),
+            compressed_animation_vertices_len: Some(vec![9, 8]),
+            compressed_animation_vertices_data: Some(vec![
                 vec![4, 5, 6, 7, 8, 9, 10, 11, 12],
-            ]),
-            m3ax: Some(vec![
-                vec![4, 5, 6, 7, 8, 9, 10, 11, 12],
-                vec![5, 6, 7, 8, 9, 10, 11, 12, 13],
+                vec![5, 6, 7, 8, 9, 10, 11, 12],
             ]),
             depth_bias: 12.0,
             add_blend: rng.gen(),

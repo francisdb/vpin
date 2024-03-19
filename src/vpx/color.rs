@@ -1,8 +1,10 @@
 use crate::vpx::biff::BiffReader;
+use fake::Dummy;
+use serde::{Deserialize, Serialize};
 
 use super::biff::BiffWriter;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Dummy)]
 pub struct Color {
     a: u8,
     r: u8,
@@ -10,8 +12,78 @@ pub struct Color {
     b: u8,
 }
 
+// TODO we might want to switch to a more standard format like #AARRGGBB
+#[derive(Debug, PartialEq)]
+pub(crate) struct ColorJson {
+    a: u8,
+    r: u8,
+    g: u8,
+    b: u8,
+}
+
+impl ColorJson {
+    pub fn from_color(color: &Color) -> Self {
+        Self {
+            a: color.a,
+            r: color.r,
+            g: color.g,
+            b: color.b,
+        }
+    }
+    pub fn to_color(&self) -> Color {
+        Color {
+            a: self.a,
+            r: self.r,
+            g: self.g,
+            b: self.b,
+        }
+    }
+}
+
+/**
+ * This is a custom serializer for the ColorJson struct.
+ * It serializes the color as a string in the format "#AARRGGBB".
+ */
+impl Serialize for ColorJson {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let s = format!("#{:02x}{:02x}{:02x}{:02x}", self.a, self.r, self.g, self.b);
+        serializer.serialize_str(&s)
+    }
+}
+
+/**
+ * This is a custom deserializer for the ColorJson struct.
+ * It deserializes the color from a string in the format "#AARRGGBB".
+ */
+impl<'de> Deserialize<'de> for ColorJson {
+    fn deserialize<D>(deserializer: D) -> Result<ColorJson, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        if s.len() != 9 {
+            return Err(serde::de::Error::custom(
+                "Invalid color format, expected #AARRGGBB",
+            ));
+        }
+        if &s[0..1] != "#" {
+            return Err(serde::de::Error::custom(
+                "Invalid color format, expected #AARRGGBB",
+            ));
+        }
+        let a = u8::from_str_radix(&s[1..3], 16).map_err(serde::de::Error::custom)?;
+        let r = u8::from_str_radix(&s[3..5], 16).map_err(serde::de::Error::custom)?;
+        let g = u8::from_str_radix(&s[5..7], 16).map_err(serde::de::Error::custom)?;
+        let b = u8::from_str_radix(&s[7..9], 16).map_err(serde::de::Error::custom)?;
+        Ok(ColorJson { a, r, g, b })
+    }
+}
+
 impl Color {
-    pub fn new_argb(arg: u32) -> Color {
+    pub fn from_argb(arg: u32) -> Color {
         let a = ((arg >> 24) & 0xff) as u8;
         let r = ((arg >> 16) & 0xff) as u8;
         let g = ((arg >> 8) & 0xff) as u8;

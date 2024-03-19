@@ -1,8 +1,10 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use fake::Dummy;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::dragpoint::DragPoint;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Dummy)]
 pub struct Rubber {
     pub height: f32,
     pub hit_height: Option<f32>, // HTHI (added in 10.?)
@@ -32,159 +34,146 @@ pub struct Rubber {
     // these are shared between all items
     pub is_locked: bool,
     pub editor_layer: u32,
-    pub editor_layer_name: Option<String>, // default "Layer_{editor_layer + 1}"
+    pub editor_layer_name: Option<String>,
+    // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
 
     points: Vec<DragPoint>,
 }
 
-impl BiffRead for Rubber {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
-        let mut height: f32 = 25.0;
-        let mut hit_height: Option<f32> = None; //25.0;
-        let mut thickness: i32 = 8;
-        let mut hit_event: bool = false;
-        let mut material: String = Default::default();
-        let mut is_timer_enabled: bool = false;
-        let mut timer_interval: i32 = Default::default();
-        let mut name: String = Default::default();
-        let mut image: String = Default::default();
-        let mut elasticity: f32 = Default::default();
-        let mut elasticity_falloff: f32 = Default::default();
-        let mut friction: f32 = Default::default();
-        let mut scatter: f32 = Default::default();
-        let mut is_collidable: bool = true;
-        let mut is_visible: bool = true;
-        let mut radb: Option<f32> = None;
-        let mut static_rendering: bool = true;
-        let mut show_in_editor: bool = true;
-        let mut rot_x: f32 = 0.0;
-        let mut rot_y: f32 = 0.0;
-        let mut rot_z: f32 = 0.0;
-        let mut is_reflection_enabled: Option<bool> = None; // true;
-        let mut physics_material: Option<String> = None;
-        let mut overwrite_physics: Option<bool> = None; //false;
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct RubberJson {
+    height: f32,
+    hit_height: Option<f32>,
+    thickness: i32,
+    hit_event: bool,
+    material: String,
+    is_timer_enabled: bool,
+    timer_interval: i32,
+    name: String,
+    image: String,
+    elasticity: f32,
+    elasticity_falloff: f32,
+    friction: f32,
+    scatter: f32,
+    is_collidable: bool,
+    is_visible: bool,
+    radb: Option<f32>,
+    static_rendering: bool,
+    show_in_editor: bool,
+    rot_x: f32,
+    rot_y: f32,
+    rot_z: f32,
+    is_reflection_enabled: Option<bool>,
+    physics_material: Option<String>,
+    overwrite_physics: Option<bool>,
+    points: Vec<DragPoint>,
+}
+
+impl RubberJson {
+    fn from_rubber(rubber: &Rubber) -> Self {
+        RubberJson {
+            height: rubber.height,
+            hit_height: rubber.hit_height,
+            thickness: rubber.thickness,
+            hit_event: rubber.hit_event,
+            material: rubber.material.clone(),
+            is_timer_enabled: rubber.is_timer_enabled,
+            timer_interval: rubber.timer_interval,
+            name: rubber.name.clone(),
+            image: rubber.image.clone(),
+            elasticity: rubber.elasticity,
+            elasticity_falloff: rubber.elasticity_falloff,
+            friction: rubber.friction,
+            scatter: rubber.scatter,
+            is_collidable: rubber.is_collidable,
+            is_visible: rubber.is_visible,
+            radb: rubber.radb,
+            static_rendering: rubber.static_rendering,
+            show_in_editor: rubber.show_in_editor,
+            rot_x: rubber.rot_x,
+            rot_y: rubber.rot_y,
+            rot_z: rubber.rot_z,
+            is_reflection_enabled: rubber.is_reflection_enabled,
+            physics_material: rubber.physics_material.clone(),
+            overwrite_physics: rubber.overwrite_physics,
+            points: rubber.points.clone(),
+        }
+    }
+
+    fn to_rubber(&self) -> Rubber {
+        Rubber {
+            height: self.height,
+            hit_height: self.hit_height,
+            thickness: self.thickness,
+            hit_event: self.hit_event,
+            material: self.material.clone(),
+            is_timer_enabled: self.is_timer_enabled,
+            timer_interval: self.timer_interval,
+            name: self.name.clone(),
+            image: self.image.clone(),
+            elasticity: self.elasticity,
+            elasticity_falloff: self.elasticity_falloff,
+            friction: self.friction,
+            scatter: self.scatter,
+            is_collidable: self.is_collidable,
+            is_visible: self.is_visible,
+            radb: self.radb,
+            static_rendering: self.static_rendering,
+            show_in_editor: self.show_in_editor,
+            rot_x: self.rot_x,
+            rot_y: self.rot_y,
+            rot_z: self.rot_z,
+            is_reflection_enabled: self.is_reflection_enabled,
+            physics_material: self.physics_material.clone(),
+            overwrite_physics: self.overwrite_physics,
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
+            points: self.points.clone(),
+        }
+    }
+}
+
+impl Default for Rubber {
+    fn default() -> Self {
+        let height: f32 = 25.0;
+        let hit_height: Option<f32> = None; //25.0;
+        let thickness: i32 = 8;
+        let hit_event: bool = false;
+        let material: String = Default::default();
+        let is_timer_enabled: bool = false;
+        let timer_interval: i32 = Default::default();
+        let name: String = Default::default();
+        let image: String = Default::default();
+        let elasticity: f32 = Default::default();
+        let elasticity_falloff: f32 = Default::default();
+        let friction: f32 = Default::default();
+        let scatter: f32 = Default::default();
+        let is_collidable: bool = true;
+        let is_visible: bool = true;
+        let radb: Option<f32> = None; //0.0;
+        let static_rendering: bool = true;
+        let show_in_editor: bool = true;
+        let rot_x: f32 = 0.0;
+        let rot_y: f32 = 0.0;
+        let rot_z: f32 = 0.0;
+        let is_reflection_enabled: Option<bool> = None; //true;
+        let physics_material: Option<String> = None;
+        let overwrite_physics: Option<bool> = None; //false;
 
         // these are shared between all items
-        let mut is_locked: bool = false;
-        let mut editor_layer: u32 = Default::default();
-        let mut editor_layer_name: Option<String> = None;
-        let mut editor_layer_visibility: Option<bool> = None;
+        let is_locked: bool = false;
+        let editor_layer: u32 = Default::default();
+        let editor_layer_name: Option<String> = None;
+        let editor_layer_visibility: Option<bool> = None;
 
-        let mut points: Vec<DragPoint> = Default::default();
-
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
-            let tag_str = tag.as_str();
-            match tag_str {
-                "HTTP" => {
-                    height = reader.get_f32();
-                }
-                "HTHI" => {
-                    hit_height = Some(reader.get_f32());
-                }
-                "WDTP" => {
-                    thickness = reader.get_i32();
-                }
-                "HTEV" => {
-                    hit_event = reader.get_bool();
-                }
-                "MATR" => {
-                    material = reader.get_string();
-                }
-                "TMON" => {
-                    is_timer_enabled = reader.get_bool();
-                }
-                "TMIN" => {
-                    timer_interval = reader.get_i32();
-                }
-                "NAME" => {
-                    name = reader.get_wide_string();
-                }
-                "IMAG" => {
-                    image = reader.get_string();
-                }
-                "ELAS" => {
-                    elasticity = reader.get_f32();
-                }
-                "ELFO" => {
-                    elasticity_falloff = reader.get_f32();
-                }
-                "RFCT" => {
-                    friction = reader.get_f32();
-                }
-                "RSCT" => {
-                    scatter = reader.get_f32();
-                }
-                "CLDR" => {
-                    is_collidable = reader.get_bool();
-                }
-                "RVIS" => {
-                    is_visible = reader.get_bool();
-                }
-                "RADB" => {
-                    radb = Some(reader.get_f32());
-                }
-                "ESTR" => {
-                    static_rendering = reader.get_bool();
-                }
-                "ESIE" => {
-                    show_in_editor = reader.get_bool();
-                }
-                "ROTX" => {
-                    rot_x = reader.get_f32();
-                }
-                "ROTY" => {
-                    rot_y = reader.get_f32();
-                }
-                "ROTZ" => {
-                    rot_z = reader.get_f32();
-                }
-                "REEN" => {
-                    is_reflection_enabled = Some(reader.get_bool());
-                }
-                "MAPH" => {
-                    physics_material = Some(reader.get_string());
-                }
-                "OVPH" => {
-                    overwrite_physics = Some(reader.get_bool());
-                }
-
-                // shared
-                "LOCK" => {
-                    is_locked = reader.get_bool();
-                }
-                "LAYR" => {
-                    editor_layer = reader.get_u32();
-                }
-                "LANR" => {
-                    editor_layer_name = Some(reader.get_string());
-                }
-                "LVIS" => {
-                    editor_layer_visibility = Some(reader.get_bool());
-                }
-
-                "PNTS" => {
-                    // this is just a tag with no data
-                }
-                "DPNT" => {
-                    let point = DragPoint::biff_read(reader);
-                    points.push(point);
-                }
-                _ => {
-                    println!(
-                        "Unknown tag {} for {}",
-                        tag_str,
-                        std::any::type_name::<Self>()
-                    );
-                    reader.skip_tag();
-                }
-            }
-        }
+        let points: Vec<DragPoint> = Default::default();
         Rubber {
             height,
             hit_height,
@@ -216,6 +205,145 @@ impl BiffRead for Rubber {
             editor_layer_visibility,
             points,
         }
+    }
+}
+
+impl Serialize for Rubber {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        RubberJson::from_rubber(self).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Rubber {
+    fn deserialize<D>(deserializer: D) -> Result<Rubber, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let rubber_json = RubberJson::deserialize(deserializer)?;
+        Ok(rubber_json.to_rubber())
+    }
+}
+
+impl BiffRead for Rubber {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
+        let mut rubber = Rubber::default();
+
+        loop {
+            reader.next(biff::WARN);
+            if reader.is_eof() {
+                break;
+            }
+            let tag = reader.tag();
+            let tag_str = tag.as_str();
+            match tag_str {
+                "HTTP" => {
+                    rubber.height = reader.get_f32();
+                }
+                "HTHI" => {
+                    rubber.hit_height = Some(reader.get_f32());
+                }
+                "WDTP" => {
+                    rubber.thickness = reader.get_i32();
+                }
+                "HTEV" => {
+                    rubber.hit_event = reader.get_bool();
+                }
+                "MATR" => {
+                    rubber.material = reader.get_string();
+                }
+                "TMON" => {
+                    rubber.is_timer_enabled = reader.get_bool();
+                }
+                "TMIN" => {
+                    rubber.timer_interval = reader.get_i32();
+                }
+                "NAME" => {
+                    rubber.name = reader.get_wide_string();
+                }
+                "IMAG" => {
+                    rubber.image = reader.get_string();
+                }
+                "ELAS" => {
+                    rubber.elasticity = reader.get_f32();
+                }
+                "ELFO" => {
+                    rubber.elasticity_falloff = reader.get_f32();
+                }
+                "RFCT" => {
+                    rubber.friction = reader.get_f32();
+                }
+                "RSCT" => {
+                    rubber.scatter = reader.get_f32();
+                }
+                "CLDR" => {
+                    rubber.is_collidable = reader.get_bool();
+                }
+                "RVIS" => {
+                    rubber.is_visible = reader.get_bool();
+                }
+                "RADB" => {
+                    rubber.radb = Some(reader.get_f32());
+                }
+                "ESTR" => {
+                    rubber.static_rendering = reader.get_bool();
+                }
+                "ESIE" => {
+                    rubber.show_in_editor = reader.get_bool();
+                }
+                "ROTX" => {
+                    rubber.rot_x = reader.get_f32();
+                }
+                "ROTY" => {
+                    rubber.rot_y = reader.get_f32();
+                }
+                "ROTZ" => {
+                    rubber.rot_z = reader.get_f32();
+                }
+                "REEN" => {
+                    rubber.is_reflection_enabled = Some(reader.get_bool());
+                }
+                "MAPH" => {
+                    rubber.physics_material = Some(reader.get_string());
+                }
+                "OVPH" => {
+                    rubber.overwrite_physics = Some(reader.get_bool());
+                }
+
+                // shared
+                "LOCK" => {
+                    rubber.is_locked = reader.get_bool();
+                }
+                "LAYR" => {
+                    rubber.editor_layer = reader.get_u32();
+                }
+                "LANR" => {
+                    rubber.editor_layer_name = Some(reader.get_string());
+                }
+                "LVIS" => {
+                    rubber.editor_layer_visibility = Some(reader.get_bool());
+                }
+
+                "PNTS" => {
+                    // this is just a tag with no data
+                }
+                "DPNT" => {
+                    let point = DragPoint::biff_read(reader);
+                    rubber.points.push(point);
+                }
+                _ => {
+                    println!(
+                        "Unknown tag {} for {}",
+                        tag_str,
+                        std::any::type_name::<Self>()
+                    );
+                    reader.skip_tag();
+                }
+            }
+        }
+        rubber
     }
 }
 

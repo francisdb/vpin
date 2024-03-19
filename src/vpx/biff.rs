@@ -47,6 +47,18 @@ impl<'a> BiffReader<'a> {
         reader
     }
 
+    pub fn with_remaining(data: &'a [u8], bytes_in_record_remaining: usize) -> Self {
+        let reader: BiffReader<'a> = BiffReader {
+            data,
+            pos: 0,
+            bytes_in_record_remaining,
+            record_start: 0,
+            tag: "".to_string(),
+            warn_remaining: true,
+        };
+        reader
+    }
+
     /**
      * Useful if you just want to read a bunch of tags and don't care about the data
      */
@@ -181,16 +193,8 @@ impl<'a> BiffReader<'a> {
         let data = &self.data[self.pos..self.pos + pos_0];
 
         self.pos += count;
-        match String::from_utf8(data.to_vec()) {
-            Ok(s) => StringWithEncoding {
-                encoding: StringEncoding::Utf8,
-                string: s.to_string(),
-            },
-            Err(_e) => StringWithEncoding {
-                encoding: StringEncoding::Latin1,
-                string: decode_latin1(data).to_string(),
-            },
-        }
+        let s: StringWithEncoding = data.into();
+        s
     }
 
     pub fn get_str_no_remaining_update(&mut self, count: usize) -> String {
@@ -384,6 +388,10 @@ impl<'a> BiffReader<'a> {
         self.pos += count;
         self.bytes_in_record_remaining = 0;
         d
+    }
+
+    pub(crate) fn get_remaining(&self) -> &[u8] {
+        &self.data[self.pos..]
     }
 
     pub fn skip(&mut self, count: usize) {

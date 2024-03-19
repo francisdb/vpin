@@ -47,15 +47,55 @@ pub fn quantize_unsigned_percent(x: f32) -> u32 {
 // }
 
 #[inline]
-pub fn dequantize_unsigned(bits: u8, i: u32) -> f32 {
+pub fn quantize_u8(bits: u8, x: f32) -> u8 {
+    let n = (1 << bits) - 1;
+    let np1 = 1 << bits;
+    assert!(x >= 0.0);
+    ((x * (np1 as f32)).min(n as f32)) as u8
+}
+
+#[inline]
+pub fn dequantize_u8(bits: u8, i: u8) -> f32 {
     let n = (1 << bits) - 1;
     precise_divide(i as f32, n as f32).min(1.0)
 }
 
-#[inline]
-pub fn quantize_unsigned(bits: u8, x: f32) -> u32 {
-    let n = (1 << bits) - 1;
-    let np1 = 1 << bits;
-    assert!(x >= 0.0);
-    (x * np1 as f32).min(n as f32) as u32
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_quantize_u8_8() {
+        assert_eq!(quantize_u8(8, 0.0), 0);
+        assert_eq!(quantize_u8(8, 1.0), 255);
+        assert_eq!(quantize_u8(8, 0.5), 128);
+    }
+
+    #[test]
+    fn test_dequantize_u8_8() {
+        assert_eq!(dequantize_u8(8, 0), 0.0);
+        assert_eq!(dequantize_u8(8, 255), 1.0);
+        assert_eq!(dequantize_u8(8, 128), 0.5019608);
+    }
+
+    #[test]
+    fn test_dequantize_quantize_u8() {
+        assert_eq!(quantize_u8(8, dequantize_u8(8, 0)), 0);
+        assert_eq!(quantize_u8(8, dequantize_u8(8, 100)), 100);
+        assert_eq!(quantize_u8(8, dequantize_u8(8, 50)), 50);
+    }
+
+    #[test]
+    fn test_quantize_u8_7() {
+        assert_eq!(quantize_u8(7, 0.0), 0);
+        assert_eq!(quantize_u8(7, 1.0), 127);
+        assert_eq!(quantize_u8(7, 0.5), 64);
+    }
+
+    #[test]
+    fn test_dequantize_u8_7() {
+        assert_eq!(dequantize_u8(7, 0), 0.0);
+        assert_eq!(dequantize_u8(7, 127), 1.0);
+        assert_eq!(dequantize_u8(7, 64), 0.503937);
+    }
 }

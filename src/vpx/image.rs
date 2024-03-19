@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 use super::biff::{self, BiffRead, BiffReader, BiffWrite, BiffWriter};
@@ -8,8 +9,9 @@ pub struct ImageDataJpeg {
     pub name: String,
     // /**
     //  * Lowercased name?
+    //  * No longer in use
     //  */
-    pub inme: Option<String>,
+    pub internal_name: Option<String>,
     // alpha_test_value: f32,
     pub data: Vec<u8>,
 }
@@ -48,8 +50,10 @@ pub struct ImageData {
     pub name: String, // NAME
     // /**
     //  * Lowercased name?
+    //  * INME
+    //  * No longer in use
     //  */
-    pub inme: Option<String>,
+    pub internal_name: Option<String>,
     pub path: String, // PATH
     pub width: u32,   // WDTH
     pub height: u32,  // HGHT
@@ -63,6 +67,101 @@ pub struct ImageData {
     // TODO we can probably only have one of these so we can make an enum
     pub jpeg: Option<ImageDataJpeg>,
     pub bits: Option<ImageDataBits>,
+}
+
+impl ImageData {
+    pub fn is_link(&self) -> bool {
+        self.link == Some(1)
+    }
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize)]
+pub(crate) struct ImageDataJpegJson {
+    path: String,
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    inme: Option<String>,
+}
+
+impl ImageDataJpegJson {
+    pub fn from_image_data_jpeg(image_data_jpeg: &ImageDataJpeg) -> Self {
+        ImageDataJpegJson {
+            path: image_data_jpeg.path.clone(),
+            name: image_data_jpeg.name.clone(),
+            inme: image_data_jpeg.internal_name.clone(),
+        }
+    }
+
+    pub fn to_image_data_jpeg(&self) -> ImageDataJpeg {
+        ImageDataJpeg {
+            path: self.path.clone(),
+            name: self.name.clone(),
+            internal_name: self.inme.clone(),
+            data: vec![], // data is stored in a separate file
+        }
+    }
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize)]
+pub(crate) struct ImageDataJson {
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    internal_name: Option<String>,
+    path: String,
+    width: u32,
+    height: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    link: Option<u32>,
+    alpha_test_value: f32,
+    is_opaque: Option<bool>,
+    is_signed: Option<bool>,
+    jpeg: Option<ImageDataJpegJson>,
+    bits: bool,
+    // in case we have a duplicate name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) name_dedup: Option<String>,
+}
+
+impl ImageDataJson {
+    pub fn from_image_data(image_data: &ImageData) -> Self {
+        ImageDataJson {
+            name: image_data.name.clone(),
+            internal_name: image_data.internal_name.clone(),
+            path: image_data.path.clone(),
+            width: image_data.width,
+            height: image_data.height,
+            link: image_data.link,
+            alpha_test_value: image_data.alpha_test_value,
+            is_opaque: image_data.is_opaque,
+            is_signed: image_data.is_signed,
+            jpeg: image_data
+                .jpeg
+                .as_ref()
+                .map(|jpeg| ImageDataJpegJson::from_image_data_jpeg(jpeg)),
+            bits: image_data.bits.is_some(),
+            name_dedup: None,
+        }
+    }
+
+    pub fn to_image_data(&self) -> ImageData {
+        ImageData {
+            name: self.name.clone(),
+            internal_name: self.internal_name.clone(),
+            path: self.path.clone(),
+            width: self.width,
+            height: self.height,
+            link: self.link,
+            alpha_test_value: self.alpha_test_value,
+            is_opaque: self.is_opaque,
+            is_signed: self.is_signed,
+            jpeg: self.jpeg.as_ref().map(|jpeg| jpeg.to_image_data_jpeg()),
+            bits: if self.bits {
+                Some(ImageDataBits { data: vec![] })
+            } else {
+                None
+            },
+        }
+    }
 }
 
 impl ImageData {
@@ -87,18 +186,26 @@ impl BiffRead for ImageData {
     }
 }
 
+impl Default for ImageData {
+    fn default() -> Self {
+        ImageData {
+            name: "".to_string(),
+            internal_name: None,
+            path: "".to_string(),
+            width: 0,
+            height: 0,
+            link: None,
+            alpha_test_value: 0.0,
+            is_opaque: None,
+            is_signed: None,
+            jpeg: None,
+            bits: None,
+        }
+    }
+}
+
 fn read(reader: &mut BiffReader) -> ImageData {
-    let mut name: String = "".to_string();
-    let mut inme: Option<String> = None;
-    let mut height: u32 = 0;
-    let mut width: u32 = 0;
-    let mut path: String = "".to_string();
-    let mut alpha_test_value: f32 = 0.0;
-    let mut is_opaque: Option<bool> = None;
-    let mut is_signed: Option<bool> = None;
-    let mut jpeg: Option<ImageDataJpeg> = None;
-    let mut bits: Option<ImageDataBits> = None;
-    let mut link: Option<u32> = None;
+    let mut image_data = ImageData::default();
     loop {
         reader.next(biff::WARN);
         if reader.is_eof() {
@@ -108,28 +215,28 @@ fn read(reader: &mut BiffReader) -> ImageData {
         let tag_str = tag.as_str();
         match tag_str {
             "NAME" => {
-                name = reader.get_string();
+                image_data.name = reader.get_string();
             }
             "PATH" => {
-                path = reader.get_string();
+                image_data.path = reader.get_string();
             }
             "INME" => {
-                inme = Some(reader.get_string());
+                image_data.internal_name = Some(reader.get_string());
             }
             "WDTH" => {
-                width = reader.get_u32();
+                image_data.width = reader.get_u32();
             }
             "HGHT" => {
-                height = reader.get_u32();
+                image_data.height = reader.get_u32();
             }
             "ALTV" => {
-                alpha_test_value = reader.get_f32();
+                image_data.alpha_test_value = reader.get_f32();
             }
             "OPAQ" => {
-                is_opaque = Some(reader.get_bool());
+                image_data.is_opaque = Some(reader.get_bool());
             }
             "SIGN" => {
-                is_signed = Some(reader.get_bool());
+                image_data.is_signed = Some(reader.get_bool());
             }
             "BITS" => {
                 // these have zero as length
@@ -139,14 +246,14 @@ fn read(reader: &mut BiffReader) -> ImageData {
 
                 // uncompressed = zlib.decompress(image_data.data[image_data.pos:]) #, wbits=9)
                 // reader.skip_end_tag(len.try_into().unwrap());
-                bits = Some(ImageDataBits { data });
+                image_data.bits = Some(ImageDataBits { data });
             }
             "JPEG" => {
                 // these have zero as length
-                // Strangely, raw data are pushed outside of the JPEG tag (breaking the BIFF structure of the file)
+                // Strangely, raw data are pushed outside the JPEG tag (breaking the BIFF structure of the file)
                 let mut sub_reader = reader.child_reader();
                 let jpeg_data = read_jpeg(&mut sub_reader);
-                jpeg = Some(jpeg_data);
+                image_data.jpeg = Some(jpeg_data);
                 let pos = sub_reader.pos();
                 reader.skip_end_tag(pos);
             }
@@ -154,7 +261,7 @@ fn read(reader: &mut BiffReader) -> ImageData {
                 // TODO seems to be 1 for some kind of link type img, related to screenshots.
                 // we only see this where a screenshot is set on the table info.
                 // https://github.com/vpinball/vpinball/blob/1a70aa35eb57ec7b5fbbb9727f6735e8ef3183e0/Texture.cpp#L588
-                link = Some(reader.get_u32());
+                image_data.link = Some(reader.get_u32());
             }
             _ => {
                 println!("Skipping image tag: {}", tag);
@@ -162,24 +269,12 @@ fn read(reader: &mut BiffReader) -> ImageData {
             }
         }
     }
-    ImageData {
-        name,
-        inme,
-        path,
-        width,
-        height,
-        link,
-        alpha_test_value,
-        is_opaque,
-        is_signed,
-        jpeg,
-        bits,
-    }
+    image_data
 }
 
 fn write(data: &ImageData, writer: &mut BiffWriter) {
     writer.write_tagged_string("NAME", &data.name);
-    if let Some(inme) = &data.inme {
+    if let Some(inme) = &data.internal_name {
         writer.write_tagged_string("INME", inme);
     }
     writer.write_tagged_string("PATH", &data.path);
@@ -212,7 +307,7 @@ fn read_jpeg(reader: &mut BiffReader) -> ImageDataJpeg {
     let mut name: String = "".to_string();
     let mut data: Vec<u8> = vec![];
     // let mut alpha_test_value: f32 = 0.0;
-    let mut inme: Option<String> = None;
+    let mut internal_name: Option<String> = None;
     loop {
         reader.next(biff::WARN);
         if reader.is_eof() {
@@ -233,7 +328,7 @@ fn read_jpeg(reader: &mut BiffReader) -> ImageDataJpeg {
             "NAME" => name = reader.get_string(),
             "PATH" => path = reader.get_string(),
             // "ALTV" => alpha_test_value = reader.get_f32(), // TODO why are these duplicated?
-            "INME" => inme = Some(reader.get_string()),
+            "INME" => internal_name = Some(reader.get_string()),
             _ => {
                 // skip this record
                 println!("skipping tag inside JPEG {}", tag);
@@ -245,7 +340,7 @@ fn read_jpeg(reader: &mut BiffReader) -> ImageDataJpeg {
     ImageDataJpeg {
         path,
         name,
-        inme,
+        internal_name,
         // alpha_test_value,
         data,
     }
@@ -254,7 +349,7 @@ fn read_jpeg(reader: &mut BiffReader) -> ImageDataJpeg {
 fn write_jpg(img: &ImageDataJpeg) -> Vec<u8> {
     let mut writer = BiffWriter::new();
     writer.write_tagged_string("NAME", &img.name);
-    if let Some(inme) = &img.inme {
+    if let Some(inme) = &img.internal_name {
         writer.write_tagged_string("INME", inme);
     }
     writer.write_tagged_string("PATH", &img.path);
@@ -276,7 +371,7 @@ mod test {
         let img = ImageDataJpeg {
             path: "path_value".to_string(),
             name: "name_value".to_string(),
-            inme: Some("inme_value".to_string()),
+            internal_name: Some("inme_value".to_string()),
             // alpha_test_value: 1.0,
             data: vec![1, 2, 3],
         };
@@ -292,7 +387,7 @@ mod test {
     fn test_write_read() {
         let image: ImageData = ImageData {
             name: "name_value".to_string(),
-            inme: Some("inme_value".to_string()),
+            internal_name: Some("inme_value".to_string()),
             path: "path_value".to_string(),
             width: 1,
             height: 2,
@@ -303,7 +398,7 @@ mod test {
             jpeg: Some(ImageDataJpeg {
                 path: "path_value".to_string(),
                 name: "name_value".to_string(),
-                inme: Some("inme_value".to_string()),
+                internal_name: Some("inme_value".to_string()),
                 // alpha_test_value: 1.0,
                 data: vec![1, 2, 3],
             }),

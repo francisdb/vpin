@@ -1,3 +1,4 @@
+use std::num::ParseIntError;
 use std::path::PathBuf;
 use std::{
     cmp,
@@ -11,6 +12,19 @@ use cfb::{CompoundFile, Stream};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Version(u32);
+
+impl Version {
+    pub fn parse(version: &str) -> Result<Version, ParseIntError> {
+        // TODO can we make more precise assumptions about the format?
+        let version = version.parse::<u32>()?;
+        Ok(Version(version))
+    }
+
+    pub fn to_string(&self) -> String {
+        self.0.to_string()
+    }
+}
+
 impl Version {
     pub fn new(version: u32) -> Self {
         Version(version)
@@ -74,4 +88,38 @@ fn write_version_data<F: Read + Write + Seek>(
 ) -> io::Result<()> {
     stream.write_u32::<LittleEndian>(version.0)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use pretty_assertions::assert_eq;
+    use testresult::TestResult;
+
+    #[test]
+    pub fn test_parse_invalid() {
+        let version_string = "invalid";
+        let parsed_version = Version::parse(version_string);
+        assert!(parsed_version.is_err());
+        let message = parsed_version.unwrap_err().to_string();
+        assert_eq!(message, "invalid digit found in string");
+    }
+
+    #[test]
+    pub fn test_to_string_parse() -> TestResult {
+        let version = Version::new(1080);
+        let version_string = version.to_string();
+        let parsed_version = Version::parse(&version_string)?;
+        assert_eq!(version, parsed_version);
+        Ok(())
+    }
+
+    #[test]
+    pub fn test_parse_to_string() -> TestResult {
+        let version_string = "1080";
+        let parsed_version = Version::parse(version_string)?;
+        let version_string2 = parsed_version.to_string();
+        assert_eq!(version_string, version_string2);
+        Ok(())
+    }
 }

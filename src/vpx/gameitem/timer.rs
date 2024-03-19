@@ -1,8 +1,10 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use fake::Dummy;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::vertex2d::Vertex2D;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Dummy)]
 pub struct Timer {
     pub center: Vertex2D,
     pub is_timer_enabled: bool,
@@ -13,24 +15,87 @@ pub struct Timer {
     // these are shared between all items
     pub is_locked: bool,
     pub editor_layer: u32,
-    pub editor_layer_name: Option<String>, // default "Layer_{editor_layer + 1}"
+    pub editor_layer_name: Option<String>,
+    // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct TimerJson {
+    center: Vertex2D,
+    is_timer_enabled: bool,
+    timer_interval: i32,
+    name: String,
+    backglass: bool,
+}
+
+impl TimerJson {
+    pub fn from_timer(timer: &Timer) -> Self {
+        Self {
+            center: timer.center,
+            is_timer_enabled: timer.is_timer_enabled,
+            timer_interval: timer.timer_interval,
+            name: timer.name.clone(),
+            backglass: timer.backglass,
+        }
+    }
+    pub fn to_timer(&self) -> Timer {
+        Timer {
+            center: self.center,
+            is_timer_enabled: self.is_timer_enabled,
+            timer_interval: self.timer_interval,
+            name: self.name.clone(),
+            backglass: self.backglass,
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
+        }
+    }
+}
+
+impl Serialize for Timer {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        TimerJson::from_timer(self).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Timer {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let json = TimerJson::deserialize(deserializer)?;
+        Ok(json.to_timer())
+    }
+}
+
+impl Default for Timer {
+    fn default() -> Self {
+        Self {
+            center: Vertex2D::default(),
+            is_timer_enabled: false,
+            timer_interval: 1000,
+            name: "Timer".to_string(),
+            backglass: false,
+            is_locked: false,
+            editor_layer: 0,
+            editor_layer_name: None,
+            editor_layer_visibility: None,
+        }
+    }
 }
 
 impl BiffRead for Timer {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
-        let mut center = Vertex2D::default();
-        let mut is_timer_enabled: bool = false;
-        let mut timer_interval: i32 = Default::default();
-        let mut name = String::new();
-        let mut backglass: bool = false;
-
-        // these are shared between all items
-        let mut is_locked: bool = false;
-        let mut editor_layer: u32 = Default::default();
-        let mut editor_layer_name: Option<String> = None;
-        let mut editor_layer_visibility: Option<bool> = None;
-
+        let mut timer = Timer::default();
         loop {
             reader.next(biff::WARN);
             if reader.is_eof() {
@@ -40,32 +105,32 @@ impl BiffRead for Timer {
             let tag_str = tag.as_str();
             match tag_str {
                 "VCEN" => {
-                    center = Vertex2D::biff_read(reader);
+                    timer.center = Vertex2D::biff_read(reader);
                 }
                 "TMON" => {
-                    is_timer_enabled = reader.get_bool();
+                    timer.is_timer_enabled = reader.get_bool();
                 }
                 "TMIN" => {
-                    timer_interval = reader.get_i32();
+                    timer.timer_interval = reader.get_i32();
                 }
                 "NAME" => {
-                    name = reader.get_wide_string();
+                    timer.name = reader.get_wide_string();
                 }
                 "BGLS" => {
-                    backglass = reader.get_bool();
+                    timer.backglass = reader.get_bool();
                 }
                 // shared
                 "LOCK" => {
-                    is_locked = reader.get_bool();
+                    timer.is_locked = reader.get_bool();
                 }
                 "LAYR" => {
-                    editor_layer = reader.get_u32();
+                    timer.editor_layer = reader.get_u32();
                 }
                 "LANR" => {
-                    editor_layer_name = Some(reader.get_string());
+                    timer.editor_layer_name = Some(reader.get_string());
                 }
                 "LVIS" => {
-                    editor_layer_visibility = Some(reader.get_bool());
+                    timer.editor_layer_visibility = Some(reader.get_bool());
                 }
                 _ => {
                     println!(
@@ -77,17 +142,7 @@ impl BiffRead for Timer {
                 }
             }
         }
-        Timer {
-            center,
-            is_timer_enabled,
-            timer_interval,
-            name,
-            backglass,
-            is_locked,
-            editor_layer,
-            editor_layer_name,
-            editor_layer_visibility,
-        }
+        timer
     }
 }
 

@@ -1,8 +1,10 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use fake::Dummy;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{dragpoint::DragPoint, vertex2d::Vertex2D, TRIGGER_SHAPE_WIRE_A};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Dummy)]
 pub struct Trigger {
     pub center: Vertex2D,
     pub radius: f32,
@@ -33,40 +35,141 @@ pub struct Trigger {
     // these are shared between all items
     pub is_locked: bool,
     pub editor_layer: u32,
-    pub editor_layer_name: Option<String>, // default "Layer_{editor_layer + 1}"
+    pub editor_layer_name: Option<String>,
+    // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
 
     drag_points: Vec<DragPoint>,
 }
 
+#[derive(Serialize, Deserialize)]
+struct TriggerJson {
+    center: Vertex2D,
+    radius: f32,
+    rotation: f32,
+    wire_thickness: Option<f32>,
+    scale_x: f32,
+    scale_y: f32,
+    is_timer_enabled: bool,
+    timer_interval: i32,
+    material: String,
+    surface: String,
+    is_visible: bool,
+    is_enabled: bool,
+    hit_height: f32,
+    name: String,
+    shape: u32,
+    anim_speed: f32,
+    is_reflection_enabled: Option<bool>,
+    drag_points: Vec<DragPoint>,
+}
+
+impl TriggerJson {
+    pub fn from_trigger(trigger: &Trigger) -> Self {
+        Self {
+            center: trigger.center,
+            radius: trigger.radius,
+            rotation: trigger.rotation,
+            wire_thickness: trigger.wire_thickness,
+            scale_x: trigger.scale_x,
+            scale_y: trigger.scale_y,
+            is_timer_enabled: trigger.is_timer_enabled,
+            timer_interval: trigger.timer_interval,
+            material: trigger.material.clone(),
+            surface: trigger.surface.clone(),
+            is_visible: trigger.is_visible,
+            is_enabled: trigger.is_enabled,
+            hit_height: trigger.hit_height,
+            name: trigger.name.clone(),
+            shape: trigger.shape,
+            anim_speed: trigger.anim_speed,
+            is_reflection_enabled: trigger.is_reflection_enabled,
+            drag_points: trigger.drag_points.clone(),
+        }
+    }
+    pub fn to_trigger(&self) -> Trigger {
+        Trigger {
+            center: self.center,
+            radius: self.radius,
+            rotation: self.rotation,
+            wire_thickness: self.wire_thickness,
+            scale_x: self.scale_x,
+            scale_y: self.scale_y,
+            is_timer_enabled: self.is_timer_enabled,
+            timer_interval: self.timer_interval,
+            material: self.material.clone(),
+            surface: self.surface.clone(),
+            is_visible: self.is_visible,
+            is_enabled: self.is_enabled,
+            hit_height: self.hit_height,
+            name: self.name.clone(),
+            shape: self.shape,
+            anim_speed: self.anim_speed,
+            is_reflection_enabled: self.is_reflection_enabled,
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
+            drag_points: self.drag_points.clone(),
+        }
+    }
+}
+
+impl Serialize for Trigger {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        TriggerJson::from_trigger(self).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Trigger {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let trigger_json = TriggerJson::deserialize(deserializer)?;
+        Ok(trigger_json.to_trigger())
+    }
+}
+
+impl Default for Trigger {
+    fn default() -> Self {
+        Trigger {
+            center: Default::default(),
+            radius: 25.0,
+            rotation: Default::default(),
+            wire_thickness: Default::default(),
+            scale_x: Default::default(),
+            scale_y: Default::default(),
+            is_timer_enabled: false,
+            timer_interval: Default::default(),
+            material: Default::default(),
+            surface: Default::default(),
+            is_visible: true,
+            is_enabled: true,
+            hit_height: 50.0,
+            name: Default::default(),
+            shape: TRIGGER_SHAPE_WIRE_A,
+            anim_speed: Default::default(),
+            is_reflection_enabled: None, //true,
+            is_locked: false,
+            editor_layer: Default::default(),
+            editor_layer_name: None,
+            editor_layer_visibility: None,
+            drag_points: Default::default(),
+        }
+    }
+}
+
 impl BiffRead for Trigger {
     fn biff_read(reader: &mut BiffReader<'_>) -> Trigger {
-        let mut center: Vertex2D = Default::default();
-        let mut radius: f32 = 25.0;
-        let mut rotation: f32 = Default::default();
-        let mut wire_thickness: Option<f32> = None;
-        let mut scale_x: f32 = Default::default();
-        let mut scale_y: f32 = Default::default();
-        let mut is_timer_enabled: bool = false;
-        let mut timer_interval: i32 = Default::default();
-        let mut material: String = Default::default();
-        let mut surface: String = Default::default();
-        let mut is_visible: bool = true;
-        let mut is_enabled: bool = true;
-        let mut hit_height: f32 = 50.0;
-        let mut name = Default::default();
-        let mut shape: u32 = TRIGGER_SHAPE_WIRE_A;
-        let mut anim_speed: f32 = Default::default();
-        let mut is_reflection_enabled: Option<bool> = None; //true;
-
-        // these are shared between all items
-        let mut is_locked: bool = false;
-        let mut editor_layer: u32 = Default::default();
-        let mut editor_layer_name: Option<String> = None;
-        let mut editor_layer_visibility: Option<bool> = None;
-
-        let mut drag_points: Vec<DragPoint> = Default::default();
-
+        let mut trigger = Trigger::default();
         loop {
             reader.next(biff::WARN);
             if reader.is_eof() {
@@ -79,72 +182,72 @@ impl BiffRead for Trigger {
                 // tag_str: ANSP
                 // tag_str: REEN
                 "VCEN" => {
-                    center = Vertex2D::biff_read(reader);
+                    trigger.center = Vertex2D::biff_read(reader);
                 }
                 "RADI" => {
-                    radius = reader.get_f32();
+                    trigger.radius = reader.get_f32();
                 }
                 "ROTA" => {
-                    rotation = reader.get_f32();
+                    trigger.rotation = reader.get_f32();
                 }
                 "WITI" => {
-                    wire_thickness = Some(reader.get_f32());
+                    trigger.wire_thickness = Some(reader.get_f32());
                 }
                 "SCAX" => {
-                    scale_x = reader.get_f32();
+                    trigger.scale_x = reader.get_f32();
                 }
                 "SCAY" => {
-                    scale_y = reader.get_f32();
+                    trigger.scale_y = reader.get_f32();
                 }
                 "TMON" => {
-                    is_timer_enabled = reader.get_bool();
+                    trigger.is_timer_enabled = reader.get_bool();
                 }
                 "TMIN" => {
-                    timer_interval = reader.get_i32();
+                    trigger.timer_interval = reader.get_i32();
                 }
                 "MATR" => {
-                    material = reader.get_string();
+                    trigger.material = reader.get_string();
                 }
                 "SURF" => {
-                    surface = reader.get_string();
+                    trigger.surface = reader.get_string();
                 }
                 "VSBL" => {
-                    is_visible = reader.get_bool();
+                    trigger.is_visible = reader.get_bool();
                 }
                 "EBLD" => {
-                    is_enabled = reader.get_bool();
+                    trigger.is_enabled = reader.get_bool();
                 }
                 "THOT" => {
-                    hit_height = reader.get_f32();
+                    trigger.hit_height = reader.get_f32();
                 }
                 "NAME" => {
-                    name = reader.get_wide_string();
+                    trigger.name = reader.get_wide_string();
                 }
                 "SHAP" => {
-                    shape = reader.get_u32();
+                    trigger.shape = reader.get_u32();
                 }
                 "ANSP" => {
-                    anim_speed = reader.get_f32();
+                    trigger.anim_speed = reader.get_f32();
                 }
                 "REEN" => {
-                    is_reflection_enabled = Some(reader.get_bool());
+                    trigger.is_reflection_enabled = Some(reader.get_bool());
                 }
                 // shared
                 "LOCK" => {
-                    is_locked = reader.get_bool();
+                    trigger.is_locked = reader.get_bool();
                 }
                 "LAYR" => {
-                    editor_layer = reader.get_u32();
+                    trigger.editor_layer = reader.get_u32();
                 }
                 "LANR" => {
-                    editor_layer_name = Some(reader.get_string());
+                    trigger.editor_layer_name = Some(reader.get_string());
                 }
                 "LVIS" => {
-                    editor_layer_visibility = Some(reader.get_bool());
+                    trigger.editor_layer_visibility = Some(reader.get_bool());
                 }
                 "DPNT" => {
                     let point = DragPoint::biff_read(reader);
-                    drag_points.push(point);
+                    trigger.drag_points.push(point);
                 }
                 _ => {
                     println!(
@@ -156,30 +259,7 @@ impl BiffRead for Trigger {
                 }
             }
         }
-        Trigger {
-            center,
-            radius,
-            rotation,
-            wire_thickness,
-            scale_x,
-            scale_y,
-            is_timer_enabled,
-            timer_interval,
-            material,
-            surface,
-            is_visible,
-            is_enabled,
-            hit_height,
-            name,
-            shape,
-            anim_speed,
-            is_reflection_enabled,
-            is_locked,
-            editor_layer,
-            editor_layer_name,
-            editor_layer_visibility,
-            drag_points,
-        }
+        trigger
     }
 }
 

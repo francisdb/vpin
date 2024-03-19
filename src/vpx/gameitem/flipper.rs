@@ -1,8 +1,10 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use fake::Dummy;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{vertex2d::Vertex2D, GameItem};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Dummy)]
 pub struct Flipper {
     center: Vertex2D,
     base_radius: f32,
@@ -19,20 +21,23 @@ pub struct Flipper {
     material: String,
     pub name: String,
     rubber_material: String,
-    rthk: f32,                     // RTHK deprecated?
+    rubber_thickness_int: u32,     // RTHK deprecated
     rubber_thickness: Option<f32>, // RTHF (added in 10.?)
-    rhgt: f32,                     // RHGT deprecated?
+    rubber_height_int: u32,        // RHGT deprecated
     rubber_height: Option<f32>,    // RHGF (added in 10.?)
-    rwdt: f32,                     // RWDT deprecated?
+    rubber_width_int: u32,         // RWDT deprecated
     rubber_width: Option<f32>,     // RHGF (added in 10.?)
     strength: f32,
     elasticity: f32,
     elasticity_falloff: f32,
     friction: f32,
     ramp_up: f32,
-    scatter: Option<f32>,              // SCTR (added in 10.?)
-    torque_damping: Option<f32>,       // TODA (added in 10.?)
-    torque_damping_angle: Option<f32>, // TDAA (added in 10.?)
+    scatter: Option<f32>,
+    // SCTR (added in 10.?)
+    torque_damping: Option<f32>,
+    // TODA (added in 10.?)
+    torque_damping_angle: Option<f32>,
+    // TDAA (added in 10.?)
     flipper_radius_min: f32,
     is_visible: bool,
     is_enabled: bool,
@@ -43,8 +48,157 @@ pub struct Flipper {
     // these are shared between all items
     pub is_locked: bool,
     pub editor_layer: u32,
-    pub editor_layer_name: Option<String>, // default "Layer_{editor_layer + 1}"
+    pub editor_layer_name: Option<String>,
+    // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct FlipperJson {
+    center: Vertex2D,
+    base_radius: f32,
+    end_radius: f32,
+    flipper_radius_max: f32,
+    return_: f32,
+    start_angle: f32,
+    end_angle: f32,
+    override_physics: u32,
+    mass: f32,
+    is_timer_enabled: bool,
+    timer_interval: u32,
+    surface: String,
+    material: String,
+    name: String,
+    rubber_material: String,
+    rubber_thickness_int: u32,
+    rubber_thickness: Option<f32>,
+    rubber_height_int: u32,
+    rubber_height: Option<f32>,
+    rubber_width_int: u32,
+    rubber_width: Option<f32>,
+    strength: f32,
+    elasticity: f32,
+    elasticity_falloff: f32,
+    friction: f32,
+    ramp_up: f32,
+    scatter: Option<f32>,
+    torque_damping: Option<f32>,
+    torque_damping_angle: Option<f32>,
+    flipper_radius_min: f32,
+    is_visible: bool,
+    is_enabled: bool,
+    height: f32,
+    image: Option<String>,
+    is_reflection_enabled: Option<bool>,
+}
+
+impl FlipperJson {
+    pub fn from_flipper(flipper: &Flipper) -> Self {
+        Self {
+            center: flipper.center.clone(),
+            base_radius: flipper.base_radius,
+            end_radius: flipper.end_radius,
+            flipper_radius_max: flipper.flipper_radius_max,
+            return_: flipper.return_,
+            start_angle: flipper.start_angle,
+            end_angle: flipper.end_angle,
+            override_physics: flipper.override_physics,
+            mass: flipper.mass,
+            is_timer_enabled: flipper.is_timer_enabled,
+            timer_interval: flipper.timer_interval,
+            surface: flipper.surface.clone(),
+            material: flipper.material.clone(),
+            name: flipper.name.clone(),
+            rubber_material: flipper.rubber_material.clone(),
+            rubber_thickness_int: flipper.rubber_thickness_int,
+            rubber_thickness: flipper.rubber_thickness,
+            rubber_height_int: flipper.rubber_height_int,
+            rubber_height: flipper.rubber_height,
+            rubber_width_int: flipper.rubber_width_int,
+            rubber_width: flipper.rubber_width,
+            strength: flipper.strength,
+            elasticity: flipper.elasticity,
+            elasticity_falloff: flipper.elasticity_falloff,
+            friction: flipper.friction,
+            ramp_up: flipper.ramp_up,
+            scatter: flipper.scatter,
+            torque_damping: flipper.torque_damping,
+            torque_damping_angle: flipper.torque_damping_angle,
+            flipper_radius_min: flipper.flipper_radius_min,
+            is_visible: flipper.is_visible,
+            is_enabled: flipper.is_enabled,
+            height: flipper.height,
+            image: flipper.image.clone(),
+            is_reflection_enabled: flipper.is_reflection_enabled,
+        }
+    }
+
+    pub fn to_flipper(&self) -> Flipper {
+        Flipper {
+            center: self.center.clone(),
+            base_radius: self.base_radius,
+            end_radius: self.end_radius,
+            flipper_radius_max: self.flipper_radius_max,
+            return_: self.return_,
+            start_angle: self.start_angle,
+            end_angle: self.end_angle,
+            override_physics: self.override_physics,
+            mass: self.mass,
+            is_timer_enabled: self.is_timer_enabled,
+            timer_interval: self.timer_interval,
+            surface: self.surface.clone(),
+            material: self.material.clone(),
+            name: self.name.clone(),
+            rubber_material: self.rubber_material.clone(),
+            rubber_thickness_int: self.rubber_thickness_int,
+            rubber_thickness: self.rubber_thickness,
+            rubber_height_int: self.rubber_height_int,
+            rubber_height: self.rubber_height,
+            rubber_width_int: self.rubber_width_int,
+            rubber_width: self.rubber_width,
+            strength: self.strength,
+            elasticity: self.elasticity,
+            elasticity_falloff: self.elasticity_falloff,
+            friction: self.friction,
+            ramp_up: self.ramp_up,
+            scatter: self.scatter,
+            torque_damping: self.torque_damping,
+            torque_damping_angle: self.torque_damping_angle,
+            flipper_radius_min: self.flipper_radius_min,
+            is_visible: self.is_visible,
+            is_enabled: self.is_enabled,
+            height: self.height,
+            image: self.image.clone(),
+            is_reflection_enabled: self.is_reflection_enabled,
+            // this is populated from a different file
+            is_locked: false,
+            // this is populated from a different file
+            editor_layer: 0,
+            // this is populated from a different file
+            editor_layer_name: None,
+            // this is populated from a different file
+            editor_layer_visibility: None,
+        }
+    }
+}
+
+impl Serialize for Flipper {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        FlipperJson::from_flipper(self).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Flipper {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let flipper_json = FlipperJson::deserialize(deserializer)?;
+        Ok(flipper_json.to_flipper())
+    }
 }
 
 impl GameItem for Flipper {
@@ -53,49 +207,55 @@ impl GameItem for Flipper {
     }
 }
 
+impl Default for Flipper {
+    fn default() -> Self {
+        Self {
+            center: Vertex2D::default(),
+            base_radius: 21.5,
+            end_radius: 13.0,
+            flipper_radius_max: 130.0,
+            return_: 0.058,
+            start_angle: 121.0,
+            end_angle: 70.0,
+            override_physics: 0,
+            mass: 1.0,
+            is_timer_enabled: false,
+            timer_interval: 0,
+            surface: String::default(),
+            material: String::default(),
+            name: String::default(),
+            rubber_material: String::default(),
+            rubber_thickness_int: 0,
+            rubber_thickness: None,
+            rubber_height_int: 0,
+            rubber_height: None,
+            rubber_width_int: 0,
+            rubber_width: None,
+            strength: 2200.0,
+            elasticity: 0.8,
+            elasticity_falloff: 0.43,
+            friction: 0.6,
+            ramp_up: 3.0,
+            scatter: None,
+            torque_damping: None,
+            torque_damping_angle: None,
+            flipper_radius_min: 0.0,
+            is_visible: true,
+            is_enabled: true,
+            height: 50.0,
+            image: None,
+            is_reflection_enabled: None, // true,
+            is_locked: false,
+            editor_layer: 0,
+            editor_layer_name: None,
+            editor_layer_visibility: None,
+        }
+    }
+}
+
 impl BiffRead for Flipper {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
-        let mut center = Vertex2D::default();
-        let mut base_radius: f32 = 21.5;
-        let mut end_radius: f32 = 13.0;
-        let mut flipper_radius_max: f32 = 130.0;
-        let mut return_: f32 = 0.058;
-        let mut start_angle: f32 = 121.0;
-        let mut end_angle: f32 = 70.0;
-        let mut override_physics: u32 = 0;
-        let mut mass: f32 = 1.0;
-        let mut is_timer_enabled: bool = false;
-        let mut timer_interval: u32 = 0;
-        let mut surface: String = Default::default();
-        let mut material: String = Default::default();
-        let mut name: String = Default::default();
-        let mut rubber_material: String = Default::default();
-        let mut rthk: f32 = 0.0;
-        let mut rubber_thickness: Option<f32> = None; //7.0;
-        let mut rhgt: f32 = 0.0;
-        let mut rubber_height: Option<f32> = None; //19.0;
-        let mut rwdt: f32 = 0.0;
-        let mut rubber_width: Option<f32> = None; //24.0;
-        let mut strength: f32 = 2200.0;
-        let mut elasticity: f32 = 0.8;
-        let mut elasticity_falloff: f32 = 0.43;
-        let mut friction: f32 = 0.6;
-        let mut ramp_up: f32 = 3.0;
-        let mut scatter: Option<f32> = None; //0.0;
-        let mut torque_damping: Option<f32> = None; //0.75;
-        let mut torque_damping_angle: Option<f32> = None; //6.0;
-        let mut flipper_radius_min: f32 = 0.0;
-        let mut is_visible: bool = true;
-        let mut is_enabled: bool = true;
-        let mut height: f32 = 50.0;
-        let mut image: Option<String> = None;
-        let mut is_reflection_enabled: Option<bool> = None; //true
-
-        // these are shared between all items
-        let mut is_locked: bool = false;
-        let mut editor_layer: u32 = Default::default();
-        let mut editor_layer_name: Option<String> = None;
-        let mut editor_layer_visibility: Option<bool> = None;
+        let mut flipper = Flipper::default();
 
         loop {
             reader.next(biff::WARN);
@@ -106,123 +266,123 @@ impl BiffRead for Flipper {
             let tag_str = tag.as_str();
             match tag_str {
                 "VCEN" => {
-                    center = Vertex2D::biff_read(reader);
+                    flipper.center = Vertex2D::biff_read(reader);
                 }
                 "BASR" => {
-                    base_radius = reader.get_f32();
+                    flipper.base_radius = reader.get_f32();
                 }
                 "ENDR" => {
-                    end_radius = reader.get_f32();
+                    flipper.end_radius = reader.get_f32();
                 }
                 "FLPR" => {
-                    flipper_radius_max = reader.get_f32();
+                    flipper.flipper_radius_max = reader.get_f32();
                 }
                 "FRTN" => {
-                    return_ = reader.get_f32();
+                    flipper.return_ = reader.get_f32();
                 }
                 "ANGS" => {
-                    start_angle = reader.get_f32();
+                    flipper.start_angle = reader.get_f32();
                 }
                 "ANGE" => {
-                    end_angle = reader.get_f32();
+                    flipper.end_angle = reader.get_f32();
                 }
                 "OVRP" => {
-                    override_physics = reader.get_u32();
+                    flipper.override_physics = reader.get_u32();
                 }
                 "FORC" => {
-                    mass = reader.get_f32();
+                    flipper.mass = reader.get_f32();
                 }
                 "TMON" => {
-                    is_timer_enabled = reader.get_bool();
+                    flipper.is_timer_enabled = reader.get_bool();
                 }
                 "TMIN" => {
-                    timer_interval = reader.get_u32();
+                    flipper.timer_interval = reader.get_u32();
                 }
                 "SURF" => {
-                    surface = reader.get_string();
+                    flipper.surface = reader.get_string();
                 }
                 "MATR" => {
-                    material = reader.get_string();
+                    flipper.material = reader.get_string();
                 }
                 "NAME" => {
-                    name = reader.get_wide_string();
+                    flipper.name = reader.get_wide_string();
                 }
                 "RUMA" => {
-                    rubber_material = reader.get_string();
+                    flipper.rubber_material = reader.get_string();
                 }
                 "RTHK" => {
-                    rthk = reader.get_f32();
+                    flipper.rubber_thickness_int = reader.get_u32();
                 }
                 "RTHF" => {
-                    rubber_thickness = Some(reader.get_f32());
+                    flipper.rubber_thickness = Some(reader.get_f32());
                 }
                 "RHGT" => {
-                    rhgt = reader.get_f32();
+                    flipper.rubber_height_int = reader.get_u32();
                 }
                 "RHGF" => {
-                    rubber_height = Some(reader.get_f32());
+                    flipper.rubber_height = Some(reader.get_f32());
                 }
                 "RWDT" => {
-                    rwdt = reader.get_f32();
+                    flipper.rubber_width_int = reader.get_u32();
                 }
                 "RWDF" => {
-                    rubber_width = Some(reader.get_f32());
+                    flipper.rubber_width = Some(reader.get_f32());
                 }
                 "STRG" => {
-                    strength = reader.get_f32();
+                    flipper.strength = reader.get_f32();
                 }
                 "ELAS" => {
-                    elasticity = reader.get_f32();
+                    flipper.elasticity = reader.get_f32();
                 }
                 "ELFO" => {
-                    elasticity_falloff = reader.get_f32();
+                    flipper.elasticity_falloff = reader.get_f32();
                 }
                 "FRIC" => {
-                    friction = reader.get_f32();
+                    flipper.friction = reader.get_f32();
                 }
                 "RPUP" => {
-                    ramp_up = reader.get_f32();
+                    flipper.ramp_up = reader.get_f32();
                 }
                 "SCTR" => {
-                    scatter = Some(reader.get_f32());
+                    flipper.scatter = Some(reader.get_f32());
                 }
                 "TODA" => {
-                    torque_damping = Some(reader.get_f32());
+                    flipper.torque_damping = Some(reader.get_f32());
                 }
                 "TDAA" => {
-                    torque_damping_angle = Some(reader.get_f32());
+                    flipper.torque_damping_angle = Some(reader.get_f32());
                 }
                 "VSBL" => {
-                    is_visible = reader.get_bool();
+                    flipper.is_visible = reader.get_bool();
                 }
                 "ENBL" => {
-                    is_enabled = reader.get_bool();
+                    flipper.is_enabled = reader.get_bool();
                 }
                 "FRMN" => {
-                    flipper_radius_min = reader.get_f32();
+                    flipper.flipper_radius_min = reader.get_f32();
                 }
                 "FHGT" => {
-                    height = reader.get_f32();
+                    flipper.height = reader.get_f32();
                 }
                 "IMAG" => {
-                    image = Some(reader.get_string());
+                    flipper.image = Some(reader.get_string());
                 }
                 "REEN" => {
-                    is_reflection_enabled = Some(reader.get_bool());
+                    flipper.is_reflection_enabled = Some(reader.get_bool());
                 }
 
                 // shared
                 "LOCK" => {
-                    is_locked = reader.get_bool();
+                    flipper.is_locked = reader.get_bool();
                 }
                 "LAYR" => {
-                    editor_layer = reader.get_u32();
+                    flipper.editor_layer = reader.get_u32();
                 }
                 "LANR" => {
-                    editor_layer_name = Some(reader.get_string());
+                    flipper.editor_layer_name = Some(reader.get_string());
                 }
                 "LVIS" => {
-                    editor_layer_visibility = Some(reader.get_bool());
+                    flipper.editor_layer_visibility = Some(reader.get_bool());
                 }
                 _ => {
                     println!(
@@ -234,47 +394,7 @@ impl BiffRead for Flipper {
                 }
             }
         }
-        Self {
-            center,
-            base_radius,
-            end_radius,
-            flipper_radius_max,
-            return_,
-            start_angle,
-            end_angle,
-            override_physics,
-            strength,
-            is_timer_enabled,
-            timer_interval,
-            surface,
-            material,
-            name,
-            rubber_material,
-            rthk,
-            rubber_thickness,
-            rhgt,
-            rubber_height,
-            rwdt,
-            rubber_width,
-            elasticity,
-            friction,
-            ramp_up,
-            scatter,
-            torque_damping,
-            torque_damping_angle,
-            is_visible,
-            is_enabled,
-            flipper_radius_min,
-            height,
-            image,
-            is_reflection_enabled,
-            is_locked,
-            editor_layer,
-            editor_layer_name,
-            editor_layer_visibility,
-            mass,
-            elasticity_falloff,
-        }
+        flipper
     }
 }
 
@@ -295,15 +415,15 @@ impl BiffWrite for Flipper {
         writer.write_tagged_string("MATR", &self.material);
         writer.write_tagged_wide_string("NAME", &self.name);
         writer.write_tagged_string("RUMA", &self.rubber_material);
-        writer.write_tagged_f32("RTHK", self.rthk);
+        writer.write_tagged_u32("RTHK", self.rubber_thickness_int);
         if let Some(rubber_thickness) = self.rubber_thickness {
             writer.write_tagged_f32("RTHF", rubber_thickness);
         }
-        writer.write_tagged_f32("RHGT", self.rhgt);
+        writer.write_tagged_u32("RHGT", self.rubber_height_int);
         if let Some(rubber_height) = self.rubber_height {
             writer.write_tagged_f32("RHGF", rubber_height);
         }
-        writer.write_tagged_f32("RWDT", self.rwdt);
+        writer.write_tagged_u32("RWDT", self.rubber_width_int);
         if let Some(rubber_width) = self.rubber_width {
             writer.write_tagged_f32("RWDF", rubber_width);
         }
@@ -371,11 +491,11 @@ mod tests {
             material: String::from("test material"),
             name: String::from("test name"),
             rubber_material: String::from("test rubber material"),
-            rwdt: 0.0,
+            rubber_thickness_int: 0,
             rubber_thickness: Some(7.0),
-            rhgt: 0.0,
+            rubber_height_int: 0,
             rubber_height: Some(19.0),
-            rthk: 0.0,
+            rubber_width_int: 0,
             rubber_width: Some(24.0),
             strength: 2200.0,
             elasticity: 0.8,
