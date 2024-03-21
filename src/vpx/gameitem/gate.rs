@@ -124,7 +124,7 @@ impl Default for Gate {
             name: Default::default(),
             two_way: false,
             is_reflection_enabled: None, //true,
-            gate_type: Some(GateType::Plate),
+            gate_type: None,             //Some(GateType::Plate),
             is_locked: false,
             editor_layer: Default::default(),
             editor_layer_name: None,
