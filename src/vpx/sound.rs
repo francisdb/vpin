@@ -247,6 +247,11 @@ pub(crate) fn read(file_version: &Version, reader: &mut BiffReader) -> SoundData
         10
     };
 
+    // We have seen below case for a 1040 file:
+    // Legacy behavior, where the BG selection was encoded into the strings directly
+    // path = "* Backglass Output *" or name contains "bgout_"
+    // This is still seen as a wav file, even if the path does not end with .wav!
+
     for i in 0..num_values {
         match i {
             0 => {
@@ -303,8 +308,13 @@ pub(crate) fn read(file_version: &Version, reader: &mut BiffReader) -> SoundData
     }
 }
 
+/// Check if the path is a wav file.
+/// If the path does not have an extension, it is also considered a wav file!
 fn is_wav(path: &str) -> bool {
-    path.to_lowercase().ends_with(".wav")
+    match path.rfind('.') {
+        Some(pos) => path[(pos + 1)..].eq_ignore_ascii_case("wav"),
+        None => true,
+    }
 }
 
 pub(crate) fn write(file_version: &Version, sound: &SoundData, writer: &mut BiffWriter) {

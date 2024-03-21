@@ -7,6 +7,7 @@ use super::{
 };
 use crate::vpx::biff::{BiffRead, BiffWrite};
 use crate::vpx::color::{Color, ColorJson};
+use crate::vpx::json::F32WithNanInf;
 use crate::vpx::material::{Material, SaveMaterial, SavePhysicsMaterial};
 use crate::vpx::math::{dequantize_u8, quantize_u8};
 use crate::vpx::renderprobe::RenderProbeWithGarbage;
@@ -221,7 +222,11 @@ pub struct GameData {
     pub custom_colors: [Color; 16],                         //[Color; 16], // CCUS 113
     pub protection_data: Option<Vec<u8>>,                   // SECB (removed in ?)
     pub code: StringWithEncoding,                           // CODE 114
-    pub is_locked: Option<bool>, // TLCK (added in 10.8 for tournament mode?)
+    /// TLCK (added in 10.8 for tournament mode?)
+    /// Flag that disables all table edition. Lock toggles are counted to identify
+    /// version changes in a table (for example to guarantee untouched table for tournament)
+    /// Used to be a boolean for a while in the 10.8 dev cycle but now is a lock counter.
+    pub locked: Option<u32>, // TLCK (added in 10.8 for tournament mode?)
     // This is a bit of a hack because we want reproducible builds.
     // 10.8.0 beta 1-4 had EFSS at the old location, but it was moved to the new location in beta 5
     // Some tables were released with these old betas, so we need to support both locations to be 100% reproducing the orignal table
@@ -281,10 +286,10 @@ pub(crate) struct GameDataJson {
     pub bg_layback_full_single_screen: Option<f32>,
     pub bg_fov_full_single_screen: Option<f32>,
     pub bg_offset_x_full_single_screen: Option<f32>,
-    pub bg_offset_y_full_single_screen: Option<f32>,
+    pub bg_offset_y_full_single_screen: Option<F32WithNanInf>,
     pub bg_offset_z_full_single_screen: Option<f32>,
     pub bg_scale_x_full_single_screen: Option<f32>,
-    pub bg_scale_y_full_single_screen: Option<f32>,
+    pub bg_scale_y_full_single_screen: Option<F32WithNanInf>,
     pub bg_scale_z_full_single_screen: Option<f32>,
     pub bg_view_horizontal_offset_full_single_screen: Option<f32>,
     pub bg_view_vertical_offset_full_single_screen: Option<f32>,
@@ -371,7 +376,7 @@ pub(crate) struct GameDataJson {
     pub custom_colors: [ColorJson; 16],
     pub protection_data: Option<Vec<u8>>,
     //pub code: StringWithEncoding,
-    pub is_locked: Option<bool>,
+    pub locked: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_10_8_0_beta1_to_beta4: Option<bool>,
 }
@@ -437,10 +442,10 @@ impl GameDataJson {
             bg_layback_full_single_screen: self.bg_layback_full_single_screen,
             bg_fov_full_single_screen: self.bg_fov_full_single_screen,
             bg_offset_x_full_single_screen: self.bg_offset_x_full_single_screen,
-            bg_offset_y_full_single_screen: self.bg_offset_y_full_single_screen,
+            bg_offset_y_full_single_screen: self.bg_offset_y_full_single_screen.map(f32::from),
             bg_offset_z_full_single_screen: self.bg_offset_z_full_single_screen,
             bg_scale_x_full_single_screen: self.bg_scale_x_full_single_screen,
-            bg_scale_y_full_single_screen: self.bg_scale_y_full_single_screen,
+            bg_scale_y_full_single_screen: self.bg_scale_y_full_single_screen.map(f32::from),
             bg_scale_z_full_single_screen: self.bg_scale_z_full_single_screen,
             bg_view_horizontal_offset_full_single_screen: self
                 .bg_view_horizontal_offset_full_single_screen,
@@ -555,7 +560,7 @@ impl GameDataJson {
             custom_colors,
             protection_data: self.protection_data.clone(),
             code: StringWithEncoding::empty(),
-            is_locked: self.is_locked,
+            locked: self.locked,
             is_10_8_0_beta1_to_beta4: self.is_10_8_0_beta1_to_beta4.unwrap_or(false),
         }
     }
@@ -617,10 +622,14 @@ impl GameDataJson {
             bg_layback_full_single_screen: game_data.bg_layback_full_single_screen,
             bg_fov_full_single_screen: game_data.bg_fov_full_single_screen,
             bg_offset_x_full_single_screen: game_data.bg_offset_x_full_single_screen,
-            bg_offset_y_full_single_screen: game_data.bg_offset_y_full_single_screen,
+            bg_offset_y_full_single_screen: game_data
+                .bg_offset_y_full_single_screen
+                .map(F32WithNanInf::from),
             bg_offset_z_full_single_screen: game_data.bg_offset_z_full_single_screen,
             bg_scale_x_full_single_screen: game_data.bg_scale_x_full_single_screen,
-            bg_scale_y_full_single_screen: game_data.bg_scale_y_full_single_screen,
+            bg_scale_y_full_single_screen: game_data
+                .bg_scale_y_full_single_screen
+                .map(F32WithNanInf::from),
             bg_scale_z_full_single_screen: game_data.bg_scale_z_full_single_screen,
             bg_view_horizontal_offset_full_single_screen: game_data
                 .bg_view_horizontal_offset_full_single_screen,
@@ -717,7 +726,7 @@ impl GameDataJson {
             custom_colors,
             protection_data: game_data.protection_data.clone(),
             // code: game_data.code.clone(),
-            is_locked: game_data.is_locked,
+            locked: game_data.locked,
             is_10_8_0_beta1_to_beta4: Some(game_data.is_10_8_0_beta1_to_beta4)
                 .filter(|x| x == &true),
         }
@@ -892,7 +901,7 @@ impl Default for GameData {
             bg_window_bottom_x_offset_full_single_screen: None,
             bg_window_bottom_y_offset_full_single_screen: None,
             bg_window_bottom_z_offset_full_single_screen: None,
-            is_locked: None,
+            locked: None,
         }
     }
 }
@@ -1226,8 +1235,8 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
         writer.write_tagged_data("SECB", protection_data);
     }
     writer.write_tagged_string_with_encoding_no_size("CODE", &gamedata.code);
-    if let Some(is_locked) = gamedata.is_locked {
-        writer.write_tagged_bool("TLCK", is_locked);
+    if let Some(is_locked) = gamedata.locked {
+        writer.write_tagged_u32("TLCK", is_locked);
     }
 
     writer.close(true);
@@ -1458,7 +1467,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
                 // at least a the time of 1060, some code was still encoded in latin1
                 gamedata.code = reader.get_str_with_encoding_no_remaining_update(len as usize);
             }
-            "TLCK" => gamedata.is_locked = Some(reader.get_bool()),
+            "TLCK" => gamedata.locked = Some(reader.get_u32()),
             other => {
                 let data = reader.get_record_data(false);
                 println!("unhandled tag {} {} bytes", other, data.len());
@@ -1658,7 +1667,7 @@ mod tests {
             bg_window_bottom_x_offset_full_single_screen: None,
             bg_window_bottom_y_offset_full_single_screen: None,
             bg_window_bottom_z_offset_full_single_screen: None,
-            is_locked: Some(true),
+            locked: Faker.fake(),
             is_10_8_0_beta1_to_beta4: false,
         };
         let version = Version::new(1074);

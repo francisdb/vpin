@@ -90,6 +90,11 @@ impl<'a> BiffReader<'a> {
     }
 
     pub fn get_bool(&mut self) -> bool {
+        let all = &self.data[self.pos..self.pos + 4];
+        // Any other value is suspicious as it is not a boolean
+        if all != [0, 0, 0, 0] && all != [1, 0, 0, 0] {
+            panic!("Unexpected bytes for bool: {:?}", all);
+        }
         let b = self.data[self.pos] != 0;
         self.pos += 4;
         self.bytes_in_record_remaining -= 4;
@@ -144,10 +149,16 @@ impl<'a> BiffReader<'a> {
     }
 
     pub fn get_f32(&mut self) -> f32 {
-        let i: Result<(&[u8], f32), nom::Err<()>> = le_f32(&self.data[self.pos..]);
+        let data = &self.data[self.pos..self.pos + 4];
+        let i: Result<(&[u8], f32), nom::Err<()>> = le_f32(data);
         self.pos += 4;
         self.bytes_in_record_remaining -= 4;
-        i.unwrap().1
+
+        let res = i.unwrap().1;
+        if res.is_nan() {
+            eprintln!("NaN value found in f32 for tag {}: {:?}", self.tag, data);
+        }
+        res
     }
 
     pub fn get_str(&mut self, count: usize) -> String {

@@ -21,32 +21,35 @@ mod test {
         let paths = find_files(&folder, "vpx")?;
         // testdir can not be used in non-main threads
         let dir: PathBuf = testdir!();
+
         // Example tables caused problems in the past:
         //
         // * Inhabiting Mars RC 4 - for animation frame
         // * DieHard_272.vpx - primitive "BM_pAirDuctGate" has a NaN value for nx
         // * Johnny Mnemonic (Williams 1995) VPW v1.0.2.vpx - animated frames that overlap with primitive names
-
-        // TODO why is par_iter() not faster but just consuming all cpu cores?
-        paths
+        // * Future Spa (Bally 1979) v4.3.vpx - NaN in table setup values
+        let filtered: Vec<&PathBuf> = paths
             .iter()
             // .filter(|path| {
             //     let name = path.file_name().unwrap().to_str().unwrap();
             //     name.contains("Bob")
             // })
-            .try_for_each(|path| {
-                println!("testing: {:?}", path);
-                let ReadAndWriteResult {
-                    extracted,
-                    test_vpx,
-                } = read_and_write_vpx(&dir, &path)?;
-                assert_equal_vpx(path, test_vpx.clone());
-                // panic!("stop");
-                // if all is good we remove the test file and the extracted dir
-                std::fs::remove_file(&test_vpx)?;
-                std::fs::remove_dir_all(&extracted)?;
-                Ok(())
-            })
+            .collect();
+
+        // TODO why is par_iter() not faster but just consuming all cpu cores?
+        filtered.iter().enumerate().try_for_each(|(n, path)| {
+            println!("testing {}/{}: {:?}", n + 1, filtered.len(), path);
+            let ReadAndWriteResult {
+                extracted,
+                test_vpx,
+            } = read_and_write_vpx(&dir, &path)?;
+            assert_equal_vpx(path, test_vpx.clone());
+            // panic!("stop");
+            // if all is good we remove the test file and the extracted dir
+            std::fs::remove_file(&test_vpx)?;
+            std::fs::remove_dir_all(&extracted)?;
+            Ok(())
+        })
     }
 
     struct ReadAndWriteResult {
