@@ -288,7 +288,7 @@ fn write(data: &ImageData, writer: &mut BiffWriter) {
     }
     if let Some(jpeg) = &data.jpeg {
         let bits = write_jpg(jpeg);
-        writer.write_tagged_data("JPEG", &bits);
+        writer.write_tagged_data_without_size("JPEG", &bits);
     }
     writer.write_tagged_f32("ALTV", data.alpha_test_value);
     if let Some(is_opaque) = data.is_opaque {
@@ -381,6 +381,42 @@ mod test {
         let read = read_jpeg(&mut BiffReader::new(&bytes));
 
         assert_eq!(read, img);
+    }
+
+    #[test]
+    fn test_write_jpeg_should_have_tag_size_zero() {
+        let image: ImageData = ImageData {
+            name: "name_value".to_string(),
+            internal_name: Some("inme_value".to_string()),
+            path: "path_value".to_string(),
+            width: 1,
+            height: 2,
+            link: None,
+            alpha_test_value: 1.0,
+            is_opaque: Some(true),
+            is_signed: Some(false),
+            jpeg: Some(ImageDataJpeg {
+                path: "path_value".to_string(),
+                name: "name_value".to_string(),
+                internal_name: Some("inme_value".to_string()),
+                // alpha_test_value: 1.0,
+                data: vec![1, 2, 3],
+            }),
+            bits: None,
+        };
+
+        let mut writer = BiffWriter::new();
+        ImageData::biff_write(&image, &mut writer);
+        let data = writer.get_data();
+        let mut reader = BiffReader::new(&data);
+        reader.next(false); // NAME
+        reader.next(false); // INME
+        reader.next(false); // PATH
+        reader.next(false); // WDTH
+        reader.next(false); // HGHT
+        reader.next(false); // LINK
+        assert_eq!(reader.tag().as_str(), "JPEG");
+        assert_eq!(reader.remaining_in_record(), 0);
     }
 
     #[test]
