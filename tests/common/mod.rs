@@ -162,7 +162,8 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, u64)> {
                 let _name = reader.get_str_no_remaining_update(name_len as usize);
             }
             "JPEG" => {
-                tags.push(("--JPEG--SUB--BEGIN--".to_string(), 0, 0));
+                let remaining = reader.remaining_in_record();
+                tags.push(("--JPEG--SUB--BEGIN--".to_string(), remaining, 0));
                 let mut sub_reader = reader.child_reader();
                 while let Some(tag) = &sub_reader.next(true) {
                     let data = sub_reader.get_record_data(false);

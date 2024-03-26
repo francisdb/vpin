@@ -89,6 +89,10 @@ impl<'a> BiffReader<'a> {
         &self.data[p..p + count]
     }
 
+    pub fn remaining_in_record(&mut self) -> usize {
+        self.bytes_in_record_remaining
+    }
+
     pub fn get_bool(&mut self) -> bool {
         let all = &self.data[self.pos..self.pos + 4];
         // Any other value is suspicious as it is not a boolean
@@ -731,6 +735,12 @@ impl BiffWriter {
         self.new_tag(tag);
         self.write_data(value);
         self.end_tag();
+    }
+
+    pub fn write_tagged_data_without_size(&mut self, tag: &str, value: &[u8]) {
+        self.new_tag(tag);
+        self.write_data(value);
+        self.end_tag_no_size();
     }
 
     pub fn write_tagged<T: BiffWrite>(&mut self, tag: &str, value: &T) {
