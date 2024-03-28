@@ -43,7 +43,9 @@ pub(crate) struct DragPointJson {
     tex_coord: f32,
     is_locked: bool,
     editor_layer: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     editor_layer_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     editor_layer_visibility: Option<bool>,
 }
 

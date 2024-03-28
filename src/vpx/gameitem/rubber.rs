@@ -38,7 +38,7 @@ pub struct Rubber {
     // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
 
-    points: Vec<DragPoint>,
+    drag_points: Vec<DragPoint>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -67,7 +67,7 @@ struct RubberJson {
     is_reflection_enabled: Option<bool>,
     physics_material: Option<String>,
     overwrite_physics: Option<bool>,
-    points: Vec<DragPoint>,
+    drag_points: Vec<DragPoint>,
 }
 
 impl RubberJson {
@@ -97,7 +97,7 @@ impl RubberJson {
             is_reflection_enabled: rubber.is_reflection_enabled,
             physics_material: rubber.physics_material.clone(),
             overwrite_physics: rubber.overwrite_physics,
-            points: rubber.points.clone(),
+            drag_points: rubber.drag_points.clone(),
         }
     }
 
@@ -135,7 +135,7 @@ impl RubberJson {
             editor_layer_name: None,
             // this is populated from a different file
             editor_layer_visibility: None,
-            points: self.points.clone(),
+            drag_points: self.drag_points.clone(),
         }
     }
 }
@@ -203,7 +203,7 @@ impl Default for Rubber {
             editor_layer,
             editor_layer_name,
             editor_layer_visibility,
-            points,
+            drag_points: points,
         }
     }
 }
@@ -331,7 +331,7 @@ impl BiffRead for Rubber {
                 }
                 "DPNT" => {
                     let point = DragPoint::biff_read(reader);
-                    rubber.points.push(point);
+                    rubber.drag_points.push(point);
                 }
                 _ => {
                     println!(
@@ -396,7 +396,7 @@ impl BiffWrite for Rubber {
 
         writer.write_marker_tag("PNTS");
 
-        for point in &self.points {
+        for point in &self.drag_points {
             writer.write_tagged("DPNT", point);
         }
 
@@ -445,7 +445,7 @@ mod tests {
             editor_layer: 12,
             editor_layer_name: Some("editor_layer_name".to_string()),
             editor_layer_visibility: rng.gen(),
-            points: vec![DragPoint::default()],
+            drag_points: vec![DragPoint::default()],
         };
         let mut writer = BiffWriter::new();
         Rubber::biff_write(&rubber, &mut writer);
