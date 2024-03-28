@@ -39,7 +39,7 @@ pub struct Trigger {
     // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
 
-    drag_points: Vec<DragPoint>,
+    pub drag_points: Vec<DragPoint>,
 }
 
 #[derive(Serialize, Deserialize)]

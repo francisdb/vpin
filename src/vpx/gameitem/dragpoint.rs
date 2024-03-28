@@ -21,15 +21,30 @@ pub struct DragPoint {
     //         "editor_layer": 0,
     //         "editor_layer_name": null,
     //         "editor_layer_visibility": null
-    // TODO validate above with a big test run
-    //   * remove them from the struct (also json)
-    //   * ignore on read
-    //   * write as default
     pub is_locked: bool,
     pub editor_layer: u32,
     pub editor_layer_name: Option<String>,
     // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+}
+
+impl DragPoint {
+    pub fn set_editor_properties(
+        &mut self,
+        is_locked: Option<bool>,
+        editor_layer: Option<u32>,
+        editor_layer_name: Option<String>,
+        editor_layer_visibility: Option<bool>,
+    ) {
+        if let Some(is_locked) = is_locked {
+            self.is_locked = is_locked;
+        }
+        if let Some(editor_layer) = editor_layer {
+            self.editor_layer = editor_layer;
+        }
+        self.editor_layer_name = editor_layer_name;
+        self.editor_layer_visibility = editor_layer_visibility;
+    }
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -41,10 +56,6 @@ pub(crate) struct DragPointJson {
     is_slingshot: Option<bool>,
     has_auto_texture: bool,
     tex_coord: f32,
-    is_locked: bool,
-    editor_layer: u32,
-    editor_layer_name: Option<String>,
-    editor_layer_visibility: Option<bool>,
 }
 
 impl DragPointJson {
@@ -57,10 +68,12 @@ impl DragPointJson {
             is_slingshot: dragpoint.is_slingshot,
             has_auto_texture: dragpoint.has_auto_texture,
             tex_coord: dragpoint.tex_coord,
-            is_locked: dragpoint.is_locked,
-            editor_layer: dragpoint.editor_layer,
-            editor_layer_name: dragpoint.editor_layer_name.clone(),
-            editor_layer_visibility: dragpoint.editor_layer_visibility,
+            // These values should be the same as the parent object
+            // Will be populated by the parent object
+            // is_locked: dragpoint.is_locked,
+            // editor_layer: dragpoint.editor_layer,
+            // editor_layer_name: dragpoint.editor_layer_name.clone(),
+            // editor_layer_visibility: dragpoint.editor_layer_visibility,
         }
     }
     pub fn to_dragpoint(&self) -> DragPoint {
@@ -72,10 +85,10 @@ impl DragPointJson {
             is_slingshot: self.is_slingshot,
             has_auto_texture: self.has_auto_texture,
             tex_coord: self.tex_coord,
-            is_locked: self.is_locked,
-            editor_layer: self.editor_layer,
-            editor_layer_name: self.editor_layer_name.clone(),
-            editor_layer_visibility: self.editor_layer_visibility,
+            is_locked: false,
+            editor_layer: 0,
+            editor_layer_name: None,
+            editor_layer_visibility: None,
         }
     }
 }

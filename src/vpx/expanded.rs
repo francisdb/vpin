@@ -143,7 +143,7 @@ pub fn read<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<VPX> {
 
     let (info, custominfotags) = read_info(expanded_dir, screenshot)?;
     let collections = read_collections(expanded_dir)?;
-    let gameitems = read_gameitems(expanded_dir)?;
+    let gameitems = read_gameitems(expanded_dir, &version)?;
     let images = read_images(expanded_dir)?;
     let sounds = read_sounds(expanded_dir)?;
     let fonts = read_fonts(expanded_dir)?;
@@ -973,7 +973,10 @@ fn read_vertex_index_from_vpx(bytes_per_index: u8, buff: &mut BytesMut) -> i64 {
     index
 }
 
-fn read_gameitems<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<GameItemEnum>> {
+fn read_gameitems<P: AsRef<Path>>(
+    expanded_dir: &P,
+    vpx_version: &Version,
+) -> io::Result<Vec<GameItemEnum>> {
     let gameitems_index_path = expanded_dir.as_ref().join("gameitems.json");
     if !gameitems_index_path.exists() {
         println!("No gameitems.json found");
@@ -990,8 +993,16 @@ fn read_gameitems<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<GameItemEn
                 let mut item: GameItemEnum = read_json(&gameitem_path)?;
                 item.set_locked(gameitem_info.is_locked);
                 item.set_editor_layer(gameitem_info.editor_layer);
-                item.set_editor_layer_name(gameitem_info.editor_layer_name);
                 item.set_editor_layer_visibility(gameitem_info.editor_layer_visibility);
+
+                item.set_editor_properties(
+                    gameitem_info.is_locked,
+                    gameitem_info.editor_layer,
+                    gameitem_info.editor_layer_name,
+                    gameitem_info.editor_layer_visibility,
+                    vpx_version,
+                );
+
                 read_gameitem_binaries(&gameitems_dir, gameitem_info.file_name, item)
             } else {
                 Err(io::Error::new(

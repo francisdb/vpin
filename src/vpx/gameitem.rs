@@ -25,6 +25,8 @@ pub mod vertex4d;
 pub mod wall;
 
 use crate::vpx::biff::BiffRead;
+use crate::vpx::gameitem::dragpoint::DragPoint;
+use crate::vpx::version::Version;
 use serde::{Deserialize, Serialize};
 
 use super::biff::{BiffReader, BiffWrite, BiffWriter};
@@ -59,6 +61,21 @@ pub enum GameItemEnum {
     Rubber(rubber::Rubber),
     HitTarget(hittarget::HitTarget),
     Generic(u32, generic::Generic),
+}
+
+/// Drag point properties that are never modified and only depend on the vpx version
+fn set_drag_point_layer_props(
+    vpx_version: &Version,
+    drag_point: &mut DragPoint,
+    is_locked: Option<bool>,
+) {
+    let vpx_version_that_introduced_layer_name: Version = Version::new(1070);
+    // should be set depending on the vpx version
+    if *vpx_version > vpx_version_that_introduced_layer_name {
+        drag_point.set_editor_properties(is_locked, Some(0), Some(String::from("")), Some(true));
+    } else {
+        drag_point.set_editor_properties(is_locked, Some(0), None, None);
+    }
 }
 
 impl GameItemEnum {
@@ -387,6 +404,53 @@ impl GameItemEnum {
             GameItemEnum::HitTarget(hittarget) => hittarget.editor_layer_name = editor_layer_name,
             GameItemEnum::Generic(_item_type, _generic) => {}
         }
+    }
+
+    pub(crate) fn set_editor_properties(
+        &mut self,
+        is_locked: Option<bool>,
+        editor_layer: Option<u32>,
+        editor_layer_name: Option<String>,
+        editor_layer_visibility: Option<bool>,
+        vpx_version: &Version,
+    ) {
+        match self {
+            GameItemEnum::Wall(wall) => {
+                for drag_point in &mut wall.drag_points {
+                    set_drag_point_layer_props(vpx_version, drag_point, is_locked);
+                }
+            }
+            GameItemEnum::Trigger(trigger) => {
+                for drag_point in &mut trigger.drag_points {
+                    set_drag_point_layer_props(vpx_version, drag_point, is_locked);
+                }
+            }
+            GameItemEnum::Light(light) => {
+                for drag_point in &mut light.drag_points {
+                    set_drag_point_layer_props(vpx_version, drag_point, is_locked);
+                }
+            }
+            GameItemEnum::Ramp(ramp) => {
+                for drag_point in &mut ramp.drag_points {
+                    set_drag_point_layer_props(vpx_version, drag_point, is_locked);
+                }
+            }
+            GameItemEnum::Flasher(flasher) => {
+                for drag_point in &mut flasher.drag_points {
+                    set_drag_point_layer_props(vpx_version, drag_point, is_locked);
+                }
+            }
+            GameItemEnum::Rubber(rubber) => {
+                for drag_point in &mut rubber.drag_points {
+                    set_drag_point_layer_props(vpx_version, drag_point, is_locked);
+                }
+            }
+            _ => {}
+        }
+        self.set_locked(is_locked);
+        self.set_editor_layer(editor_layer);
+        self.set_editor_layer_name(editor_layer_name);
+        self.set_editor_layer_visibility(editor_layer_visibility);
     }
 
     pub(crate) fn set_editor_layer_visibility(&mut self, editor_layer_visibility: Option<bool>) {
