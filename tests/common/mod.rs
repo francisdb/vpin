@@ -154,12 +154,22 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, u64)> {
         let tag_str = tag.as_str();
         match tag_str {
             "FONT" => {
-                let _header = reader.get_data(3); // always? 0x01, 0x0, 0x0
-                let _style = reader.get_u8_no_remaining_update();
-                let _weight = reader.get_u16_no_remaining_update();
-                let _size = reader.get_u32_no_remaining_update();
+                let header = reader.get_data(3).to_owned(); // always? 0x01, 0x0, 0x0
+                let style = reader.get_u8_no_remaining_update();
+                let weight = reader.get_u16_no_remaining_update();
+                let size = reader.get_u32_no_remaining_update();
                 let name_len = reader.get_u8_no_remaining_update();
-                let _name = reader.get_str_no_remaining_update(name_len as usize);
+                let name = reader.get_str_no_remaining_update(name_len as usize);
+                // reconstruct the bytes that were read
+                let mut data = Vec::new();
+                data.extend_from_slice(&header);
+                data.push(style);
+                data.extend_from_slice(&weight.to_le_bytes());
+                data.extend_from_slice(&size.to_le_bytes());
+                data.push(name_len);
+                data.extend_from_slice(name.as_bytes());
+                let hash = hash_data(&data);
+                tags.push(("FONT".to_string(), name.len(), hash));
             }
             "JPEG" => {
                 let remaining = reader.remaining_in_record();
@@ -194,7 +204,7 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, u64)> {
                 // TODO one solution could be overwriting padding areas with 0's
                 // For now we ignore the contents of this field
                 let hash = 0;
-                tags.push(("MATE".to_string(), data.len(), hash));
+                tags.push(("MATE (ignored)".to_string(), data.len(), hash));
             }
             "PHMA" => {
                 let data = reader.get_record_data(false);
@@ -203,17 +213,35 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, u64)> {
                 // TODO one solution could be overwriting padding areas with 0's
                 // For now we ignore the contents of this field
                 let hash = 0;
-                tags.push(("PHMA".to_string(), data.len(), hash));
+                tags.push(("PHMA (ignored)".to_string(), data.len(), hash));
+            }
+            "M3CY" => {
+                // Since the compressed indices size is depending on the selected compression
+                // algorithm we can't expect the same size. So we just read the data and ignore it.
+                let data = reader.get_record_data(false);
+                tags.push(("M3CY (ignored)".to_string(), data.len(), 0));
             }
             "M3CX" => {
-                let mut data = read_to_end_decompress(reader);
+                let data = read_to_end_decompress(reader);
                 let hash = hash_data(&data);
                 tags.push(("M3CX (decompressed)".to_string(), data.len(), hash));
             }
+            "M3CJ" => {
+                // Since the compressed indices size is depending on the selected compression
+                // algorithm we can't expect the same size. So we just read the data and ignore it.
+                let data = reader.get_record_data(false);
+                tags.push(("M3CJ (ignored)".to_string(), data.len(), 0));
+            }
             "M3CI" => {
-                let mut data = read_to_end_decompress(reader);
+                let data = read_to_end_decompress(reader);
                 let hash = hash_data(&data);
                 tags.push(("M3CI (decompressed)".to_string(), data.len(), hash));
+            }
+            "M3AY" => {
+                // Since the compressed indices size is depending on the selected compression
+                // algorithm we can't expect the same size. So we just read the data and ignore it.
+                let data = reader.get_record_data(false);
+                tags.push(("M3AY (ignored)".to_string(), data.len(), 0));
             }
             "M3AX" => {
                 let data = read_to_end_decompress(reader);
