@@ -138,7 +138,7 @@ fn tags_and_hashes<F: Seek + Read>(
     comp: &mut CompoundFile<F>,
     path: &Path,
     skip: u32,
-) -> Vec<(String, usize, u64)> {
+) -> Vec<(String, usize, usize, u64)> {
     let mut data = Vec::new();
     let mut stream = comp.open_stream(path).unwrap();
     stream.read_to_end(&mut data).unwrap();
@@ -148,55 +148,71 @@ fn tags_and_hashes<F: Seek + Read>(
     biff_tags_and_hashes(&mut reader)
 }
 
-fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, u64)> {
-    let mut tags: Vec<(String, usize, u64)> = Vec::new();
+fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, usize, u64)> {
+    let mut tags: Vec<(String, usize, usize, u64)> = Vec::new();
     while let Some(tag) = &reader.next(true) {
+        // Some tags have a size 0, where the data needs to be read in a specific way
+        // these are mostly also the special cases you see below
+        let read_tag_size = reader.remaining_in_record();
         let tag_str = tag.as_str();
         match tag_str {
             "FONT" => {
-                let header = reader.get_data(3).to_owned(); // always? 0x01, 0x0, 0x0
-                let style = reader.get_u8_no_remaining_update();
-                let weight = reader.get_u16_no_remaining_update();
-                let size = reader.get_u32_no_remaining_update();
-                let name_len = reader.get_u8_no_remaining_update();
-                let name = reader.get_str_no_remaining_update(name_len as usize);
-                // reconstruct the bytes that were read
-                let mut data = Vec::new();
-                data.extend_from_slice(&header);
-                data.push(style);
-                data.extend_from_slice(&weight.to_le_bytes());
-                data.extend_from_slice(&size.to_le_bytes());
-                data.push(name_len);
-                data.extend_from_slice(name.as_bytes());
+                let data = reader.data_until("ENDB".as_bytes());
                 let hash = hash_data(&data);
-                tags.push(("FONT".to_string(), name.len(), hash));
+                tags.push(("FONT".to_string(), read_tag_size, data.len(), hash));
+                // let header = reader.get_data(3).to_owned(); // always? 0x01, 0x0, 0x0
+                // let style = reader.get_u8_no_remaining_update();
+                // let weight = reader.get_u16_no_remaining_update();
+                // let size = reader.get_f32_no_remaining_update();
+                // let name_len = reader.get_u8_no_remaining_update();
+                // let name = reader.get_str_no_remaining_update(name_len as usize);
+                // // reconstruct the bytes that were read
+                // let mut data = Vec::new();
+                // data.extend_from_slice(&header);
+                // data.push(style);
+                // data.extend_from_slice(&weight.to_le_bytes());
+                // data.extend_from_slice(&size.to_le_bytes());
+                // data.push(name_len);
+                // data.extend_from_slice(name.as_bytes());
+                // let hash = hash_data(&data);
+                // println!("FONT: {:?}", name);
+                // println!("style: {:?}", style);
+                // println!("weight: {:?}", weight);
+                // println!("size: {:?}", size);
+                // println!("header: {:?}", header);
+                // tags.push(("FONT".to_string(), data.len(), hash));
             }
             "JPEG" => {
                 let remaining = reader.remaining_in_record();
-                tags.push(("--JPEG--SUB--BEGIN--".to_string(), remaining, 0));
+                tags.push((
+                    "--JPEG--SUB--BEGIN--".to_string(),
+                    read_tag_size,
+                    remaining,
+                    0,
+                ));
                 let mut sub_reader = reader.child_reader();
                 while let Some(tag) = &sub_reader.next(true) {
                     let data = sub_reader.get_record_data(false);
                     let mut hasher = DefaultHasher::new();
                     Hash::hash_slice(&data, &mut hasher);
                     let hash = hasher.finish();
-                    tags.push((tag.clone(), data.len(), hash));
+                    tags.push((tag.clone(), read_tag_size, data.len(), hash));
                 }
-                tags.push(("--JPEG--SUB--END--".to_string(), 0, 0));
+                tags.push(("--JPEG--SUB--END--".to_string(), read_tag_size, 0, 0));
                 let pos = sub_reader.pos();
                 reader.skip_end_tag(pos);
             }
             "BITS" => {
                 let data = reader.data_until("ALTV".as_bytes());
                 let hash = hash_data(&data);
-                tags.push(("BITS".to_string(), data.len(), hash));
+                tags.push(("BITS".to_string(), read_tag_size, data.len(), hash));
             }
             "CODE" => {
                 let len = reader.get_u32_no_remaining_update();
                 // at least at the time of 1060, some code was still encoded in latin1
                 let data = reader.get_str_with_encoding_no_remaining_update(len as usize);
                 let hash = hash_data(&data.string.as_bytes());
-                tags.push(("CODE".to_string(), len as usize, hash));
+                tags.push(("CODE".to_string(), read_tag_size, len as usize, hash));
             }
             "MATE" => {
                 let data = reader.get_record_data(false);
@@ -204,7 +220,12 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, u64)> {
                 // TODO one solution could be overwriting padding areas with 0's
                 // For now we ignore the contents of this field
                 let hash = 0;
-                tags.push(("MATE (ignored)".to_string(), data.len(), hash));
+                tags.push((
+                    "MATE (ignored)".to_string(),
+                    read_tag_size,
+                    data.len(),
+                    hash,
+                ));
             }
             "PHMA" => {
                 let data = reader.get_record_data(false);
@@ -213,45 +234,65 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, u64)> {
                 // TODO one solution could be overwriting padding areas with 0's
                 // For now we ignore the contents of this field
                 let hash = 0;
-                tags.push(("PHMA (ignored)".to_string(), data.len(), hash));
+                tags.push((
+                    "PHMA (ignored)".to_string(),
+                    read_tag_size,
+                    data.len(),
+                    hash,
+                ));
             }
             "M3CY" => {
                 // Since the compressed indices size is depending on the selected compression
                 // algorithm we can't expect the same size. So we just read the data and ignore it.
                 let data = reader.get_record_data(false);
-                tags.push(("M3CY (ignored)".to_string(), data.len(), 0));
+                tags.push(("M3CY (ignored)".to_string(), read_tag_size, data.len(), 0));
             }
             "M3CX" => {
-                let data = read_to_end_decompress(reader);
-                let hash = hash_data(&data);
-                tags.push(("M3CX (decompressed)".to_string(), data.len(), hash));
+                let decompressed = read_to_end_decompress(reader);
+                let hash = hash_data(&decompressed);
+                tags.push((
+                    "M3CX (decompressed)".to_string(),
+                    0, // compressed size ignored
+                    decompressed.len(),
+                    hash,
+                ));
             }
             "M3CJ" => {
                 // Since the compressed indices size is depending on the selected compression
                 // algorithm we can't expect the same size. So we just read the data and ignore it.
                 let data = reader.get_record_data(false);
-                tags.push(("M3CJ (ignored)".to_string(), data.len(), 0));
+                tags.push(("M3CJ (ignored)".to_string(), read_tag_size, data.len(), 0));
             }
             "M3CI" => {
-                let data = read_to_end_decompress(reader);
-                let hash = hash_data(&data);
-                tags.push(("M3CI (decompressed)".to_string(), data.len(), hash));
+                let decompressed = read_to_end_decompress(reader);
+                let hash = hash_data(&decompressed);
+                tags.push((
+                    "M3CI (decompressed)".to_string(),
+                    0, // compressed size ignored
+                    decompressed.len(),
+                    hash,
+                ));
             }
             "M3AY" => {
                 // Since the compressed indices size is depending on the selected compression
                 // algorithm we can't expect the same size. So we just read the data and ignore it.
                 let data = reader.get_record_data(false);
-                tags.push(("M3AY (ignored)".to_string(), data.len(), 0));
+                tags.push(("M3AY (ignored)".to_string(), read_tag_size, data.len(), 0));
             }
             "M3AX" => {
-                let data = read_to_end_decompress(reader);
-                let hash = hash_data(&data);
-                tags.push(("M3AX (decompressed)".to_string(), data.len(), hash));
+                let decompressed = read_to_end_decompress(reader);
+                let hash = hash_data(&decompressed);
+                tags.push((
+                    "M3AX (decompressed)".to_string(),
+                    0, // compressed size ignored
+                    decompressed.len(),
+                    hash,
+                ));
             }
             other => {
                 let data = reader.get_record_data(false);
                 let hash = hash_data(&data);
-                tags.push((other.to_string(), data.len(), hash));
+                tags.push((other.to_string(), read_tag_size, data.len(), hash));
             }
         }
     }
