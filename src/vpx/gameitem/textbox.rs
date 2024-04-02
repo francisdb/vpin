@@ -249,7 +249,7 @@ impl BiffWrite for TextBox {
         if let Some(is_dmd) = self.is_dmd {
             writer.write_tagged_bool("IDMD", is_dmd);
         }
-        writer.write_tagged("FONT", &self.font);
+
         // shared
         writer.write_tagged_bool("LOCK", self.is_locked);
         writer.write_tagged_u32("LAYR", self.editor_layer);
@@ -259,6 +259,8 @@ impl BiffWrite for TextBox {
         if let Some(editor_layer_visibility) = self.editor_layer_visibility {
             writer.write_tagged_bool("LVIS", editor_layer_visibility);
         }
+
+        writer.write_tagged("FONT", &self.font);
 
         writer.close(true);
     }
