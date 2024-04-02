@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.2](https://github.com/francisdb/vpin/compare/v0.10.1...v0.10.2) - 2024-04-02
+
+### Added
+- unify drag_points fields
+
+### Fixed
+- *(vpx)* tags that require 0 size ([#53](https://github.com/francisdb/vpin/pull/53))
+- *(expanded)* correctly update mesh info ([#51](https://github.com/francisdb/vpin/pull/51))
+- textbox/decal FONT tag location ([#50](https://github.com/francisdb/vpin/pull/50))
+
 ## [0.10.1](https://github.com/francisdb/vpin/compare/v0.10.0...v0.10.1) - 2024-03-26
 
 ### Fixed
