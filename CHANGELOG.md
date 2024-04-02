@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1](https://github.com/francisdb/vpin/compare/v0.11.0...v0.11.1) - 2024-04-02
+
+### Other
+- clippy cleanup
+
 ## [0.11.0](https://github.com/francisdb/vpin/compare/v0.10.2...v0.11.0) - 2024-04-02
 
 ### Fixed
