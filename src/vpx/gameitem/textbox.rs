@@ -272,7 +272,7 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
-    use crate::vpx::gameitem::font::FontStyle;
+    use crate::vpx::gameitem::font::{FontStyle, CHARSET_ANSI};
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -291,6 +291,7 @@ mod tests {
             is_transparent: false,
             is_dmd: Some(false),
             font: Font::new(
+                CHARSET_ANSI,
                 HashSet::from([FontStyle::Bold, FontStyle::Underline]),
                 123,
                 456,
