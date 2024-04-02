@@ -749,6 +749,12 @@ impl BiffWriter {
         self.end_tag();
     }
 
+    pub fn write_tagged_without_size<T: BiffWrite>(&mut self, tag: &str, value: &T) {
+        self.new_tag(tag);
+        BiffWrite::biff_write(value, self);
+        self.end_tag_no_size();
+    }
+
     pub fn write_tagged_with<T>(&mut self, tag: &str, value: &T, f: fn(&T, &mut BiffWriter) -> ()) {
         self.new_tag(tag);
         f(value, self);

@@ -276,7 +276,7 @@ impl BiffWrite for Decal {
             writer.write_tagged_bool("LVIS", editor_layer_visibility);
         }
 
-        writer.write_tagged("FONT", &self.font);
+        writer.write_tagged_without_size("FONT", &self.font);
 
         writer.close(true);
     }

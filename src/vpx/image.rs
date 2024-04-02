@@ -284,7 +284,7 @@ fn write(data: &ImageData, writer: &mut BiffWriter) {
         writer.write_tagged_u32("LINK", link);
     }
     if let Some(bits) = &data.bits {
-        writer.write_tagged_data("BITS", &bits.data);
+        writer.write_tagged_data_without_size("BITS", &bits.data);
     }
     if let Some(jpeg) = &data.jpeg {
         let bits = write_jpg(jpeg);
