@@ -428,7 +428,7 @@ fn read_sounds<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<SoundData>> {
 
 fn write_fonts<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
     let fonts_json_path = expanded_dir.as_ref().join("fonts.json");
-    let mut fonts_index_file = std::fs::File::create(&fonts_json_path)?;
+    let mut fonts_index_file = File::create(&fonts_json_path)?;
     let fonts_index: Vec<FontDataJson> = vpx
         .fonts
         .iter()
@@ -1014,8 +1014,13 @@ fn read_gameitem_binaries(
         let gameitem_file_name = gameitem_file_name.trim_end_matches(".json");
         let obj_path = gameitems_dir.join(format!("{}.obj", gameitem_file_name));
         if obj_path.exists() {
-            let (compressed_vertices, compressed_indices) = read_obj(&obj_path)?;
+            let (vertices_len, indices_len, compressed_vertices, compressed_indices) =
+                read_obj(&obj_path)?;
+            primitive.num_vertices = Some(vertices_len as u32);
+            primitive.compressed_vertices_len = Some(compressed_vertices.len() as u32);
             primitive.compressed_vertices_data = Some(compressed_vertices);
+            primitive.num_indices = Some(indices_len as u32);
+            primitive.compressed_indices_len = Some(compressed_indices.len() as u32);
             primitive.compressed_indices_data = Some(compressed_indices);
         }
         let frame0_file_name = animation_frame_file_name(&gameitem_file_name, 0);
@@ -1062,7 +1067,7 @@ fn animation_frame_file_name(gameitem_file_name: &str, index: usize) -> String {
     format!("{}_anim_{}.obj", gameitem_file_name, index)
 }
 
-fn read_obj(obj_path: &PathBuf) -> io::Result<(Vec<u8>, Vec<u8>)> {
+fn read_obj(obj_path: &PathBuf) -> io::Result<(usize, usize, Vec<u8>, Vec<u8>)> {
     let ObjData {
         name: _,
         vertices,
@@ -1117,13 +1122,20 @@ fn read_obj(obj_path: &PathBuf) -> io::Result<(Vec<u8>, Vec<u8>)> {
         write_vertex_index_for_vpx(bytes_per_index, &mut vpx_indices, v2);
         write_vertex_index_for_vpx(bytes_per_index, &mut vpx_indices, v1);
     }
+    let vertices_len = vertices.len();
+    let incices_len = indices.len();
 
     let vertices = vpx_vertices.to_vec();
     let indices = vpx_indices.to_vec();
 
     let compressed_vertices = compress_data(&vertices)?;
     let compressed_indices = compress_data(&indices)?;
-    Ok((compressed_vertices, compressed_indices))
+    Ok((
+        vertices_len,
+        incices_len,
+        compressed_vertices,
+        compressed_indices,
+    ))
 }
 
 fn read_obj_as_frame(obj_path: &PathBuf) -> io::Result<Vec<VertData>> {
