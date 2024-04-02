@@ -230,7 +230,7 @@ impl PrimitiveJson {
             add_blend: self.add_blend,
             use_depth_mask: self.use_depth_mask,
             alpha: self.alpha,
-            color: self.color.as_ref().map(|c| ColorJson::to_color(c)),
+            color: self.color.as_ref().map(ColorJson::to_color),
             light_map: self.light_map.clone(),
             reflection_probe: self.reflection_probe.clone(),
             reflection_strength: self.reflection_strength,

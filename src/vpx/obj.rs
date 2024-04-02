@@ -26,8 +26,7 @@ fn obj_vpx_comment(bytes: &VpxNormalBytes) -> String {
 }
 
 fn obj_parse_vpx_comment(comment: &str) -> Option<VpxNormalBytes> {
-    if comment.starts_with("vpx ") {
-        let hex = &comment[4..];
+    if let Some(hex) = comment.strip_prefix("vpx ") {
         let bytes = hex
             .split_whitespace()
             .map(|s| u8::from_str_radix(s, 16).unwrap())
@@ -52,10 +51,10 @@ fn obj_parse_vpx_comment(comment: &str) -> Option<VpxNormalBytes> {
 pub(crate) fn write_obj(
     name: String,
     vertices: &Vec<([u8; 32], Vertex3dNoTex2)>,
-    indices: &Vec<i64>,
+    indices: &[i64],
     obj_file_path: &PathBuf,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut obj_file = File::create(&obj_file_path)?;
+) -> Result<(), Box<dyn Error>> {
+    let mut obj_file = File::create(obj_file_path)?;
     let mut writer = std::io::BufWriter::new(&mut obj_file);
     let obj_writer = Writer { auto_newline: true };
 
@@ -145,9 +144,9 @@ pub(crate) fn write_obj(
     for chunk in indices.chunks(3) {
         // obj indices are 1 based
         // since the z axis is inverted we have to reverse the order of the vertices
-        let v1 = (chunk[0] as i64) + 1;
-        let v2 = (chunk[1] as i64) + 1;
-        let v3 = (chunk[2] as i64) + 1;
+        let v1 = chunk[0] + 1;
+        let v2 = chunk[1] + 1;
+        let v3 = chunk[2] + 1;
         let face = Entity::Face {
             vertices: vec![
                 FaceVertex::new_vtn(v1, Some(v1), Some(v1)),
@@ -160,10 +159,8 @@ pub(crate) fn write_obj(
     Ok(())
 }
 
-pub(crate) fn read_obj_file(
-    obj_file_path: &PathBuf,
-) -> Result<ObjData, Box<dyn std::error::Error>> {
-    let obj_file = File::open(&obj_file_path)?;
+pub(crate) fn read_obj_file(obj_file_path: &PathBuf) -> Result<ObjData, Box<dyn Error>> {
+    let obj_file = File::open(obj_file_path)?;
     let mut reader = std::io::BufReader::new(obj_file);
     read_obj(&mut reader)
 }
@@ -172,7 +169,7 @@ pub(crate) fn read_obj<R: BufRead>(mut reader: &mut R) -> Result<ObjData, Box<dy
     let mut indices: Vec<i64> = Vec::new();
     let mut vertices: Vec<(f64, f64, f64, Option<f64>)> = Vec::new();
     let mut texture_coordinates: Vec<(f64, Option<f64>, Option<f64>)> = Vec::new();
-    let mut normals: Vec<((f64, f64, f64), Option<[u8; 12]>)> = Vec::new();
+    let mut normals: Vec<ObjNormal> = Vec::new();
     let mut object_count = 0;
     let mut previous_comment: Option<String> = None;
     let mut name = String::new();
@@ -235,13 +232,15 @@ pub(crate) fn read_obj<R: BufRead>(mut reader: &mut R) -> Result<ObjData, Box<dy
     })
 }
 
+pub type ObjNormal = ((f64, f64, f64), Option<VpxNormalBytes>);
+
 #[derive(Debug, PartialEq)]
 pub(crate) struct ObjData {
     pub name: String,
     pub vertices: Vec<(f64, f64, f64, Option<f64>)>,
     pub texture_coordinates: Vec<(f64, Option<f64>, Option<f64>)>,
-    pub normals: Vec<((f64, f64, f64), Option<VpxNormalBytes>)>,
-    /// indices can also be relative so they can be negative
+    pub normals: Vec<ObjNormal>,
+    /// Indices can also be relative, so they can be negative
     /// stored by three as vertex, texture, normal are all the same
     ///
     /// Here they are 0-based, in obj files they are 1-based
@@ -304,8 +303,8 @@ f 1/1/1 1/1/1 1/1/1
         assert_eq!(read_data.vertices, expected.vertices);
         assert_eq!(read_data.texture_coordinates, expected.texture_coordinates);
         assert_eq!(
-            read_data.normals.get(0).unwrap().1,
-            expected.normals.get(0).unwrap().1
+            read_data.normals.first().unwrap().1,
+            expected.normals.first().unwrap().1
         );
         assert_eq!(read_data.indices, expected.indices);
         Ok(())

@@ -137,7 +137,7 @@ impl ImageDataJson {
             jpeg: image_data
                 .jpeg
                 .as_ref()
-                .map(|jpeg| ImageDataJpegJson::from_image_data_jpeg(jpeg)),
+                .map(ImageDataJpegJson::from_image_data_jpeg),
             bits: image_data.bits.is_some(),
             name_dedup: None,
         }

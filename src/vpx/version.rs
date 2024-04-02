@@ -20,7 +20,7 @@ impl Version {
         Ok(Version(version))
     }
 
-    pub fn to_string(&self) -> String {
+    pub fn to_u32_string(&self) -> String {
         self.0.to_string()
     }
 }
@@ -49,7 +49,7 @@ impl From<Version> for u32 {
         val.0
     }
 }
-impl cmp::PartialOrd for Version {
+impl PartialOrd for Version {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         self.0.partial_cmp(&other.0)
     }
@@ -108,7 +108,7 @@ mod test {
     #[test]
     pub fn test_to_string_parse() -> TestResult {
         let version = Version::new(1080);
-        let version_string = version.to_string();
+        let version_string = version.to_u32_string();
         let parsed_version = Version::parse(&version_string)?;
         assert_eq!(version, parsed_version);
         Ok(())
@@ -118,7 +118,7 @@ mod test {
     pub fn test_parse_to_string() -> TestResult {
         let version_string = "1080";
         let parsed_version = Version::parse(version_string)?;
-        let version_string2 = parsed_version.to_string();
+        let version_string2 = parsed_version.to_u32_string();
         assert_eq!(version_string, version_string2);
         Ok(())
     }

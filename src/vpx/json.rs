@@ -69,8 +69,7 @@ where
             "inf" => Ok(f32::INFINITY),
             "-inf" => Ok(f32::NEG_INFINITY),
             other => {
-                if other.starts_with("nan|") {
-                    let hex_string = &other[4..];
+                if let Some(hex_string) = other.strip_prefix("nan|") {
                     let bytes = hex::decode(hex_string)
                         .map_err(|e| serde::de::Error::custom(e.to_string()))?;
                     let mut array = [0; 4];
@@ -116,14 +115,11 @@ mod tests {
         let json_nan = json!("NaN|0000c07f");
         let json_other_nan = json!("NaN|ffffffff");
 
-        assert_eq!(serde_json::to_value(&f32_num).unwrap(), json_num);
-        assert_eq!(serde_json::to_value(&f32_inf).unwrap(), json_inf);
-        assert_eq!(serde_json::to_value(&f32_n_inf).unwrap(), json_n_inf);
-        assert_eq!(serde_json::to_value(&f32_nan).unwrap(), json_nan);
-        assert_eq!(
-            serde_json::to_value(&f32_other_nan).unwrap(),
-            json_other_nan
-        );
+        assert_eq!(serde_json::to_value(f32_num).unwrap(), json_num);
+        assert_eq!(serde_json::to_value(f32_inf).unwrap(), json_inf);
+        assert_eq!(serde_json::to_value(f32_n_inf).unwrap(), json_n_inf);
+        assert_eq!(serde_json::to_value(f32_nan).unwrap(), json_nan);
+        assert_eq!(serde_json::to_value(f32_other_nan).unwrap(), json_other_nan);
 
         assert_eq!(
             serde_json::from_value::<F32WithNanInf>(json_num).unwrap(),

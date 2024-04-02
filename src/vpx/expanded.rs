@@ -78,14 +78,14 @@ impl From<serde_json::Error> for WriteError {
 pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
     // write the version as utf8 to version.txt
     let version_path = expanded_dir.as_ref().join("version.txt");
-    let mut version_file = File::create(&version_path)?;
-    let version_string = vpx.version.to_string();
+    let mut version_file = File::create(version_path)?;
+    let version_string = vpx.version.to_u32_string();
     version_file.write_all(version_string.as_bytes())?;
 
     // write the screenshot as a png
     if let Some(screenshot) = &vpx.info.screenshot {
         let screenshot_path = expanded_dir.as_ref().join("screenshot.png");
-        let mut screenshot_file = std::fs::File::create(&screenshot_path)?;
+        let mut screenshot_file = File::create(screenshot_path)?;
         screenshot_file.write_all(screenshot)?;
     }
 
@@ -94,21 +94,21 @@ pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteErr
 
     // collections
     let collections_json_path = expanded_dir.as_ref().join("collections.json");
-    let mut collections_json_file = File::create(&collections_json_path)?;
+    let mut collections_json_file = File::create(collections_json_path)?;
     let json_collections = collections_json(&vpx.collections);
     serde_json::to_writer_pretty(&mut collections_json_file, &json_collections)?;
-    write_gameitems(&vpx, expanded_dir)?;
-    write_images(&vpx, expanded_dir)?;
-    write_sounds(&vpx, expanded_dir)?;
-    write_fonts(&vpx, expanded_dir)?;
-    write_game_data(&vpx, expanded_dir)?;
+    write_gameitems(vpx, expanded_dir)?;
+    write_images(vpx, expanded_dir)?;
+    write_sounds(vpx, expanded_dir)?;
+    write_fonts(vpx, expanded_dir)?;
+    write_game_data(vpx, expanded_dir)?;
     if vpx.gamedata.materials.is_some() {
-        write_materials(&vpx, expanded_dir)?;
+        write_materials(vpx, expanded_dir)?;
     } else {
-        write_old_materials(&vpx, expanded_dir)?;
-        write_old_materials_physics(&vpx, expanded_dir)?;
+        write_old_materials(vpx, expanded_dir)?;
+        write_old_materials_physics(vpx, expanded_dir)?;
     }
-    write_renderprobes(&vpx, expanded_dir)?;
+    write_renderprobes(vpx, expanded_dir)?;
     Ok(())
 }
 
@@ -187,12 +187,12 @@ pub fn read<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<VPX> {
 
 fn write_game_data<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
     let game_data_path = expanded_dir.as_ref().join("gamedata.json");
-    let mut game_data_file = File::create(&game_data_path)?;
+    let mut game_data_file = File::create(game_data_path)?;
     let json = GameDataJson::from_game_data(&vpx.gamedata);
     serde_json::to_writer_pretty(&mut game_data_file, &json)?;
     // write the code to script.vbs
     let script_path = expanded_dir.as_ref().join("script.vbs");
-    let mut script_file = File::create(&script_path)?;
+    let mut script_file = File::create(script_path)?;
     let script_bytes: Vec<u8> = vpx.gamedata.code.clone().into();
     script_file.write_all(script_bytes.as_ref())?;
     Ok(())
@@ -200,7 +200,7 @@ fn write_game_data<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Wr
 
 fn read_game_data<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<GameData> {
     let game_data_path = expanded_dir.as_ref().join("gamedata.json");
-    let game_data_json: GameDataJson = read_json(&game_data_path)?;
+    let game_data_json: GameDataJson = read_json(game_data_path)?;
     let mut game_data = game_data_json.to_game_data();
     // read the code from script.vbs, and find out the correct encoding
     let script_path = expanded_dir.as_ref().join("script.vbs");
@@ -240,7 +240,7 @@ where
 fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
     // create an image index
     let images_index_path = expanded_dir.as_ref().join("images.json");
-    let mut images_index_file = std::fs::File::create(&images_index_path)?;
+    let mut images_index_file = File::create(images_index_path)?;
     // on macOS/windows the file system is case-insensitive
     let mut image_names_lower: HashSet<String> = HashSet::new();
     let mut image_names_dupe_counter = 0;
@@ -304,7 +304,7 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
 fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
     // TODO do we actually need an index?
     let images_index_path = expanded_dir.as_ref().join("images.json");
-    let images_index_json: Vec<ImageDataJson> = read_json(&images_index_path)?;
+    let images_index_json: Vec<ImageDataJson> = read_json(images_index_path)?;
     let images_dir = expanded_dir.as_ref().join("images");
     let images: io::Result<Vec<ImageData>> = images_index_json
         .into_iter()
@@ -312,7 +312,7 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
             let mut image = image_data_json.to_image_data();
             if image.is_link() {
                 // linked images have no data
-                return Ok(image);
+                Ok(image)
             } else {
                 let file_name = image_data_json.name_dedup.as_ref().unwrap_or(&image.name);
                 let full_file_name = format!("{}.{}", file_name, image.ext());
@@ -343,7 +343,7 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
 
 fn write_sounds<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
     let sounds_index_path = expanded_dir.as_ref().join("sounds.json");
-    let mut sounds_index_file = std::fs::File::create(&sounds_index_path)?;
+    let mut sounds_index_file = File::create(sounds_index_path)?;
     // on macOS/windows the file system is case-insensitive
     let mut sound_names_lower: HashSet<String> = HashSet::new();
     let mut sound_names_dupe_counter = 0;
@@ -379,7 +379,7 @@ fn write_sounds<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
         let sound_path = sounds_dir.join(sound_file_name);
         if !sound_path.exists() {
             let mut file = File::create(sound_path)?;
-            file.write_all(&write_sound(&sound))
+            file.write_all(&write_sound(sound))
         } else {
             Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
@@ -408,7 +408,7 @@ fn read_sounds<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<SoundData>> {
             let mut sound = sound_data_json.to_sound_data();
             let file_name = sound_data_json.name_dedup.as_ref().unwrap_or(&sound.name);
             let full_file_name = format!("{}.{}", file_name, sound.ext());
-            let file_path = sounds_dir.join(&full_file_name);
+            let file_path = sounds_dir.join(full_file_name);
             if file_path.exists() {
                 let mut sound_file = File::open(&file_path)?;
                 let mut sound_data = Vec::new();
@@ -428,12 +428,9 @@ fn read_sounds<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<SoundData>> {
 
 fn write_fonts<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
     let fonts_json_path = expanded_dir.as_ref().join("fonts.json");
-    let mut fonts_index_file = File::create(&fonts_json_path)?;
-    let fonts_index: Vec<FontDataJson> = vpx
-        .fonts
-        .iter()
-        .map(|font| FontDataJson::from_font_data(font))
-        .collect();
+    let mut fonts_index_file = File::create(fonts_json_path)?;
+    let fonts_index: Vec<FontDataJson> =
+        vpx.fonts.iter().map(FontDataJson::from_font_data).collect();
     serde_json::to_writer_pretty(&mut fonts_index_file, &fonts_index)?;
 
     let fonts_dir = expanded_dir.as_ref().join("fonts");
@@ -447,7 +444,7 @@ fn write_fonts<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteE
     Ok(())
 }
 
-fn read_fonts<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<font::FontData>> {
+fn read_fonts<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<FontData>> {
     let fonts_index_path = expanded_dir.as_ref().join("fonts.json");
     if !fonts_index_path.exists() {
         println!("No fonts.json found");
@@ -485,7 +482,7 @@ fn read_fonts<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<font::FontData
 fn write_materials<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
     if let Some(materials) = &vpx.gamedata.materials {
         let materials_path = expanded_dir.as_ref().join("materials.json");
-        let mut materials_file = File::create(&materials_path)?;
+        let mut materials_file = File::create(materials_path)?;
         let materials_index: Vec<MaterialJson> =
             materials.iter().map(MaterialJson::from_material).collect();
         serde_json::to_writer_pretty(&mut materials_file, &materials_index)?;
@@ -509,7 +506,7 @@ fn read_materials<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Option<Vec<Mat
 
 fn write_old_materials<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
     let materials_path = expanded_dir.as_ref().join("materials-old.json");
-    let mut materials_file = File::create(&materials_path)?;
+    let mut materials_file = File::create(materials_path)?;
     let materials_index: Vec<SaveMaterialJson> = vpx
         .gamedata
         .materials_old
@@ -540,7 +537,7 @@ fn write_old_materials_physics<P: AsRef<Path>>(
 ) -> Result<(), WriteError> {
     if let Some(materials) = &vpx.gamedata.materials_physics_old {
         let materials_path = expanded_dir.as_ref().join("materials-physics-old.json");
-        let mut materials_file = File::create(&materials_path)?;
+        let mut materials_file = File::create(materials_path)?;
         let materials_index: Vec<SavePhysicsMaterialJson> = materials
             .iter()
             .map(SavePhysicsMaterialJson::from_save_physics_material)
@@ -628,7 +625,7 @@ fn write_gameitems<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Wr
     }
     // write the gameitems index as array with names being the type and the name
     let gameitems_index_path = expanded_dir.as_ref().join("gameitems.json");
-    let mut gameitems_index_file = File::create(&gameitems_index_path)?;
+    let mut gameitems_index_file = File::create(gameitems_index_path)?;
     serde_json::to_writer_pretty(&mut gameitems_index_file, &files)?;
     Ok(())
 }
@@ -663,7 +660,7 @@ const MAX_VERTICES_FOR_2_BYTE_INDEX: usize = 65535;
 
 /// for primitives we write fields m3cx, m3ci and m3ay's to separate files with bin extension
 fn write_gameitem_binaries(
-    gameitems_dir: &PathBuf,
+    gameitems_dir: &Path,
     gameitem: &GameItemEnum,
     json_file_name: String,
 ) -> Result<(), WriteError> {
@@ -716,17 +713,17 @@ fn write_gameitem_binaries(
 }
 
 fn write_animation_frames_to_objs(
-    gameitems_dir: &PathBuf,
+    gameitems_dir: &Path,
     gameitem: &GameItemEnum,
-    json_file_name: &String,
-    vertices: &Vec<([u8; 32], Vertex3dNoTex2)>,
-    indices: &Vec<i64>,
+    json_file_name: &str,
+    vertices: &[([u8; 32], Vertex3dNoTex2)],
+    indices: &[i64],
     zipped: Zip<Iter<Vec<u8>>, Iter<u32>>,
 ) -> Result<(), WriteError> {
     for (i, (compressed_frame, compressed_length)) in zipped.enumerate() {
         let animation_frame_vertices =
             read_vpx_animation_frame(compressed_frame, compressed_length);
-        let full_vertices = replace_vertices(&vertices, animation_frame_vertices)?;
+        let full_vertices = replace_vertices(vertices, animation_frame_vertices)?;
         // The file name of the sequence must be <meshname>_x.obj where x is the frame number.
         let file_name_without_ext = json_file_name.trim_end_matches(".json");
         let file_name = animation_frame_file_name(file_name_without_ext, i);
@@ -734,7 +731,7 @@ fn write_animation_frames_to_objs(
         write_obj(
             gameitem.name().to_string(),
             &full_vertices,
-            &indices,
+            indices,
             &obj_path,
         )
         .map_err(|e| WriteError::Io(io::Error::new(io::ErrorKind::Other, format!("{}", e))))?;
@@ -743,7 +740,7 @@ fn write_animation_frames_to_objs(
 }
 
 fn replace_vertices(
-    vertices: &Vec<([u8; 32], Vertex3dNoTex2)>,
+    vertices: &[([u8; 32], Vertex3dNoTex2)],
     animation_frame_vertices: Result<Vec<VertData>, WriteError>,
 ) -> Result<Vec<([u8; 32], Vertex3dNoTex2)>, WriteError> {
     // combine animation_vertices with the vertices and indices from the mesh
@@ -766,7 +763,7 @@ fn replace_vertices(
 }
 
 fn read_vpx_animation_frame(
-    compressed_frame: &Vec<u8>,
+    compressed_frame: &[u8],
     compressed_length: &u32,
 ) -> Result<Vec<VertData>, WriteError> {
     if compressed_frame.len() != *compressed_length as usize {
@@ -790,11 +787,13 @@ fn read_vpx_animation_frame(
     Ok(vertices)
 }
 
+type ReadMesh = (Vec<([u8; 32], Vertex3dNoTex2)>, Vec<i64>);
+
 fn read_mesh(
     primitive: &Primitive,
-    vertices_data: &Vec<u8>,
-    indices_data: &Vec<u8>,
-) -> Result<(Vec<([u8; 32], Vertex3dNoTex2)>, Vec<i64>), WriteError> {
+    vertices_data: &[u8],
+    indices_data: &[u8],
+) -> Result<ReadMesh, WriteError> {
     let raw_vertices = decompress_data(vertices_data)?;
     let indices = decompress_data(indices_data)?;
     let calculated_num_vertices = raw_vertices.len() / BYTES_PER_VERTEX;
@@ -815,13 +814,12 @@ fn read_mesh(
         "Indices count mismatch"
     );
     let num_vertices = raw_vertices.len() / 32;
-    let bytes_per_index: u8 = if num_vertices > crate::vpx::expanded::MAX_VERTICES_FOR_2_BYTE_INDEX
-    {
+    let bytes_per_index: u8 = if num_vertices > MAX_VERTICES_FOR_2_BYTE_INDEX {
         4
     } else {
         2
     };
-    let mut vertices: Vec<([u8; 32], Vertex3dNoTex2)> = Vec::with_capacity(num_vertices as usize);
+    let mut vertices: Vec<([u8; 32], Vertex3dNoTex2)> = Vec::with_capacity(num_vertices);
 
     let mut buff = BytesMut::from(raw_vertices.as_slice());
     for _ in 0..num_vertices {
@@ -965,12 +963,11 @@ fn write_vertex_index_for_vpx(bytes_per_index: u8, vpx_indices: &mut BytesMut, v
 }
 
 fn read_vertex_index_from_vpx(bytes_per_index: u8, buff: &mut BytesMut) -> i64 {
-    let index = if bytes_per_index == 2 {
+    if bytes_per_index == 2 {
         buff.get_u16_le() as i64
     } else {
         buff.get_u32_le() as i64
-    };
-    index
+    }
 }
 
 fn read_gameitems<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<GameItemEnum>> {
@@ -1006,7 +1003,7 @@ fn read_gameitems<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<GameItemEn
 
 /// for primitives we read fields m3cx, m3ci and m3ay's from separate files with bin extension
 fn read_gameitem_binaries(
-    gameitems_dir: &PathBuf,
+    gameitems_dir: &Path,
     gameitem_file_name: String,
     mut item: GameItemEnum,
 ) -> io::Result<GameItemEnum> {
@@ -1023,7 +1020,7 @@ fn read_gameitem_binaries(
             primitive.compressed_indices_len = Some(compressed_indices.len() as u32);
             primitive.compressed_indices_data = Some(compressed_indices);
         }
-        let frame0_file_name = animation_frame_file_name(&gameitem_file_name, 0);
+        let frame0_file_name = animation_frame_file_name(gameitem_file_name, 0);
         let frame0_path = gameitems_dir.join(frame0_file_name);
         if frame0_path.exists() {
             // we have animation frames
@@ -1074,7 +1071,7 @@ fn read_obj(obj_path: &PathBuf) -> io::Result<(usize, usize, Vec<u8>, Vec<u8>)> 
         texture_coordinates,
         normals,
         indices,
-    } = read_obj_file(&obj_path).map_err(|e| {
+    } = read_obj_file(obj_path).map_err(|e| {
         io::Error::new(
             io::ErrorKind::Other,
             format!("Error reading obj {}: {}", obj_path.display(), e),
@@ -1094,7 +1091,7 @@ fn read_obj(obj_path: &PathBuf) -> io::Result<(usize, usize, Vec<u8>, Vec<u8>)> 
         // invert the z axis
         let nz = -(normal.2 as f32);
 
-        let vertext = crate::vpx::expanded::Vertex3dNoTex2 {
+        let vertext = Vertex3dNoTex2 {
             x: v.0 as f32,
             y: v.1 as f32,
             // invert the z axis
@@ -1145,7 +1142,7 @@ fn read_obj_as_frame(obj_path: &PathBuf) -> io::Result<Vec<VertData>> {
         texture_coordinates: _,
         normals,
         indices: _,
-    } = read_obj_file(&obj_path).map_err(|e| {
+    } = read_obj_file(obj_path).map_err(|e| {
         io::Error::new(
             io::ErrorKind::Other,
             format!("Error reading obj {}: {}", obj_path.display(), e),
@@ -1174,7 +1171,7 @@ fn read_obj_as_frame(obj_path: &PathBuf) -> io::Result<Vec<VertData>> {
 
 fn write_info<P: AsRef<Path>>(vpx: &&VPX, expanded_dir: &P) -> Result<(), WriteError> {
     let json_path = expanded_dir.as_ref().join("info.json");
-    let mut json_file = File::create(&json_path)?;
+    let mut json_file = File::create(json_path)?;
     let info = info_to_json(&vpx.info, &vpx.custominfotags);
     serde_json::to_writer_pretty(&mut json_file, &info)?;
     Ok(())
@@ -1219,7 +1216,7 @@ fn read_renderprobes<P: AsRef<Path>>(
 fn write_renderprobes<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
     if let Some(renderprobes) = &vpx.gamedata.render_probes {
         let renderprobes_path = expanded_dir.as_ref().join("renderprobes.json");
-        let mut renderprobes_file = File::create(&renderprobes_path)?;
+        let mut renderprobes_file = File::create(renderprobes_path)?;
         let renderprobes_index: Vec<RenderProbeJson> = renderprobes
             .iter()
             .map(RenderProbeJson::from_renderprobe)
@@ -1313,13 +1310,13 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
         let mut font_path = fonts_path.clone();
         font_path.push(format!("Font{}.{}.{}", index, font.name, ext));
 
-        files.push(font_path.join("/").to_string_lossy().to_string());
+        files.push(font_path.to_string_lossy().to_string());
     }
     if fonts_size == 0 {
         files.push(fonts_path.to_string_lossy().to_string());
     }
 
-    let entries = retrieve_entries_from_compound_file(&mut comp);
+    let entries = retrieve_entries_from_compound_file(&comp);
     entries.iter().for_each(|path| {
         // write the steam directly to a file
         let file_path = root_dir_path.join(&path[1..]);
@@ -1368,7 +1365,7 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
     files
 }
 
-fn retrieve_entries_from_compound_file(comp: &CompoundFile<std::fs::File>) -> Vec<String> {
+fn retrieve_entries_from_compound_file(comp: &CompoundFile<File>) -> Vec<String> {
     let entries: Vec<String> = comp
         .walk()
         .filter(|entry| {
@@ -1450,7 +1447,7 @@ mod test {
         light_sequencer.name = "test light sequencer".to_string();
         let mut plunger: gameitem::plunger::Plunger = Faker.fake();
         plunger.name = "test plunger".to_string();
-        let mut primitive: gameitem::primitive::Primitive = Faker.fake();
+        let mut primitive: Primitive = Faker.fake();
         primitive.name = "test primitive".to_string();
         // keep the vertices and indices empty to work around compression errors on fake data
         primitive.num_vertices = None;
@@ -1608,12 +1605,12 @@ mod test {
                 },
             ],
             fonts: vec![
-                font::FontData {
+                FontData {
                     name: "test font".to_string(),
                     path: "test.ttf".to_string(),
                     data: vec![0, 1, 2, 3],
                 },
-                font::FontData {
+                FontData {
                     name: "test font2".to_string(),
                     path: "test2.ttf".to_string(),
                     data: vec![5, 6, 7],

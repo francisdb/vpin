@@ -156,31 +156,33 @@ impl<'de> Deserialize<'de> for Bumper {
         D: serde::Deserializer<'de>,
     {
         let bumper_json = BumperJson::deserialize(deserializer)?;
-        let mut bumper = Bumper::default();
-        bumper.center = bumper_json.center;
-        bumper.radius = bumper_json.radius;
-        bumper.is_timer_enabled = bumper_json.is_timer_enabled;
-        bumper.timer_interval = bumper_json.timer_interval;
-        bumper.threshold = bumper_json.threshold;
-        bumper.force = bumper_json.force;
-        bumper.scatter = bumper_json.scatter;
-        bumper.height_scale = bumper_json.height_scale;
-        bumper.ring_speed = bumper_json.ring_speed;
-        bumper.orientation = bumper_json.orientation;
-        bumper.ring_drop_offset = bumper_json.ring_drop_offset.map(f32::from);
-        bumper.cap_material = bumper_json.cap_material;
-        bumper.base_material = bumper_json.base_material;
-        bumper.socket_material = bumper_json.socket_material;
-        bumper.ring_material = bumper_json.ring_material;
-        bumper.surface = bumper_json.surface;
-        bumper.name = bumper_json.name;
-        bumper.is_cap_visible = bumper_json.is_cap_visible;
-        bumper.is_base_visible = bumper_json.is_base_visible;
-        bumper.is_ring_visible = bumper_json.is_ring_visible;
-        bumper.is_socket_visible = bumper_json.is_socket_visible;
-        bumper.hit_event = bumper_json.hit_event;
-        bumper.is_collidable = bumper_json.is_collidable;
-        bumper.is_reflection_enabled = bumper_json.is_reflection_enabled;
+        let bumper = Bumper {
+            center: bumper_json.center,
+            radius: bumper_json.radius,
+            is_timer_enabled: bumper_json.is_timer_enabled,
+            timer_interval: bumper_json.timer_interval,
+            threshold: bumper_json.threshold,
+            force: bumper_json.force,
+            scatter: bumper_json.scatter,
+            height_scale: bumper_json.height_scale,
+            ring_speed: bumper_json.ring_speed,
+            orientation: bumper_json.orientation,
+            ring_drop_offset: bumper_json.ring_drop_offset.map(f32::from),
+            cap_material: bumper_json.cap_material,
+            base_material: bumper_json.base_material,
+            socket_material: bumper_json.socket_material,
+            ring_material: bumper_json.ring_material,
+            surface: bumper_json.surface,
+            name: bumper_json.name,
+            is_cap_visible: bumper_json.is_cap_visible,
+            is_base_visible: bumper_json.is_base_visible,
+            is_ring_visible: bumper_json.is_ring_visible,
+            is_socket_visible: bumper_json.is_socket_visible,
+            hit_event: bumper_json.hit_event,
+            is_collidable: bumper_json.is_collidable,
+            is_reflection_enabled: bumper_json.is_reflection_enabled,
+            ..Default::default()
+        };
         Ok(bumper)
     }
 }

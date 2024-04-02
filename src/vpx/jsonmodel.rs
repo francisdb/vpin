@@ -56,8 +56,7 @@ pub fn info_to_json(
         properties: table_info.properties.clone(),
         properties_order: custom_info_tags.clone(),
     };
-    let json = to_value(info_json).unwrap();
-    json
+    to_value(info_json).unwrap()
 }
 
 pub fn json_to_info(
@@ -96,8 +95,7 @@ pub fn collections_json(collections: &[Collection]) -> serde_json::Value {
         };
         collections_json.push(collection_json);
     }
-    let json = to_value(collections_json).unwrap();
-    json
+    to_value(collections_json).unwrap()
 }
 
 pub fn json_to_collections(json: serde_json::Value) -> Result<Vec<Collection>, serde_json::Error> {

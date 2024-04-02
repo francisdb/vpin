@@ -47,11 +47,11 @@ pub enum FontStyle {
 impl FontStyle {
     fn to_u8(flag: &FontStyle) -> u8 {
         match flag {
-            &FontStyle::Normal => 1 << 0,
-            &FontStyle::Bold => 1 << 1,
-            &FontStyle::Italic => 1 << 2,
-            &FontStyle::Underline => 1 << 3,
-            &FontStyle::Strikethrough => 1 << 4,
+            FontStyle::Normal => 1 << 0,
+            FontStyle::Bold => 1 << 1,
+            FontStyle::Italic => 1 << 2,
+            FontStyle::Underline => 1 << 3,
+            FontStyle::Strikethrough => 1 << 4,
         }
     }
     pub fn flags_to_styles(style: u8) -> HashSet<Self> {
@@ -79,7 +79,7 @@ impl FontStyle {
         for flag in flags {
             bitflags |= Self::to_u8(flag);
         }
-        return bitflags;
+        bitflags
     }
 }
 

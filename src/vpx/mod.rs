@@ -17,7 +17,6 @@
 use std::io::{self, Read, Seek, Write};
 use std::path::MAIN_SEPARATOR_STR;
 use std::{
-    fs,
     fs::File,
     path::{Path, PathBuf},
 };
@@ -86,15 +85,15 @@ pub(crate) mod wav;
 #[derive(Debug, PartialEq)]
 pub struct VPX {
     /// This is mainly here to have an ordering for custom info tags
-    pub custominfotags: custominfotags::CustomInfoTags, // this is a bit redundant
+    pub custominfotags: CustomInfoTags, // this is a bit redundant
     pub info: TableInfo,
     pub version: Version,
     pub gamedata: GameData,
-    pub gameitems: Vec<gameitem::GameItemEnum>,
-    pub images: Vec<image::ImageData>,
-    pub sounds: Vec<sound::SoundData>,
-    pub fonts: Vec<font::FontData>,
-    pub collections: Vec<collection::Collection>,
+    pub gameitems: Vec<GameItemEnum>,
+    pub images: Vec<ImageData>,
+    pub sounds: Vec<SoundData>,
+    pub fonts: Vec<FontData>,
+    pub collections: Vec<Collection>,
 }
 
 pub enum ExtractResult {
@@ -145,7 +144,7 @@ impl<F: Read + Seek + Write> VpxFile<F> {
     }
 
     pub fn read_tableinfo(&mut self) -> io::Result<TableInfo> {
-        tableinfo::read_tableinfo(&mut self.compound_file)
+        read_tableinfo(&mut self.compound_file)
     }
 
     pub fn read_gamedata(&mut self) -> io::Result<GameData> {
@@ -185,8 +184,8 @@ impl<F: Read + Seek + Write> VpxFile<F> {
 }
 
 /// Opens a handle to an existing VPX file
-pub fn open<P: AsRef<Path>>(path: P) -> io::Result<VpxFile<fs::File>> {
-    VpxFile::open(fs::File::open(path)?)
+pub fn open<P: AsRef<Path>>(path: P) -> io::Result<VpxFile<File>> {
+    VpxFile::open(File::open(path)?)
 }
 
 /// Reads a VPX file from disk to memory
@@ -214,6 +213,7 @@ pub fn write(path: &PathBuf, vpx: &VPX) -> io::Result<()> {
         .read(true)
         .write(true)
         .create(true)
+        .truncate(true)
         .open(path)?;
     let mut comp = CompoundFile::create(file)?;
     write_vpx(&mut comp, vpx)
@@ -263,12 +263,13 @@ pub fn new_minimal_vpx<P: AsRef<Path>>(vpx_file_path: P) -> io::Result<()> {
         .read(true)
         .write(true)
         .create(true)
+        .truncate(true)
         .open(&vpx_file_path)?;
     let mut comp = CompoundFile::create(file)?;
     write_minimal_vpx(&mut comp)
 }
 
-fn write_minimal_vpx<F: Read + Write + Seek>(comp: &mut CompoundFile<F>) -> std::io::Result<()> {
+fn write_minimal_vpx<F: Read + Write + Seek>(comp: &mut CompoundFile<F>) -> io::Result<()> {
     let table_info = TableInfo::new();
     write_tableinfo(comp, &table_info)?;
     create_game_storage(comp)?;
@@ -316,7 +317,7 @@ pub fn extractvbs(
 /// Imports the sidecar script into the provided `vpx` file.
 ///
 /// see also [extractvbs]
-pub fn importvbs(vpx_file_path: &PathBuf, extension: Option<&str>) -> std::io::Result<PathBuf> {
+pub fn importvbs(vpx_file_path: &PathBuf, extension: Option<&str>) -> io::Result<PathBuf> {
     let script_path = match extension {
         Some(ext) => path_for(vpx_file_path, ext),
         None => vbs_path_for(vpx_file_path),
@@ -371,7 +372,7 @@ fn path_for(vpx_file_path: &PathBuf, extension: &str) -> PathBuf {
     PathBuf::from(vpx_file_path).with_extension(extension)
 }
 
-fn read_mac<F: Read + Write + Seek>(comp: &mut cfb::CompoundFile<F>) -> std::io::Result<Vec<u8>> {
+fn read_mac<F: Read + Write + Seek>(comp: &mut CompoundFile<F>) -> io::Result<Vec<u8>> {
     let mac_path = Path::new(MAIN_SEPARATOR_STR).join("GameStg").join("MAC");
     if !comp.exists(&mac_path) {
         // fail
@@ -386,10 +387,7 @@ fn read_mac<F: Read + Write + Seek>(comp: &mut cfb::CompoundFile<F>) -> std::io:
     Ok(mac)
 }
 
-fn write_mac<F: Read + Write + Seek>(
-    comp: &mut CompoundFile<F>,
-    mac: &[u8],
-) -> std::io::Result<()> {
+fn write_mac<F: Read + Write + Seek>(comp: &mut CompoundFile<F>, mac: &[u8]) -> io::Result<()> {
     let mac_path = Path::new(MAIN_SEPARATOR_STR).join("GameStg").join("MAC");
     let mut mac_stream = comp.create_stream(mac_path)?;
     mac_stream.write_all(mac)
@@ -491,11 +489,11 @@ fn generate_mac<F: Read + Seek>(comp: &mut CompoundFile<F>) -> Result<Vec<u8>, i
             continue;
         }
         match item.file_type {
-            FileType::UnstructuredBytes => {
+            UnstructuredBytes => {
                 let bytes = read_bytes_at(&item.path, comp)?;
                 hasher.update(&bytes);
             }
-            FileType::Biff => {
+            Biff => {
                 // println!("reading biff: {:?}", item.path);
                 let bytes = read_bytes_at(&item.path, comp)?;
                 let mut biff = BiffReader::new(&bytes);
@@ -580,7 +578,7 @@ pub fn extract_script<P: AsRef<Path>>(gamedata: &GameData, vbs_path: &P) -> Resu
 fn read_gamedata<F: Seek + Read>(
     comp: &mut CompoundFile<F>,
     version: &Version,
-) -> std::io::Result<GameData> {
+) -> io::Result<GameData> {
     let mut game_data_vec = Vec::new();
     let game_data_path = Path::new(MAIN_SEPARATOR_STR)
         .join("GameStg")
@@ -642,7 +640,7 @@ fn read_sounds<F: Read + Seek>(
     comp: &mut CompoundFile<F>,
     gamedata: &GameData,
     file_version: &Version,
-) -> std::io::Result<Vec<SoundData>> {
+) -> io::Result<Vec<SoundData>> {
     (0..gamedata.sounds_size)
         .map(|index| {
             let path = Path::new(MAIN_SEPARATOR_STR)
@@ -813,7 +811,7 @@ mod tests {
         write_minimal_vpx(&mut comp)?;
 
         let version = read_version(&mut comp)?;
-        let tableinfo = tableinfo::read_tableinfo(&mut comp)?;
+        let tableinfo = read_tableinfo(&mut comp)?;
         let game_data = read_gamedata(&mut comp, &version)?;
 
         assert_eq!(tableinfo, TableInfo::new());
@@ -903,6 +901,7 @@ mod tests {
         expected_info.table_name = Some(String::from("Visual Pinball Demo Table"));
         expected_info.table_save_rev = Some(String::from("10"));
         expected_info.table_version = Some(String::from("1.2"));
+
         expected_info.author_website = Some(String::from("http://www.vpforums.org/"));
         expected_info.table_save_date = Some(String::from("Tue Jul 11 15:48:49 2023"));
         expected_info.table_description = Some(String::from(
@@ -928,7 +927,7 @@ mod tests {
     fn create_minimal_vpx_and_read() -> io::Result<()> {
         let dir: PathBuf = testdir!();
         let test_vpx_path = dir.join("test.vpx");
-        let mut comp = cfb::create(&test_vpx_path)?;
+        let mut comp = cfb::create(test_vpx_path)?;
         write_minimal_vpx(&mut comp)?;
         comp.flush()?;
         let vpx = read_vpx(&mut comp)?;

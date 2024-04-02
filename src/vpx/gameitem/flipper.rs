@@ -95,7 +95,7 @@ pub(crate) struct FlipperJson {
 impl FlipperJson {
     pub fn from_flipper(flipper: &Flipper) -> Self {
         Self {
-            center: flipper.center.clone(),
+            center: flipper.center,
             base_radius: flipper.base_radius,
             end_radius: flipper.end_radius,
             flipper_radius_max: flipper.flipper_radius_max,
@@ -135,7 +135,7 @@ impl FlipperJson {
 
     pub fn to_flipper(&self) -> Flipper {
         Flipper {
-            center: self.center.clone(),
+            center: self.center,
             base_radius: self.base_radius,
             end_radius: self.end_radius,
             flipper_radius_max: self.flipper_radius_max,

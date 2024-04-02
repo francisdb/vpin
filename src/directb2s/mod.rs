@@ -549,7 +549,7 @@ pub struct DirectB2SData {
 
 impl DirectB2SData {
     /// Replaces image data with "\[stripped\]" for the whole structure
-    pub fn strip_images(self: &mut Self) {
+    pub fn strip_images(&mut self) {
         self.images.backglass_image.iter_mut().for_each(|i| {
             i.value = "[stripped]".to_string();
         });
@@ -583,7 +583,7 @@ impl DirectB2SData {
         });
     }
 
-    fn strip_reels_images(images: &mut Vec<ReelsImage>) {
+    fn strip_reels_images(images: &mut [ReelsImage]) {
         images.iter_mut().for_each(|i| {
             i.image = "[stripped]".to_string();
             i.intermediate_image1 = Some("[stripped]".to_string());

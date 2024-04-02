@@ -59,9 +59,11 @@ impl ViewSetup {
             mode: VIEW_LAYOUT_MODE_LEGACY,
         }
     }
+}
 
+impl Default for ViewSetup {
     fn default() -> Self {
-        ViewSetup::new()
+        Self::new()
     }
 }
 
@@ -566,11 +568,8 @@ impl GameDataJson {
     }
 
     pub fn from_game_data(game_data: &GameData) -> GameDataJson {
-        let custom_colors: [ColorJson; 16] = game_data
-            .custom_colors
-            .map(|c| ColorJson::from_color(&c))
-            .try_into()
-            .unwrap();
+        let custom_colors: [ColorJson; 16] =
+            game_data.custom_colors.map(|c| ColorJson::from_color(&c));
         GameDataJson {
             left: game_data.left,
             top: game_data.top,
