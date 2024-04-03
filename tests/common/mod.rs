@@ -1,3 +1,7 @@
+// Since this code is only used for tests, and not all tests use all function we allow dead code.
+#![allow(dead_code)]
+#![cfg(test)]
+
 use cfb::CompoundFile;
 use flate2::read::ZlibDecoder;
 use std::ffi::OsStr;
@@ -8,7 +12,6 @@ use std::path::{Path, PathBuf, MAIN_SEPARATOR_STR};
 use vpin::vpx::biff::BiffReader;
 use walkdir::WalkDir;
 
-#[cfg(test)]
 pub(crate) fn find_files<P: AsRef<Path>>(
     tables_path: P,
     extension: &str,
@@ -30,15 +33,14 @@ pub(crate) fn find_files<P: AsRef<Path>>(
     Ok(found)
 }
 
-#[cfg(test)]
 pub(crate) fn assert_equal_vpx(vpx_path: &PathBuf, test_vpx_path: PathBuf) {
-    let mut comp = cfb::open(&vpx_path).unwrap();
+    let mut comp = cfb::open(vpx_path).unwrap();
     let mut test_comp = cfb::open(&test_vpx_path).unwrap();
 
     // let version = version::read_version(&mut comp).unwrap();
     // println!("version: {:?}", version);
 
-    let original_paths = compound_file_paths_and_lengths(&vpx_path);
+    let original_paths = compound_file_paths_and_lengths(vpx_path);
     let test_paths = compound_file_paths_and_lengths(&test_vpx_path);
 
     let gamestg_path = Path::new(MAIN_SEPARATOR_STR).join("GameStg");
@@ -211,7 +213,7 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, usize, u
                 let len = reader.get_u32_no_remaining_update();
                 // at least at the time of 1060, some code was still encoded in latin1
                 let data = reader.get_str_with_encoding_no_remaining_update(len as usize);
-                let hash = hash_data(&data.string.as_bytes());
+                let hash = hash_data(data.string.as_bytes());
                 tags.push(("CODE".to_string(), read_tag_size, len as usize, hash));
             }
             "MATE" => {
@@ -301,9 +303,8 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, usize, u
 
 fn hash_data(data: &[u8]) -> u64 {
     let mut hasher = DefaultHasher::new();
-    Hash::hash_slice(&data, &mut hasher);
-    let hash = hasher.finish();
-    hash
+    Hash::hash_slice(data, &mut hasher);
+    hasher.finish()
 }
 
 fn read_to_end_decompress(reader: &mut BiffReader) -> Vec<u8> {

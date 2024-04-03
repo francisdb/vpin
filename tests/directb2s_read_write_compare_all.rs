@@ -37,19 +37,19 @@ fn read_all() -> TestResult {
         println!("testing: {:?}", path);
 
         // read file to data
-        let loaded = read_directb2s(&path)?;
+        let loaded = read_directb2s(path)?;
 
         // write data to buffer
         let mut written = String::new();
         directb2s::write(&loaded, &mut written)?;
 
         // read original file as xml ast using minidom
-        let mut file = std::fs::File::open(&path)?;
+        let mut file = std::fs::File::open(path)?;
         let mut doc = String::new();
         file.read_to_string(&mut doc)?;
 
         // FIXME workaround for https://github.com/tafia/quick-xml/issues/670
-        let mut written = written.replace("\r\n", "&#xD;&#xA;");
+        let written = written.replace("\r\n", "&#xD;&#xA;");
         // let original_tail = tail(&doc, 100);
         // let written_tail2 = tail(&written, 100);
         // assert_eq!(original_tail, written_tail2);
@@ -58,7 +58,7 @@ fn read_all() -> TestResult {
         let original = roxmltree::Document::parse(&doc)?;
 
         // read buffer as xml ast
-        let written = roxmltree::Document::parse(&mut written)?;
+        let written = roxmltree::Document::parse(&written)?;
 
         let original_tree = doc_tree(&original)?;
         let original = format!(
@@ -145,9 +145,9 @@ fn write_node<W: Write>(
         })
         .collect::<Vec<_>>();
     let attributes = attributes.join(" ");
-    write!(
+    writeln!(
         writer,
-        "{}{:?} {} {}\n",
+        "{}{:?} {} {}",
         indent,
         t,
         node.tag_name().name(),

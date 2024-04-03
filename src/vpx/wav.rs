@@ -175,10 +175,9 @@ mod test {
             extra_fields: Vec::new(),
             data_size: 120,
         };
-        let mut writer = BytesMut::new();
-        write_wav_header(&header, &mut writer);
-        let mut reader = BytesMut::from(writer);
-        let header_read = read_wav_header(&mut reader);
+        let mut bytes_mut = BytesMut::new();
+        write_wav_header(&header, &mut bytes_mut);
+        let header_read = read_wav_header(&mut bytes_mut);
         assert_eq!(header, header_read);
     }
 
@@ -197,10 +196,9 @@ mod test {
             extra_fields: vec![],
             data_size: 120,
         };
-        let mut writer = BytesMut::new();
-        write_wav_header(&header, &mut writer);
-        let mut reader = BytesMut::from(writer);
-        let header_read = read_wav_header(&mut reader);
+        let mut bytes_mut = BytesMut::new();
+        write_wav_header(&header, &mut bytes_mut);
+        let header_read = read_wav_header(&mut bytes_mut);
         assert_eq!(header, header_read);
     }
 }
