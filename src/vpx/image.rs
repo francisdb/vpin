@@ -408,7 +408,7 @@ mod test {
         let mut writer = BiffWriter::new();
         ImageData::biff_write(&image, &mut writer);
         let data = writer.get_data();
-        let mut reader = BiffReader::new(&data);
+        let mut reader = BiffReader::new(data);
         reader.next(false); // NAME
         reader.next(false); // INME
         reader.next(false); // PATH

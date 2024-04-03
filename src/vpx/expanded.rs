@@ -1478,14 +1478,16 @@ mod test {
         let mut gamedata = GameData::default();
         gamedata.code.string = r#"debug.print "Hello world""#.to_string();
 
-        let mut gamedata: GameData = Default::default();
         // Since for the json format these are calculated from the file contents we need to set them
         // to a correct value here
-        gamedata.gameitems_size = 20;
-        gamedata.images_size = 2;
-        gamedata.sounds_size = 2;
-        gamedata.fonts_size = 2;
-        gamedata.collections_size = 2;
+        let gamedata: GameData = GameData {
+            gameitems_size: 20,
+            images_size: 2,
+            sounds_size: 2,
+            fonts_size: 2,
+            collections_size: 2,
+            ..Default::default()
+        };
 
         let vpx = VPX {
             custominfotags: vec!["test prop 2".to_string(), "test prop".to_string()],

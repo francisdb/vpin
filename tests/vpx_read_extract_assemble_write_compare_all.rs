@@ -43,12 +43,12 @@ mod test {
             let ReadAndWriteResult {
                 extracted,
                 test_vpx,
-            } = read_and_write_vpx(&dir, &path)?;
+            } = read_and_write_vpx(&dir, path)?;
             assert_equal_vpx(path, test_vpx.clone());
             // panic!("stop");
             // if all is good we remove the test file and the extracted dir
             std::fs::remove_file(&test_vpx)?;
-            std::fs::remove_dir_all(&extracted)?;
+            std::fs::remove_dir_all(extracted)?;
             Ok(())
         })
     }
@@ -58,7 +58,7 @@ mod test {
         test_vpx: PathBuf,
     }
 
-    fn read_and_write_vpx(dir: &PathBuf, path: &Path) -> io::Result<ReadAndWriteResult> {
+    fn read_and_write_vpx(dir: &Path, path: &Path) -> io::Result<ReadAndWriteResult> {
         let original = vpin::vpx::read(&path.to_path_buf())?;
         let extract_dir = dir.join("extracted");
         // make dir

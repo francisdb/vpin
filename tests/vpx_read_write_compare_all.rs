@@ -48,7 +48,7 @@ mod test {
             // })
             .try_for_each(|vpx_path| {
                 println!("testing: {:?}", vpx_path);
-                let test_vpx_path = read_and_write_vpx(&dir, &vpx_path)?;
+                let test_vpx_path = read_and_write_vpx(&dir, vpx_path)?;
                 assert_equal_vpx(vpx_path, test_vpx_path.clone());
                 // if all is good we remove the test file
                 std::fs::remove_file(&test_vpx_path)?;
@@ -56,7 +56,7 @@ mod test {
             })
     }
 
-    fn read_and_write_vpx(dir: &PathBuf, path: &Path) -> io::Result<PathBuf> {
+    fn read_and_write_vpx(dir: &Path, path: &Path) -> io::Result<PathBuf> {
         let original = vpin::vpx::read(&path.to_path_buf())?;
         // create temp file and write the vpx to it
         let file_name = path.file_name().unwrap();

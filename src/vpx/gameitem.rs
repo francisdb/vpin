@@ -36,6 +36,7 @@ trait GameItem: BiffRead {
     fn name(&self) -> &str;
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
 // #[serde(tag = "type")]
 pub enum GameItemEnum {
