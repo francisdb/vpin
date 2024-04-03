@@ -301,7 +301,7 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, usize, u
 
 fn hash_data(data: &[u8]) -> u64 {
     let mut hasher = DefaultHasher::new();
-    Hash::hash_slice(&data, &mut hasher);
+    Hash::hash_slice(data, &mut hasher);
     let hash = hasher.finish();
     hash
 }
