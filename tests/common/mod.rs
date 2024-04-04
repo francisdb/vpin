@@ -37,6 +37,8 @@ pub(crate) fn assert_equal_vpx(vpx_path: &PathBuf, test_vpx_path: PathBuf) {
     let mut comp = cfb::open(vpx_path).unwrap();
     let mut test_comp = cfb::open(&test_vpx_path).unwrap();
 
+    assert_eq!(comp.version(), test_comp.version());
+
     // let version = version::read_version(&mut comp).unwrap();
     // println!("version: {:?}", version);
 
@@ -49,14 +51,14 @@ pub(crate) fn assert_equal_vpx(vpx_path: &PathBuf, test_vpx_path: PathBuf) {
     let tableinfo_path = Path::new(MAIN_SEPARATOR_STR).join("TableInfo");
 
     // sort original paths so that MAC is last
-    let original_paths_sorted: Vec<(PathBuf, u64)> = original_paths
+    let original_paths_sorted: Vec<(PathBuf, u64, String)> = original_paths
         .clone()
         .into_iter()
-        .filter(|(path, _)| *path != mac_path)
+        .filter(|(path, _, _)| *path != mac_path)
         .collect();
 
     // check all streams
-    for (path, _) in &original_paths_sorted {
+    for (path, _, _) in &original_paths_sorted {
         if comp.is_stream(path) {
             // println!("path: {:?}", path);
 
@@ -114,7 +116,7 @@ pub(crate) fn assert_equal_vpx(vpx_path: &PathBuf, test_vpx_path: PathBuf) {
     pretty_assertions::assert_eq!(original_paths, test_paths, "non equal {:?}", vpx_path);
 }
 
-fn compound_file_paths_and_lengths(compound_file_path: &Path) -> Vec<(PathBuf, u64)> {
+fn compound_file_paths_and_lengths(compound_file_path: &Path) -> Vec<(PathBuf, u64, String)> {
     let comp3 = cfb::open(compound_file_path).unwrap();
     comp3
         .walk()
@@ -131,7 +133,7 @@ fn compound_file_paths_and_lengths(compound_file_path: &Path) -> Vec<(PathBuf, u
             } else {
                 entry.len()
             };
-            (path.to_path_buf(), size)
+            (path.to_path_buf(), size, entry.clsid().to_string())
         })
         .collect()
 }
