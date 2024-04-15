@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.2](https://github.com/francisdb/vpin/compare/v0.11.1...v0.11.2) - 2024-04-15
+
+### Added
+- strict cfb file reading
+
+### Other
+- *(deps)* update cfb requirement from 0.9.0 to 0.10.0 ([#60](https://github.com/francisdb/vpin/pull/60))
+- also assert eq cfb version/clsid
+- add cache for clippy build
+- move fmt check to clippy action
+- add clippy action ([#58](https://github.com/francisdb/vpin/pull/58))
+
 ## [0.11.1](https://github.com/francisdb/vpin/compare/v0.11.0...v0.11.1) - 2024-04-02
 
 ### Other
