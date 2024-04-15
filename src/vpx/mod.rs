@@ -135,7 +135,7 @@ impl<F: Read + Seek + Write> VpxFile<F> {
     /// underlying reader also supports the `Write` trait, then the
     /// `CompoundFile` object will be writable as well.
     pub fn open(inner: F) -> io::Result<VpxFile<F>> {
-        let compound_file = CompoundFile::open(inner)?;
+        let compound_file = CompoundFile::open_strict(inner)?;
         Ok(VpxFile { compound_file })
     }
 
@@ -201,7 +201,7 @@ pub fn read(path: &PathBuf) -> io::Result<VPX> {
         ));
     }
     let file = File::open(path)?;
-    let mut comp = CompoundFile::open(file)?;
+    let mut comp = CompoundFile::open_strict(file)?;
     read_vpx(&mut comp)
 }
 
