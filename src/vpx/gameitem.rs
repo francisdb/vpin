@@ -603,10 +603,6 @@ pub const FILTER_OVERLAY: u32 = 2;
 pub const FILTER_MULTIPLY: u32 = 3;
 pub const FILTER_SCREEN: u32 = 4;
 
-pub const IMAGE_ALIGN_WORLD: u32 = 0;
-pub const IMAGE_ALIGN_TOP_LEFT: u32 = 1;
-pub const IMAGE_ALIGN_CENTER: u32 = 2;
-
 // TODO move this to the component that it relates to?
 pub const TRIGGER_SHAPE_NONE: u32 = 0;
 pub const TRIGGER_SHAPE_WIRE_A: u32 = 1;

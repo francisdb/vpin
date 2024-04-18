@@ -5,8 +5,82 @@ use crate::vpx::{
 };
 use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::Value;
 
-use super::{dragpoint::DragPoint, FILTER_OVERLAY, IMAGE_ALIGN_TOP_LEFT};
+use super::{dragpoint::DragPoint, FILTER_OVERLAY};
+
+#[derive(Debug, PartialEq, Clone, Dummy)]
+pub enum ImageAlignment {
+    ImageModeWorld = 0,
+    ImageModeWrap = 1,
+}
+
+impl From<u32> for ImageAlignment {
+    fn from(value: u32) -> Self {
+        match value {
+            0 => ImageAlignment::ImageModeWorld,
+            1 => ImageAlignment::ImageModeWrap,
+            _ => panic!("Invalid ImageAlignment value {}", value),
+        }
+    }
+}
+
+impl From<&ImageAlignment> for u32 {
+    fn from(value: &ImageAlignment) -> Self {
+        match value {
+            ImageAlignment::ImageModeWorld => 0,
+            ImageAlignment::ImageModeWrap => 1,
+        }
+    }
+}
+
+/// Serialize ImageAlignment as a lowercase string
+impl Serialize for ImageAlignment {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let value = match self {
+            ImageAlignment::ImageModeWorld => "world",
+            ImageAlignment::ImageModeWrap => "wrap",
+        };
+        serializer.serialize_str(value)
+    }
+}
+
+/// Deserialize ImageAlignment from a lowercase string
+/// or number for backwards compatibility
+impl<'de> Deserialize<'de> for ImageAlignment {
+    fn deserialize<D>(deserializer: D) -> Result<ImageAlignment, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        match value {
+            Value::String(s) => match s.as_str() {
+                "world" => Ok(ImageAlignment::ImageModeWorld),
+                "wrap" => Ok(ImageAlignment::ImageModeWrap),
+                _ => Err(serde::de::Error::custom(format!(
+                    "Invalid ImageAlignment value {}, expecting \"world\" or \"wrap\"",
+                    s
+                ))),
+            },
+            Value::Number(n) => {
+                let n = n.as_u64().unwrap();
+                match n {
+                    0 => Ok(ImageAlignment::ImageModeWorld),
+                    1 => Ok(ImageAlignment::ImageModeWrap),
+                    _ => Err(serde::de::Error::custom(
+                        "Invalid ImageAlignment value, expecting 0 or 1",
+                    )),
+                }
+            }
+            _ => Err(serde::de::Error::custom(
+                "Invalid ImageAlignment value, expecting string or number",
+            )),
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Dummy)]
 pub struct Flasher {
@@ -30,7 +104,7 @@ pub struct Flasher {
     // IDMD added in 10.2?
     pub display_texture: bool,
     pub depth_bias: f32,
-    pub image_alignment: u32,
+    pub image_alignment: ImageAlignment,
     pub filter: u32,
     pub filter_amount: u32,
     // FIAM
@@ -66,7 +140,7 @@ pub(crate) struct FlasherJson {
     is_dmd: Option<bool>,
     display_texture: bool,
     depth_bias: f32,
-    image_alignment: u32,
+    image_alignment: ImageAlignment,
     filter: u32,
     filter_amount: u32,
     light_map: Option<String>,
@@ -95,7 +169,7 @@ impl FlasherJson {
             is_dmd: flasher.is_dmd,
             display_texture: flasher.display_texture,
             depth_bias: flasher.depth_bias,
-            image_alignment: flasher.image_alignment,
+            image_alignment: flasher.image_alignment.clone(),
             filter: flasher.filter,
             filter_amount: flasher.filter_amount,
             light_map: flasher.light_map.clone(),
@@ -123,7 +197,7 @@ impl FlasherJson {
             is_dmd: self.is_dmd,
             display_texture: self.display_texture,
             depth_bias: self.depth_bias,
-            image_alignment: self.image_alignment,
+            image_alignment: self.image_alignment.clone(),
             filter: self.filter,
             filter_amount: self.filter_amount,
             light_map: self.light_map.clone(),
@@ -180,7 +254,7 @@ impl BiffRead for Flasher {
         let mut is_dmd = None;
         let mut display_texture = Default::default();
         let mut depth_bias = Default::default();
-        let mut image_alignment = IMAGE_ALIGN_TOP_LEFT;
+        let mut image_alignment = ImageAlignment::ImageModeWrap;
         let mut filter = FILTER_OVERLAY;
         let mut filter_amount: u32 = 100;
         let mut light_map: Option<String> = None;
@@ -259,7 +333,7 @@ impl BiffRead for Flasher {
                     depth_bias = reader.get_f32();
                 }
                 "ALGN" => {
-                    image_alignment = reader.get_u32();
+                    image_alignment = reader.get_u32().into();
                 }
                 "FILT" => {
                     filter = reader.get_u32();
@@ -354,7 +428,7 @@ impl BiffWrite for Flasher {
             writer.write_tagged_bool("IDMD", is_dmd);
         }
         writer.write_tagged_f32("FLDB", self.depth_bias);
-        writer.write_tagged_u32("ALGN", self.image_alignment);
+        writer.write_tagged_u32("ALGN", (&self.image_alignment).into());
         writer.write_tagged_u32("FILT", self.filter);
         writer.write_tagged_u32("FIAM", self.filter_amount);
         if let Some(light_map) = &self.light_map {
@@ -381,6 +455,7 @@ impl BiffWrite for Flasher {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
+    use fake::{Fake, Faker};
 
     use super::*;
     use pretty_assertions::assert_eq;
@@ -410,7 +485,7 @@ mod tests {
             is_dmd: rng.gen(),
             display_texture: rng.gen(),
             depth_bias: rng.gen(),
-            image_alignment: rng.gen(),
+            image_alignment: Faker.fake(),
             filter: rng.gen(),
             filter_amount: rng.gen(),
             light_map: Some("test light map".to_string()),
@@ -424,5 +499,24 @@ mod tests {
         Flasher::biff_write(&flasher, &mut writer);
         let flasher_read = Flasher::biff_read(&mut BiffReader::new(writer.get_data()));
         assert_eq!(flasher, flasher_read);
+    }
+
+    #[test]
+    fn test_alignment_json() {
+        let sizing_type = ImageAlignment::ImageModeWrap;
+        let json = serde_json::to_string(&sizing_type).unwrap();
+        assert_eq!(json, "\"wrap\"");
+        let sizing_type_read: ImageAlignment = serde_json::from_str(&json).unwrap();
+        assert_eq!(sizing_type, sizing_type_read);
+        let json = serde_json::Value::from(0);
+        let sizing_type_read: ImageAlignment = serde_json::from_value(json).unwrap();
+        assert_eq!(ImageAlignment::ImageModeWorld, sizing_type_read);
+    }
+
+    #[test]
+    #[should_panic = "Error(\"Invalid ImageAlignment value foo, expecting \\\"world\\\" or \\\"wrap\\\"\", line: 0, column: 0)"]
+    fn test_alignment_json_fail() {
+        let json: Value = serde_json::Value::from("foo");
+        let _: ImageAlignment = serde_json::from_value(json).unwrap();
     }
 }
