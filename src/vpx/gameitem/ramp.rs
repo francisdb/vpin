@@ -4,6 +4,208 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::dragpoint::DragPoint;
 
+#[derive(Debug, PartialEq, Clone, Dummy)]
+pub enum RampType {
+    Flat = 0,
+    FourWire = 1,
+    TwoWire = 2,
+    ThreeWireLeft = 3,
+    ThreeWireRight = 4,
+    OneWire = 5,
+}
+
+impl From<u32> for RampType {
+    fn from(value: u32) -> Self {
+        match value {
+            0 => RampType::Flat,
+            1 => RampType::FourWire,
+            2 => RampType::TwoWire,
+            3 => RampType::ThreeWireLeft,
+            4 => RampType::ThreeWireRight,
+            5 => RampType::OneWire,
+            _ => panic!("Invalid RampType {}", value),
+        }
+    }
+}
+
+impl From<&RampType> for u32 {
+    fn from(value: &RampType) -> Self {
+        match value {
+            RampType::Flat => 0,
+            RampType::FourWire => 1,
+            RampType::TwoWire => 2,
+            RampType::ThreeWireLeft => 3,
+            RampType::ThreeWireRight => 4,
+            RampType::OneWire => 5,
+        }
+    }
+}
+
+/// Serializes RampType to lowercase string
+impl Serialize for RampType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            RampType::Flat => serializer.serialize_str("flat"),
+            RampType::FourWire => serializer.serialize_str("four_wire"),
+            RampType::TwoWire => serializer.serialize_str("two_wire"),
+            RampType::ThreeWireLeft => serializer.serialize_str("three_wire_left"),
+            RampType::ThreeWireRight => serializer.serialize_str("three_wire_right"),
+            RampType::OneWire => serializer.serialize_str("one_wire"),
+        }
+    }
+}
+
+/// Deserializes RampType from lowercase string
+/// or number for backwards compatibility
+impl<'de> Deserialize<'de> for RampType {
+    fn deserialize<D>(deserializer: D) -> Result<RampType, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct RampTypeVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for RampTypeVisitor {
+            type Value = RampType;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a string or number representing a TargetType")
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<RampType, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    0 => Ok(RampType::Flat),
+                    1 => Ok(RampType::FourWire),
+                    2 => Ok(RampType::TwoWire),
+                    3 => Ok(RampType::ThreeWireLeft),
+                    4 => Ok(RampType::ThreeWireRight),
+                    5 => Ok(RampType::OneWire),
+                    _ => Err(serde::de::Error::unknown_variant(
+                        &value.to_string(),
+                        &["0", "1", "2", "3", "4", "5"],
+                    )),
+                }
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<RampType, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "flat" => Ok(RampType::Flat),
+                    "four_wire" => Ok(RampType::FourWire),
+                    "two_wire" => Ok(RampType::TwoWire),
+                    "three_wire_left" => Ok(RampType::ThreeWireLeft),
+                    "three_wire_right" => Ok(RampType::ThreeWireRight),
+                    "one_wire" => Ok(RampType::OneWire),
+                    _ => Err(serde::de::Error::unknown_variant(
+                        value,
+                        &[
+                            "flat",
+                            "four_wire",
+                            "two_wire",
+                            "three_wire_left",
+                            "three_wire_right",
+                            "one_wire",
+                        ],
+                    )),
+                }
+            }
+        }
+
+        deserializer.deserialize_any(RampTypeVisitor)
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Dummy)]
+pub enum RampImageAlignment {
+    World = 0,
+    Wrap = 1,
+}
+
+impl From<u32> for RampImageAlignment {
+    fn from(value: u32) -> Self {
+        match value {
+            0 => RampImageAlignment::World,
+            1 => RampImageAlignment::Wrap,
+            _ => panic!("Invalid RampImageAlignment {}", value),
+        }
+    }
+}
+
+impl From<&RampImageAlignment> for u32 {
+    fn from(value: &RampImageAlignment) -> Self {
+        match value {
+            RampImageAlignment::World => 0,
+            RampImageAlignment::Wrap => 1,
+        }
+    }
+}
+
+/// Serializes RampImageAlignment to lowercase string
+impl Serialize for RampImageAlignment {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            RampImageAlignment::World => serializer.serialize_str("world"),
+            RampImageAlignment::Wrap => serializer.serialize_str("wrap"),
+        }
+    }
+}
+
+/// Deserializes RampImageAlignment from lowercase string
+/// or number for backwards compatibility
+impl<'de> Deserialize<'de> for RampImageAlignment {
+    fn deserialize<D>(deserializer: D) -> Result<RampImageAlignment, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct RampImageAlignmentVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for RampImageAlignmentVisitor {
+            type Value = RampImageAlignment;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a string or number representing a TargetType")
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<RampImageAlignment, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    0 => Ok(RampImageAlignment::World),
+                    1 => Ok(RampImageAlignment::Wrap),
+                    _ => Err(serde::de::Error::unknown_variant(
+                        &value.to_string(),
+                        &["0", "1"],
+                    )),
+                }
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<RampImageAlignment, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "world" => Ok(RampImageAlignment::World),
+                    "wrap" => Ok(RampImageAlignment::Wrap),
+                    _ => Err(serde::de::Error::unknown_variant(value, &["world", "wrap"])),
+                }
+            }
+        }
+
+        deserializer.deserialize_any(RampImageAlignmentVisitor)
+    }
+}
+
 #[derive(Debug, PartialEq, Dummy)]
 pub struct Ramp {
     pub height_bottom: f32,                  // 1
@@ -13,10 +215,10 @@ pub struct Ramp {
     pub material: String,                    // 5
     pub is_timer_enabled: bool,              // 6
     pub timer_interval: u32,                 // 7
-    pub ramp_type: u32,                      // 8
+    pub ramp_type: RampType,                 // TYPE 8
     pub name: String,                        // 9
     pub image: String,                       // 10
-    pub image_alignment: u32,                // 11
+    pub image_alignment: RampImageAlignment, // 11
     pub image_walls: bool,                   // 12
     pub left_wall_height: f32,               // 13
     pub right_wall_height: f32,              // 14
@@ -56,10 +258,10 @@ struct RampJson {
     material: String,
     is_timer_enabled: bool,
     timer_interval: u32,
-    ramp_type: u32,
+    ramp_type: RampType,
     name: String,
     image: String,
-    image_alignment: u32,
+    image_alignment: RampImageAlignment,
     image_walls: bool,
     left_wall_height: f32,
     right_wall_height: f32,
@@ -92,10 +294,10 @@ impl RampJson {
             material: ramp.material.clone(),
             is_timer_enabled: ramp.is_timer_enabled,
             timer_interval: ramp.timer_interval,
-            ramp_type: ramp.ramp_type,
+            ramp_type: ramp.ramp_type.clone(),
             name: ramp.name.clone(),
             image: ramp.image.clone(),
-            image_alignment: ramp.image_alignment,
+            image_alignment: ramp.image_alignment.clone(),
             image_walls: ramp.image_walls,
             left_wall_height: ramp.left_wall_height,
             right_wall_height: ramp.right_wall_height,
@@ -128,10 +330,10 @@ impl RampJson {
             material: self.material.clone(),
             is_timer_enabled: self.is_timer_enabled,
             timer_interval: self.timer_interval,
-            ramp_type: self.ramp_type,
+            ramp_type: self.ramp_type.clone(),
             name: self.name.clone(),
             image: self.image.clone(),
-            image_alignment: self.image_alignment,
+            image_alignment: self.image_alignment.clone(),
             image_walls: self.image_walls,
             left_wall_height: self.left_wall_height,
             right_wall_height: self.right_wall_height,
@@ -164,18 +366,6 @@ impl RampJson {
     }
 }
 
-impl Ramp {
-    pub const RAMP_IMAGE_ALIGNMENT_MODE_WORLD: u32 = 0;
-    pub const RAMP_IMAGE_ALIGNMENT_MODE_WRAP: u32 = 1;
-
-    pub const RAMP_TYPE_FLAT: u32 = 0;
-    pub const RAMP_TYPE_4_WIRE: u32 = 1;
-    pub const RAMP_TYPE_2_WIRE: u32 = 2;
-    pub const RAMP_TYPE_3_WIRE_LEFT: u32 = 3;
-    pub const RAMP_TYPE_3_WIRE_RIGHT: u32 = 4;
-    pub const RAMP_TYPE_1_WIRE: u32 = 5;
-}
-
 impl Serialize for Ramp {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -205,10 +395,10 @@ impl Default for Ramp {
             material: Default::default(),
             is_timer_enabled: Default::default(),
             timer_interval: Default::default(),
-            ramp_type: Ramp::RAMP_TYPE_FLAT,
+            ramp_type: RampType::Flat,
             name: Default::default(),
             image: Default::default(),
-            image_alignment: Ramp::RAMP_IMAGE_ALIGNMENT_MODE_WORLD,
+            image_alignment: RampImageAlignment::World,
             image_walls: true,
             left_wall_height: 62.0,
             right_wall_height: 62.0,
@@ -271,7 +461,7 @@ impl BiffRead for Ramp {
                     ramp.timer_interval = reader.get_u32();
                 }
                 "TYPE" => {
-                    ramp.ramp_type = reader.get_u32();
+                    ramp.ramp_type = reader.get_u32().into();
                 }
                 "NAME" => {
                     ramp.name = reader.get_wide_string();
@@ -280,7 +470,7 @@ impl BiffRead for Ramp {
                     ramp.image = reader.get_string();
                 }
                 "ALGN" => {
-                    ramp.image_alignment = reader.get_u32();
+                    ramp.image_alignment = reader.get_u32().into();
                 }
                 "IMGW" => {
                     ramp.image_walls = reader.get_bool();
@@ -317,9 +507,6 @@ impl BiffRead for Ramp {
                 }
                 "RVIS" => {
                     ramp.is_visible = reader.get_bool();
-                }
-                "RAMP" => {
-                    ramp.ramp_type = reader.get_u32();
                 }
                 "RADB" => {
                     ramp.depth_bias = reader.get_f32();
@@ -386,10 +573,10 @@ impl BiffWrite for Ramp {
         writer.write_tagged_string("MATR", &self.material);
         writer.write_tagged_bool("TMON", self.is_timer_enabled);
         writer.write_tagged_u32("TMIN", self.timer_interval);
-        writer.write_tagged_u32("TYPE", self.ramp_type);
+        writer.write_tagged_u32("TYPE", (&self.ramp_type).into());
         writer.write_tagged_wide_string("NAME", &self.name);
         writer.write_tagged_string("IMAG", &self.image);
-        writer.write_tagged_u32("ALGN", self.image_alignment);
+        writer.write_tagged_u32("ALGN", (&self.image_alignment).into());
         writer.write_tagged_bool("IMGW", self.image_walls);
         writer.write_tagged_f32("WLHL", self.left_wall_height);
         writer.write_tagged_f32("WLHR", self.right_wall_height);
@@ -442,6 +629,7 @@ mod tests {
     use crate::vpx::biff::BiffWriter;
 
     use super::*;
+    use fake::{Fake, Faker};
     use pretty_assertions::assert_eq;
     use rand::Rng;
 
@@ -456,10 +644,10 @@ mod tests {
             material: "material".to_string(),
             is_timer_enabled: rng.gen(),
             timer_interval: 5,
-            ramp_type: 6,
+            ramp_type: Faker.fake(),
             name: "name".to_string(),
             image: "image".to_string(),
-            image_alignment: 7,
+            image_alignment: Faker.fake(),
             image_walls: rng.gen(),
             left_wall_height: 8.0,
             right_wall_height: 9.0,
@@ -489,5 +677,43 @@ mod tests {
         Ramp::biff_write(&ramp, &mut writer);
         let ramp_read = Ramp::biff_read(&mut BiffReader::new(writer.get_data()));
         assert_eq!(ramp, ramp_read);
+    }
+
+    #[test]
+    fn test_ramp_type_json() {
+        let sizing_type = RampType::FourWire;
+        let json = serde_json::to_string(&sizing_type).unwrap();
+        assert_eq!(json, "\"four_wire\"");
+        let sizing_type_read: RampType = serde_json::from_str(&json).unwrap();
+        assert_eq!(sizing_type, sizing_type_read);
+        let json = serde_json::Value::from(0);
+        let sizing_type_read: RampType = serde_json::from_value(json).unwrap();
+        assert_eq!(RampType::Flat, sizing_type_read);
+    }
+
+    #[test]
+    #[should_panic = "Error(\"unknown variant `foo`, expected one of `flat`, `four_wire`, `two_wire`, `three_wire_left`, `three_wire_right`, `one_wire`\", line: 0, column: 0)"]
+    fn test_shadow_mode_json_fail_string() {
+        let json = serde_json::Value::from("foo");
+        let _: RampType = serde_json::from_value(json).unwrap();
+    }
+
+    #[test]
+    fn test_image_alignment_json() {
+        let sizing_type = RampImageAlignment::Wrap;
+        let json = serde_json::to_string(&sizing_type).unwrap();
+        assert_eq!(json, "\"wrap\"");
+        let sizing_type_read: RampImageAlignment = serde_json::from_str(&json).unwrap();
+        assert_eq!(sizing_type, sizing_type_read);
+        let json = serde_json::Value::from(0);
+        let sizing_type_read: RampImageAlignment = serde_json::from_value(json).unwrap();
+        assert_eq!(RampImageAlignment::World, sizing_type_read);
+    }
+
+    #[test]
+    #[should_panic = "Error(\"unknown variant `foo`, expected `world` or `wrap`\", line: 0, column: 0)"]
+    fn test_image_alignment_json_fail_string() {
+        let json = serde_json::Value::from("foo");
+        let _: RampImageAlignment = serde_json::from_value(json).unwrap();
     }
 }
