@@ -60,7 +60,7 @@ impl<'de> Deserialize<'de> for GateType {
             "WireRectangle" => Ok(GateType::WireRectangle),
             "Plate" => Ok(GateType::Plate),
             "LongPlate" => Ok(GateType::LongPlate),
-            _ => Err(serde::de::Error::custom(format!("Unknown GateType: {}", s))),
+            _ => Err(serde::de::Error::custom(format!("Unknown GateType: {}, expecting \"WireW\", \"WireRectangle\", \"Plate\" or \"LongPlate\"", s))),
         }
     }
 }
@@ -412,6 +412,7 @@ mod tests {
 
     use super::*;
     use pretty_assertions::assert_eq;
+    use serde_json::Value;
 
     #[test]
     fn test_write_read() {
@@ -449,5 +450,21 @@ mod tests {
         Gate::biff_write(&gate, &mut writer);
         let gate_read = Gate::biff_read(&mut BiffReader::new(writer.get_data()));
         assert_eq!(gate, gate_read);
+    }
+
+    #[test]
+    fn test_gate_type_json() {
+        let gate_type = GateType::WireRectangle;
+        let json = serde_json::to_string(&gate_type).unwrap();
+        assert_eq!(json, "\"WireRectangle\"");
+        let gate_type_read: GateType = serde_json::from_str(&json).unwrap();
+        assert_eq!(gate_type, gate_type_read);
+    }
+
+    #[test]
+    #[should_panic = "Error(\"Unknown GateType: Unknown, expecting \\\"WireW\\\", \\\"WireRectangle\\\", \\\"Plate\\\" or \\\"LongPlate\\\"\", line: 0, column: 0)"]
+    fn test_gate_type_json_panic() {
+        let json = Value::from("Unknown");
+        let _: GateType = serde_json::from_value(json).unwrap();
     }
 }

@@ -4,13 +4,154 @@ use serde::{Deserialize, Serialize};
 
 use super::vertex3d::Vertex3D;
 
+#[derive(Debug, PartialEq, Clone, Dummy)]
+pub enum TargetType {
+    DropTargetBeveled = 1,
+    DropTargetSimple = 2,
+    HitTargetRound = 3,
+    HitTargetRectangle = 4,
+    HitFatTargetRectangle = 5,
+    HitFatTargetSquare = 6,
+    DropTargetFlatSimple = 7,
+    HitFatTargetSlim = 8,
+    HitTargetSlim = 9,
+}
+
+impl From<u32> for TargetType {
+    fn from(value: u32) -> Self {
+        match value {
+            1 => TargetType::DropTargetBeveled,
+            2 => TargetType::DropTargetSimple,
+            3 => TargetType::HitTargetRound,
+            4 => TargetType::HitTargetRectangle,
+            5 => TargetType::HitFatTargetRectangle,
+            6 => TargetType::HitFatTargetSquare,
+            7 => TargetType::DropTargetFlatSimple,
+            8 => TargetType::HitFatTargetSlim,
+            9 => TargetType::HitTargetSlim,
+            _ => panic!("Invalid TargetType value {}", value),
+        }
+    }
+}
+
+impl From<&TargetType> for u32 {
+    fn from(value: &TargetType) -> Self {
+        match value {
+            TargetType::DropTargetBeveled => 1,
+            TargetType::DropTargetSimple => 2,
+            TargetType::HitTargetRound => 3,
+            TargetType::HitTargetRectangle => 4,
+            TargetType::HitFatTargetRectangle => 5,
+            TargetType::HitFatTargetSquare => 6,
+            TargetType::DropTargetFlatSimple => 7,
+            TargetType::HitFatTargetSlim => 8,
+            TargetType::HitTargetSlim => 9,
+        }
+    }
+}
+
+/// Serialize TargetType as lowercase string
+impl Serialize for TargetType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            TargetType::DropTargetBeveled => serializer.serialize_str("drop_target_beveled"),
+            TargetType::DropTargetSimple => serializer.serialize_str("drop_target_simple"),
+            TargetType::HitTargetRound => serializer.serialize_str("hit_target_round"),
+            TargetType::HitTargetRectangle => serializer.serialize_str("hit_target_rectangle"),
+            TargetType::HitFatTargetRectangle => {
+                serializer.serialize_str("hit_fat_target_rectangle")
+            }
+            TargetType::HitFatTargetSquare => serializer.serialize_str("hit_fat_target_square"),
+            TargetType::DropTargetFlatSimple => serializer.serialize_str("drop_target_flat_simple"),
+            TargetType::HitFatTargetSlim => serializer.serialize_str("hit_fat_target_slim"),
+            TargetType::HitTargetSlim => serializer.serialize_str("hit_target_slim"),
+        }
+    }
+}
+
+/// Deserialize TargetType from lowercase string
+/// or number for backwards compatibility
+impl<'de> Deserialize<'de> for TargetType {
+    fn deserialize<D>(deserializer: D) -> Result<TargetType, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct TargetTypeVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for TargetTypeVisitor {
+            type Value = TargetType;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a string or number representing a TargetType")
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<TargetType, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    1 => Ok(TargetType::DropTargetBeveled),
+                    2 => Ok(TargetType::DropTargetSimple),
+                    3 => Ok(TargetType::HitTargetRound),
+                    4 => Ok(TargetType::HitTargetRectangle),
+                    5 => Ok(TargetType::HitFatTargetRectangle),
+                    6 => Ok(TargetType::HitFatTargetSquare),
+                    7 => Ok(TargetType::DropTargetFlatSimple),
+                    8 => Ok(TargetType::HitFatTargetSlim),
+                    9 => Ok(TargetType::HitTargetSlim),
+                    _ => Err(serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Unsigned(value),
+                        &"a number between 1 and 9",
+                    )),
+                }
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<TargetType, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "drop_target_beveled" => Ok(TargetType::DropTargetBeveled),
+                    "drop_target_simple" => Ok(TargetType::DropTargetSimple),
+                    "hit_target_round" => Ok(TargetType::HitTargetRound),
+                    "hit_target_rectangle" => Ok(TargetType::HitTargetRectangle),
+                    "hit_fat_target_rectangle" => Ok(TargetType::HitFatTargetRectangle),
+                    "hit_fat_target_square" => Ok(TargetType::HitFatTargetSquare),
+                    "drop_target_flat_simple" => Ok(TargetType::DropTargetFlatSimple),
+                    "hit_fat_target_slim" => Ok(TargetType::HitFatTargetSlim),
+                    "hit_target_slim" => Ok(TargetType::HitTargetSlim),
+                    _ => Err(serde::de::Error::unknown_variant(
+                        value,
+                        &[
+                            "drop_target_beveled",
+                            "drop_target_simple",
+                            "hit_target_round",
+                            "hit_target_rectangle",
+                            "hit_fat_target_rectangle",
+                            "hit_fat_target_square",
+                            "drop_target_flat_simple",
+                            "hit_fat_target_slim",
+                            "hit_target_slim",
+                        ],
+                    )),
+                }
+            }
+        }
+
+        deserializer.deserialize_any(TargetTypeVisitor)
+    }
+}
+
 #[derive(Debug, PartialEq, Dummy)]
 pub struct HitTarget {
     pub position: Vertex3D,
     pub size: Vertex3D,
     pub rot_z: f32,
     pub image: String,
-    pub target_type: i32,
+    pub target_type: TargetType,
     pub name: String,
     pub material: String,
     pub is_visible: bool,
@@ -51,7 +192,7 @@ impl Default for HitTarget {
         let size = Vertex3D::new(32.0, 32.0, 32.0);
         let rot_z: f32 = 0.0;
         let image: String = Default::default();
-        let target_type: i32 = HitTarget::TARGET_TYPE_DROP_TARGET_SIMPLE;
+        let target_type: TargetType = TargetType::DropTargetSimple;
         let name: String = Default::default();
         let material: String = Default::default();
         let is_visible: bool = true;
@@ -124,7 +265,7 @@ struct HitTargetJson {
     size: Vertex3D,
     rot_z: f32,
     image: String,
-    target_type: i32,
+    target_type: TargetType,
     name: String,
     material: String,
     is_visible: bool,
@@ -157,7 +298,7 @@ impl HitTargetJson {
             size: hit_target.size,
             rot_z: hit_target.rot_z,
             image: hit_target.image.clone(),
-            target_type: hit_target.target_type,
+            target_type: hit_target.target_type.clone(),
             name: hit_target.name.clone(),
             material: hit_target.material.clone(),
             is_visible: hit_target.is_visible,
@@ -190,7 +331,7 @@ impl HitTargetJson {
             size: self.size,
             rot_z: self.rot_z,
             image: self.image.clone(),
-            target_type: self.target_type,
+            target_type: self.target_type.clone(),
             name: self.name.clone(),
             material: self.material.clone(),
             is_visible: self.is_visible,
@@ -245,25 +386,13 @@ impl<'de> Deserialize<'de> for HitTarget {
     }
 }
 
-impl HitTarget {
-    pub const TARGET_TYPE_DROP_TARGET_BEVELED: i32 = 1;
-    pub const TARGET_TYPE_DROP_TARGET_SIMPLE: i32 = 2;
-    pub const TARGET_TYPE_HIT_TARGET_ROUND: i32 = 3;
-    pub const TARGET_TYPE_HIT_TARGET_RECTANGLE: i32 = 4;
-    pub const TARGET_TYPE_HIT_FAT_TARGET_RECTANGLE: i32 = 5;
-    pub const TARGET_TYPE_HIT_FAT_TARGET_SQUARE: i32 = 6;
-    pub const TARGET_TYPE_DROP_TARGET_FLAT_SIMPLE: i32 = 7;
-    pub const TARGET_TYPE_HIT_FAT_TARGET_SLIM: i32 = 8;
-    pub const TARGET_TYPE_HIT_TARGET_SLIM: i32 = 9;
-}
-
 impl BiffRead for HitTarget {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
         let mut position: Vertex3D = Default::default();
         let mut size = Vertex3D::new(32.0, 32.0, 32.0);
         let mut rot_z: f32 = 0.0;
         let mut image: String = Default::default();
-        let mut target_type: i32 = HitTarget::TARGET_TYPE_DROP_TARGET_SIMPLE;
+        let mut target_type: TargetType = TargetType::DropTargetSimple;
         let mut name: String = Default::default();
         let mut material: String = Default::default();
         let mut is_visible: bool = true;
@@ -315,7 +444,7 @@ impl BiffRead for HitTarget {
                     image = reader.get_string();
                 }
                 "TRTY" => {
-                    target_type = reader.get_i32();
+                    target_type = reader.get_u32().into();
                 }
                 "NAME" => {
                     name = reader.get_wide_string();
@@ -445,7 +574,7 @@ impl BiffWrite for HitTarget {
         writer.write_tagged("VSIZ", &self.size);
         writer.write_tagged_f32("ROTZ", self.rot_z);
         writer.write_tagged_string("IMAG", &self.image);
-        writer.write_tagged_i32("TRTY", self.target_type);
+        writer.write_tagged_u32("TRTY", (&self.target_type).into());
         writer.write_tagged_wide_string("NAME", &self.name);
         writer.write_tagged_string("MATR", &self.material);
         writer.write_tagged_bool("TVIS", self.is_visible);
@@ -498,6 +627,7 @@ impl BiffWrite for HitTarget {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
+    use fake::{Fake, Faker};
 
     use super::*;
     use pretty_assertions::assert_eq;
@@ -512,7 +642,7 @@ mod tests {
             size: Vertex3D::new(rng.gen(), rng.gen(), rng.gen()),
             rot_z: rng.gen(),
             image: "test image".to_string(),
-            target_type: rng.gen(),
+            target_type: Faker.fake(),
             name: "test name".to_string(),
             material: "test material".to_string(),
             is_visible: rng.gen(),
@@ -545,5 +675,31 @@ mod tests {
         HitTarget::biff_write(&hittarget, &mut writer);
         let hittarget_read = HitTarget::biff_read(&mut BiffReader::new(writer.get_data()));
         assert_eq!(hittarget, hittarget_read);
+    }
+
+    #[test]
+    fn test_target_type_json() {
+        let sizing_type = TargetType::HitFatTargetRectangle;
+        let json = serde_json::to_string(&sizing_type).unwrap();
+        assert_eq!(json, "\"hit_fat_target_rectangle\"");
+        let sizing_type_read: TargetType = serde_json::from_str(&json).unwrap();
+        assert_eq!(sizing_type, sizing_type_read);
+        let json = serde_json::Value::from(1);
+        let sizing_type_read: TargetType = serde_json::from_value(json).unwrap();
+        assert_eq!(TargetType::DropTargetBeveled, sizing_type_read);
+    }
+
+    #[test]
+    #[should_panic = "Error(\"unknown variant `foo`, expected one of `drop_target_beveled`, `drop_target_simple`, `hit_target_round`, `hit_target_rectangle`, `hit_fat_target_rectangle`, `hit_fat_target_square`, `drop_target_flat_simple`, `hit_fat_target_slim`, `hit_target_slim`\", line: 0, column: 0)"]
+    fn test_target_type_json_fail_string() {
+        let json = serde_json::Value::from("foo");
+        let _: TargetType = serde_json::from_value(json).unwrap();
+    }
+
+    #[test]
+    #[should_panic = "Error(\"invalid value: integer `0`, expected a number between 1 and 9\", line: 0, column: 0)"]
+    fn test_target_type_json_fail_number() {
+        let json = serde_json::Value::from(0);
+        let _: TargetType = serde_json::from_value(json).unwrap();
     }
 }

@@ -516,7 +516,7 @@ mod tests {
     #[test]
     #[should_panic = "Error(\"Invalid ImageAlignment value foo, expecting \\\"world\\\" or \\\"wrap\\\"\", line: 0, column: 0)"]
     fn test_alignment_json_fail() {
-        let json: Value = serde_json::Value::from("foo");
+        let json = serde_json::Value::from("foo");
         let _: ImageAlignment = serde_json::from_value(json).unwrap();
     }
 }
