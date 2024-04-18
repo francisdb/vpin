@@ -4,6 +4,132 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::vertex2d::Vertex2D;
 
+#[derive(Debug, PartialEq, Clone, Dummy)]
+pub enum KickerType {
+    Invisible = 0,
+    Hole = 1,
+    Cup = 2,
+    HoleSimple = 3,
+    Williams = 4,
+    Gottlieb = 5,
+    Cup2 = 6,
+}
+
+impl From<u32> for KickerType {
+    fn from(value: u32) -> Self {
+        match value {
+            0 => KickerType::Invisible,
+            1 => KickerType::Hole,
+            2 => KickerType::Cup,
+            3 => KickerType::HoleSimple,
+            4 => KickerType::Williams,
+            5 => KickerType::Gottlieb,
+            6 => KickerType::Cup2,
+            _ => panic!("Invalid KickerType value {}", value),
+        }
+    }
+}
+
+impl From<&KickerType> for u32 {
+    fn from(value: &KickerType) -> Self {
+        match value {
+            KickerType::Invisible => 0,
+            KickerType::Hole => 1,
+            KickerType::Cup => 2,
+            KickerType::HoleSimple => 3,
+            KickerType::Williams => 4,
+            KickerType::Gottlieb => 5,
+            KickerType::Cup2 => 6,
+        }
+    }
+}
+
+/// Serialize as lowercase string
+impl Serialize for KickerType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let value = match self {
+            KickerType::Invisible => "invisible",
+            KickerType::Hole => "hole",
+            KickerType::Cup => "cup",
+            KickerType::HoleSimple => "holesimple",
+            KickerType::Williams => "williams",
+            KickerType::Gottlieb => "gottlieb",
+            KickerType::Cup2 => "cup2",
+        };
+        serializer.serialize_str(value)
+    }
+}
+
+/// Deserialize from lowercase string
+/// or number for backwards compatibility
+impl<'de> Deserialize<'de> for KickerType {
+    fn deserialize<D>(deserializer: D) -> Result<KickerType, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct KickerTypeVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for KickerTypeVisitor {
+            type Value = KickerType;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a string or number representing a TargetType")
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<KickerType, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    0 => Ok(KickerType::Invisible),
+                    1 => Ok(KickerType::Hole),
+                    2 => Ok(KickerType::Cup),
+                    3 => Ok(KickerType::HoleSimple),
+                    4 => Ok(KickerType::Williams),
+                    5 => Ok(KickerType::Gottlieb),
+                    6 => Ok(KickerType::Cup2),
+                    _ => Err(serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Unsigned(value),
+                        &"a number between 0 and 6",
+                    )),
+                }
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<KickerType, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "invisible" => Ok(KickerType::Invisible),
+                    "hole" => Ok(KickerType::Hole),
+                    "cup" => Ok(KickerType::Cup),
+                    "holesimple" => Ok(KickerType::HoleSimple),
+                    "williams" => Ok(KickerType::Williams),
+                    "gottlieb" => Ok(KickerType::Gottlieb),
+                    "cup2" => Ok(KickerType::Cup2),
+                    _ => Err(serde::de::Error::unknown_variant(
+                        value,
+                        &[
+                            "invisible",
+                            "hole",
+                            "cup",
+                            "holesimple",
+                            "williams",
+                            "gottlieb",
+                            "cup2",
+                        ],
+                    )),
+                }
+            }
+        }
+
+        deserializer.deserialize_any(KickerTypeVisitor)
+    }
+}
+
 #[derive(Debug, PartialEq, Dummy)]
 pub struct Kicker {
     center: Vertex2D,
@@ -14,7 +140,7 @@ pub struct Kicker {
     surface: String,
     is_enabled: bool,
     pub name: String,
-    kicker_type: u32,
+    kicker_type: KickerType,
     scatter: f32,
     hit_accuracy: f32,
     hit_height: Option<f32>, // KHHI (was missing in 10.01)
@@ -40,7 +166,7 @@ struct KickerJson {
     surface: String,
     is_enabled: bool,
     name: String,
-    kicker_type: u32,
+    kicker_type: KickerType,
     scatter: f32,
     hit_accuracy: f32,
     hit_height: Option<f32>,
@@ -60,7 +186,7 @@ impl KickerJson {
             surface: kicker.surface.clone(),
             is_enabled: kicker.is_enabled,
             name: kicker.name.clone(),
-            kicker_type: kicker.kicker_type,
+            kicker_type: kicker.kicker_type.clone(),
             scatter: kicker.scatter,
             hit_accuracy: kicker.hit_accuracy,
             hit_height: kicker.hit_height,
@@ -118,16 +244,6 @@ impl<'de> Deserialize<'de> for Kicker {
     }
 }
 
-impl Kicker {
-    pub const KICKER_TYPE_INVISIBLE: u32 = 0;
-    pub const KICKER_TYPE_HOLE: u32 = 1;
-    pub const KICKER_TYPE_CUP: u32 = 2;
-    pub const KICKER_TYPE_HOLE_SIMPLE: u32 = 3;
-    pub const KICKER_TYPE_WILLIAMS: u32 = 4;
-    pub const KICKER_TYPE_GOTTLIEB: u32 = 5;
-    pub const KICKER_TYPE_CUP2: u32 = 6;
-}
-
 impl Default for Kicker {
     fn default() -> Self {
         Self {
@@ -139,7 +255,7 @@ impl Default for Kicker {
             surface: Default::default(),
             is_enabled: true,
             name: Default::default(),
-            kicker_type: Kicker::KICKER_TYPE_HOLE,
+            kicker_type: KickerType::Hole,
             scatter: 0.0,
             hit_accuracy: 0.7,
             hit_height: None, //40.0,
@@ -191,7 +307,7 @@ impl BiffRead for Kicker {
                     kicker.name = reader.get_wide_string();
                 }
                 "TYPE" => {
-                    kicker.kicker_type = reader.get_u32();
+                    kicker.kicker_type = reader.get_u32().into();
                 }
                 "KSCT" => {
                     kicker.scatter = reader.get_f32();
@@ -249,7 +365,7 @@ impl BiffWrite for Kicker {
         writer.write_tagged_string("SURF", &self.surface);
         writer.write_tagged_bool("EBLD", self.is_enabled);
         writer.write_tagged_wide_string("NAME", &self.name);
-        writer.write_tagged_u32("TYPE", self.kicker_type);
+        writer.write_tagged_u32("TYPE", (&self.kicker_type).into());
         writer.write_tagged_f32("KSCT", self.scatter);
         writer.write_tagged_f32("KHAC", self.hit_accuracy);
         if let Some(hit_height) = self.hit_height {
@@ -275,6 +391,7 @@ impl BiffWrite for Kicker {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
+    use fake::{Fake, Faker};
 
     use super::*;
     use pretty_assertions::assert_eq;
@@ -291,7 +408,7 @@ mod tests {
             surface: "surface".to_string(),
             is_enabled: false,
             name: "name".to_string(),
-            kicker_type: 5,
+            kicker_type: Faker.fake(),
             scatter: 6.0,
             hit_accuracy: 7.0,
             hit_height: Some(8.0),
@@ -307,5 +424,24 @@ mod tests {
         Kicker::biff_write(&kicker, &mut writer);
         let kicker_read = Kicker::biff_read(&mut BiffReader::new(writer.get_data()));
         assert_eq!(kicker, kicker_read);
+    }
+
+    #[test]
+    fn test_kicker_type_json() {
+        let sizing_type = KickerType::Cup;
+        let json = serde_json::to_string(&sizing_type).unwrap();
+        assert_eq!(json, "\"cup\"");
+        let sizing_type_read: KickerType = serde_json::from_str(&json).unwrap();
+        assert_eq!(sizing_type, sizing_type_read);
+        let json = serde_json::Value::from(1);
+        let sizing_type_read: KickerType = serde_json::from_value(json).unwrap();
+        assert_eq!(KickerType::Hole, sizing_type_read);
+    }
+
+    #[test]
+    #[should_panic = "Error(\"unknown variant `foo`, expected one of `invisible`, `hole`, `cup`, `holesimple`, `williams`, `gottlieb`, `cup2`\", line: 0, column: 0)"]
+    fn test_kicker_type_json_fail_string() {
+        let json = serde_json::Value::from("foo");
+        let _: KickerType = serde_json::from_value(json).unwrap();
     }
 }
