@@ -54,7 +54,7 @@ impl Serialize for KickerType {
             KickerType::Invisible => "invisible",
             KickerType::Hole => "hole",
             KickerType::Cup => "cup",
-            KickerType::HoleSimple => "holesimple",
+            KickerType::HoleSimple => "hole_simple",
             KickerType::Williams => "williams",
             KickerType::Gottlieb => "gottlieb",
             KickerType::Cup2 => "cup2",
@@ -106,7 +106,7 @@ impl<'de> Deserialize<'de> for KickerType {
                     "invisible" => Ok(KickerType::Invisible),
                     "hole" => Ok(KickerType::Hole),
                     "cup" => Ok(KickerType::Cup),
-                    "holesimple" => Ok(KickerType::HoleSimple),
+                    "hole_simple" => Ok(KickerType::HoleSimple),
                     "williams" => Ok(KickerType::Williams),
                     "gottlieb" => Ok(KickerType::Gottlieb),
                     "cup2" => Ok(KickerType::Cup2),
@@ -116,7 +116,7 @@ impl<'de> Deserialize<'de> for KickerType {
                             "invisible",
                             "hole",
                             "cup",
-                            "holesimple",
+                            "hole_simple",
                             "williams",
                             "gottlieb",
                             "cup2",
@@ -439,7 +439,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic = "Error(\"unknown variant `foo`, expected one of `invisible`, `hole`, `cup`, `holesimple`, `williams`, `gottlieb`, `cup2`\", line: 0, column: 0)"]
+    #[should_panic = "Error(\"unknown variant `foo`, expected one of `invisible`, `hole`, `cup`, `hole_simple`, `williams`, `gottlieb`, `cup2`\", line: 0, column: 0)"]
     fn test_kicker_type_json_fail_string() {
         let json = serde_json::Value::from("foo");
         let _: KickerType = serde_json::from_value(json).unwrap();

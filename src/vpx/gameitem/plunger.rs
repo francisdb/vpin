@@ -4,6 +4,100 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::vertex2d::Vertex2D;
 
+#[derive(Debug, PartialEq, Clone, Dummy)]
+pub enum PlungerType {
+    Modern = 1,
+    Flat = 2,
+    Custom = 3,
+}
+
+impl From<u32> for PlungerType {
+    fn from(value: u32) -> Self {
+        match value {
+            1 => PlungerType::Modern,
+            2 => PlungerType::Flat,
+            3 => PlungerType::Custom,
+            _ => panic!("Invalid PlungerType value {}", value),
+        }
+    }
+}
+
+impl From<&PlungerType> for u32 {
+    fn from(value: &PlungerType) -> Self {
+        match value {
+            PlungerType::Modern => 1,
+            PlungerType::Flat => 2,
+            PlungerType::Custom => 3,
+        }
+    }
+}
+
+/// Serialize to lowercase string
+impl Serialize for PlungerType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            PlungerType::Modern => serializer.serialize_str("modern"),
+            PlungerType::Flat => serializer.serialize_str("flat"),
+            PlungerType::Custom => serializer.serialize_str("custom"),
+        }
+    }
+}
+
+/// Deserialize from lowercase string
+/// or number for backwards compatibility
+impl<'de> Deserialize<'de> for PlungerType {
+    fn deserialize<D>(deserializer: D) -> Result<PlungerType, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct PlungerTypeVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for PlungerTypeVisitor {
+            type Value = PlungerType;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a string or number representing a TargetType")
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<PlungerType, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    1 => Ok(PlungerType::Modern),
+                    2 => Ok(PlungerType::Flat),
+                    3 => Ok(PlungerType::Custom),
+                    _ => Err(serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Unsigned(value),
+                        &"1, 2, or 3",
+                    )),
+                }
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<PlungerType, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "modern" => Ok(PlungerType::Modern),
+                    "flat" => Ok(PlungerType::Flat),
+                    "custom" => Ok(PlungerType::Custom),
+
+                    _ => Err(serde::de::Error::unknown_variant(
+                        value,
+                        &["modern", "flat", "custom"],
+                    )),
+                }
+            }
+        }
+
+        deserializer.deserialize_any(PlungerTypeVisitor)
+    }
+}
+
 #[derive(Debug, PartialEq, Dummy)]
 pub struct Plunger {
     center: Vertex2D,
@@ -13,7 +107,7 @@ pub struct Plunger {
     stroke: f32,
     speed_pull: f32,
     speed_fire: f32,
-    plunger_type: u32,
+    plunger_type: PlungerType,
     anim_frames: u32,
     material: String,
     image: String,
@@ -56,7 +150,7 @@ struct PlungerJson {
     stroke: f32,
     speed_pull: f32,
     speed_fire: f32,
-    plunger_type: u32,
+    plunger_type: PlungerType,
     anim_frames: u32,
     material: String,
     image: String,
@@ -93,7 +187,7 @@ impl PlungerJson {
             stroke: plunger.stroke,
             speed_pull: plunger.speed_pull,
             speed_fire: plunger.speed_fire,
-            plunger_type: plunger.plunger_type,
+            plunger_type: plunger.plunger_type.clone(),
             anim_frames: plunger.anim_frames,
             material: plunger.material.clone(),
             image: plunger.image.clone(),
@@ -130,7 +224,7 @@ impl PlungerJson {
             stroke: self.stroke,
             speed_pull: self.speed_pull,
             speed_fire: self.speed_fire,
-            plunger_type: self.plunger_type,
+            plunger_type: self.plunger_type.clone(),
             anim_frames: self.anim_frames,
             material: self.material.clone(),
             image: self.image.clone(),
@@ -186,12 +280,6 @@ impl<'de> Deserialize<'de> for Plunger {
     }
 }
 
-impl Plunger {
-    pub const PLUNGER_TYPE_MODERN: u32 = 1;
-    pub const PLUNGER_TYPE_FLAT: u32 = 2;
-    pub const PLUNGER_TYPE_CUSTOM: u32 = 3;
-}
-
 impl BiffRead for Plunger {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
         let mut center = Vertex2D::default();
@@ -201,7 +289,7 @@ impl BiffRead for Plunger {
         let mut stroke: f32 = 80.0;
         let mut speed_pull: f32 = 0.5;
         let mut speed_fire: f32 = 80.0;
-        let mut plunger_type: u32 = Self::PLUNGER_TYPE_MODERN;
+        let mut plunger_type: PlungerType = PlungerType::Modern;
         let mut anim_frames: u32 = 1;
         let mut material = String::default();
         let mut image = String::default();
@@ -264,7 +352,7 @@ impl BiffRead for Plunger {
                     speed_fire = reader.get_f32();
                 }
                 "TYPE" => {
-                    plunger_type = reader.get_u32();
+                    plunger_type = reader.get_u32().into();
                 }
                 "ANFR" => {
                     anim_frames = reader.get_u32();
@@ -412,7 +500,7 @@ impl BiffWrite for Plunger {
         writer.write_tagged_f32("HPSL", self.stroke);
         writer.write_tagged_f32("SPDP", self.speed_pull);
         writer.write_tagged_f32("SPDF", self.speed_fire);
-        writer.write_tagged_u32("TYPE", self.plunger_type);
+        writer.write_tagged_u32("TYPE", (&self.plunger_type).into());
         writer.write_tagged_u32("ANFR", self.anim_frames);
         writer.write_tagged_string("MATR", &self.material);
         writer.write_tagged_string("IMAG", &self.image);
@@ -456,6 +544,7 @@ impl BiffWrite for Plunger {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
+    use fake::{Fake, Faker};
 
     use super::*;
     use pretty_assertions::assert_eq;
@@ -470,7 +559,7 @@ mod tests {
             stroke: 2.0,
             speed_pull: 0.5,
             speed_fire: 3.0,
-            plunger_type: Plunger::PLUNGER_TYPE_MODERN,
+            plunger_type: Faker.fake(),
             anim_frames: 1,
             material: "test material".to_string(),
             image: "test image".to_string(),
@@ -505,5 +594,24 @@ mod tests {
         Plunger::biff_write(&plunger, &mut writer);
         let plunger_read = Plunger::biff_read(&mut BiffReader::new(writer.get_data()));
         assert_eq!(plunger, plunger_read);
+    }
+
+    #[test]
+    fn test_plunger_type_json() {
+        let sizing_type = PlungerType::Modern;
+        let json = serde_json::to_string(&sizing_type).unwrap();
+        assert_eq!(json, "\"modern\"");
+        let sizing_type_read: PlungerType = serde_json::from_str(&json).unwrap();
+        assert_eq!(sizing_type, sizing_type_read);
+        let json = serde_json::Value::from(3);
+        let sizing_type_read: PlungerType = serde_json::from_value(json).unwrap();
+        assert_eq!(PlungerType::Custom, sizing_type_read);
+    }
+
+    #[test]
+    #[should_panic = " Error(\"unknown variant `foo`, expected one of `modern`, `flat`, `custom`\", line: 0, column: 0)"]
+    fn test_plunger_type_json_fail_string() {
+        let json = serde_json::Value::from("foo");
+        let _: PlungerType = serde_json::from_value(json).unwrap();
     }
 }

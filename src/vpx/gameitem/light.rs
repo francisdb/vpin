@@ -9,13 +9,197 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{dragpoint::DragPoint, vertex2d::Vertex2D};
 
+#[derive(Debug, PartialEq, Clone, Dummy)]
+pub enum ShadowMode {
+    None = 0,
+    RaytracedBallShadows = 1,
+}
+
+impl From<u32> for ShadowMode {
+    fn from(value: u32) -> Self {
+        match value {
+            0 => ShadowMode::None,
+            1 => ShadowMode::RaytracedBallShadows,
+            _ => panic!("Unknown value for ShadowMode: {}", value),
+        }
+    }
+}
+
+impl From<&ShadowMode> for u32 {
+    fn from(value: &ShadowMode) -> Self {
+        match value {
+            ShadowMode::None => 0,
+            ShadowMode::RaytracedBallShadows => 1,
+        }
+    }
+}
+
+/// Serialize to lowercase string
+impl Serialize for ShadowMode {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let value = match self {
+            ShadowMode::None => "none",
+            ShadowMode::RaytracedBallShadows => "raytraced_ball_shadows",
+        };
+        serializer.serialize_str(value)
+    }
+}
+
+/// Deserialize from lowercase string
+/// or number for backwards compatibility
+impl<'de> Deserialize<'de> for ShadowMode {
+    fn deserialize<D>(deserializer: D) -> Result<ShadowMode, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct ShadowModeVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for ShadowModeVisitor {
+            type Value = ShadowMode;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a string or number representing a TargetType")
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<ShadowMode, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    0 => Ok(ShadowMode::None),
+                    1 => Ok(ShadowMode::RaytracedBallShadows),
+                    _ => Err(serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Unsigned(value),
+                        &"0 or 1",
+                    )),
+                }
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<ShadowMode, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "none" => Ok(ShadowMode::None),
+                    "raytraced_ball_shadows" => Ok(ShadowMode::RaytracedBallShadows),
+                    _ => Err(serde::de::Error::unknown_variant(
+                        value,
+                        &["none", "raytraced_ball_shadows"],
+                    )),
+                }
+            }
+        }
+
+        deserializer.deserialize_any(ShadowModeVisitor)
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Dummy)]
+pub enum Fader {
+    None = 0,
+    Linear = 1,
+    Incandescent = 2,
+}
+
+impl From<u32> for Fader {
+    fn from(value: u32) -> Self {
+        match value {
+            0 => Fader::None,
+            1 => Fader::Linear,
+            2 => Fader::Incandescent,
+            _ => panic!("Unknown value for Fader: {}", value),
+        }
+    }
+}
+
+impl From<&Fader> for u32 {
+    fn from(value: &Fader) -> Self {
+        match value {
+            Fader::None => 0,
+            Fader::Linear => 1,
+            Fader::Incandescent => 2,
+        }
+    }
+}
+
+/// Serialize to lowercase string
+impl Serialize for Fader {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let value = match self {
+            Fader::None => "none",
+            Fader::Linear => "linear",
+            Fader::Incandescent => "incandescent",
+        };
+        serializer.serialize_str(value)
+    }
+}
+
+/// Deserialize from lowercase string
+/// or number for backwards compatibility
+impl<'de> Deserialize<'de> for Fader {
+    fn deserialize<D>(deserializer: D) -> Result<Fader, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct FaderVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for FaderVisitor {
+            type Value = Fader;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a string or number representing a TargetType")
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<Fader, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    0 => Ok(Fader::None),
+                    1 => Ok(Fader::Linear),
+                    2 => Ok(Fader::Incandescent),
+                    _ => Err(serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Unsigned(value),
+                        &"0, 1 or 2",
+                    )),
+                }
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Fader, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "none" => Ok(Fader::None),
+                    "linear" => Ok(Fader::Linear),
+                    "incandescent" => Ok(Fader::Incandescent),
+                    _ => Err(serde::de::Error::unknown_variant(
+                        value,
+                        &["none", "linear", "incandescent"],
+                    )),
+                }
+            }
+        }
+
+        deserializer.deserialize_any(FaderVisitor)
+    }
+}
+
 #[derive(Debug, PartialEq, Dummy)]
 pub struct Light {
-    pub center: Vertex2D,                   // VCEN
-    pub height: Option<f32>,                // HGHT added in 10.8
-    pub falloff_radius: f32,                // RADI
-    pub falloff_power: f32,                 // FAPO
-    pub status: u32,                        // STAT
+    pub center: Vertex2D,    // VCEN
+    pub height: Option<f32>, // HGHT added in 10.8
+    pub falloff_radius: f32, // RADI
+    pub falloff_power: f32,  // FAPO
+    /// STAT deprecated, planned or removal in to 10.9+
+    /// m_d.m_state == 0.f ? 0 : (m_d.m_state == 2.f ? 2 : 1);
+    pub state_u32: u32,
     pub state: Option<f32>,                 // STTF added in 10.8
     pub color: Color,                       // COLR
     pub color2: Color,                      // COL2
@@ -40,8 +224,8 @@ pub struct Light {
     pub mesh_radius: f32,                   // BMSC
     pub bulb_modulate_vs_add: f32,          // BMVA
     pub bulb_halo_height: f32,              // BHHI
-    pub shadows: Option<u32>,               // SHDW added in 10.8
-    pub fader: Option<u32>,                 // FADE added in 10.8
+    pub shadows: Option<ShadowMode>,        // SHDW added in 10.8
+    pub fader: Option<Fader>,               // FADE added in 10.8
     pub visible: Option<bool>,              // VSBL added in 10.8
 
     // these are shared between all items
@@ -60,7 +244,7 @@ struct LightJson {
     height: Option<f32>,
     falloff_radius: f32,
     falloff_power: f32,
-    status: u32,
+    state_u32: u32,
     state: Option<f32>,
     color: ColorJson,
     color2: ColorJson,
@@ -85,8 +269,8 @@ struct LightJson {
     mesh_radius: f32,
     bulb_modulate_vs_add: f32,
     bulb_halo_height: f32,
-    shadows: Option<u32>,
-    fader: Option<u32>,
+    shadows: Option<ShadowMode>,
+    fader: Option<Fader>,
     visible: Option<bool>,
     drag_points: Vec<DragPoint>,
 }
@@ -98,7 +282,7 @@ impl LightJson {
             height: light.height,
             falloff_radius: light.falloff_radius,
             falloff_power: light.falloff_power,
-            status: light.status,
+            state_u32: light.state_u32,
             state: light.state,
             color: ColorJson::from_color(&light.color),
             color2: ColorJson::from_color(&light.color2),
@@ -123,8 +307,8 @@ impl LightJson {
             mesh_radius: light.mesh_radius,
             bulb_modulate_vs_add: light.bulb_modulate_vs_add,
             bulb_halo_height: light.bulb_halo_height,
-            shadows: light.shadows,
-            fader: light.fader,
+            shadows: light.shadows.clone(),
+            fader: light.fader.clone(),
             visible: light.visible,
             drag_points: light.drag_points.clone(),
         }
@@ -136,7 +320,7 @@ impl LightJson {
             height: self.height,
             falloff_radius: self.falloff_radius,
             falloff_power: self.falloff_power,
-            status: self.status,
+            state_u32: self.state_u32,
             state: self.state,
             color: self.color.to_color(),
             color2: self.color2.to_color(),
@@ -161,8 +345,8 @@ impl LightJson {
             mesh_radius: self.mesh_radius,
             bulb_modulate_vs_add: self.bulb_modulate_vs_add,
             bulb_halo_height: self.bulb_halo_height,
-            shadows: self.shadows,
-            fader: self.fader,
+            shadows: self.shadows.clone(),
+            fader: self.fader.clone(),
             visible: self.visible,
             // this is populated from a different file
             is_locked: false,
@@ -229,8 +413,8 @@ impl Default for Light {
         let mesh_radius: f32 = 20.0;
         let bulb_modulate_vs_add: f32 = 0.9;
         let bulb_halo_height: f32 = 28.0;
-        let shadows: Option<u32> = None;
-        let fader: Option<u32> = None;
+        let shadows: Option<ShadowMode> = None;
+        let fader: Option<Fader> = None;
         let visible: Option<bool> = None;
 
         // these are shared between all items
@@ -243,7 +427,7 @@ impl Default for Light {
             height,
             falloff_radius,
             falloff_power,
-            status,
+            state_u32: status,
             state,
             color,
             color2,
@@ -295,7 +479,7 @@ impl BiffRead for Light {
                 "HGHT" => light.height = Some(reader.get_f32()),
                 "RADI" => light.falloff_radius = reader.get_f32(),
                 "FAPO" => light.falloff_power = reader.get_f32(),
-                "STAT" => light.status = reader.get_u32(),
+                "STAT" => light.state_u32 = reader.get_u32(),
                 "STTF" => light.state = Some(reader.get_f32()),
                 "COLR" => light.color = Color::biff_read_bgr(reader),
                 "COL2" => light.color2 = Color::biff_read_bgr(reader),
@@ -326,8 +510,8 @@ impl BiffRead for Light {
                 "BMSC" => light.mesh_radius = reader.get_f32(),
                 "BMVA" => light.bulb_modulate_vs_add = reader.get_f32(),
                 "BHHI" => light.bulb_halo_height = reader.get_f32(),
-                "SHDW" => light.shadows = Some(reader.get_u32()),
-                "FADE" => light.fader = Some(reader.get_u32()),
+                "SHDW" => light.shadows = Some(reader.get_u32().into()),
+                "FADE" => light.fader = Some(reader.get_u32().into()),
                 "VSBL" => light.visible = Some(reader.get_bool()),
                 // many of these
                 "DPNT" => {
@@ -357,7 +541,7 @@ impl BiffWrite for Light {
         }
         writer.write_tagged_f32("RADI", self.falloff_radius);
         writer.write_tagged_f32("FAPO", self.falloff_power);
-        writer.write_tagged_u32("STAT", self.status);
+        writer.write_tagged_u32("STAT", self.state_u32);
         if let Some(state) = self.state {
             writer.write_tagged_f32("STTF", state);
         }
@@ -388,11 +572,11 @@ impl BiffWrite for Light {
         writer.write_tagged_f32("BMSC", self.mesh_radius);
         writer.write_tagged_f32("BMVA", self.bulb_modulate_vs_add);
         writer.write_tagged_f32("BHHI", self.bulb_halo_height);
-        if let Some(shadows) = self.shadows {
-            writer.write_tagged_u32("SHDW", shadows);
+        if let Some(shadows) = &self.shadows {
+            writer.write_tagged_u32("SHDW", shadows.into());
         }
-        if let Some(fader) = self.fader {
-            writer.write_tagged_u32("FADE", fader);
+        if let Some(fader) = &self.fader {
+            writer.write_tagged_u32("FADE", fader.into());
         }
         if let Some(visible) = self.visible {
             writer.write_tagged_bool("VSBL", visible);
@@ -417,6 +601,7 @@ impl BiffWrite for Light {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
+    use fake::{Fake, Faker};
 
     use super::*;
     use pretty_assertions::assert_eq;
@@ -429,7 +614,7 @@ mod tests {
             height: Some(3.0),
             falloff_radius: 25.0,
             falloff_power: 3.0,
-            status: 4,
+            state_u32: 4,
             state: Some(5.0),
             color: Color::from_argb(0x123456),
             color2: Color::from_argb(0x654321),
@@ -454,8 +639,8 @@ mod tests {
             mesh_radius: 14.0,
             bulb_modulate_vs_add: 15.0,
             bulb_halo_height: 16.0,
-            shadows: Some(18),
-            fader: Some(19),
+            shadows: Faker.fake(),
+            fader: Faker.fake(),
             visible: Some(true),
             is_locked: false,
             editor_layer: 17,
@@ -467,5 +652,43 @@ mod tests {
         Light::biff_write(&light, &mut writer);
         let light_read = Light::biff_read(&mut BiffReader::new(writer.get_data()));
         assert_eq!(light, light_read);
+    }
+
+    #[test]
+    fn test_fader_json() {
+        let sizing_type = Fader::Linear;
+        let json = serde_json::to_string(&sizing_type).unwrap();
+        assert_eq!(json, "\"linear\"");
+        let sizing_type_read: Fader = serde_json::from_str(&json).unwrap();
+        assert_eq!(sizing_type, sizing_type_read);
+        let json = serde_json::Value::from(2);
+        let sizing_type_read: Fader = serde_json::from_value(json).unwrap();
+        assert_eq!(Fader::Incandescent, sizing_type_read);
+    }
+
+    #[test]
+    #[should_panic = "Error(\"unknown variant `foo`, expected one of `none`, `linear`, `incandescent`\", line: 0, column: 0)"]
+    fn test_fader_json_fail_string() {
+        let json = serde_json::Value::from("foo");
+        let _: Fader = serde_json::from_value(json).unwrap();
+    }
+
+    #[test]
+    fn test_shadow_mode_json() {
+        let sizing_type = ShadowMode::RaytracedBallShadows;
+        let json = serde_json::to_string(&sizing_type).unwrap();
+        assert_eq!(json, "\"raytraced_ball_shadows\"");
+        let sizing_type_read: ShadowMode = serde_json::from_str(&json).unwrap();
+        assert_eq!(sizing_type, sizing_type_read);
+        let json = serde_json::Value::from(0);
+        let sizing_type_read: ShadowMode = serde_json::from_value(json).unwrap();
+        assert_eq!(ShadowMode::None, sizing_type_read);
+    }
+
+    #[test]
+    #[should_panic = "Error(\"unknown variant `foo`, expected `none` or `raytraced_ball_shadows`\", line: 0, column: 0)"]
+    fn test_shadow_mode_json_fail_string() {
+        let json = serde_json::Value::from("foo");
+        let _: ShadowMode = serde_json::from_value(json).unwrap();
     }
 }
