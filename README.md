@@ -4,6 +4,8 @@ Rust library for the visual/virtual pinball ecosystem
 
 https://crates.io/crates/vpin
 
+Join [#vpxtool on "Virtual Pinball Chat" discord](https://discord.gg/eYsvyMu8) for support and questions.
+
 ## Documentation
 
 https://docs.rs/vpin
