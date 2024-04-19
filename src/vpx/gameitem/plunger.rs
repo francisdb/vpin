@@ -326,7 +326,11 @@ impl<'de> Deserialize<'de> for Plunger {
 
 impl BiffRead for Plunger {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
-        let mut plunger = Plunger::default();
+        // for reading to be backwards compatible some fields need to be None by default
+        let mut plunger = Plunger {
+            is_reflection_enabled: None,
+            ..Default::default()
+        };
         loop {
             reader.next(biff::WARN);
             if reader.is_eof() {
