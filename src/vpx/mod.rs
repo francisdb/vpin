@@ -82,7 +82,7 @@ pub(crate) mod wav;
 /// println!("table name: {}", vpx.info.table_name.unwrap_or("unknown".to_string()));
 /// ```
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Default)]
 pub struct VPX {
     /// This is mainly here to have an ordering for custom info tags
     pub custominfotags: CustomInfoTags, // this is a bit redundant
@@ -94,6 +94,19 @@ pub struct VPX {
     pub sounds: Vec<SoundData>,
     pub fonts: Vec<FontData>,
     pub collections: Vec<Collection>,
+}
+
+impl VPX {
+    pub fn add_game_item(&mut self, item: GameItemEnum) -> &Self {
+        self.gameitems.push(item);
+        self.gamedata.gameitems_size = self.gameitems.len() as u32;
+        self
+    }
+
+    pub fn set_script(&mut self, script: String) -> &Self {
+        self.gamedata.set_code(script);
+        self
+    }
 }
 
 pub enum ExtractResult {
@@ -208,7 +221,7 @@ pub fn read(path: &PathBuf) -> io::Result<VPX> {
 /// Writes a VPX file from memory to disk
 ///
 /// see also [`read()`]
-pub fn write(path: &PathBuf, vpx: &VPX) -> io::Result<()> {
+pub fn write<P: AsRef<Path>>(path: P, vpx: &VPX) -> io::Result<()> {
     let file = File::options()
         .read(true)
         .write(true)
@@ -242,17 +255,17 @@ fn read_vpx<F: Read + Write + Seek>(comp: &mut CompoundFile<F>) -> io::Result<VP
     })
 }
 
-fn write_vpx<F: Read + Write + Seek>(comp: &mut CompoundFile<F>, original: &VPX) -> io::Result<()> {
+fn write_vpx<F: Read + Write + Seek>(comp: &mut CompoundFile<F>, vpx: &VPX) -> io::Result<()> {
     create_game_storage(comp)?;
-    write_custominfotags(comp, &original.custominfotags)?;
-    write_tableinfo(comp, &original.info)?;
-    write_version(comp, &original.version)?;
-    write_game_data(comp, &original.gamedata, &original.version)?;
-    write_game_items(comp, &original.gameitems)?;
-    write_images(comp, &original.images)?;
-    write_sounds(comp, &original.sounds, &original.version)?;
-    write_fonts(comp, &original.fonts)?;
-    write_collections(comp, &original.collections)?;
+    write_custominfotags(comp, &vpx.custominfotags)?;
+    write_tableinfo(comp, &vpx.info)?;
+    write_version(comp, &vpx.version)?;
+    write_game_data(comp, &vpx.gamedata, &vpx.version)?;
+    write_game_items(comp, &vpx.gameitems)?;
+    write_images(comp, &vpx.images)?;
+    write_sounds(comp, &vpx.sounds, &vpx.version)?;
+    write_fonts(comp, &vpx.fonts)?;
+    write_collections(comp, &vpx.collections)?;
     let mac = generate_mac(comp)?;
     write_mac(comp, &mac)
 }
@@ -846,7 +859,7 @@ mod tests {
 
         let mac = read_mac(&mut comp)?;
         let expected = [
-            197, 157, 117, 26, 180, 53, 40, 250, 243, 252, 134, 86, 190, 22, 83, 119,
+            244, 78, 31, 241, 224, 80, 178, 192, 252, 104, 96, 110, 72, 115, 225, 83,
         ];
         assert_eq!(mac, expected);
         Ok(())

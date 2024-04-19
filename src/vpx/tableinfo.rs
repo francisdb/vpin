@@ -28,6 +28,7 @@ pub struct TableInfo {
     // the keys (and ordering) for these are defined in "GameStg/CustomInfoTags"
     pub properties: HashMap<String, String>,
 }
+
 impl TableInfo {
     pub(crate) fn new() -> TableInfo {
         // current data as ISO string

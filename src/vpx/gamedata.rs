@@ -6,7 +6,7 @@ use super::{
     version::Version,
 };
 use crate::vpx::biff::{BiffRead, BiffWrite};
-use crate::vpx::color::{Color, ColorJson};
+use crate::vpx::color::{Color, ColorJson, ColorNoAlpha};
 use crate::vpx::json::F32WithNanInf;
 use crate::vpx::material::{Material, SaveMaterial, SavePhysicsMaterial};
 use crate::vpx::math::{dequantize_u8, quantize_u8};
@@ -172,7 +172,7 @@ pub struct GameData {
     pub glass_bottom_height: Option<f32>,                          // GLAB 70.5 (added in 10.8)
     pub table_height: Option<f32>,                                 // TBLH 71 (optional in 10.8)
     pub playfield_material: String,                                // PLMA 72
-    pub backdrop_color: u32,                                       // BCLR 73 (color bgr)
+    pub backdrop_color: ColorNoAlpha,                              // BCLR 73 (color bgr)
     pub global_difficulty: f32,                                    // TDFT 74
     pub light_ambient: u32,                                        // LZAM 75 (color)
     pub light0_emission: u32,                                      // LZDI 76 (color)
@@ -341,7 +341,7 @@ pub(crate) struct GameDataJson {
     pub glass_bottom_height: Option<f32>,
     pub table_height: Option<f32>,
     pub playfield_material: String,
-    pub backdrop_color: u32,
+    pub backdrop_color: ColorNoAlpha,
     pub global_difficulty: f32,
     pub light_ambient: u32,
     pub light0_emission: u32,
@@ -827,7 +827,7 @@ impl Default for GameData {
             glass_bottom_height: None, // new default 210 for both
             table_height: None,        //0.0,
             playfield_material: "".to_string(),
-            backdrop_color: 0x232323ff, // bgra
+            backdrop_color: ColorNoAlpha::from_rgb(0x626E8E), // Waikawa/Bluish Gray
             global_difficulty: 0.2,
             light_ambient: 0x000000ff, // TODO what is the format for all these?
             light0_emission: 0xfffff0ff, // TODO is this correct?
@@ -1125,7 +1125,7 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
         writer.write_tagged_f32("TBLH", table_height);
     }
     writer.write_tagged_string("PLMA", &gamedata.playfield_material);
-    writer.write_tagged_u32("BCLR", gamedata.backdrop_color);
+    writer.write_tagged_with("BCLR", &gamedata.backdrop_color, ColorNoAlpha::biff_write);
     writer.write_tagged_f32("TDFT", gamedata.global_difficulty);
     writer.write_tagged_u32("LZAM", gamedata.light_ambient);
     writer.write_tagged_u32("LZDI", gamedata.light0_emission);
@@ -1373,7 +1373,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             "GLAB" => gamedata.glass_bottom_height = Some(reader.get_f32()),
             "TBLH" => gamedata.table_height = Some(reader.get_f32()),
             "PLMA" => gamedata.playfield_material = reader.get_string(),
-            "BCLR" => gamedata.backdrop_color = reader.get_u32(),
+            "BCLR" => gamedata.backdrop_color = ColorNoAlpha::biff_read(reader),
             "TDFT" => gamedata.global_difficulty = reader.get_f32(),
             "LZAM" => gamedata.light_ambient = reader.get_u32(),
             "LZDI" => gamedata.light0_emission = reader.get_u32(),
@@ -1593,7 +1593,7 @@ mod tests {
             glass_bottom_height: Some(123.0),
             table_height: Some(12.0),
             playfield_material: "material_pf".to_string(),
-            backdrop_color: 0x333333ff,
+            backdrop_color: ColorNoAlpha::rgb(0x11, 0x22, 0x33),
             global_difficulty: 0.3,
             light_ambient: 0x11223344,
             light0_emission: 0xaabbccdd,

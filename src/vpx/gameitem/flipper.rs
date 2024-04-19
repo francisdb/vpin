@@ -6,13 +6,13 @@ use super::{vertex2d::Vertex2D, GameItem};
 
 #[derive(Debug, PartialEq, Clone, Dummy)]
 pub struct Flipper {
-    center: Vertex2D,
+    pub center: Vertex2D,
     base_radius: f32,
     end_radius: f32,
     flipper_radius_max: f32,
     return_: f32,
-    start_angle: f32,
-    end_angle: f32,
+    pub start_angle: f32,
+    pub end_angle: f32,
     override_physics: u32,
     mass: f32,
     is_timer_enabled: bool,

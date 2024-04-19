@@ -100,7 +100,7 @@ impl<'de> Deserialize<'de> for PlungerType {
 
 #[derive(Debug, PartialEq, Dummy)]
 pub struct Plunger {
-    center: Vertex2D,
+    pub center: Vertex2D,
     width: f32,
     height: f32,
     z_adjust: f32,
@@ -139,6 +139,50 @@ pub struct Plunger {
     pub editor_layer_name: Option<String>,
     // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+}
+
+impl Default for Plunger {
+    fn default() -> Self {
+        Self {
+            center: Vertex2D::default(),
+            width: 25.0,
+            height: 20.0,
+            z_adjust: 0.0,
+            stroke: 80.0,
+            speed_pull: 0.5,
+            speed_fire: 80.0,
+            plunger_type: PlungerType::Modern,
+            anim_frames: 1,
+            material: String::default(),
+            image: String::default(),
+            mech_strength: 85.0,
+            is_mech_plunger: false,
+            auto_plunger: false,
+            park_position: 0.5 / 3.0,
+            scatter_velocity: 0.0,
+            momentum_xfer: 1.0,
+            is_timer_enabled: false,
+            timer_interval: 0,
+            is_visible: true,
+            is_reflection_enabled: Some(true),
+            surface: String::default(),
+            name: String::default(),
+            tip_shape: "0 .34; 2 .6; 3 .64; 5 .7; 7 .84; 8 .88; 9 .9; 11 .92; 14 .92; 39 .84"
+                .to_string(),
+            rod_diam: 0.6,
+            ring_gap: 2.0,
+            ring_diam: 0.94,
+            ring_width: 3.0,
+            spring_diam: 0.77,
+            spring_gauge: 1.38,
+            spring_loops: 8.0,
+            spring_end_loops: 2.5,
+            is_locked: false,
+            editor_layer: 0,
+            editor_layer_name: None,
+            editor_layer_visibility: None,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -282,6 +326,7 @@ impl<'de> Deserialize<'de> for Plunger {
 
 impl BiffRead for Plunger {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
+        // TODO deduplicate with Default impl
         let mut center = Vertex2D::default();
         let mut width: f32 = 25.0;
         let mut height: f32 = 20.0;
