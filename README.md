@@ -10,6 +10,10 @@ Join [#vpxtool on "Virtual Pinball Chat" discord](https://discord.gg/eYsvyMu8) f
 
 https://docs.rs/vpin
 
+## Example code
+
+Check the [examples folder](examples/)
+
 ## Projects using vpin
 
 https://github.com/francisdb/vpxtool

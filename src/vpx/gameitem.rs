@@ -13,6 +13,7 @@ pub mod lightsequencer;
 pub mod plunger;
 pub mod primitive;
 pub mod ramp;
+pub mod ramp_image_alignment;
 pub mod reel;
 pub mod rubber;
 pub mod spinner;
