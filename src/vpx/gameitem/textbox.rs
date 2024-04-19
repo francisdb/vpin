@@ -1,4 +1,3 @@
-use crate::vpx::color::ColorJson;
 use crate::vpx::gameitem::font::FontJson;
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
@@ -134,8 +133,8 @@ pub struct TextBox {
 struct TextBoxJson {
     ver1: Vertex2D,
     ver2: Vertex2D,
-    back_color: ColorJson,
-    font_color: ColorJson,
+    back_color: Color,
+    font_color: Color,
     intensity_scale: f32,
     text: String,
     is_timer_enabled: bool,
@@ -152,8 +151,8 @@ impl TextBoxJson {
         Self {
             ver1: textbox.ver1,
             ver2: textbox.ver2,
-            back_color: ColorJson::from_color(&textbox.back_color),
-            font_color: ColorJson::from_color(&textbox.font_color),
+            back_color: textbox.back_color,
+            font_color: textbox.font_color,
             intensity_scale: textbox.intensity_scale,
             text: textbox.text.clone(),
             is_timer_enabled: textbox.is_timer_enabled,
@@ -170,8 +169,8 @@ impl TextBoxJson {
         TextBox {
             ver1: self.ver1,
             ver2: self.ver2,
-            back_color: self.back_color.to_color(),
-            font_color: self.font_color.to_color(),
+            back_color: self.back_color,
+            font_color: self.font_color,
             intensity_scale: self.intensity_scale,
             text: self.text,
             is_timer_enabled: self.is_timer_enabled,
@@ -217,8 +216,8 @@ impl Default for TextBox {
         Self {
             ver1: Vertex2D::default(),
             ver2: Vertex2D::default(),
-            back_color: Color::new_bgr(0x000000f),
-            font_color: Color::new_bgr(0xfffffff),
+            back_color: Color::BLACK,
+            font_color: Color::WHITE,
             intensity_scale: 1.0,
             text: Default::default(),
             is_timer_enabled: false,
@@ -255,10 +254,10 @@ impl BiffRead for TextBox {
                     textbox.ver2 = Vertex2D::biff_read(reader);
                 }
                 "CLRB" => {
-                    textbox.back_color = Color::biff_read_bgr(reader);
+                    textbox.back_color = Color::biff_read(reader);
                 }
                 "CLRF" => {
-                    textbox.font_color = Color::biff_read_bgr(reader);
+                    textbox.font_color = Color::biff_read(reader);
                 }
                 "INSC" => {
                     textbox.intensity_scale = reader.get_f32();
@@ -319,8 +318,8 @@ impl BiffWrite for TextBox {
     fn biff_write(&self, writer: &mut biff::BiffWriter) {
         writer.write_tagged("VER1", &self.ver1);
         writer.write_tagged("VER2", &self.ver2);
-        writer.write_tagged_with("CLRB", &self.back_color, Color::biff_write_bgr);
-        writer.write_tagged_with("CLRF", &self.font_color, Color::biff_write_bgr);
+        writer.write_tagged_with("CLRB", &self.back_color, Color::biff_write);
+        writer.write_tagged_with("CLRF", &self.font_color, Color::biff_write);
         writer.write_tagged_f32("INSC", self.intensity_scale);
         writer.write_tagged_string("TEXT", &self.text);
         writer.write_tagged_bool("TMON", self.is_timer_enabled);
@@ -363,8 +362,8 @@ mod tests {
         let textbox = TextBox {
             ver1: Vertex2D::new(1.0, 2.0),
             ver2: Vertex2D::new(3.0, 4.0),
-            back_color: Color::new_bgr(0x1234567),
-            font_color: Color::new_bgr(0xfedcba9),
+            back_color: Faker.fake(),
+            font_color: Faker.fake(),
             intensity_scale: 1.0,
             text: "test text".to_string(),
             is_timer_enabled: true,

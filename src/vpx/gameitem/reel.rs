@@ -1,4 +1,3 @@
-use crate::vpx::color::ColorJson;
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
@@ -43,7 +42,7 @@ pub struct Reel {
 struct ReelJson {
     ver1: Vertex2D,
     ver2: Vertex2D,
-    back_color: ColorJson,
+    back_color: Color,
     is_timer_enabled: bool,
     timer_interval: u32,
     is_transparent: bool,
@@ -67,7 +66,7 @@ impl ReelJson {
         Self {
             ver1: reel.ver1,
             ver2: reel.ver2,
-            back_color: ColorJson::from_color(&reel.back_color),
+            back_color: reel.back_color,
             is_timer_enabled: reel.is_timer_enabled,
             timer_interval: reel.timer_interval,
             is_transparent: reel.is_transparent,
@@ -90,7 +89,7 @@ impl ReelJson {
         Reel {
             ver1: self.ver1,
             ver2: self.ver2,
-            back_color: self.back_color.to_color(),
+            back_color: self.back_color,
             is_timer_enabled: self.is_timer_enabled,
             timer_interval: self.timer_interval,
             is_transparent: self.is_transparent,
@@ -124,7 +123,7 @@ impl Default for Reel {
         Self {
             ver1: Vertex2D::default(),
             ver2: Vertex2D::default(),
-            back_color: Color::new_bgr(0x404040f),
+            back_color: Color::rgb(64, 64, 64),
             is_timer_enabled: false,
             timer_interval: Default::default(),
             is_transparent: false,
@@ -187,7 +186,7 @@ impl BiffRead for Reel {
                     reel.ver2 = Vertex2D::biff_read(reader);
                 }
                 "CLRB" => {
-                    reel.back_color = Color::biff_read_bgr(reader);
+                    reel.back_color = Color::biff_read(reader);
                 }
                 "TMON" => {
                     reel.is_timer_enabled = reader.get_bool();
@@ -269,7 +268,7 @@ impl BiffWrite for Reel {
     fn biff_write(&self, writer: &mut biff::BiffWriter) {
         writer.write_tagged("VER1", &self.ver1);
         writer.write_tagged("VER2", &self.ver2);
-        writer.write_tagged_with("CLRB", &self.back_color, Color::biff_write_bgr);
+        writer.write_tagged_with("CLRB", &self.back_color, Color::biff_write);
         writer.write_tagged_bool("TMON", self.is_timer_enabled);
         writer.write_tagged_u32("TMIN", self.timer_interval);
         writer.write_tagged_bool("TRNS", self.is_transparent);
@@ -304,6 +303,7 @@ impl BiffWrite for Reel {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
+    use fake::{Fake, Faker};
 
     use super::*;
     use pretty_assertions::assert_eq;
@@ -316,7 +316,7 @@ mod tests {
         let reel = Reel {
             ver1: Vertex2D::new(rng.gen(), rng.gen()),
             ver2: Vertex2D::new(rng.gen(), rng.gen()),
-            back_color: Color::new_bgr(rng.gen()),
+            back_color: Faker.fake(),
             is_timer_enabled: rng.gen(),
             timer_interval: rng.gen(),
             is_transparent: rng.gen(),

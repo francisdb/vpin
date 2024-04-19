@@ -1,6 +1,6 @@
 use crate::vpx::biff;
 use crate::vpx::biff::{BiffRead, BiffReader, BiffWrite, BiffWriter};
-use crate::vpx::color::{Color, ColorJson, ColorNoAlpha};
+use crate::vpx::color::Color;
 use crate::vpx::json::F32WithNanInf;
 use crate::vpx::math::quantize_u8;
 use bytes::{Buf, BufMut, BytesMut};
@@ -100,7 +100,7 @@ pub struct SaveMaterial {
      * Base color of the material
      * Can be overridden by texture on object itself
      */
-    pub base_color: ColorNoAlpha,
+    pub base_color: Color,
     /**
      * Specular of glossy layer
      */
@@ -209,9 +209,9 @@ impl From<&Material> for SaveMaterial {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct SaveMaterialJson {
     name: String,
-    base_color: ColorNoAlpha,
-    glossy_color: ColorJson,
-    clearcoat_color: ColorJson,
+    base_color: Color,
+    glossy_color: Color,
+    clearcoat_color: Color,
     wrap_lighting: f32,
     is_metal: bool,
     roughness: f32,
@@ -227,8 +227,8 @@ impl SaveMaterialJson {
         Self {
             name: save_material.name.clone(),
             base_color: save_material.base_color,
-            glossy_color: ColorJson::from_color(&save_material.glossy_color),
-            clearcoat_color: ColorJson::from_color(&save_material.clearcoat_color),
+            glossy_color: save_material.glossy_color,
+            clearcoat_color: save_material.clearcoat_color,
             wrap_lighting: save_material.wrap_lighting,
             is_metal: save_material.is_metal,
             roughness: save_material.roughness,
@@ -243,8 +243,8 @@ impl SaveMaterialJson {
         SaveMaterial {
             name: self.name.clone(),
             base_color: self.base_color,
-            glossy_color: self.glossy_color.to_color(),
-            clearcoat_color: self.clearcoat_color.to_color(),
+            glossy_color: self.glossy_color,
+            clearcoat_color: self.clearcoat_color,
             wrap_lighting: self.wrap_lighting,
             is_metal: self.is_metal,
             roughness: self.roughness,
@@ -285,9 +285,9 @@ impl SaveMaterial {
 
         SaveMaterial {
             name,
-            base_color: ColorNoAlpha::from_rgb(base_color),
-            glossy_color: Color::from_argb(glossy_color),
-            clearcoat_color: Color::from_argb(clearcoat_color),
+            base_color: Color::from_win_color(base_color),
+            glossy_color: Color::from_win_color(glossy_color),
+            clearcoat_color: Color::from_win_color(clearcoat_color),
             wrap_lighting,
             is_metal,
             roughness,
@@ -301,9 +301,9 @@ impl SaveMaterial {
 
     pub(crate) fn write(&self, bytes: &mut BytesMut) {
         write_padded_cstring(self.name.as_str(), bytes, MAX_NAME_BUFFER);
-        bytes.put_u32_le(self.base_color.to_rgb());
-        bytes.put_u32_le(self.glossy_color.argb());
-        bytes.put_u32_le(self.clearcoat_color.argb());
+        bytes.put_u32_le(self.base_color.to_win_color());
+        bytes.put_u32_le(self.glossy_color.to_win_color());
+        bytes.put_u32_le(self.clearcoat_color.to_win_color());
         bytes.put_f32_le(self.wrap_lighting);
         bytes.put_u8(if self.is_metal { 1 } else { 0 });
         bytes.put_u8(0);
@@ -468,7 +468,7 @@ pub struct Material {
     pub edge: f32,
     pub edge_alpha: f32,
     pub opacity: f32,
-    pub base_color: ColorNoAlpha,
+    pub base_color: Color,
     pub glossy_color: Color,
     pub clearcoat_color: Color,
     // Transparency active in the UI
@@ -494,15 +494,15 @@ pub(crate) struct MaterialJson {
     edge: f32,
     edge_alpha: f32,
     opacity: f32,
-    base_color: ColorNoAlpha,
-    glossy_color: ColorJson,
-    clearcoat_color: ColorJson,
+    base_color: Color,
+    glossy_color: Color,
+    clearcoat_color: Color,
     opacity_active: bool,
     elasticity: F32WithNanInf,
     elasticity_falloff: F32WithNanInf,
     friction: F32WithNanInf,
     scatter_angle: F32WithNanInf,
-    refraction_tint: ColorJson,
+    refraction_tint: Color,
 }
 
 impl MaterialJson {
@@ -518,14 +518,14 @@ impl MaterialJson {
             edge_alpha: material.edge_alpha,
             opacity: material.opacity,
             base_color: material.base_color,
-            glossy_color: ColorJson::from_color(&material.glossy_color),
-            clearcoat_color: ColorJson::from_color(&material.clearcoat_color),
+            glossy_color: material.glossy_color,
+            clearcoat_color: material.clearcoat_color,
             opacity_active: material.opacity_active,
             elasticity: material.elasticity.into(),
             elasticity_falloff: material.elasticity_falloff.into(),
             friction: material.friction.into(),
             scatter_angle: material.scatter_angle.into(),
-            refraction_tint: ColorJson::from_color(&material.refraction_tint),
+            refraction_tint: material.refraction_tint,
         }
     }
     pub fn to_material(&self) -> Material {
@@ -540,14 +540,14 @@ impl MaterialJson {
             edge_alpha: self.edge_alpha,
             opacity: self.opacity,
             base_color: self.base_color,
-            glossy_color: self.glossy_color.to_color(),
-            clearcoat_color: self.clearcoat_color.to_color(),
+            glossy_color: self.glossy_color,
+            clearcoat_color: self.clearcoat_color,
             opacity_active: self.opacity_active,
             elasticity: self.elasticity.into(),
             elasticity_falloff: self.elasticity_falloff.into(),
             friction: self.friction.into(),
             scatter_angle: self.scatter_angle.into(),
-            refraction_tint: self.refraction_tint.to_color(),
+            refraction_tint: self.refraction_tint,
         }
     }
 }
@@ -563,15 +563,15 @@ impl Default for Material {
             edge: 1.0,
             edge_alpha: 1.0,
             opacity: 1.0,
-            base_color: ColorNoAlpha::from_rgb(0xB469FF), // Purple / Heliotrope
-            glossy_color: Color::from_argb(0),
-            clearcoat_color: Color::from_argb(0),
+            base_color: Color::from_rgb(0xB469FF), // Purple / Heliotrope
+            glossy_color: Color::BLACK,
+            clearcoat_color: Color::BLACK,
             opacity_active: false,
             elasticity: 0.0,
             elasticity_falloff: 0.0,
             friction: 0.0,
             scatter_angle: 0.0,
-            refraction_tint: Color::from_argb(0xFFFFFF),
+            refraction_tint: Color::WHITE,
             name: "dummyMaterial".to_string(),
         }
     }
@@ -581,9 +581,9 @@ impl Default for SaveMaterial {
     fn default() -> Self {
         SaveMaterial {
             name: "dummyMaterial".to_string(),
-            base_color: ColorNoAlpha::from_rgb(0xB469FF),
-            glossy_color: Color::from_argb(0),
-            clearcoat_color: Color::from_argb(0),
+            base_color: Color::from_rgb(0xB469FF),
+            glossy_color: Color::BLACK,
+            clearcoat_color: Color::BLACK,
             wrap_lighting: 0.0,
             is_metal: false,
             roughness: 0.0,
@@ -647,10 +647,10 @@ impl BiffRead for Material {
                 "EDGE" => material.edge = reader.get_f32(),
                 "EALP" => material.edge_alpha = reader.get_f32(),
                 "OPAC" => material.opacity = reader.get_f32(),
-                "BASE" => material.base_color = ColorNoAlpha::biff_read(reader),
-                "GLOS" => material.glossy_color = Color::from_argb(reader.get_u32()),
-                "COAT" => material.clearcoat_color = Color::from_argb(reader.get_u32()),
-                "RTNT" => material.refraction_tint = Color::from_argb(reader.get_u32()),
+                "BASE" => material.base_color = Color::biff_read(reader),
+                "GLOS" => material.glossy_color = Color::biff_read(reader),
+                "COAT" => material.clearcoat_color = Color::biff_read(reader),
+                "RTNT" => material.refraction_tint = Color::biff_read(reader),
                 "EOPA" => material.opacity_active = reader.get_bool(),
                 "ELAS" => material.elasticity = reader.get_f32(),
                 "ELFO" => material.elasticity_falloff = reader.get_f32(),
@@ -681,10 +681,10 @@ impl BiffWrite for Material {
         writer.write_tagged_f32("EDGE", self.edge);
         writer.write_tagged_f32("EALP", self.edge_alpha);
         writer.write_tagged_f32("OPAC", self.opacity);
-        writer.write_tagged_with("BASE", &self.base_color, ColorNoAlpha::biff_write);
-        writer.write_tagged_u32("GLOS", self.glossy_color.argb());
-        writer.write_tagged_u32("COAT", self.clearcoat_color.argb());
-        writer.write_tagged_u32("RTNT", self.refraction_tint.argb());
+        writer.write_tagged_with("BASE", &self.base_color, Color::biff_write);
+        writer.write_tagged_with("GLOS", &self.glossy_color, Color::biff_write);
+        writer.write_tagged_with("COAT", &self.clearcoat_color, Color::biff_write);
+        writer.write_tagged_with("RTNT", &self.refraction_tint, Color::biff_write);
         writer.write_tagged_bool("EOPA", self.opacity_active);
         writer.write_tagged_f32("ELAS", self.elasticity);
         writer.write_tagged_f32("ELFO", self.elasticity_falloff);
@@ -754,15 +754,15 @@ mod tests {
             edge: 0.5,
             edge_alpha: 0.9,
             opacity: 0.5,
-            base_color: ColorNoAlpha::from_rgb(0x123456),
-            glossy_color: Color::from_argb(0x123456),
-            clearcoat_color: Color::from_argb(0x123456),
+            base_color: Faker.fake(),
+            glossy_color: Faker.fake(),
+            clearcoat_color: Faker.fake(),
             opacity_active: true,
             elasticity: 0.5,
             elasticity_falloff: 0.5,
             friction: 0.5,
             scatter_angle: 0.5,
-            refraction_tint: Color::from_argb(0x123456),
+            refraction_tint: Faker.fake(),
         };
         let save_material: SaveMaterial = (&material).into();
         assert_eq!(save_material.name, "test");
