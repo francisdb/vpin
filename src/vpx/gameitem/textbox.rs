@@ -10,33 +10,115 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::vertex2d::Vertex2D;
 
+#[derive(Debug, PartialEq, Clone, Dummy, Default)]
+enum TextAlignment {
+    #[default]
+    Left = 0,
+    Center = 1,
+    Right = 2,
+}
+
+impl From<u32> for TextAlignment {
+    fn from(value: u32) -> Self {
+        match value {
+            0 => TextAlignment::Left,
+            1 => TextAlignment::Center,
+            2 => TextAlignment::Right,
+            _ => panic!("Invalid value for TextAlignment: {}", value),
+        }
+    }
+}
+
+impl From<&TextAlignment> for u32 {
+    fn from(value: &TextAlignment) -> Self {
+        match value {
+            TextAlignment::Left => 0,
+            TextAlignment::Center => 1,
+            TextAlignment::Right => 2,
+        }
+    }
+}
+
+/// Serialize to lowercase string
+impl Serialize for TextAlignment {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            TextAlignment::Left => serializer.serialize_str("left"),
+            TextAlignment::Center => serializer.serialize_str("center"),
+            TextAlignment::Right => serializer.serialize_str("right"),
+        }
+    }
+}
+
+/// Deserialize from lowercase string
+/// or number for backwards compatibility
+impl<'de> Deserialize<'de> for TextAlignment {
+    fn deserialize<D>(deserializer: D) -> Result<TextAlignment, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct TextAlignmentVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for TextAlignmentVisitor {
+            type Value = TextAlignment;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a string or number representing a TargetType")
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<TextAlignment, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    0 => Ok(TextAlignment::Left),
+                    1 => Ok(TextAlignment::Center),
+                    2 => Ok(TextAlignment::Right),
+                    _ => Err(serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Unsigned(value),
+                        &"0, 1, or 2",
+                    )),
+                }
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<TextAlignment, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "left" => Ok(TextAlignment::Left),
+                    "center" => Ok(TextAlignment::Center),
+                    "right" => Ok(TextAlignment::Right),
+                    _ => Err(serde::de::Error::unknown_variant(
+                        value,
+                        &["left", "center", "right"],
+                    )),
+                }
+            }
+        }
+
+        deserializer.deserialize_any(TextAlignmentVisitor)
+    }
+}
+
 #[derive(Debug, PartialEq, Dummy)]
 pub struct TextBox {
-    ver1: Vertex2D,
-    // VER1
-    ver2: Vertex2D,
-    // VER2
-    back_color: Color,
-    // CLRB
-    font_color: Color,
-    // CLRF
-    intensity_scale: f32,
-    // INSC
-    text: String,
-    // TEXT
-    is_timer_enabled: bool,
-    // TMON
-    timer_interval: u32,
-    // TMIN
-    pub name: String,
-    // NAME
-    align: u32,
-    // ALGN
-    is_transparent: bool,
-    // TRNS
-    is_dmd: Option<bool>,
-    // IDMD added in 10.2?
-    font: Font, // FONT
+    ver1: Vertex2D,         // VER1
+    ver2: Vertex2D,         // VER2
+    back_color: Color,      // CLRB
+    font_color: Color,      // CLRF
+    intensity_scale: f32,   // INSC
+    text: String,           // TEXT
+    is_timer_enabled: bool, // TMON
+    timer_interval: u32,    // TMIN
+    pub name: String,       // NAME
+    align: TextAlignment,   // ALGN
+    is_transparent: bool,   // TRNS
+    is_dmd: Option<bool>,   // IDMD added in 10.2?
+    font: Font,             // FONT
 
     // these are shared between all items
     pub is_locked: bool,
@@ -59,7 +141,7 @@ struct TextBoxJson {
     is_timer_enabled: bool,
     timer_interval: u32,
     name: String,
-    align: u32,
+    align: TextAlignment,
     is_transparent: bool,
     is_dmd: Option<bool>,
     font: FontJson,
@@ -77,7 +159,7 @@ impl TextBoxJson {
             is_timer_enabled: textbox.is_timer_enabled,
             timer_interval: textbox.timer_interval,
             name: textbox.name.clone(),
-            align: textbox.align,
+            align: textbox.align.clone(),
             is_transparent: textbox.is_transparent,
             is_dmd: textbox.is_dmd,
             font: FontJson::from_font(&textbox.font),
@@ -194,7 +276,7 @@ impl BiffRead for TextBox {
                     textbox.name = reader.get_wide_string();
                 }
                 "ALGN" => {
-                    textbox.align = reader.get_u32();
+                    textbox.align = reader.get_u32().into();
                 }
                 "TRNS" => {
                     textbox.is_transparent = reader.get_bool();
@@ -244,7 +326,7 @@ impl BiffWrite for TextBox {
         writer.write_tagged_bool("TMON", self.is_timer_enabled);
         writer.write_tagged_u32("TMIN", self.timer_interval);
         writer.write_tagged_wide_string("NAME", &self.name);
-        writer.write_tagged_u32("ALGN", self.align);
+        writer.write_tagged_u32("ALGN", (&self.align).into());
         writer.write_tagged_bool("TRNS", self.is_transparent);
         if let Some(is_dmd) = self.is_dmd {
             writer.write_tagged_bool("IDMD", is_dmd);
@@ -269,6 +351,7 @@ impl BiffWrite for TextBox {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
+    use fake::{Fake, Faker};
     use std::collections::HashSet;
 
     use super::*;
@@ -287,7 +370,7 @@ mod tests {
             is_timer_enabled: true,
             timer_interval: 3,
             name: "test timer".to_string(),
-            align: 0,
+            align: Faker.fake(),
             is_transparent: false,
             is_dmd: Some(false),
             font: Font::new(
@@ -306,5 +389,24 @@ mod tests {
         TextBox::biff_write(&textbox, &mut writer);
         let textbox_read = TextBox::biff_read(&mut BiffReader::new(writer.get_data()));
         assert_eq!(textbox, textbox_read);
+    }
+
+    #[test]
+    fn test_text_alignment_json() {
+        let sizing_type = TextAlignment::Center;
+        let json = serde_json::to_string(&sizing_type).unwrap();
+        assert_eq!(json, "\"center\"");
+        let sizing_type_read: TextAlignment = serde_json::from_str(&json).unwrap();
+        assert_eq!(sizing_type, sizing_type_read);
+        let json = serde_json::Value::from(2);
+        let sizing_type_read: TextAlignment = serde_json::from_value(json).unwrap();
+        assert_eq!(TextAlignment::Right, sizing_type_read);
+    }
+
+    #[test]
+    #[should_panic = "Error(\"unknown variant `foo`, expected one of `left`, `center`, `right`\", line: 0, column: 0)"]
+    fn test_text_alignment_json_fail_string() {
+        let json = serde_json::Value::from("foo");
+        let _: TextAlignment = serde_json::from_value(json).unwrap();
     }
 }

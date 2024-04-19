@@ -5,8 +5,187 @@ use crate::vpx::{
 };
 use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::Value;
 
-use super::{dragpoint::DragPoint, FILTER_OVERLAY, IMAGE_ALIGN_TOP_LEFT};
+use super::dragpoint::DragPoint;
+
+#[derive(Debug, PartialEq, Clone, Dummy, Default)]
+pub enum Filter {
+    None = 0,
+    Additive = 1,
+    #[default]
+    Overlay = 2,
+    Multiply = 3,
+    Screen = 4,
+}
+
+impl From<u32> for Filter {
+    fn from(value: u32) -> Self {
+        match value {
+            0 => Filter::None,
+            1 => Filter::Additive,
+            2 => Filter::Overlay,
+            3 => Filter::Multiply,
+            4 => Filter::Screen,
+            _ => panic!("Invalid Filter value {}", value),
+        }
+    }
+}
+
+impl From<&Filter> for u32 {
+    fn from(value: &Filter) -> Self {
+        match value {
+            Filter::None => 0,
+            Filter::Additive => 1,
+            Filter::Overlay => 2,
+            Filter::Multiply => 3,
+            Filter::Screen => 4,
+        }
+    }
+}
+
+/// Serialize Filter as a lowercase string
+impl Serialize for Filter {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let value = match self {
+            Filter::None => "none",
+            Filter::Additive => "additive",
+            Filter::Overlay => "overlay",
+            Filter::Multiply => "multiply",
+            Filter::Screen => "screen",
+        };
+        serializer.serialize_str(value)
+    }
+}
+
+/// Deserialize Filter from a lowercase string
+/// or number for backwards compatibility
+impl<'de> Deserialize<'de> for Filter {
+    fn deserialize<D>(deserializer: D) -> Result<Filter, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        match value {
+            Value::String(s) => match s.as_str() {
+                "none" => Ok(Filter::None),
+                "additive" => Ok(Filter::Additive),
+                "overlay" => Ok(Filter::Overlay),
+                "multiply" => Ok(Filter::Multiply),
+                "screen" => Ok(Filter::Screen),
+                _ => Err(serde::de::Error::custom(format!(
+                    "Invalid Filter value {}, expecting \"none\", \"additive\", \"overlay\", \"multiply\" or \"screen\"",
+                    s
+                ))),
+            },
+            Value::Number(n) => {
+                let n = n.as_u64().unwrap();
+                match n {
+                    0 => Ok(Filter::None),
+                    1 => Ok(Filter::Additive),
+                    2 => Ok(Filter::Overlay),
+                    3 => Ok(Filter::Multiply),
+                    4 => Ok(Filter::Screen),
+                    _ => Err(serde::de::Error::custom(
+                        "Invalid Filter value, expecting 0, 1, 2, 3 or 4",
+                    )),
+                }
+            }
+            _ => Err(serde::de::Error::custom(
+                "Invalid Filter value, expecting string or number",
+            )),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Dummy, Default)]
+pub enum ImageAlignment {
+    ImageModeWorld = 0,
+    #[default]
+    ImageModeWrap = 1,
+}
+
+impl From<u32> for ImageAlignment {
+    fn from(value: u32) -> Self {
+        match value {
+            0 => ImageAlignment::ImageModeWorld,
+            1 => ImageAlignment::ImageModeWrap,
+            _ => panic!("Invalid ImageAlignment value {}", value),
+        }
+    }
+}
+
+impl From<&ImageAlignment> for u32 {
+    fn from(value: &ImageAlignment) -> Self {
+        match value {
+            ImageAlignment::ImageModeWorld => 0,
+            ImageAlignment::ImageModeWrap => 1,
+        }
+    }
+}
+
+/// Serialize ImageAlignment as a lowercase string
+impl Serialize for ImageAlignment {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let value = match self {
+            ImageAlignment::ImageModeWorld => "world",
+            ImageAlignment::ImageModeWrap => "wrap",
+        };
+        serializer.serialize_str(value)
+    }
+}
+
+/// Deserialize ImageAlignment from a lowercase string
+/// or number for backwards compatibility
+impl<'de> Deserialize<'de> for ImageAlignment {
+    fn deserialize<D>(deserializer: D) -> Result<ImageAlignment, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct ImageAlignmentVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for ImageAlignmentVisitor {
+            type Value = ImageAlignment;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a string or number representing a TargetType")
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<ImageAlignment, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    0 => Ok(ImageAlignment::ImageModeWorld),
+                    1 => Ok(ImageAlignment::ImageModeWrap),
+                    _ => Err(serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Unsigned(value),
+                        &"0 or 1",
+                    )),
+                }
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<ImageAlignment, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "world" => Ok(ImageAlignment::ImageModeWorld),
+                    "wrap" => Ok(ImageAlignment::ImageModeWrap),
+                    _ => Err(serde::de::Error::unknown_variant(value, &["world", "wrap"])),
+                }
+            }
+        }
+
+        deserializer.deserialize_any(ImageAlignmentVisitor)
+    }
+}
 
 #[derive(Debug, PartialEq, Dummy)]
 pub struct Flasher {
@@ -30,8 +209,8 @@ pub struct Flasher {
     // IDMD added in 10.2?
     pub display_texture: bool,
     pub depth_bias: f32,
-    pub image_alignment: u32,
-    pub filter: u32,
+    pub image_alignment: ImageAlignment,
+    pub filter: Filter,
     pub filter_amount: u32,
     // FIAM
     pub light_map: Option<String>,
@@ -66,8 +245,8 @@ pub(crate) struct FlasherJson {
     is_dmd: Option<bool>,
     display_texture: bool,
     depth_bias: f32,
-    image_alignment: u32,
-    filter: u32,
+    image_alignment: ImageAlignment,
+    filter: Filter,
     filter_amount: u32,
     light_map: Option<String>,
     drag_points: Vec<DragPoint>,
@@ -95,8 +274,8 @@ impl FlasherJson {
             is_dmd: flasher.is_dmd,
             display_texture: flasher.display_texture,
             depth_bias: flasher.depth_bias,
-            image_alignment: flasher.image_alignment,
-            filter: flasher.filter,
+            image_alignment: flasher.image_alignment.clone(),
+            filter: flasher.filter.clone(),
             filter_amount: flasher.filter_amount,
             light_map: flasher.light_map.clone(),
             drag_points: flasher.drag_points.clone(),
@@ -123,8 +302,8 @@ impl FlasherJson {
             is_dmd: self.is_dmd,
             display_texture: self.display_texture,
             depth_bias: self.depth_bias,
-            image_alignment: self.image_alignment,
-            filter: self.filter,
+            image_alignment: self.image_alignment.clone(),
+            filter: self.filter.clone(),
             filter_amount: self.filter_amount,
             light_map: self.light_map.clone(),
             drag_points: self.drag_points.clone(),
@@ -180,8 +359,8 @@ impl BiffRead for Flasher {
         let mut is_dmd = None;
         let mut display_texture = Default::default();
         let mut depth_bias = Default::default();
-        let mut image_alignment = IMAGE_ALIGN_TOP_LEFT;
-        let mut filter = FILTER_OVERLAY;
+        let mut image_alignment = ImageAlignment::ImageModeWrap;
+        let mut filter = Filter::Overlay;
         let mut filter_amount: u32 = 100;
         let mut light_map: Option<String> = None;
 
@@ -259,10 +438,10 @@ impl BiffRead for Flasher {
                     depth_bias = reader.get_f32();
                 }
                 "ALGN" => {
-                    image_alignment = reader.get_u32();
+                    image_alignment = reader.get_u32().into();
                 }
                 "FILT" => {
-                    filter = reader.get_u32();
+                    filter = reader.get_u32().into();
                 }
                 "FIAM" => {
                     filter_amount = reader.get_u32();
@@ -354,8 +533,8 @@ impl BiffWrite for Flasher {
             writer.write_tagged_bool("IDMD", is_dmd);
         }
         writer.write_tagged_f32("FLDB", self.depth_bias);
-        writer.write_tagged_u32("ALGN", self.image_alignment);
-        writer.write_tagged_u32("FILT", self.filter);
+        writer.write_tagged_u32("ALGN", (&self.image_alignment).into());
+        writer.write_tagged_u32("FILT", (&self.filter).into());
         writer.write_tagged_u32("FIAM", self.filter_amount);
         if let Some(light_map) = &self.light_map {
             writer.write_tagged_string("LMAP", light_map);
@@ -381,6 +560,7 @@ impl BiffWrite for Flasher {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
+    use fake::{Fake, Faker};
 
     use super::*;
     use pretty_assertions::assert_eq;
@@ -410,8 +590,8 @@ mod tests {
             is_dmd: rng.gen(),
             display_texture: rng.gen(),
             depth_bias: rng.gen(),
-            image_alignment: rng.gen(),
-            filter: rng.gen(),
+            image_alignment: Faker.fake(),
+            filter: Faker.fake(),
             filter_amount: rng.gen(),
             light_map: Some("test light map".to_string()),
             is_locked: rng.gen(),
@@ -424,5 +604,43 @@ mod tests {
         Flasher::biff_write(&flasher, &mut writer);
         let flasher_read = Flasher::biff_read(&mut BiffReader::new(writer.get_data()));
         assert_eq!(flasher, flasher_read);
+    }
+
+    #[test]
+    fn test_alignment_json() {
+        let sizing_type = ImageAlignment::ImageModeWrap;
+        let json = serde_json::to_string(&sizing_type).unwrap();
+        assert_eq!(json, "\"wrap\"");
+        let sizing_type_read: ImageAlignment = serde_json::from_str(&json).unwrap();
+        assert_eq!(sizing_type, sizing_type_read);
+        let json = serde_json::Value::from(0);
+        let sizing_type_read: ImageAlignment = serde_json::from_value(json).unwrap();
+        assert_eq!(ImageAlignment::ImageModeWorld, sizing_type_read);
+    }
+
+    #[test]
+    #[should_panic = "Error(\"unknown variant `foo`, expected `world` or `wrap`\", line: 0, column: 0)"]
+    fn test_alignment_json_fail() {
+        let json = serde_json::Value::from("foo");
+        let _: ImageAlignment = serde_json::from_value(json).unwrap();
+    }
+
+    #[test]
+    fn test_filter_json() {
+        let sizing_type = Filter::Overlay;
+        let json = serde_json::to_string(&sizing_type).unwrap();
+        assert_eq!(json, "\"overlay\"");
+        let sizing_type_read: Filter = serde_json::from_str(&json).unwrap();
+        assert_eq!(sizing_type, sizing_type_read);
+        let json = serde_json::Value::from(0);
+        let sizing_type_read: Filter = serde_json::from_value(json).unwrap();
+        assert_eq!(Filter::None, sizing_type_read);
+    }
+
+    #[test]
+    #[should_panic = "Error(\"Invalid Filter value foo, expecting \\\"none\\\", \\\"additive\\\", \\\"overlay\\\", \\\"multiply\\\" or \\\"screen\\\"\", line: 0, column: 0)"]
+    fn test_filter_json_fail() {
+        let json = serde_json::Value::from("foo");
+        let _: Filter = serde_json::from_value(json).unwrap();
     }
 }

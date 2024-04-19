@@ -5,8 +5,165 @@ use crate::vpx::{
 };
 use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::Value;
 
 use super::{font::Font, font::FontJson, vertex2d::Vertex2D, GameItem};
+
+#[derive(Debug, PartialEq, Dummy, Clone)]
+pub enum DecalType {
+    Text = 0,
+    Image = 1,
+}
+
+#[derive(Debug, PartialEq, Dummy, Clone)]
+pub enum SizingType {
+    AutoSize = 0,
+    AutoWidth = 1,
+    ManualSize = 2,
+}
+
+impl From<&DecalType> for u32 {
+    fn from(decal_type: &DecalType) -> u32 {
+        match decal_type {
+            DecalType::Text => 0,
+            DecalType::Image => 1,
+        }
+    }
+}
+
+impl From<u32> for DecalType {
+    fn from(value: u32) -> Self {
+        match value {
+            0 => DecalType::Text,
+            1 => DecalType::Image,
+            _ => panic!("Invalid value for DecalType: {}, we expect 0, 1", value),
+        }
+    }
+}
+
+/// A serializer for DecalType that writes it as lowercase
+impl Serialize for DecalType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let value = match self {
+            DecalType::Text => "text",
+            DecalType::Image => "image",
+        };
+        serializer.serialize_str(value)
+    }
+}
+
+/// A deserializer for DecalType that reads it as lowercase
+/// or number for backwards compatibility.
+impl<'de> Deserialize<'de> for DecalType {
+    fn deserialize<D>(deserializer: D) -> Result<DecalType, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer);
+        match value {
+            Ok(Value::String(value)) => match value.as_str() {
+                "text" => Ok(DecalType::Text),
+                "image" => Ok(DecalType::Image),
+                _ => Err(serde::de::Error::custom(format!(
+                    "Invalid value for DecalType: {}, we expect \"text\", \"image\"",
+                    value
+                ))),
+            },
+            Ok(Value::Number(value)) => {
+                let value = value.as_u64().unwrap();
+                match value {
+                    0 => Ok(DecalType::Text),
+                    1 => Ok(DecalType::Image),
+                    _ => Err(serde::de::Error::custom(format!(
+                        "Invalid value for DecalType: {}, we expect 0, 1",
+                        value
+                    ))),
+                }
+            }
+            _ => Err(serde::de::Error::custom(format!(
+                "Invalid value for DecalType: {:?}, we expect a string or a number",
+                value
+            ))),
+        }
+    }
+}
+
+impl From<&SizingType> for u32 {
+    fn from(sizing_type: &SizingType) -> u32 {
+        match sizing_type {
+            SizingType::AutoSize => 0,
+            SizingType::AutoWidth => 1,
+            SizingType::ManualSize => 2,
+        }
+    }
+}
+
+impl From<u32> for SizingType {
+    fn from(value: u32) -> Self {
+        match value {
+            0 => SizingType::AutoSize,
+            1 => SizingType::AutoWidth,
+            2 => SizingType::ManualSize,
+            _ => panic!("Invalid value for SizingType: {}, we expect 0, 1, 2", value),
+        }
+    }
+}
+
+/// A serializer for SizingType that writes it as lowercase
+impl Serialize for SizingType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let value = match self {
+            SizingType::AutoSize => "auto_size",
+            SizingType::AutoWidth => "auto_width",
+            SizingType::ManualSize => "manual_size",
+        };
+        serializer.serialize_str(value)
+    }
+}
+
+/// A deserializer for SizingType that reads it as lowercase
+/// or number for backwards compatibility.
+impl<'de> Deserialize<'de> for SizingType {
+    fn deserialize<D>(deserializer: D) -> Result<SizingType, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer);
+        match value {
+            Ok(Value::String(value)) => match value.as_str() {
+                "auto_size" => Ok(SizingType::AutoSize),
+                "auto_width" => Ok(SizingType::AutoWidth),
+                "manual_size" => Ok(SizingType::ManualSize),
+                _ => Err(serde::de::Error::custom(format!(
+                    "Invalid value for SizingType: {}, we expect \"auto_size\", \"auto_width\", \"manual_size\"",
+                    value
+                ))),
+            },
+            Ok(Value::Number(value)) => {
+                let value = value.as_u64().unwrap();
+                match value {
+                    0 => Ok(SizingType::AutoSize),
+                    1 => Ok(SizingType::AutoWidth),
+                    2 => Ok(SizingType::ManualSize),
+                    _ => Err(serde::de::Error::custom(format!(
+                        "Invalid value for SizingType: {}, we expect 0, 1, 2",
+                        value
+                    ))),
+                }
+            }
+            _ => Err(serde::de::Error::custom(format!(
+                "Invalid value for SizingType: {:?}, we expect a string or a number",
+                value
+            ))),
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Dummy)]
 pub struct Decal {
@@ -18,10 +175,10 @@ pub struct Decal {
     pub surface: String,
     pub name: String,
     pub text: String,
-    pub decal_type: u32,
+    pub decal_type: DecalType,
     pub material: String,
     pub color: Color,
-    pub sizing_type: u32,
+    pub sizing_type: SizingType,
     pub vertical_text: bool,
     pub backglass: bool,
 
@@ -45,10 +202,10 @@ struct DecalJson {
     surface: String,
     name: String,
     text: String,
-    decal_type: u32,
+    decal_type: DecalType,
     material: String,
     color: ColorJson,
-    sizing_type: u32,
+    sizing_type: SizingType,
     vertical_text: bool,
     backglass: bool,
     font: FontJson,
@@ -65,10 +222,10 @@ impl DecalJson {
             surface: decal.surface.clone(),
             name: decal.name.clone(),
             text: decal.text.clone(),
-            decal_type: decal.decal_type,
+            decal_type: decal.decal_type.clone(),
             material: decal.material.clone(),
             color: ColorJson::from_color(&decal.color),
-            sizing_type: decal.sizing_type,
+            sizing_type: decal.sizing_type.clone(),
             vertical_text: decal.vertical_text,
             backglass: decal.backglass,
             font: FontJson::from_font(&decal.font),
@@ -85,10 +242,10 @@ impl DecalJson {
             surface: self.surface.clone(),
             name: self.name.clone(),
             text: self.text.clone(),
-            decal_type: self.decal_type,
+            decal_type: self.decal_type.clone(),
             material: self.material.clone(),
             color: self.color.to_color(),
-            sizing_type: self.sizing_type,
+            sizing_type: self.sizing_type.clone(),
             vertical_text: self.vertical_text,
             backglass: self.backglass,
             font: self.font.to_font(),
@@ -115,10 +272,10 @@ impl Default for Decal {
             surface: Default::default(),
             name: Default::default(),
             text: Default::default(),
-            decal_type: Decal::DECAL_TYPE_IMAGE,
+            decal_type: DecalType::Image,
             material: Default::default(),
             color: Color::new_bgr(0x000000),
-            sizing_type: Decal::SIZING_TYPE_MANUAL_SIZE,
+            sizing_type: SizingType::ManualSize,
             vertical_text: false,
             backglass: false,
             font: Font::default(),
@@ -147,15 +304,6 @@ impl<'de> Deserialize<'de> for Decal {
         let json = DecalJson::deserialize(deserializer)?;
         Ok(json.to_decal())
     }
-}
-
-impl Decal {
-    pub const DECAL_TYPE_TEXT: u32 = 0;
-    pub const DECAL_TYPE_IMAGE: u32 = 1;
-
-    pub const SIZING_TYPE_AUTO_SIZE: u32 = 0;
-    pub const SIZING_TYPE_AUTO_WIDTH: u32 = 1;
-    pub const SIZING_TYPE_MANUAL_SIZE: u32 = 2;
 }
 
 impl GameItem for Decal {
@@ -200,7 +348,7 @@ impl BiffRead for Decal {
                     decal.text = reader.get_string();
                 }
                 "TYPE" => {
-                    decal.decal_type = reader.get_u32();
+                    decal.decal_type = reader.get_u32().into();
                 }
                 "MATR" => {
                     decal.material = reader.get_string();
@@ -209,7 +357,7 @@ impl BiffRead for Decal {
                     decal.color = Color::biff_read_bgr(reader);
                 }
                 "SIZE" => {
-                    decal.sizing_type = reader.get_u32();
+                    decal.sizing_type = reader.get_u32().into();
                 }
                 "VERT" => {
                     decal.vertical_text = reader.get_bool();
@@ -259,10 +407,10 @@ impl BiffWrite for Decal {
         writer.write_tagged_string("SURF", &self.surface);
         writer.write_tagged_wide_string("NAME", &self.name);
         writer.write_tagged_string("TEXT", &self.text);
-        writer.write_tagged_u32("TYPE", self.decal_type);
+        writer.write_tagged_u32("TYPE", (&self.decal_type).into());
         writer.write_tagged_string("MATR", &self.material);
         writer.write_tagged_with("COLR", &self.color, Color::biff_write_bgr);
-        writer.write_tagged_u32("SIZE", self.sizing_type);
+        writer.write_tagged_u32("SIZE", (&self.sizing_type).into());
         writer.write_tagged_bool("VERT", self.vertical_text);
         writer.write_tagged_bool("BGLS", self.backglass);
 
@@ -289,6 +437,7 @@ mod tests {
 
     use super::*;
     use pretty_assertions::assert_eq;
+    use serde_json::Value;
 
     #[test]
     fn test_write_read() {
@@ -302,10 +451,10 @@ mod tests {
             surface: "surface".to_owned(),
             name: "name".to_owned(),
             text: "text".to_owned(),
-            decal_type: 1,
+            decal_type: Faker.fake(),
             material: "material".to_owned(),
             color: Color::new_bgr(0x010203),
-            sizing_type: 2,
+            sizing_type: Faker.fake(),
             vertical_text: true,
             backglass: true,
             font: Font::default(),
@@ -334,5 +483,43 @@ mod tests {
         decal_read.editor_layer_name = decal.editor_layer_name.clone();
         decal_read.editor_layer_visibility = decal.editor_layer_visibility;
         assert_eq!(decal, decal_read);
+    }
+
+    #[test]
+    fn test_decal_type_json() {
+        let decal_type = DecalType::Text;
+        let json = serde_json::to_string(&decal_type).unwrap();
+        assert_eq!(json, "\"text\"");
+        let decal_type_read: DecalType = serde_json::from_str(&json).unwrap();
+        assert_eq!(decal_type, decal_type_read);
+        let json = serde_json::Value::from(1);
+        let decal_type_read: DecalType = serde_json::from_value(json).unwrap();
+        assert_eq!(DecalType::Image, decal_type_read);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_decal_type_json_fail() {
+        let json: Value = serde_json::Value::from("foo");
+        let _decal_type_read: DecalType = serde_json::from_value(json).unwrap();
+    }
+
+    #[test]
+    fn test_sizing_type_json() {
+        let sizing_type = SizingType::ManualSize;
+        let json = serde_json::to_string(&sizing_type).unwrap();
+        assert_eq!(json, "\"manual_size\"");
+        let sizing_type_read: SizingType = serde_json::from_str(&json).unwrap();
+        assert_eq!(sizing_type, sizing_type_read);
+        let json = serde_json::Value::from(1);
+        let sizing_type_read: SizingType = serde_json::from_value(json).unwrap();
+        assert_eq!(SizingType::AutoWidth, sizing_type_read);
+    }
+
+    #[test]
+    #[should_panic = "Error(\"Invalid value for SizingType: foo, we expect \\\"auto_size\\\", \\\"auto_width\\\", \\\"manual_size\\\"\", line: 0, column: 0)"]
+    fn test_sizing_type_json_fail() {
+        let json: Value = serde_json::Value::from("foo");
+        let _: SizingType = serde_json::from_value(json).unwrap();
     }
 }

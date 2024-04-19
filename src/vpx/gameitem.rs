@@ -597,25 +597,6 @@ const ITEM_TYPE_HIT_TARGET: u32 = 22;
 //     "Target",
 // ];
 
-pub const FILTER_NONE: u32 = 0;
-pub const FILTER_ADDITIVE: u32 = 1;
-pub const FILTER_OVERLAY: u32 = 2;
-pub const FILTER_MULTIPLY: u32 = 3;
-pub const FILTER_SCREEN: u32 = 4;
-
-pub const IMAGE_ALIGN_WORLD: u32 = 0;
-pub const IMAGE_ALIGN_TOP_LEFT: u32 = 1;
-pub const IMAGE_ALIGN_CENTER: u32 = 2;
-
-// TODO move this to the component that it relates to?
-pub const TRIGGER_SHAPE_NONE: u32 = 0;
-pub const TRIGGER_SHAPE_WIRE_A: u32 = 1;
-pub const TRIGGER_SHAPE_STAR: u32 = 2;
-pub const TRIGGER_SHAPE_WIRE_B: u32 = 3;
-pub const TRIGGER_SHAPE_BUTTON: u32 = 4;
-pub const TRIGGER_SHAPE_WIRE_C: u32 = 5;
-pub const TRIGGER_SHAPE_WIRE_D: u32 = 6;
-
 pub fn read(input: &[u8]) -> GameItemEnum {
     let mut reader = BiffReader::new(input);
     let item_type = reader.get_u32_no_remaining_update();

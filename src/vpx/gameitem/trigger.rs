@@ -2,7 +2,136 @@ use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
 use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use super::{dragpoint::DragPoint, vertex2d::Vertex2D, TRIGGER_SHAPE_WIRE_A};
+use super::{dragpoint::DragPoint, vertex2d::Vertex2D};
+
+#[derive(Debug, PartialEq, Clone, Dummy, Default)]
+pub enum TriggerShape {
+    None = 0,
+    #[default]
+    WireA = 1,
+    Star = 2,
+    WireB = 3,
+    Button = 4,
+    WireC = 5,
+    WireD = 6,
+    Inder = 7,
+}
+
+impl From<u32> for TriggerShape {
+    fn from(value: u32) -> Self {
+        match value {
+            0 => TriggerShape::None,
+            1 => TriggerShape::WireA,
+            2 => TriggerShape::Star,
+            3 => TriggerShape::WireB,
+            4 => TriggerShape::Button,
+            5 => TriggerShape::WireC,
+            6 => TriggerShape::WireD,
+            7 => TriggerShape::Inder,
+            _ => TriggerShape::WireA,
+        }
+    }
+}
+
+impl From<&TriggerShape> for u32 {
+    fn from(value: &TriggerShape) -> Self {
+        match value {
+            TriggerShape::None => 0,
+            TriggerShape::WireA => 1,
+            TriggerShape::Star => 2,
+            TriggerShape::WireB => 3,
+            TriggerShape::Button => 4,
+            TriggerShape::WireC => 5,
+            TriggerShape::WireD => 6,
+            TriggerShape::Inder => 7,
+        }
+    }
+}
+
+/// Serialize as lowercase string
+impl Serialize for TriggerShape {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let shape_str = match self {
+            TriggerShape::None => "none",
+            TriggerShape::WireA => "wire_a",
+            TriggerShape::Star => "star",
+            TriggerShape::WireB => "wire_b",
+            TriggerShape::Button => "button",
+            TriggerShape::WireC => "wire_c",
+            TriggerShape::WireD => "wire_d",
+            TriggerShape::Inder => "inder",
+        };
+        serializer.serialize_str(shape_str)
+    }
+}
+
+/// Deserialize from lowercase string
+/// or number for backwards compatibility
+impl<'de> Deserialize<'de> for TriggerShape {
+    fn deserialize<D>(deserializer: D) -> Result<TriggerShape, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct TriggerShapeVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for TriggerShapeVisitor {
+            type Value = TriggerShape;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a string or number representing a TargetType")
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<TriggerShape, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    0 => Ok(TriggerShape::None),
+                    1 => Ok(TriggerShape::WireA),
+                    2 => Ok(TriggerShape::Star),
+                    3 => Ok(TriggerShape::WireB),
+                    4 => Ok(TriggerShape::Button),
+                    5 => Ok(TriggerShape::WireC),
+                    6 => Ok(TriggerShape::WireD),
+                    7 => Ok(TriggerShape::Inder),
+                    _ => Err(serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Unsigned(value),
+                        &"a number between 0 and 7",
+                    )),
+                }
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<TriggerShape, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "none" => Ok(TriggerShape::None),
+                    "wire_a" => Ok(TriggerShape::WireA),
+                    "star" => Ok(TriggerShape::Star),
+                    "wire_b" => Ok(TriggerShape::WireB),
+                    "button" => Ok(TriggerShape::Button),
+                    "wire_c" => Ok(TriggerShape::WireC),
+                    "wire_d" => Ok(TriggerShape::WireD),
+                    "inder" => Ok(TriggerShape::Inder),
+
+                    _ => Err(serde::de::Error::unknown_variant(
+                        value,
+                        &[
+                            "none", "wire_a", "star", "wire_b", "button", "wire_c", "wire_d",
+                            "inder",
+                        ],
+                    )),
+                }
+            }
+        }
+
+        deserializer.deserialize_any(TriggerShapeVisitor)
+    }
+}
 
 #[derive(Debug, PartialEq, Dummy)]
 pub struct Trigger {
@@ -28,7 +157,7 @@ pub struct Trigger {
 
     // [BiffBool("REEN", Pos = 17)]
     // public bool IsReflectionEnabled = true;
-    pub shape: u32,
+    pub shape: TriggerShape,
     pub anim_speed: f32,
     pub is_reflection_enabled: Option<bool>, // REEN (was missing in 10.01)
 
@@ -58,7 +187,7 @@ struct TriggerJson {
     is_enabled: bool,
     hit_height: f32,
     name: String,
-    shape: u32,
+    shape: TriggerShape,
     anim_speed: f32,
     is_reflection_enabled: Option<bool>,
     drag_points: Vec<DragPoint>,
@@ -81,7 +210,7 @@ impl TriggerJson {
             is_enabled: trigger.is_enabled,
             hit_height: trigger.hit_height,
             name: trigger.name.clone(),
-            shape: trigger.shape,
+            shape: trigger.shape.clone(),
             anim_speed: trigger.anim_speed,
             is_reflection_enabled: trigger.is_reflection_enabled,
             drag_points: trigger.drag_points.clone(),
@@ -103,7 +232,7 @@ impl TriggerJson {
             is_enabled: self.is_enabled,
             hit_height: self.hit_height,
             name: self.name.clone(),
-            shape: self.shape,
+            shape: self.shape.clone(),
             anim_speed: self.anim_speed,
             is_reflection_enabled: self.is_reflection_enabled,
             // this is populated from a different file
@@ -155,7 +284,7 @@ impl Default for Trigger {
             is_enabled: true,
             hit_height: 50.0,
             name: Default::default(),
-            shape: TRIGGER_SHAPE_WIRE_A,
+            shape: TriggerShape::WireA,
             anim_speed: Default::default(),
             is_reflection_enabled: None, //true,
             is_locked: false,
@@ -224,7 +353,7 @@ impl BiffRead for Trigger {
                     trigger.name = reader.get_wide_string();
                 }
                 "SHAP" => {
-                    trigger.shape = reader.get_u32();
+                    trigger.shape = reader.get_u32().into();
                 }
                 "ANSP" => {
                     trigger.anim_speed = reader.get_f32();
@@ -281,7 +410,7 @@ impl BiffWrite for Trigger {
         writer.write_tagged_bool("VSBL", self.is_visible);
         writer.write_tagged_f32("THOT", self.hit_height);
         writer.write_tagged_wide_string("NAME", &self.name);
-        writer.write_tagged_u32("SHAP", self.shape);
+        writer.write_tagged_u32("SHAP", (&self.shape).into());
         writer.write_tagged_f32("ANSP", self.anim_speed);
         if let Some(is_reflection_enabled) = self.is_reflection_enabled {
             writer.write_tagged_bool("REEN", is_reflection_enabled);
@@ -307,6 +436,7 @@ impl BiffWrite for Trigger {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
+    use fake::{Fake, Faker};
 
     use super::*;
     use pretty_assertions::assert_eq;
@@ -329,7 +459,7 @@ mod tests {
             is_enabled: false,
             hit_height: 8.0,
             name: "test name".to_string(),
-            shape: 9,
+            shape: Faker.fake(),
             anim_speed: 10.0,
             is_reflection_enabled: Some(false),
             is_locked: true,
@@ -342,5 +472,24 @@ mod tests {
         Trigger::biff_write(&trigger, &mut writer);
         let trigger_read = Trigger::biff_read(&mut BiffReader::new(writer.get_data()));
         assert_eq!(trigger, trigger_read);
+    }
+
+    #[test]
+    fn test_trigger_shape_json() {
+        let sizing_type = TriggerShape::Inder;
+        let json = serde_json::to_string(&sizing_type).unwrap();
+        assert_eq!(json, "\"inder\"");
+        let sizing_type_read: TriggerShape = serde_json::from_str(&json).unwrap();
+        assert_eq!(sizing_type, sizing_type_read);
+        let json = serde_json::Value::from(2);
+        let sizing_type_read: TriggerShape = serde_json::from_value(json).unwrap();
+        assert_eq!(TriggerShape::Star, sizing_type_read);
+    }
+
+    #[test]
+    #[should_panic = "Error(\"unknown variant `foo`, expected one of `none`, `wire_a`, `star`, `wire_b`, `button`, `wire_c`, `wire_d`, `inder`\", line: 0, column: 0)"]
+    fn test_trigger_shape_json_fail_string() {
+        let json = serde_json::Value::from("foo");
+        let _: TriggerShape = serde_json::from_value(json).unwrap();
     }
 }
