@@ -19,6 +19,9 @@ Sub Table1_KeyDown(ByVal Keycode)
     If keycode = RightFlipperKey and bFlippersEnabled Then
         RightFlipper.RotateToEnd
     End If
+    If keycode = PlungerKey then
+        Plunger.PullBack
+    End If
 End Sub
 
 Sub Table1_KeyUp(ByVal Keycode)
@@ -28,5 +31,8 @@ Sub Table1_KeyUp(ByVal Keycode)
     End If
     If keycode = RightFlipperKey and bFlippersEnabled Then
         RightFlipper.RotateToStart
+    End If
+    If keycode = PlungerKey then
+    	Plunger.Fire
     End If
 End Sub
