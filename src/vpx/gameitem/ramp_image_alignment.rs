@@ -5,7 +5,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 pub enum RampImageAlignment {
     World = 0,
     Wrap = 1,
-    Unknown = 2, // non-official, found in Andromeda (Game Plan 1985) v4.vpx
+    /// non-official, found in Andromeda (Game Plan 1985) v4.vpx
+    /// This is not in the official VPX documentation
+    Unknown = 2,
 }
 
 impl From<u32> for RampImageAlignment {

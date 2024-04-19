@@ -6,6 +6,9 @@ use super::vertex2d::Vertex2D;
 
 #[derive(Debug, PartialEq, Clone, Dummy)]
 pub enum PlungerType {
+    /// non-official, found in Star Wars (Data East 1992)/Star Wars (Data East 1992) VPW v1.2.2.vpx
+    /// This is not in the official VPX documentation
+    Unknown = 0,
     Modern = 1,
     Flat = 2,
     Custom = 3,
@@ -14,6 +17,7 @@ pub enum PlungerType {
 impl From<u32> for PlungerType {
     fn from(value: u32) -> Self {
         match value {
+            0 => PlungerType::Unknown,
             1 => PlungerType::Modern,
             2 => PlungerType::Flat,
             3 => PlungerType::Custom,
@@ -25,6 +29,7 @@ impl From<u32> for PlungerType {
 impl From<&PlungerType> for u32 {
     fn from(value: &PlungerType) -> Self {
         match value {
+            PlungerType::Unknown => 0,
             PlungerType::Modern => 1,
             PlungerType::Flat => 2,
             PlungerType::Custom => 3,
@@ -39,6 +44,7 @@ impl Serialize for PlungerType {
         S: Serializer,
     {
         match self {
+            PlungerType::Unknown => serializer.serialize_str("unknown"),
             PlungerType::Modern => serializer.serialize_str("modern"),
             PlungerType::Flat => serializer.serialize_str("flat"),
             PlungerType::Custom => serializer.serialize_str("custom"),
@@ -67,6 +73,7 @@ impl<'de> Deserialize<'de> for PlungerType {
                 E: serde::de::Error,
             {
                 match value {
+                    0 => Ok(PlungerType::Unknown),
                     1 => Ok(PlungerType::Modern),
                     2 => Ok(PlungerType::Flat),
                     3 => Ok(PlungerType::Custom),
@@ -82,6 +89,7 @@ impl<'de> Deserialize<'de> for PlungerType {
                 E: serde::de::Error,
             {
                 match value {
+                    "unknown" => Ok(PlungerType::Unknown),
                     "modern" => Ok(PlungerType::Modern),
                     "flat" => Ok(PlungerType::Flat),
                     "custom" => Ok(PlungerType::Custom),
