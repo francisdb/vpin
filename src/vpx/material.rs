@@ -6,31 +6,82 @@ use crate::vpx::math::quantize_u8;
 use bytes::{Buf, BufMut, BytesMut};
 use encoding_rs::mem::{decode_latin1, encode_latin1_lossy};
 use fake::Dummy;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::ffi::CStr;
 use std::io;
 
 const MAX_NAME_BUFFER: usize = 32;
 
-#[derive(Dummy, Debug, Clone, PartialEq, Serialize, Deserialize)]
-enum MaterialType {
-    Basic,
-    Metal,
+#[derive(Dummy, Debug, Clone, PartialEq)]
+pub enum MaterialType {
+    Basic = 0,
+    Metal = 1,
 }
 
-impl MaterialType {
-    fn from_i32(i: i32) -> Self {
-        match i {
+impl From<u32> for MaterialType {
+    fn from(value: u32) -> Self {
+        match value {
             0 => MaterialType::Basic,
             1 => MaterialType::Metal,
-            _ => panic!("Unknown MaterialType {}", i),
+            _ => panic!("Invalid MaterialType {}", value),
         }
     }
-    fn to_i32(&self) -> i32 {
-        match self {
+}
+
+impl From<&MaterialType> for u32 {
+    fn from(value: &MaterialType) -> Self {
+        match value {
             MaterialType::Basic => 0,
             MaterialType::Metal => 1,
         }
+    }
+}
+
+/// Serialize to lowercase string
+impl Serialize for MaterialType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            MaterialType::Basic => serializer.serialize_str("basic"),
+            MaterialType::Metal => serializer.serialize_str("metal"),
+        }
+    }
+}
+
+/// Deserialize from lowercase string
+/// or case-insensitive string for backwards compatibility
+impl<'de> Deserialize<'de> for MaterialType {
+    fn deserialize<D>(deserializer: D) -> Result<MaterialType, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct MaterialTypeVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for MaterialTypeVisitor {
+            type Value = MaterialType;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a string representing a MaterialType")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<MaterialType, E>
+            where
+                E: serde::de::Error,
+            {
+                match value.to_lowercase().as_str() {
+                    "basic" => Ok(MaterialType::Basic),
+                    "metal" => Ok(MaterialType::Metal),
+                    _ => Err(serde::de::Error::unknown_variant(
+                        value,
+                        &["basic", "metal"],
+                    )),
+                }
+            }
+        }
+
+        deserializer.deserialize_str(MaterialTypeVisitor)
     }
 }
 
@@ -404,18 +455,19 @@ pub struct Material {
     pub name: String,
 
     // shading properties
-    type_: MaterialType,
-    wrap_lighting: f32,
-    roughness: f32,
-    glossy_image_lerp: f32,
-    thickness: f32,
-    edge: f32,
-    edge_alpha: f32,
-    opacity: f32,
+    pub type_: MaterialType,
+    pub wrap_lighting: f32,
+    pub roughness: f32,
+    pub glossy_image_lerp: f32,
+    pub thickness: f32,
+    pub edge: f32,
+    pub edge_alpha: f32,
+    pub opacity: f32,
     pub base_color: ColorNoAlpha,
-    glossy_color: Color,
-    clearcoat_color: Color,
-    opacity_active: bool,
+    pub glossy_color: Color,
+    pub clearcoat_color: Color,
+    // Transparency active in the UI
+    pub opacity_active: bool,
 
     // physic properties
     elasticity: f32,
@@ -581,7 +633,7 @@ impl BiffRead for Material {
             let tag = reader.tag();
             let tag_str = tag.as_str();
             match tag_str {
-                "TYPE" => material.type_ = MaterialType::from_i32(reader.get_i32()),
+                "TYPE" => material.type_ = reader.get_u32().into(),
                 "NAME" => material.name = reader.get_string(),
                 "WLIG" => material.wrap_lighting = reader.get_f32(),
                 "ROUG" => material.roughness = reader.get_f32(),
@@ -615,7 +667,7 @@ impl BiffRead for Material {
 
 impl BiffWrite for Material {
     fn biff_write(&self, writer: &mut BiffWriter) {
-        writer.write_tagged_i32("TYPE", self.type_.to_i32());
+        writer.write_tagged_u32("TYPE", (&self.type_).into());
         writer.write_tagged_string("NAME", &self.name);
         writer.write_tagged_f32("WLIG", self.wrap_lighting);
         writer.write_tagged_f32("ROUG", self.roughness);
@@ -712,5 +764,21 @@ mod tests {
         assert_eq!(save_material.glossy_image_lerp, 230);
         assert_eq!(save_material.thickness, 128);
         assert_eq!(save_material.opacity_active_edge_alpha, 231);
+    }
+
+    #[test]
+    fn test_material_type_json() {
+        let sizing_type = MaterialType::Metal;
+        let json = serde_json::to_string(&sizing_type).unwrap();
+        assert_eq!(json, "\"metal\"");
+        let sizing_type_read: MaterialType = serde_json::from_str(&json).unwrap();
+        assert_eq!(sizing_type, sizing_type_read);
+    }
+
+    #[test]
+    #[should_panic = "Error(\"unknown variant `foo`, expected `basic` or `metal`\", line: 0, column: 0)"]
+    fn test_material_type_json_fail() {
+        let json = serde_json::Value::from("foo");
+        let _: MaterialType = serde_json::from_value(json).unwrap();
     }
 }
