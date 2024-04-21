@@ -14,13 +14,15 @@ const MAX_NAME_BUFFER: usize = 32;
 
 #[derive(Dummy, Debug, Clone, PartialEq)]
 pub enum MaterialType {
+    Unknown = -1, // found in Hot Line (Williams 1966) SG1bsoN.vpx
     Basic = 0,
     Metal = 1,
 }
 
-impl From<u32> for MaterialType {
-    fn from(value: u32) -> Self {
+impl From<i32> for MaterialType {
+    fn from(value: i32) -> Self {
         match value {
+            -1 => MaterialType::Unknown,
             0 => MaterialType::Basic,
             1 => MaterialType::Metal,
             _ => panic!("Invalid MaterialType {}", value),
@@ -28,9 +30,10 @@ impl From<u32> for MaterialType {
     }
 }
 
-impl From<&MaterialType> for u32 {
+impl From<&MaterialType> for i32 {
     fn from(value: &MaterialType) -> Self {
         match value {
+            MaterialType::Unknown => -1,
             MaterialType::Basic => 0,
             MaterialType::Metal => 1,
         }
@@ -44,6 +47,7 @@ impl Serialize for MaterialType {
         S: Serializer,
     {
         match self {
+            MaterialType::Unknown => serializer.serialize_str("unknown"),
             MaterialType::Basic => serializer.serialize_str("basic"),
             MaterialType::Metal => serializer.serialize_str("metal"),
         }
@@ -71,6 +75,7 @@ impl<'de> Deserialize<'de> for MaterialType {
                 E: serde::de::Error,
             {
                 match value.to_lowercase().as_str() {
+                    "unknown" => Ok(MaterialType::Unknown),
                     "basic" => Ok(MaterialType::Basic),
                     "metal" => Ok(MaterialType::Metal),
                     _ => Err(serde::de::Error::unknown_variant(
@@ -633,7 +638,7 @@ impl BiffRead for Material {
             let tag = reader.tag();
             let tag_str = tag.as_str();
             match tag_str {
-                "TYPE" => material.type_ = reader.get_u32().into(),
+                "TYPE" => material.type_ = reader.get_i32().into(),
                 "NAME" => material.name = reader.get_string(),
                 "WLIG" => material.wrap_lighting = reader.get_f32(),
                 "ROUG" => material.roughness = reader.get_f32(),
@@ -667,7 +672,7 @@ impl BiffRead for Material {
 
 impl BiffWrite for Material {
     fn biff_write(&self, writer: &mut BiffWriter) {
-        writer.write_tagged_u32("TYPE", (&self.type_).into());
+        writer.write_tagged_i32("TYPE", (&self.type_).into());
         writer.write_tagged_string("NAME", &self.name);
         writer.write_tagged_f32("WLIG", self.wrap_lighting);
         writer.write_tagged_f32("ROUG", self.roughness);

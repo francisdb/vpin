@@ -41,10 +41,10 @@ impl Serialize for GateType {
         S: Serializer,
     {
         match self {
-            GateType::WireW => serializer.serialize_str("WireW"),
-            GateType::WireRectangle => serializer.serialize_str("WireRectangle"),
-            GateType::Plate => serializer.serialize_str("Plate"),
-            GateType::LongPlate => serializer.serialize_str("LongPlate"),
+            GateType::WireW => serializer.serialize_str("wire_w"),
+            GateType::WireRectangle => serializer.serialize_str("wire_rectangle"),
+            GateType::Plate => serializer.serialize_str("plate"),
+            GateType::LongPlate => serializer.serialize_str("long_plate"),
         }
     }
 }
@@ -54,13 +54,17 @@ impl<'de> Deserialize<'de> for GateType {
     where
         D: Deserializer<'de>,
     {
-        let s = String::deserialize(deserializer)?;
-        match s.as_str() {
-            "WireW" => Ok(GateType::WireW),
-            "WireRectangle" => Ok(GateType::WireRectangle),
-            "Plate" => Ok(GateType::Plate),
-            "LongPlate" => Ok(GateType::LongPlate),
-            _ => Err(serde::de::Error::custom(format!("Unknown GateType: {}, expecting \"WireW\", \"WireRectangle\", \"Plate\" or \"LongPlate\"", s))),
+        let value = String::deserialize(deserializer)?;
+        let s = value.as_str();
+        match s {
+            "wire_w" => Ok(GateType::WireW),
+            "wire_rectangle" => Ok(GateType::WireRectangle),
+            "plate" => Ok(GateType::Plate),
+            "long_plate" => Ok(GateType::LongPlate),
+            _ => Err(serde::de::Error::unknown_variant(
+                s,
+                &["wire_w", "wire_rectangle", "plate", "long_plate"],
+            )),
         }
     }
 }
@@ -456,13 +460,13 @@ mod tests {
     fn test_gate_type_json() {
         let gate_type = GateType::WireRectangle;
         let json = serde_json::to_string(&gate_type).unwrap();
-        assert_eq!(json, "\"WireRectangle\"");
+        assert_eq!(json, "\"wire_rectangle\"");
         let gate_type_read: GateType = serde_json::from_str(&json).unwrap();
         assert_eq!(gate_type, gate_type_read);
     }
 
     #[test]
-    #[should_panic = "Error(\"Unknown GateType: Unknown, expecting \\\"WireW\\\", \\\"WireRectangle\\\", \\\"Plate\\\" or \\\"LongPlate\\\"\", line: 0, column: 0)"]
+    #[should_panic = "Error(\"unknown variant `Unknown`, expected one of `wire_w`, `wire_rectangle`, `plate`, `long_plate`\", line: 0, column: 0)"]
     fn test_gate_type_json_panic() {
         let json = Value::from("Unknown");
         let _: GateType = serde_json::from_value(json).unwrap();
