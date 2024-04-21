@@ -1,36 +1,92 @@
 use crate::vpx::biff;
 use crate::vpx::biff::{BiffRead, BiffReader, BiffWrite, BiffWriter};
-use crate::vpx::color::{Color, ColorJson};
+use crate::vpx::color::{Color, ColorJson, ColorNoAlpha};
 use crate::vpx::json::F32WithNanInf;
 use crate::vpx::math::quantize_u8;
 use bytes::{Buf, BufMut, BytesMut};
 use encoding_rs::mem::{decode_latin1, encode_latin1_lossy};
 use fake::Dummy;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::ffi::CStr;
 use std::io;
 
 const MAX_NAME_BUFFER: usize = 32;
 
-#[derive(Dummy, Debug, Clone, PartialEq, Serialize, Deserialize)]
-enum MaterialType {
-    Basic,
-    Metal,
+#[derive(Dummy, Debug, Clone, PartialEq)]
+pub enum MaterialType {
+    Unknown = -1, // found in Hot Line (Williams 1966) SG1bsoN.vpx
+    Basic = 0,
+    Metal = 1,
 }
 
-impl MaterialType {
-    fn from_i32(i: i32) -> Self {
-        match i {
+impl From<i32> for MaterialType {
+    fn from(value: i32) -> Self {
+        match value {
+            -1 => MaterialType::Unknown,
             0 => MaterialType::Basic,
             1 => MaterialType::Metal,
-            _ => panic!("Unknown MaterialType {}", i),
+            _ => panic!("Invalid MaterialType {}", value),
         }
     }
-    fn to_i32(&self) -> i32 {
-        match self {
+}
+
+impl From<&MaterialType> for i32 {
+    fn from(value: &MaterialType) -> Self {
+        match value {
+            MaterialType::Unknown => -1,
             MaterialType::Basic => 0,
             MaterialType::Metal => 1,
         }
+    }
+}
+
+/// Serialize to lowercase string
+impl Serialize for MaterialType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            MaterialType::Unknown => serializer.serialize_str("unknown"),
+            MaterialType::Basic => serializer.serialize_str("basic"),
+            MaterialType::Metal => serializer.serialize_str("metal"),
+        }
+    }
+}
+
+/// Deserialize from lowercase string
+/// or case-insensitive string for backwards compatibility
+impl<'de> Deserialize<'de> for MaterialType {
+    fn deserialize<D>(deserializer: D) -> Result<MaterialType, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct MaterialTypeVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for MaterialTypeVisitor {
+            type Value = MaterialType;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a string representing a MaterialType")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<MaterialType, E>
+            where
+                E: serde::de::Error,
+            {
+                match value.to_lowercase().as_str() {
+                    "unknown" => Ok(MaterialType::Unknown),
+                    "basic" => Ok(MaterialType::Basic),
+                    "metal" => Ok(MaterialType::Metal),
+                    _ => Err(serde::de::Error::unknown_variant(
+                        value,
+                        &["basic", "metal"],
+                    )),
+                }
+            }
+        }
+
+        deserializer.deserialize_str(MaterialTypeVisitor)
     }
 }
 
@@ -44,7 +100,7 @@ pub struct SaveMaterial {
      * Base color of the material
      * Can be overridden by texture on object itself
      */
-    pub base_color: Color,
+    pub base_color: ColorNoAlpha,
     /**
      * Specular of glossy layer
      */
@@ -153,7 +209,7 @@ impl From<&Material> for SaveMaterial {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct SaveMaterialJson {
     name: String,
-    base_color: ColorJson,
+    base_color: ColorNoAlpha,
     glossy_color: ColorJson,
     clearcoat_color: ColorJson,
     wrap_lighting: f32,
@@ -170,7 +226,7 @@ impl SaveMaterialJson {
     pub fn from_save_material(save_material: &SaveMaterial) -> Self {
         Self {
             name: save_material.name.clone(),
-            base_color: ColorJson::from_color(&save_material.base_color),
+            base_color: save_material.base_color,
             glossy_color: ColorJson::from_color(&save_material.glossy_color),
             clearcoat_color: ColorJson::from_color(&save_material.clearcoat_color),
             wrap_lighting: save_material.wrap_lighting,
@@ -186,7 +242,7 @@ impl SaveMaterialJson {
     pub fn to_save_material(&self) -> SaveMaterial {
         SaveMaterial {
             name: self.name.clone(),
-            base_color: self.base_color.to_color(),
+            base_color: self.base_color,
             glossy_color: self.glossy_color.to_color(),
             clearcoat_color: self.clearcoat_color.to_color(),
             wrap_lighting: self.wrap_lighting,
@@ -229,7 +285,7 @@ impl SaveMaterial {
 
         SaveMaterial {
             name,
-            base_color: Color::from_argb(base_color),
+            base_color: ColorNoAlpha::from_rgb(base_color),
             glossy_color: Color::from_argb(glossy_color),
             clearcoat_color: Color::from_argb(clearcoat_color),
             wrap_lighting,
@@ -245,7 +301,7 @@ impl SaveMaterial {
 
     pub(crate) fn write(&self, bytes: &mut BytesMut) {
         write_padded_cstring(self.name.as_str(), bytes, MAX_NAME_BUFFER);
-        bytes.put_u32_le(self.base_color.argb());
+        bytes.put_u32_le(self.base_color.to_rgb());
         bytes.put_u32_le(self.glossy_color.argb());
         bytes.put_u32_le(self.clearcoat_color.argb());
         bytes.put_f32_le(self.wrap_lighting);
@@ -401,21 +457,22 @@ fn get_padding_3_validate(bytes: &mut BytesMut) {
 
 #[derive(Dummy, Debug, PartialEq)]
 pub struct Material {
-    name: String,
+    pub name: String,
 
     // shading properties
-    type_: MaterialType,
-    wrap_lighting: f32,
-    roughness: f32,
-    glossy_image_lerp: f32,
-    thickness: f32,
-    edge: f32,
-    edge_alpha: f32,
-    opacity: f32,
-    base_color: Color,
-    glossy_color: Color,
-    clearcoat_color: Color,
-    opacity_active: bool,
+    pub type_: MaterialType,
+    pub wrap_lighting: f32,
+    pub roughness: f32,
+    pub glossy_image_lerp: f32,
+    pub thickness: f32,
+    pub edge: f32,
+    pub edge_alpha: f32,
+    pub opacity: f32,
+    pub base_color: ColorNoAlpha,
+    pub glossy_color: Color,
+    pub clearcoat_color: Color,
+    // Transparency active in the UI
+    pub opacity_active: bool,
 
     // physic properties
     elasticity: f32,
@@ -437,7 +494,7 @@ pub(crate) struct MaterialJson {
     edge: f32,
     edge_alpha: f32,
     opacity: f32,
-    base_color: ColorJson,
+    base_color: ColorNoAlpha,
     glossy_color: ColorJson,
     clearcoat_color: ColorJson,
     opacity_active: bool,
@@ -460,7 +517,7 @@ impl MaterialJson {
             edge: material.edge,
             edge_alpha: material.edge_alpha,
             opacity: material.opacity,
-            base_color: ColorJson::from_color(&material.base_color),
+            base_color: material.base_color,
             glossy_color: ColorJson::from_color(&material.glossy_color),
             clearcoat_color: ColorJson::from_color(&material.clearcoat_color),
             opacity_active: material.opacity_active,
@@ -482,7 +539,7 @@ impl MaterialJson {
             edge: self.edge,
             edge_alpha: self.edge_alpha,
             opacity: self.opacity,
-            base_color: self.base_color.to_color(),
+            base_color: self.base_color,
             glossy_color: self.glossy_color.to_color(),
             clearcoat_color: self.clearcoat_color.to_color(),
             opacity_active: self.opacity_active,
@@ -506,7 +563,7 @@ impl Default for Material {
             edge: 1.0,
             edge_alpha: 1.0,
             opacity: 1.0,
-            base_color: Color::from_argb(0xB469FF),
+            base_color: ColorNoAlpha::from_rgb(0xB469FF), // Purple / Heliotrope
             glossy_color: Color::from_argb(0),
             clearcoat_color: Color::from_argb(0),
             opacity_active: false,
@@ -524,7 +581,7 @@ impl Default for SaveMaterial {
     fn default() -> Self {
         SaveMaterial {
             name: "dummyMaterial".to_string(),
-            base_color: Color::from_argb(0xB469FF),
+            base_color: ColorNoAlpha::from_rgb(0xB469FF),
             glossy_color: Color::from_argb(0),
             clearcoat_color: Color::from_argb(0),
             wrap_lighting: 0.0,
@@ -581,7 +638,7 @@ impl BiffRead for Material {
             let tag = reader.tag();
             let tag_str = tag.as_str();
             match tag_str {
-                "TYPE" => material.type_ = MaterialType::from_i32(reader.get_i32()),
+                "TYPE" => material.type_ = reader.get_i32().into(),
                 "NAME" => material.name = reader.get_string(),
                 "WLIG" => material.wrap_lighting = reader.get_f32(),
                 "ROUG" => material.roughness = reader.get_f32(),
@@ -590,7 +647,7 @@ impl BiffRead for Material {
                 "EDGE" => material.edge = reader.get_f32(),
                 "EALP" => material.edge_alpha = reader.get_f32(),
                 "OPAC" => material.opacity = reader.get_f32(),
-                "BASE" => material.base_color = Color::from_argb(reader.get_u32()),
+                "BASE" => material.base_color = ColorNoAlpha::biff_read(reader),
                 "GLOS" => material.glossy_color = Color::from_argb(reader.get_u32()),
                 "COAT" => material.clearcoat_color = Color::from_argb(reader.get_u32()),
                 "RTNT" => material.refraction_tint = Color::from_argb(reader.get_u32()),
@@ -615,7 +672,7 @@ impl BiffRead for Material {
 
 impl BiffWrite for Material {
     fn biff_write(&self, writer: &mut BiffWriter) {
-        writer.write_tagged_i32("TYPE", self.type_.to_i32());
+        writer.write_tagged_i32("TYPE", (&self.type_).into());
         writer.write_tagged_string("NAME", &self.name);
         writer.write_tagged_f32("WLIG", self.wrap_lighting);
         writer.write_tagged_f32("ROUG", self.roughness);
@@ -624,7 +681,7 @@ impl BiffWrite for Material {
         writer.write_tagged_f32("EDGE", self.edge);
         writer.write_tagged_f32("EALP", self.edge_alpha);
         writer.write_tagged_f32("OPAC", self.opacity);
-        writer.write_tagged_u32("BASE", self.base_color.argb());
+        writer.write_tagged_with("BASE", &self.base_color, ColorNoAlpha::biff_write);
         writer.write_tagged_u32("GLOS", self.glossy_color.argb());
         writer.write_tagged_u32("COAT", self.clearcoat_color.argb());
         writer.write_tagged_u32("RTNT", self.refraction_tint.argb());
@@ -697,7 +754,7 @@ mod tests {
             edge: 0.5,
             edge_alpha: 0.9,
             opacity: 0.5,
-            base_color: Color::from_argb(0x123456),
+            base_color: ColorNoAlpha::from_rgb(0x123456),
             glossy_color: Color::from_argb(0x123456),
             clearcoat_color: Color::from_argb(0x123456),
             opacity_active: true,
@@ -712,5 +769,21 @@ mod tests {
         assert_eq!(save_material.glossy_image_lerp, 230);
         assert_eq!(save_material.thickness, 128);
         assert_eq!(save_material.opacity_active_edge_alpha, 231);
+    }
+
+    #[test]
+    fn test_material_type_json() {
+        let sizing_type = MaterialType::Metal;
+        let json = serde_json::to_string(&sizing_type).unwrap();
+        assert_eq!(json, "\"metal\"");
+        let sizing_type_read: MaterialType = serde_json::from_str(&json).unwrap();
+        assert_eq!(sizing_type, sizing_type_read);
+    }
+
+    #[test]
+    #[should_panic = "Error(\"unknown variant `foo`, expected `basic` or `metal`\", line: 0, column: 0)"]
+    fn test_material_type_json_fail() {
+        let json = serde_json::Value::from("foo");
+        let _: MaterialType = serde_json::from_value(json).unwrap();
     }
 }

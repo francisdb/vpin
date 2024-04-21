@@ -5,6 +5,83 @@ use serde::{Deserialize, Serialize};
 use super::biff::BiffWriter;
 
 #[derive(Debug, PartialEq, Clone, Copy, Dummy)]
+pub struct ColorNoAlpha {
+    r: u8,
+    g: u8,
+    b: u8,
+}
+
+/// Serialize as a string in the format "#RRGGBB".
+impl Serialize for ColorNoAlpha {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let s = format!("#{:02x}{:02x}{:02x}", self.r, self.g, self.b);
+        serializer.serialize_str(&s)
+    }
+}
+
+// Deserialize from a string in the format "#RRGGBB".
+impl<'de> Deserialize<'de> for ColorNoAlpha {
+    fn deserialize<D>(deserializer: D) -> Result<ColorNoAlpha, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        if s.len() != 7 {
+            return Err(serde::de::Error::custom(
+                "Invalid color format, expected #RRGGBB",
+            ));
+        }
+        if &s[0..1] != "#" {
+            return Err(serde::de::Error::custom(
+                "Invalid color format, expected #RRGGBB",
+            ));
+        }
+        let r = u8::from_str_radix(&s[1..3], 16).map_err(serde::de::Error::custom)?;
+        let g = u8::from_str_radix(&s[3..5], 16).map_err(serde::de::Error::custom)?;
+        let b = u8::from_str_radix(&s[5..7], 16).map_err(serde::de::Error::custom)?;
+        Ok(ColorNoAlpha { r, g, b })
+    }
+}
+
+impl ColorNoAlpha {
+    pub fn from_rgb(arg: u32) -> Self {
+        let r = ((arg >> 16) & 0xff) as u8;
+        let g = ((arg >> 8) & 0xff) as u8;
+        let b = (arg & 0xff) as u8;
+        ColorNoAlpha { r, g, b }
+    }
+
+    pub fn to_rgb(&self) -> u32 {
+        let r = (self.r as u32) << 16;
+        let g = (self.g as u32) << 8;
+        let b = self.b as u32;
+        r | g | b
+    }
+
+    pub fn rgb(r: u8, g: u8, b: u8) -> Self {
+        Self { r, g, b }
+    }
+
+    pub fn biff_read(reader: &mut BiffReader<'_>) -> ColorNoAlpha {
+        let r = reader.get_u8();
+        let g = reader.get_u8();
+        let b = reader.get_u8();
+        let _ = reader.get_u8();
+        ColorNoAlpha { r, g, b }
+    }
+
+    pub fn biff_write(&self, writer: &mut BiffWriter) {
+        writer.write_u8(self.r);
+        writer.write_u8(self.g);
+        writer.write_u8(self.b);
+        writer.write_u8(0);
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Copy, Dummy)]
 pub struct Color {
     a: u8,
     r: u8,
@@ -134,36 +211,19 @@ impl Color {
         b: 0,
     };
 
-    // TODO do we want a BiffRead with a parameter?
-
-    pub fn biff_read_argb(reader: &mut BiffReader<'_>) -> Color {
-        let a = reader.get_u8();
-        let r = reader.get_u8();
-        let g = reader.get_u8();
-        let b = reader.get_u8();
-        Color { a, r, g, b }
-    }
-
     pub fn biff_read_bgr(reader: &mut BiffReader<'_>) -> Color {
         let a = reader.get_u8();
-        let b = reader.get_u8();
-        let g = reader.get_u8();
         let r = reader.get_u8();
+        let g = reader.get_u8();
+        let b = reader.get_u8();
         Color { a, r, g, b }
-    }
-
-    pub fn biff_write_argb(&self, writer: &mut BiffWriter) {
-        writer.write_u8(self.a);
-        writer.write_u8(self.r);
-        writer.write_u8(self.g);
-        writer.write_u8(self.b);
     }
 
     pub fn biff_write_bgr(&self, writer: &mut BiffWriter) {
         writer.write_u8(self.a);
-        writer.write_u8(self.b);
-        writer.write_u8(self.g);
         writer.write_u8(self.r);
+        writer.write_u8(self.g);
+        writer.write_u8(self.b);
     }
 }
 

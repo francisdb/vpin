@@ -25,6 +25,12 @@ impl Version {
     }
 }
 
+impl Default for Version {
+    fn default() -> Self {
+        Version(1080)
+    }
+}
+
 impl Version {
     pub fn new(version: u32) -> Self {
         Version(version)

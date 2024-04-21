@@ -1,4 +1,5 @@
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
 use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -119,90 +120,6 @@ impl<'de> Deserialize<'de> for RampType {
         }
 
         deserializer.deserialize_any(RampTypeVisitor)
-    }
-}
-
-#[derive(Debug, PartialEq, Clone, Dummy)]
-pub enum RampImageAlignment {
-    World = 0,
-    Wrap = 1,
-}
-
-impl From<u32> for RampImageAlignment {
-    fn from(value: u32) -> Self {
-        match value {
-            0 => RampImageAlignment::World,
-            1 => RampImageAlignment::Wrap,
-            _ => panic!("Invalid RampImageAlignment {}", value),
-        }
-    }
-}
-
-impl From<&RampImageAlignment> for u32 {
-    fn from(value: &RampImageAlignment) -> Self {
-        match value {
-            RampImageAlignment::World => 0,
-            RampImageAlignment::Wrap => 1,
-        }
-    }
-}
-
-/// Serializes RampImageAlignment to lowercase string
-impl Serialize for RampImageAlignment {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match self {
-            RampImageAlignment::World => serializer.serialize_str("world"),
-            RampImageAlignment::Wrap => serializer.serialize_str("wrap"),
-        }
-    }
-}
-
-/// Deserializes RampImageAlignment from lowercase string
-/// or number for backwards compatibility
-impl<'de> Deserialize<'de> for RampImageAlignment {
-    fn deserialize<D>(deserializer: D) -> Result<RampImageAlignment, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct RampImageAlignmentVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for RampImageAlignmentVisitor {
-            type Value = RampImageAlignment;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a string or number representing a TargetType")
-            }
-
-            fn visit_u64<E>(self, value: u64) -> Result<RampImageAlignment, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    0 => Ok(RampImageAlignment::World),
-                    1 => Ok(RampImageAlignment::Wrap),
-                    _ => Err(serde::de::Error::unknown_variant(
-                        &value.to_string(),
-                        &["0", "1"],
-                    )),
-                }
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<RampImageAlignment, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    "world" => Ok(RampImageAlignment::World),
-                    "wrap" => Ok(RampImageAlignment::Wrap),
-                    _ => Err(serde::de::Error::unknown_variant(value, &["world", "wrap"])),
-                }
-            }
-        }
-
-        deserializer.deserialize_any(RampImageAlignmentVisitor)
     }
 }
 

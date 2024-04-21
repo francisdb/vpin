@@ -1,4 +1,5 @@
 use crate::vpx::color::ColorJson;
+use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
@@ -101,92 +102,6 @@ impl<'de> Deserialize<'de> for Filter {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Dummy, Default)]
-pub enum ImageAlignment {
-    ImageModeWorld = 0,
-    #[default]
-    ImageModeWrap = 1,
-}
-
-impl From<u32> for ImageAlignment {
-    fn from(value: u32) -> Self {
-        match value {
-            0 => ImageAlignment::ImageModeWorld,
-            1 => ImageAlignment::ImageModeWrap,
-            _ => panic!("Invalid ImageAlignment value {}", value),
-        }
-    }
-}
-
-impl From<&ImageAlignment> for u32 {
-    fn from(value: &ImageAlignment) -> Self {
-        match value {
-            ImageAlignment::ImageModeWorld => 0,
-            ImageAlignment::ImageModeWrap => 1,
-        }
-    }
-}
-
-/// Serialize ImageAlignment as a lowercase string
-impl Serialize for ImageAlignment {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let value = match self {
-            ImageAlignment::ImageModeWorld => "world",
-            ImageAlignment::ImageModeWrap => "wrap",
-        };
-        serializer.serialize_str(value)
-    }
-}
-
-/// Deserialize ImageAlignment from a lowercase string
-/// or number for backwards compatibility
-impl<'de> Deserialize<'de> for ImageAlignment {
-    fn deserialize<D>(deserializer: D) -> Result<ImageAlignment, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct ImageAlignmentVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for ImageAlignmentVisitor {
-            type Value = ImageAlignment;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a string or number representing a TargetType")
-            }
-
-            fn visit_u64<E>(self, value: u64) -> Result<ImageAlignment, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    0 => Ok(ImageAlignment::ImageModeWorld),
-                    1 => Ok(ImageAlignment::ImageModeWrap),
-                    _ => Err(serde::de::Error::invalid_value(
-                        serde::de::Unexpected::Unsigned(value),
-                        &"0 or 1",
-                    )),
-                }
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<ImageAlignment, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    "world" => Ok(ImageAlignment::ImageModeWorld),
-                    "wrap" => Ok(ImageAlignment::ImageModeWrap),
-                    _ => Err(serde::de::Error::unknown_variant(value, &["world", "wrap"])),
-                }
-            }
-        }
-
-        deserializer.deserialize_any(ImageAlignmentVisitor)
-    }
-}
-
 #[derive(Debug, PartialEq, Dummy)]
 pub struct Flasher {
     pub height: f32,
@@ -209,7 +124,7 @@ pub struct Flasher {
     // IDMD added in 10.2?
     pub display_texture: bool,
     pub depth_bias: f32,
-    pub image_alignment: ImageAlignment,
+    pub image_alignment: RampImageAlignment,
     pub filter: Filter,
     pub filter_amount: u32,
     // FIAM
@@ -245,7 +160,7 @@ pub(crate) struct FlasherJson {
     is_dmd: Option<bool>,
     display_texture: bool,
     depth_bias: f32,
-    image_alignment: ImageAlignment,
+    image_alignment: RampImageAlignment,
     filter: Filter,
     filter_amount: u32,
     light_map: Option<String>,
@@ -359,7 +274,7 @@ impl BiffRead for Flasher {
         let mut is_dmd = None;
         let mut display_texture = Default::default();
         let mut depth_bias = Default::default();
-        let mut image_alignment = ImageAlignment::ImageModeWrap;
+        let mut image_alignment = RampImageAlignment::Wrap;
         let mut filter = Filter::Overlay;
         let mut filter_amount: u32 = 100;
         let mut light_map: Option<String> = None;
@@ -604,25 +519,6 @@ mod tests {
         Flasher::biff_write(&flasher, &mut writer);
         let flasher_read = Flasher::biff_read(&mut BiffReader::new(writer.get_data()));
         assert_eq!(flasher, flasher_read);
-    }
-
-    #[test]
-    fn test_alignment_json() {
-        let sizing_type = ImageAlignment::ImageModeWrap;
-        let json = serde_json::to_string(&sizing_type).unwrap();
-        assert_eq!(json, "\"wrap\"");
-        let sizing_type_read: ImageAlignment = serde_json::from_str(&json).unwrap();
-        assert_eq!(sizing_type, sizing_type_read);
-        let json = serde_json::Value::from(0);
-        let sizing_type_read: ImageAlignment = serde_json::from_value(json).unwrap();
-        assert_eq!(ImageAlignment::ImageModeWorld, sizing_type_read);
-    }
-
-    #[test]
-    #[should_panic = "Error(\"unknown variant `foo`, expected `world` or `wrap`\", line: 0, column: 0)"]
-    fn test_alignment_json_fail() {
-        let json = serde_json::Value::from("foo");
-        let _: ImageAlignment = serde_json::from_value(json).unwrap();
     }
 
     #[test]
