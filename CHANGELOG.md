@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0](https://github.com/francisdb/vpin/compare/v0.12.0...v0.13.0) - 2024-04-24
+
+### Added
+- improve json color fields, add gamedata enums ([#66](https://github.com/francisdb/vpin/pull/66))
+
+### Other
+- back to macos-latest ([#67](https://github.com/francisdb/vpin/pull/67))
+- pin to macOS-13
+- example for programmatic table creation ([#65](https://github.com/francisdb/vpin/pull/65))
+- document discord channel
+
 ## [0.12.0](https://github.com/francisdb/vpin/compare/v0.11.2...v0.12.0) - 2024-04-19
 
 ### Added
