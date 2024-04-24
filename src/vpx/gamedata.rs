@@ -6,17 +6,110 @@ use super::{
     version::Version,
 };
 use crate::vpx::biff::{BiffRead, BiffWrite};
-use crate::vpx::color::{Color, ColorJson, ColorNoAlpha};
+use crate::vpx::color::Color;
 use crate::vpx::json::F32WithNanInf;
 use crate::vpx::material::{Material, SaveMaterial, SavePhysicsMaterial};
 use crate::vpx::math::{dequantize_u8, quantize_u8};
 use crate::vpx::renderprobe::RenderProbeWithGarbage;
 use bytes::{Buf, BufMut, BytesMut};
-use serde::{Deserialize, Serialize};
+use fake::Dummy;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-pub const VIEW_LAYOUT_MODE_LEGACY: u32 = 0; // All tables before 10.8 used a viewer position relative to a fitting of a set of bounding vertices (not all parts) with a standard perspective projection skewed by a layback angle
-pub const VIEW_LAYOUT_MODE_CAMERA: u32 = 1; // Position viewer relative to the bottom center of the table, use a standard camera perspective projection, replace layback by a frustrum offset
-pub const VIEW_LAYOUT_MODE_WINDOW: u32 = 2; // Position viewer relative to the bottom center of the table, use an oblique surface (re)projection (needs some postprocess to avoid distortion)
+#[derive(Debug, PartialEq, Dummy, Clone, Copy)]
+pub enum ViewLayoutMode {
+    /// All tables before 10.8 used a viewer position relative to a fitting of a set of bounding vertices (not all parts) with a standard perspective projection skewed by a layback angle
+    Legacy = 0,
+    /// Position viewer relative to the bottom center of the table, use a standard camera perspective projection, replace layback by a frustum offset
+    Camera = 1,
+    /// Position viewer relative to the bottom center of the screen, use an oblique surface (re)projection (would need some postprocess to limit distortion)
+    Window = 2,
+}
+
+impl From<u32> for ViewLayoutMode {
+    fn from(value: u32) -> Self {
+        match value {
+            0 => ViewLayoutMode::Legacy,
+            1 => ViewLayoutMode::Camera,
+            2 => ViewLayoutMode::Window,
+            _ => panic!("Invalid ViewLayoutMode {}", value),
+        }
+    }
+}
+
+impl From<&ViewLayoutMode> for u32 {
+    fn from(value: &ViewLayoutMode) -> Self {
+        match value {
+            ViewLayoutMode::Legacy => 0,
+            ViewLayoutMode::Camera => 1,
+            ViewLayoutMode::Window => 2,
+        }
+    }
+}
+
+// Serialize ViewLayoutMode as to lowercase string
+impl Serialize for ViewLayoutMode {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            ViewLayoutMode::Legacy => serializer.serialize_str("legacy"),
+            ViewLayoutMode::Camera => serializer.serialize_str("camera"),
+            ViewLayoutMode::Window => serializer.serialize_str("window"),
+        }
+    }
+}
+
+// Deserialize ViewLayoutMode from lowercase string
+// or number for backwards compatibility
+impl<'de> Deserialize<'de> for ViewLayoutMode {
+    fn deserialize<D>(deserializer: D) -> Result<ViewLayoutMode, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ViewLayoutModeVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for ViewLayoutModeVisitor {
+            type Value = ViewLayoutMode;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a ViewLayoutMode as lowercase string or number")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<ViewLayoutMode, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "legacy" => Ok(ViewLayoutMode::Legacy),
+                    "camera" => Ok(ViewLayoutMode::Camera),
+                    "window" => Ok(ViewLayoutMode::Window),
+                    _ => Err(serde::de::Error::unknown_variant(
+                        value,
+                        &["legacy", "camera", "window"],
+                    )),
+                }
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<ViewLayoutMode, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    0 => Ok(ViewLayoutMode::Legacy),
+                    1 => Ok(ViewLayoutMode::Camera),
+                    2 => Ok(ViewLayoutMode::Window),
+                    _ => Err(serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Unsigned(value),
+                        &"0, 1, or 2",
+                    )),
+                }
+            }
+        }
+
+        deserializer.deserialize_any(ViewLayoutModeVisitor)
+    }
+}
 
 // TODO switch to a array of 3 view modes like in the original code
 #[derive(Debug, PartialEq)]
@@ -50,13 +143,13 @@ pub struct ViewSetup {
     // float mWindowBottomXOfs = 0.0f; // Lower window border offset from left and right table bounds
     // float mWindowBottomYOfs = 0.0f; // Lower window border Y coordinate, relative to table bottom
     // float mWindowBottomZOfs = CMTOVPU(7.5f); // Lower window border Z coordinate, relative to table playfield Z
-    pub mode: u32,
+    pub mode: ViewLayoutMode,
 }
 
 impl ViewSetup {
     pub fn new() -> Self {
         ViewSetup {
-            mode: VIEW_LAYOUT_MODE_LEGACY,
+            mode: ViewLayoutMode::Legacy,
         }
     }
 }
@@ -67,147 +160,252 @@ impl Default for ViewSetup {
     }
 }
 
+#[derive(Debug, PartialEq, Dummy, Clone, Copy)]
+pub enum ToneMapper {
+    ///Reinhard, used to be the default until 10.8
+    Reinhard = 0,
+    /// Precomputed high quality phenomenological tonemapping https://github.com/h3r2tic/tony-mc-mapface
+    TonyMcMapface = 1,
+    /// Filmic tonemapper
+    Filmic = 2,
+}
+
+impl From<u32> for ToneMapper {
+    fn from(value: u32) -> Self {
+        match value {
+            0 => ToneMapper::Reinhard,
+            1 => ToneMapper::TonyMcMapface,
+            2 => ToneMapper::Filmic,
+            _ => panic!("Invalid ToneMapper {}", value),
+        }
+    }
+}
+
+impl From<&ToneMapper> for u32 {
+    fn from(value: &ToneMapper) -> Self {
+        match value {
+            ToneMapper::Reinhard => 0,
+            ToneMapper::TonyMcMapface => 1,
+            ToneMapper::Filmic => 2,
+        }
+    }
+}
+
+/// Serializes ToneMapper to lowercase string
+impl Serialize for ToneMapper {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            ToneMapper::Reinhard => serializer.serialize_str("reinhard"),
+            ToneMapper::TonyMcMapface => serializer.serialize_str("tony_mc_mapface"),
+            ToneMapper::Filmic => serializer.serialize_str("filmic"),
+        }
+    }
+}
+
+/// Deserializes ToneMapper from lowercase string
+/// or number for backwards compatibility
+impl<'de> Deserialize<'de> for ToneMapper {
+    fn deserialize<D>(deserializer: D) -> Result<ToneMapper, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ToneMapperVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for ToneMapperVisitor {
+            type Value = ToneMapper;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a ToneMapper as lowercase string or number")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<ToneMapper, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "reinhard" => Ok(ToneMapper::Reinhard),
+                    "tony_mc_mapface" => Ok(ToneMapper::TonyMcMapface),
+                    "filmic" => Ok(ToneMapper::Filmic),
+                    _ => Err(serde::de::Error::unknown_variant(
+                        value,
+                        &["reinhard", "tony_mc_mapface", "filmic"],
+                    )),
+                }
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<ToneMapper, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    0 => Ok(ToneMapper::Reinhard),
+                    1 => Ok(ToneMapper::TonyMcMapface),
+                    2 => Ok(ToneMapper::Filmic),
+                    _ => Err(serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Unsigned(value),
+                        &"0, 1, or 2",
+                    )),
+                }
+            }
+        }
+
+        deserializer.deserialize_any(ToneMapperVisitor)
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct GameData {
-    pub left: f32,                                                 // LEFT 1
-    pub top: f32,                                                  // TOPX 2
-    pub right: f32,                                                // RGHT 3
-    pub bottom: f32,                                               // BOTM 4
-    pub clmo: Option<u32>,                                         // CLMO added in 10.8.0?
-    pub bg_view_mode_desktop: Option<u32>,                         // VSM0 added in 10.8.x
-    pub bg_rotation_desktop: f32,                                  // ROTA 5
-    pub bg_inclination_desktop: f32,                               // INCL 6
-    pub bg_layback_desktop: f32,                                   // LAYB 7
-    pub bg_fov_desktop: f32,                                       // FOVX 8
-    pub bg_offset_x_desktop: f32,                                  // XLTX 9
-    pub bg_offset_y_desktop: f32,                                  // XLTY 10
-    pub bg_offset_z_desktop: f32,                                  // XLTZ 11
-    pub bg_scale_x_desktop: f32,                                   // SCLX 12
-    pub bg_scale_y_desktop: f32,                                   // SCLY 13
-    pub bg_scale_z_desktop: f32,                                   // SCLZ 14
-    pub bg_enable_fss: Option<bool>,                               // EFSS 15 (added in 10.?)
-    pub bg_view_horizontal_offset_desktop: Option<f32>,            // HOF0 added in 10.8.x
-    pub bg_view_vertical_offset_desktop: Option<f32>,              // VOF0 added in 10.8.x
-    pub bg_window_top_x_offset_desktop: Option<f32>,               // WTX0 added in 10.8.x
-    pub bg_window_top_y_offset_desktop: Option<f32>,               // WTY0 added in 10.8.x
-    pub bg_window_top_z_offset_desktop: Option<f32>,               // WTZ0 added in 10.8.x
-    pub bg_window_bottom_x_offset_desktop: Option<f32>,            // WBX0 added in 10.8.x
-    pub bg_window_bottom_y_offset_desktop: Option<f32>,            // WBY0 added in 10.8.x
-    pub bg_window_bottom_z_offset_desktop: Option<f32>,            // WBZ0 added in 10.8.x
-    pub bg_view_mode_fullscreen: Option<u32>,                      // VSM1 added in 10.8.x
-    pub bg_rotation_fullscreen: f32,                               // ROTF 16
-    pub bg_inclination_fullscreen: f32,                            // INCF 17
-    pub bg_layback_fullscreen: f32,                                // LAYF 18
-    pub bg_fov_fullscreen: f32,                                    // FOVF 19
-    pub bg_offset_x_fullscreen: f32,                               // XLFX 20
-    pub bg_offset_y_fullscreen: f32,                               // XLFY 21
-    pub bg_offset_z_fullscreen: f32,                               // XLFZ 22
-    pub bg_scale_x_fullscreen: f32,                                // SCFX 23
-    pub bg_scale_y_fullscreen: f32,                                // SCFY 24
-    pub bg_scale_z_fullscreen: f32,                                // SCFZ 25
-    pub bg_view_horizontal_offset_fullscreen: Option<f32>,         // HOF1 added in 10.8.x
-    pub bg_view_vertical_offset_fullscreen: Option<f32>,           // VOF1 added in 10.8.x
-    pub bg_window_top_x_offset_fullscreen: Option<f32>,            // WTX1 added in 10.8.x
-    pub bg_window_top_y_offset_fullscreen: Option<f32>,            // WTY1 added in 10.8.x
-    pub bg_window_top_z_offset_fullscreen: Option<f32>,            // WTZ1 added in 10.8.x
-    pub bg_window_bottom_x_offset_fullscreen: Option<f32>,         // WBX1 added in 10.8.x
-    pub bg_window_bottom_y_offset_fullscreen: Option<f32>,         // WBY1 added in 10.8.x
-    pub bg_window_bottom_z_offset_fullscreen: Option<f32>,         // WBZ1 added in 10.8.x
-    pub bg_view_mode_full_single_screen: Option<u32>,              // VSM2 added in 10.8.x
-    pub bg_rotation_full_single_screen: Option<f32>,               // ROFS 26 (added in 10.?)
-    pub bg_inclination_full_single_screen: Option<f32>,            // INFS 27 (added in 10.?)
-    pub bg_layback_full_single_screen: Option<f32>,                // LAFS 28 (added in 10.?)
-    pub bg_fov_full_single_screen: Option<f32>,                    // FOFS 29 (added in 10.?)
-    pub bg_offset_x_full_single_screen: Option<f32>,               // XLXS 30 (added in 10.?)
-    pub bg_offset_y_full_single_screen: Option<f32>,               // XLYS 31 (added in 10.?)
-    pub bg_offset_z_full_single_screen: Option<f32>,               // XLZS 32 (added in 10.?)
-    pub bg_scale_x_full_single_screen: Option<f32>,                // SCXS 33 (added in 10.?)
-    pub bg_scale_y_full_single_screen: Option<f32>,                // SCYS 34 (added in 10.?)
-    pub bg_scale_z_full_single_screen: Option<f32>,                // SCZS 35 (added in 10.?)
+    pub left: f32,   // LEFT 1
+    pub top: f32,    // TOPX 2
+    pub right: f32,  // RGHT 3
+    pub bottom: f32, // BOTM 4
+    /// CLMO
+    /// During the 10.8.0 development cycle, this field was added but later again removed
+    /// Has meanwhile been replaced by the new [`GameData::bg_view_mode_desktop`],
+    /// [`GameData::bg_view_mode_fullscreen`] and [`GameData::bg_view_mode_ffs`] fields
+    /// See [the related commit](https://github.com/vpinball/vpinball/commit/5087b3c51b99676f91b02ee4b0c0af4b89b6afda)
+    /// CLM_RELATIVE = 0, // All tables before 10.8 used a camera position relative to a fitting of a set of bounding vertices (not all parts)
+    /// CLM_ABSOLUTE = 1 // Position camera relative to the bottom center of the table
+    pub camera_layout_mode: Option<u32>,
+    pub bg_view_mode_desktop: Option<ViewLayoutMode>, // VSM0 added in 10.8.x
+    pub bg_rotation_desktop: f32,                     // ROTA 5
+    pub bg_inclination_desktop: f32,                  // INCL 6
+    pub bg_layback_desktop: f32,                      // LAYB 7
+    pub bg_fov_desktop: f32,                          // FOVX 8
+    pub bg_offset_x_desktop: f32,                     // XLTX 9
+    pub bg_offset_y_desktop: f32,                     // XLTY 10
+    pub bg_offset_z_desktop: f32,                     // XLTZ 11
+    pub bg_scale_x_desktop: f32,                      // SCLX 12
+    pub bg_scale_y_desktop: f32,                      // SCLY 13
+    pub bg_scale_z_desktop: f32,                      // SCLZ 14
+    pub bg_enable_fss: Option<bool>,                  // EFSS 15 (added in 10.?)
+    pub bg_view_horizontal_offset_desktop: Option<f32>, // HOF0 added in 10.8.x
+    pub bg_view_vertical_offset_desktop: Option<f32>, // VOF0 added in 10.8.x
+    pub bg_window_top_x_offset_desktop: Option<f32>,  // WTX0 added in 10.8.x
+    pub bg_window_top_y_offset_desktop: Option<f32>,  // WTY0 added in 10.8.x
+    pub bg_window_top_z_offset_desktop: Option<f32>,  // WTZ0 added in 10.8.x
+    pub bg_window_bottom_x_offset_desktop: Option<f32>, // WBX0 added in 10.8.x
+    pub bg_window_bottom_y_offset_desktop: Option<f32>, // WBY0 added in 10.8.x
+    pub bg_window_bottom_z_offset_desktop: Option<f32>, // WBZ0 added in 10.8.x
+    pub bg_view_mode_fullscreen: Option<ViewLayoutMode>, // VSM1 added in 10.8.x
+    pub bg_rotation_fullscreen: f32,                  // ROTF 16
+    pub bg_inclination_fullscreen: f32,               // INCF 17
+    pub bg_layback_fullscreen: f32,                   // LAYF 18
+    pub bg_fov_fullscreen: f32,                       // FOVF 19
+    pub bg_offset_x_fullscreen: f32,                  // XLFX 20
+    pub bg_offset_y_fullscreen: f32,                  // XLFY 21
+    pub bg_offset_z_fullscreen: f32,                  // XLFZ 22
+    pub bg_scale_x_fullscreen: f32,                   // SCFX 23
+    pub bg_scale_y_fullscreen: f32,                   // SCFY 24
+    pub bg_scale_z_fullscreen: f32,                   // SCFZ 25
+    pub bg_view_horizontal_offset_fullscreen: Option<f32>, // HOF1 added in 10.8.x
+    pub bg_view_vertical_offset_fullscreen: Option<f32>, // VOF1 added in 10.8.x
+    pub bg_window_top_x_offset_fullscreen: Option<f32>, // WTX1 added in 10.8.x
+    pub bg_window_top_y_offset_fullscreen: Option<f32>, // WTY1 added in 10.8.x
+    pub bg_window_top_z_offset_fullscreen: Option<f32>, // WTZ1 added in 10.8.x
+    pub bg_window_bottom_x_offset_fullscreen: Option<f32>, // WBX1 added in 10.8.x
+    pub bg_window_bottom_y_offset_fullscreen: Option<f32>, // WBY1 added in 10.8.x
+    pub bg_window_bottom_z_offset_fullscreen: Option<f32>, // WBZ1 added in 10.8.x
+    pub bg_view_mode_full_single_screen: Option<ViewLayoutMode>, // VSM2 added in 10.8.x
+    pub bg_rotation_full_single_screen: Option<f32>,  // ROFS 26 (added in 10.?)
+    pub bg_inclination_full_single_screen: Option<f32>, // INFS 27 (added in 10.?)
+    pub bg_layback_full_single_screen: Option<f32>,   // LAFS 28 (added in 10.?)
+    pub bg_fov_full_single_screen: Option<f32>,       // FOFS 29 (added in 10.?)
+    pub bg_offset_x_full_single_screen: Option<f32>,  // XLXS 30 (added in 10.?)
+    pub bg_offset_y_full_single_screen: Option<f32>,  // XLYS 31 (added in 10.?)
+    pub bg_offset_z_full_single_screen: Option<f32>,  // XLZS 32 (added in 10.?)
+    pub bg_scale_x_full_single_screen: Option<f32>,   // SCXS 33 (added in 10.?)
+    pub bg_scale_y_full_single_screen: Option<f32>,   // SCYS 34 (added in 10.?)
+    pub bg_scale_z_full_single_screen: Option<f32>,   // SCZS 35 (added in 10.?)
     pub bg_view_horizontal_offset_full_single_screen: Option<f32>, // HOF2 added in 10.8.x
-    pub bg_view_vertical_offset_full_single_screen: Option<f32>,   // VOF2 added in 10.8.x
-    pub bg_window_top_x_offset_full_single_screen: Option<f32>,    // WTX2 added in 10.8.x
-    pub bg_window_top_y_offset_full_single_screen: Option<f32>,    // WTY2 added in 10.8.x
-    pub bg_window_top_z_offset_full_single_screen: Option<f32>,    // WTZ2 added in 10.8.x
+    pub bg_view_vertical_offset_full_single_screen: Option<f32>, // VOF2 added in 10.8.x
+    pub bg_window_top_x_offset_full_single_screen: Option<f32>, // WTX2 added in 10.8.x
+    pub bg_window_top_y_offset_full_single_screen: Option<f32>, // WTY2 added in 10.8.x
+    pub bg_window_top_z_offset_full_single_screen: Option<f32>, // WTZ2 added in 10.8.x
     pub bg_window_bottom_x_offset_full_single_screen: Option<f32>, // WBX2 added in 10.8.x
     pub bg_window_bottom_y_offset_full_single_screen: Option<f32>, // WBY2 added in 10.8.x
     pub bg_window_bottom_z_offset_full_single_screen: Option<f32>, // WBZ2 added in 10.8.x
-    pub override_physics: u32,                                     // ORRP 36
-    pub override_physics_flipper: Option<bool>,                    // ORPF 37 added in ?
-    pub gravity: f32,                                              // GAVT 38
-    pub friction: f32,                                             // FRCT 39
-    pub elasticity: f32,                                           // ELAS 40
-    pub elastic_falloff: f32,                                      // ELFA 41
-    pub scatter: f32,                                              // PFSC 42
-    pub default_scatter: f32,                                      // SCAT 43
-    pub nudge_time: f32,                                           // NDGT 44
-    pub plunger_normalize: u32,                                    // MPGC 45
-    pub plunger_filter: bool,                                      // MPDF 46
-    pub physics_max_loops: u32,                                    // PHML 47
-    pub render_em_reels: bool,                                     // REEL 48
-    pub render_decals: bool,                                       // DECL 49
-    pub offset_x: f32,                                             // OFFX 50
-    pub offset_y: f32,                                             // OFFY 51
-    pub zoom: f32,                                                 // ZOOM 52
-    pub angle_tilt_max: f32,                                       // SLPX 53
-    pub angle_tilt_min: f32,                                       // SLOP 54
-    pub stereo_max_separation: f32,                                // MAXS 55
-    pub stereo_zero_parallax_displacement: f32,                    // ZPD 56
-    pub stereo_offset: Option<f32>,                                // STO 57 (was missing in  10.01)
-    pub overwrite_global_stereo3d: bool,                           // OGST 58
-    pub image: String,                                             // IMAG 59
-    pub backglass_image_full_desktop: String,                      // BIMG 60
-    pub backglass_image_full_fullscreen: String,                   // BIMF 61
-    pub backglass_image_full_single_screen: Option<String>,        // BIMS 62 (added in 10.?)
-    pub image_backdrop_night_day: bool,                            // BIMN 63
-    pub image_color_grade: String,                                 // IMCG 64
-    pub ball_image: String,                                        // BLIM 65
-    pub ball_spherical_mapping: Option<bool>,                      // BLSM (added in 10.8)
-    pub ball_image_front: String,                                  // BLIF 66
-    pub env_image: Option<String>,                                 // EIMG 67 (was missing in 10.01)
-    pub notes: Option<String>,                                     // NOTX 67.5 (added in 10.7)
-    pub screen_shot: String,                                       // SSHT 68
-    pub display_backdrop: bool,                                    // FBCK 69
-    pub glass_top_height: f32,                                     // GLAS 70
-    pub glass_bottom_height: Option<f32>,                          // GLAB 70.5 (added in 10.8)
-    pub table_height: Option<f32>,                                 // TBLH 71 (optional in 10.8)
-    pub playfield_material: String,                                // PLMA 72
-    pub backdrop_color: ColorNoAlpha,                              // BCLR 73 (color bgr)
-    pub global_difficulty: f32,                                    // TDFT 74
-    pub light_ambient: u32,                                        // LZAM 75 (color)
-    pub light0_emission: u32,                                      // LZDI 76 (color)
-    pub light_height: f32,                                         // LZHI 77
-    pub light_range: f32,                                          // LZRA 78
-    pub light_emission_scale: f32,                                 // LIES 79
-    pub env_emission_scale: f32,                                   // ENES 80
-    pub global_emission_scale: f32,                                // GLES 81
-    pub ao_scale: f32,                                             // AOSC 82
-    pub ssr_scale: Option<f32>,                                    // SSSC 83 (added in 10.?)
-    pub table_sound_volume: f32,                                   // SVOL 84
-    pub table_music_volume: f32,                                   // MVOL 85
-    pub table_adaptive_vsync: Option<i32>, // AVSY 86 (became optional in 10.8)
-    pub use_reflection_for_balls: Option<i32>, // BREF 87 (became optional in 10.8)
-    pub brst: Option<i32>,                 // BRST (in use in 10.01)
-    pub playfield_reflection_strength: f32, // PLST 88
-    pub use_trail_for_balls: Option<i32>,  // BTRA 89 (became optional in 10.8)
-    pub ball_decal_mode: bool,             // BDMO 90
+    pub override_physics: u32,                        // ORRP 36
+    pub override_physics_flipper: Option<bool>,       // ORPF 37 added in ?
+    pub gravity: f32,                                 // GAVT 38
+    pub friction: f32,                                // FRCT 39
+    pub elasticity: f32,                              // ELAS 40
+    pub elastic_falloff: f32,                         // ELFA 41
+    pub scatter: f32,                                 // PFSC 42
+    pub default_scatter: f32,                         // SCAT 43
+    pub nudge_time: f32,                              // NDGT 44
+    pub plunger_normalize: u32,                       // MPGC 45
+    pub plunger_filter: bool,                         // MPDF 46
+    pub physics_max_loops: u32,                       // PHML 47
+    pub render_em_reels: bool,                        // REEL 48
+    pub render_decals: bool,                          // DECL 49
+    pub offset_x: f32,                                // OFFX 50
+    pub offset_y: f32,                                // OFFY 51
+    pub zoom: f32,                                    // ZOOM 52
+    pub angle_tilt_max: f32,                          // SLPX 53
+    pub angle_tilt_min: f32,                          // SLOP 54
+    pub stereo_max_separation: f32,                   // MAXS 55
+    pub stereo_zero_parallax_displacement: f32,       // ZPD 56
+    pub stereo_offset: Option<f32>,                   // STO 57 (was missing in  10.01)
+    pub overwrite_global_stereo3d: bool,              // OGST 58
+    pub image: String,                                // IMAG 59
+    pub backglass_image_full_desktop: String,         // BIMG 60
+    pub backglass_image_full_fullscreen: String,      // BIMF 61
+    pub backglass_image_full_single_screen: Option<String>, // BIMS 62 (added in 10.?)
+    pub image_backdrop_night_day: bool,               // BIMN 63
+    pub image_color_grade: String,                    // IMCG 64
+    pub ball_image: String,                           // BLIM 65
+    pub ball_spherical_mapping: Option<bool>,         // BLSM (added in 10.8)
+    pub ball_image_front: String,                     // BLIF 66
+    pub env_image: Option<String>,                    // EIMG 67 (was missing in 10.01)
+    pub notes: Option<String>,                        // NOTX 67.5 (added in 10.7)
+    pub screen_shot: String,                          // SSHT 68
+    pub display_backdrop: bool,                       // FBCK 69
+    pub glass_top_height: f32,                        // GLAS 70
+    pub glass_bottom_height: Option<f32>,             // GLAB 70.5 (added in 10.8)
+    pub table_height: Option<f32>,                    // TBLH 71 (optional in 10.8)
+    pub playfield_material: String,                   // PLMA 72
+    pub backdrop_color: Color,                        // BCLR 73 (color bgr)
+    pub global_difficulty: f32,                       // TDFT 74
+    /// changes the ambient light contribution for each material, please always try to keep this at full Black
+    pub light_ambient: Color, // LZAM 75 (color)
+    /// changes the light contribution for each material (currently light0 emission is copied to light1, too)
+    pub light0_emission: Color, // LZDI 76 (color)
+    pub light_height: f32,                            // LZHI 77
+    pub light_range: f32,                             // LZRA 78
+    pub light_emission_scale: f32,                    // LIES 79
+    pub env_emission_scale: f32,                      // ENES 80
+    pub global_emission_scale: f32,                   // GLES 81
+    pub ao_scale: f32,                                // AOSC 82
+    pub ssr_scale: Option<f32>,                       // SSSC 83 (added in 10.?)
+    pub table_sound_volume: f32,                      // SVOL 84
+    pub table_music_volume: f32,                      // MVOL 85
+    pub table_adaptive_vsync: Option<i32>,            // AVSY 86 (became optional in 10.8)
+    pub use_reflection_for_balls: Option<i32>,        // BREF 87 (became optional in 10.8)
+    pub brst: Option<i32>,                            // BRST (in use in 10.01)
+    pub playfield_reflection_strength: f32,           // PLST 88
+    pub use_trail_for_balls: Option<i32>,             // BTRA 89 (became optional in 10.8)
+    pub ball_decal_mode: bool,                        // BDMO 90
     pub ball_playfield_reflection_strength: Option<f32>, // BPRS 91 (was missing in 10.01)
     pub default_bulb_intensity_scale_on_ball: Option<f32>, // DBIS 92 (added in 10.?)
     /// this has a special quantization,
     /// See [`Self::get_ball_trail_strength`] and [`Self::set_ball_trail_strength`]
     pub ball_trail_strength: Option<u32>, // BTST 93 (became optional in 10.8)
-    pub user_detail_level: Option<u32>,    // ARAC 94 (became optional in 10.8)
-    pub overwrite_global_detail_level: Option<bool>, // OGAC 95 (became optional in 10.8)
-    pub overwrite_global_day_night: Option<bool>, // OGDN 96 (became optional in 10.8)
-    pub show_grid: bool,                   // GDAC 97
-    pub reflect_elements_on_playfield: Option<bool>, // REOP 98 (became optional in 10.8)
-    pub use_aal: Option<i32>,              // UAAL 99 (became optional in 10.8)
-    pub use_fxaa: Option<i32>,             // UFXA 100 (became optional in 10.8)
-    pub use_ao: Option<i32>,               // UAOC 101 (became optional in 10.8)
-    pub use_ssr: Option<i32>,              // USSR 102 (added in 10.?)
-    pub tone_mapper: Option<i32>,          // TMAP 102.5 (added in 10.8)
-    pub bloom_strength: f32,               // BLST 103
-    pub materials_size: u32,               // MASI 104
+    pub user_detail_level: Option<u32>,               // ARAC 94 (became optional in 10.8)
+    pub overwrite_global_detail_level: Option<bool>,  // OGAC 95 (became optional in 10.8)
+    pub overwrite_global_day_night: Option<bool>,     // OGDN 96 (became optional in 10.8)
+    pub show_grid: bool,                              // GDAC 97
+    pub reflect_elements_on_playfield: Option<bool>,  // REOP 98 (became optional in 10.8)
+    pub use_aal: Option<i32>,                         // UAAL 99 (became optional in 10.8)
+    pub use_fxaa: Option<i32>,                        // UFXA 100 (became optional in 10.8)
+    pub use_ao: Option<i32>,                          // UAOC 101 (became optional in 10.8)
+    pub use_ssr: Option<i32>,                         // USSR 102 (added in 10.?)
+    pub tone_mapper: Option<ToneMapper>,              // TMAP 102.5 (added in 10.8)
+    pub bloom_strength: f32,                          // BLST 103
+    pub materials_size: u32,                          // MASI 104
     /// Legacy material saving for backward compatibility
     pub materials_old: Vec<SaveMaterial>, // MATE 105 (only for <10.8)
     /// Legacy material saving for backward compatibility
@@ -242,8 +440,9 @@ pub(crate) struct GameDataJson {
     pub top: f32,
     pub right: f32,
     pub bottom: f32,
-    pub clmo: Option<u32>,
-    pub bg_view_mode_desktop: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub camera_layout_mode: Option<u32>,
+    pub bg_view_mode_desktop: Option<ViewLayoutMode>,
     pub bg_rotation_desktop: f32,
     pub bg_inclination_desktop: f32,
     pub bg_layback_desktop: f32,
@@ -263,7 +462,7 @@ pub(crate) struct GameDataJson {
     pub bg_window_bottom_x_offset_desktop: Option<f32>,
     pub bg_window_bottom_y_offset_desktop: Option<f32>,
     pub bg_window_bottom_z_offset_desktop: Option<f32>,
-    pub bg_view_mode_fullscreen: Option<u32>,
+    pub bg_view_mode_fullscreen: Option<ViewLayoutMode>,
     pub bg_rotation_fullscreen: f32,
     pub bg_inclination_fullscreen: f32,
     pub bg_layback_fullscreen: f32,
@@ -282,7 +481,7 @@ pub(crate) struct GameDataJson {
     pub bg_window_bottom_x_offset_fullscreen: Option<f32>,
     pub bg_window_bottom_y_offset_fullscreen: Option<f32>,
     pub bg_window_bottom_z_offset_fullscreen: Option<f32>,
-    pub bg_view_mode_full_single_screen: Option<u32>,
+    pub bg_view_mode_full_single_screen: Option<ViewLayoutMode>,
     pub bg_rotation_full_single_screen: Option<f32>,
     pub bg_inclination_full_single_screen: Option<f32>,
     pub bg_layback_full_single_screen: Option<f32>,
@@ -341,10 +540,10 @@ pub(crate) struct GameDataJson {
     pub glass_bottom_height: Option<f32>,
     pub table_height: Option<f32>,
     pub playfield_material: String,
-    pub backdrop_color: ColorNoAlpha,
+    pub backdrop_color: Color,
     pub global_difficulty: f32,
-    pub light_ambient: u32,
-    pub light0_emission: u32,
+    pub light_ambient: Color,
+    pub light0_emission: Color,
     pub light_height: f32,
     pub light_range: f32,
     pub light_emission_scale: f32,
@@ -372,10 +571,10 @@ pub(crate) struct GameDataJson {
     pub use_fxaa: Option<i32>,
     pub use_ao: Option<i32>,
     pub use_ssr: Option<i32>,
-    pub tone_mapper: Option<i32>,
+    pub tone_mapper: Option<ToneMapper>,
     pub bloom_strength: f32,
     pub name: String,
-    pub custom_colors: [ColorJson; 16],
+    pub custom_colors: [Color; 16],
     pub protection_data: Option<Vec<u8>>,
     //pub code: StringWithEncoding,
     pub locked: Option<u32>,
@@ -385,20 +584,12 @@ pub(crate) struct GameDataJson {
 
 impl GameDataJson {
     pub fn to_game_data(&self) -> GameData {
-        let custom_colors: [Color; 16] = self
-            .custom_colors
-            .iter()
-            .map(|c| c.to_color())
-            .collect::<Vec<Color>>()
-            .try_into()
-            .unwrap();
-
         GameData {
             left: self.left,
             top: self.top,
             right: self.right,
             bottom: self.bottom,
-            clmo: self.clmo,
+            camera_layout_mode: self.camera_layout_mode,
             bg_view_mode_desktop: self.bg_view_mode_desktop,
             bg_rotation_desktop: self.bg_rotation_desktop,
             bg_inclination_desktop: self.bg_inclination_desktop,
@@ -559,7 +750,7 @@ impl GameDataJson {
             // this data is loaded from a separate file
             collections_size: 0,
             name: self.name.clone(),
-            custom_colors,
+            custom_colors: self.custom_colors,
             protection_data: self.protection_data.clone(),
             code: StringWithEncoding::empty(),
             locked: self.locked,
@@ -568,14 +759,12 @@ impl GameDataJson {
     }
 
     pub fn from_game_data(game_data: &GameData) -> GameDataJson {
-        let custom_colors: [ColorJson; 16] =
-            game_data.custom_colors.map(|c| ColorJson::from_color(&c));
         GameDataJson {
             left: game_data.left,
             top: game_data.top,
             right: game_data.right,
             bottom: game_data.bottom,
-            clmo: game_data.clmo,
+            camera_layout_mode: game_data.camera_layout_mode,
             bg_view_mode_desktop: game_data.bg_view_mode_desktop,
             bg_rotation_desktop: game_data.bg_rotation_desktop,
             bg_inclination_desktop: game_data.bg_inclination_desktop,
@@ -722,7 +911,7 @@ impl GameDataJson {
             tone_mapper: game_data.tone_mapper,
             bloom_strength: game_data.bloom_strength,
             name: game_data.name.clone(),
-            custom_colors,
+            custom_colors: game_data.custom_colors,
             protection_data: game_data.protection_data.clone(),
             // code: game_data.code.clone(),
             locked: game_data.locked,
@@ -753,7 +942,7 @@ impl Default for GameData {
             top: 0.0,
             right: 952.0,
             bottom: 2162.0,
-            clmo: None,
+            camera_layout_mode: None,
             bg_view_mode_desktop: None,
             bg_rotation_desktop: 0.0,
             bg_inclination_desktop: 0.0,
@@ -827,10 +1016,10 @@ impl Default for GameData {
             glass_bottom_height: None, // new default 210 for both
             table_height: None,        //0.0,
             playfield_material: "".to_string(),
-            backdrop_color: ColorNoAlpha::from_rgb(0x626E8E), // Waikawa/Bluish Gray
+            backdrop_color: Color::from_rgb(0x626E8E), // Waikawa/Bluish Gray
             global_difficulty: 0.2,
-            light_ambient: 0x000000ff, // TODO what is the format for all these?
-            light0_emission: 0xfffff0ff, // TODO is this correct?
+            light_ambient: Color::rgb((0.1 * 255.) as u8, (0.1 * 255.) as u8, (0.1 * 255.) as u8),
+            light0_emission: Color::rgb((0.4 * 255.) as u8, (0.4 * 255.) as u8, (0.4 * 255.) as u8),
             light_height: 5000.0,
             light_range: 4000000.0,
             light_emission_scale: 4000000.0,
@@ -918,7 +1107,7 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
     writer.write_tagged_f32("TOPX", gamedata.top);
     writer.write_tagged_f32("RGHT", gamedata.right);
     writer.write_tagged_f32("BOTM", gamedata.bottom);
-    if let Some(clmo) = gamedata.clmo {
+    if let Some(clmo) = gamedata.camera_layout_mode {
         writer.write_tagged_u32("CLMO", clmo);
     }
 
@@ -927,8 +1116,8 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
             writer.write_tagged_bool("EFSS", efss);
         }
     }
-    if let Some(vsm0) = gamedata.bg_view_mode_desktop {
-        writer.write_tagged_u32("VSM0", vsm0);
+    if let Some(vsm0) = &gamedata.bg_view_mode_desktop {
+        writer.write_tagged_u32("VSM0", vsm0.into());
     }
     writer.write_tagged_f32("ROTA", gamedata.bg_rotation_desktop);
     writer.write_tagged_f32("INCL", gamedata.bg_inclination_desktop);
@@ -966,8 +1155,8 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
         writer.write_tagged_f32("WBZ0", wbz0);
     }
 
-    if let Some(vsm1) = gamedata.bg_view_mode_fullscreen {
-        writer.write_tagged_u32("VSM1", vsm1);
+    if let Some(vsm1) = &gamedata.bg_view_mode_fullscreen {
+        writer.write_tagged_u32("VSM1", vsm1.into());
     }
 
     if version.u32() < 1080 || gamedata.is_10_8_0_beta1_to_beta4 {
@@ -1010,8 +1199,8 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
         writer.write_tagged_f32("WBZ1", wbz1);
     }
 
-    if let Some(vsm2) = gamedata.bg_view_mode_full_single_screen {
-        writer.write_tagged_u32("VSM2", vsm2);
+    if let Some(vsm2) = &gamedata.bg_view_mode_full_single_screen {
+        writer.write_tagged_u32("VSM2", vsm2.into());
     }
     if let Some(rofs) = gamedata.bg_rotation_full_single_screen {
         writer.write_tagged_f32("ROFS", rofs);
@@ -1125,10 +1314,10 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
         writer.write_tagged_f32("TBLH", table_height);
     }
     writer.write_tagged_string("PLMA", &gamedata.playfield_material);
-    writer.write_tagged_with("BCLR", &gamedata.backdrop_color, ColorNoAlpha::biff_write);
+    writer.write_tagged_with("BCLR", &gamedata.backdrop_color, Color::biff_write);
     writer.write_tagged_f32("TDFT", gamedata.global_difficulty);
-    writer.write_tagged_u32("LZAM", gamedata.light_ambient);
-    writer.write_tagged_u32("LZDI", gamedata.light0_emission);
+    writer.write_tagged_with("LZAM", &gamedata.light_ambient, Color::biff_write);
+    writer.write_tagged_with("LZDI", &gamedata.light0_emission, Color::biff_write);
     writer.write_tagged_f32("LZHI", gamedata.light_height);
     writer.write_tagged_f32("LZRA", gamedata.light_range);
     writer.write_tagged_f32("LIES", gamedata.light_emission_scale);
@@ -1188,8 +1377,8 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
     if let Some(ussr) = gamedata.use_ssr {
         writer.write_tagged_i32("USSR", ussr);
     }
-    if let Some(tmap) = gamedata.tone_mapper {
-        writer.write_tagged_i32("TMAP", tmap);
+    if let Some(tmap) = &gamedata.tone_mapper {
+        writer.write_tagged_u32("TMAP", tmap.into());
     }
     writer.write_tagged_f32("BLST", gamedata.bloom_strength);
     writer.write_tagged_u32("MASI", gamedata.materials_size);
@@ -1261,8 +1450,8 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             "TOPX" => gamedata.top = reader.get_f32(),
             "RGHT" => gamedata.right = reader.get_f32(),
             "BOTM" => gamedata.bottom = reader.get_f32(),
-            "CLMO" => gamedata.clmo = Some(reader.get_u32()),
-            "VSM0" => gamedata.bg_view_mode_desktop = Some(reader.get_u32()),
+            "CLMO" => gamedata.camera_layout_mode = Some(reader.get_u32()),
+            "VSM0" => gamedata.bg_view_mode_desktop = Some(reader.get_u32().into()),
             "ROTA" => gamedata.bg_rotation_desktop = reader.get_f32(),
             "INCL" => gamedata.bg_inclination_desktop = reader.get_f32(),
             "LAYB" => gamedata.bg_layback_desktop = reader.get_f32(),
@@ -1287,7 +1476,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             "WBX0" => gamedata.bg_window_bottom_x_offset_desktop = Some(reader.get_f32()),
             "WBY0" => gamedata.bg_window_bottom_y_offset_desktop = Some(reader.get_f32()),
             "WBZ0" => gamedata.bg_window_bottom_z_offset_desktop = Some(reader.get_f32()),
-            "VSM1" => gamedata.bg_view_mode_fullscreen = Some(reader.get_u32()),
+            "VSM1" => gamedata.bg_view_mode_fullscreen = Some(reader.get_u32().into()),
             "ROTF" => gamedata.bg_rotation_fullscreen = reader.get_f32(),
             "INCF" => gamedata.bg_inclination_fullscreen = reader.get_f32(),
             "LAYF" => gamedata.bg_layback_fullscreen = reader.get_f32(),
@@ -1306,7 +1495,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             "WBX1" => gamedata.bg_window_bottom_x_offset_fullscreen = Some(reader.get_f32()),
             "WBY1" => gamedata.bg_window_bottom_y_offset_fullscreen = Some(reader.get_f32()),
             "WBZ1" => gamedata.bg_window_bottom_z_offset_fullscreen = Some(reader.get_f32()),
-            "VSM2" => gamedata.bg_view_mode_full_single_screen = Some(reader.get_u32()),
+            "VSM2" => gamedata.bg_view_mode_full_single_screen = Some(reader.get_u32().into()),
             "ROFS" => gamedata.bg_rotation_full_single_screen = Some(reader.get_f32()),
             "INFS" => gamedata.bg_inclination_full_single_screen = Some(reader.get_f32()),
             "LAFS" => gamedata.bg_layback_full_single_screen = Some(reader.get_f32()),
@@ -1373,10 +1562,10 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             "GLAB" => gamedata.glass_bottom_height = Some(reader.get_f32()),
             "TBLH" => gamedata.table_height = Some(reader.get_f32()),
             "PLMA" => gamedata.playfield_material = reader.get_string(),
-            "BCLR" => gamedata.backdrop_color = ColorNoAlpha::biff_read(reader),
+            "BCLR" => gamedata.backdrop_color = Color::biff_read(reader),
             "TDFT" => gamedata.global_difficulty = reader.get_f32(),
-            "LZAM" => gamedata.light_ambient = reader.get_u32(),
-            "LZDI" => gamedata.light0_emission = reader.get_u32(),
+            "LZAM" => gamedata.light_ambient = Color::biff_read(reader),
+            "LZDI" => gamedata.light0_emission = Color::biff_read(reader),
             "LZHI" => gamedata.light_height = reader.get_f32(),
             "LZRA" => gamedata.light_range = reader.get_f32(),
             "LIES" => gamedata.light_emission_scale = reader.get_f32(),
@@ -1407,7 +1596,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             "UFXA" => gamedata.use_fxaa = Some(reader.get_i32()),
             "UAOC" => gamedata.use_ao = Some(reader.get_i32()),
             "USSR" => gamedata.use_ssr = Some(reader.get_i32()),
-            "TMAP" => gamedata.tone_mapper = Some(reader.get_i32()),
+            "TMAP" => gamedata.tone_mapper = Some(reader.get_u32().into()),
             "BLST" => gamedata.bloom_strength = reader.get_f32(),
             "MASI" => gamedata.materials_size = reader.get_u32(),
             "MATE" => {
@@ -1483,7 +1672,7 @@ fn read_colors(data: Vec<u8>) -> [Color; 16] {
     let mut colors = Vec::new();
     let mut buff = BytesMut::from(data.as_slice());
     for _ in 0..16 {
-        let color = Color::new_bgr(buff.get_u32_le());
+        let color = Color::from_win_color(buff.get_u32_le());
         colors.push(color);
     }
     <[Color; 16]>::try_from(colors).unwrap()
@@ -1492,7 +1681,7 @@ fn read_colors(data: Vec<u8>) -> [Color; 16] {
 fn write_colors(colors: &[Color; 16]) -> Vec<u8> {
     let mut bytes = BytesMut::new();
     for color in colors {
-        bytes.put_u32_le(color.bgr());
+        bytes.put_u32_le(color.to_win_color());
     }
     bytes.to_vec()
 }
@@ -1520,8 +1709,8 @@ mod tests {
             right: 2.0,
             top: 3.0,
             bottom: 4.0,
-            clmo: None,
-            bg_view_mode_desktop: Some(1),
+            camera_layout_mode: None,
+            bg_view_mode_desktop: Faker.fake(),
             bg_rotation_desktop: 1.0,
             bg_inclination_desktop: 2.0,
             bg_layback_desktop: 3.0,
@@ -1593,10 +1782,10 @@ mod tests {
             glass_bottom_height: Some(123.0),
             table_height: Some(12.0),
             playfield_material: "material_pf".to_string(),
-            backdrop_color: ColorNoAlpha::rgb(0x11, 0x22, 0x33),
+            backdrop_color: Color::rgb(0x11, 0x22, 0x33),
             global_difficulty: 0.3,
-            light_ambient: 0x11223344,
-            light0_emission: 0xaabbccdd,
+            light_ambient: Faker.fake(),
+            light0_emission: Faker.fake(),
             light_height: 4000.0,
             light_range: 50000.0,
             light_emission_scale: 1.2,
@@ -1624,7 +1813,7 @@ mod tests {
             use_fxaa: Some(-2),
             use_ao: Some(-3),
             use_ssr: Some(-4),
-            tone_mapper: Some(1), // TM_TONY_MC_MAPFACE
+            tone_mapper: Faker.fake(),
             bloom_strength: 0.3,
             materials_size: 0,
             gameitems_size: 0,
@@ -1648,7 +1837,7 @@ mod tests {
             bg_window_bottom_x_offset_desktop: None,
             bg_window_bottom_y_offset_desktop: None,
             bg_window_bottom_z_offset_desktop: None,
-            bg_view_mode_fullscreen: None,
+            bg_view_mode_fullscreen: Faker.fake(),
             bg_view_horizontal_offset_fullscreen: None,
             bg_view_vertical_offset_fullscreen: None,
             bg_window_top_x_offset_fullscreen: None,
@@ -1657,7 +1846,7 @@ mod tests {
             bg_window_bottom_x_offset_fullscreen: None,
             bg_window_bottom_y_offset_fullscreen: None,
             bg_window_bottom_z_offset_fullscreen: None,
-            bg_view_mode_full_single_screen: None,
+            bg_view_mode_full_single_screen: Faker.fake(),
             bg_view_horizontal_offset_full_single_screen: None,
             bg_view_vertical_offset_full_single_screen: None,
             bg_window_top_x_offset_full_single_screen: None,
@@ -1674,5 +1863,16 @@ mod tests {
         let read_game_data = read_all_gamedata_records(&bytes, &version);
 
         assert_eq!(gamedata, read_game_data);
+    }
+
+    #[test]
+    fn test_write_read_colors() {
+        let mut colors = [Color::RED; 16];
+        for color in &mut colors {
+            *color = Faker.fake();
+        }
+        let bytes = write_colors(&colors);
+        let read_colors = read_colors(bytes);
+        assert_eq!(colors, read_colors);
     }
 }

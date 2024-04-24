@@ -1,6 +1,6 @@
 use std::path::Path;
 use vpin::vpx;
-use vpin::vpx::color::ColorNoAlpha;
+use vpin::vpx::color::Color;
 use vpin::vpx::gameitem::bumper::Bumper;
 use vpin::vpx::gameitem::flipper::Flipper;
 use vpin::vpx::gameitem::GameItemEnum;
@@ -14,11 +14,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut material = Material::default();
     material.name = "Playfield".to_string();
     // material defaults to purple
-    material.base_color = ColorNoAlpha::from_rgb(0x966F33); // Wood
+    material.base_color = Color::from_rgb(0x966F33); // Wood
     vpx.gamedata.materials = Some(vec![material]);
 
     // black background (default is bluish gray)
-    vpx.gamedata.backdrop_color = ColorNoAlpha::from_rgb(0x060606); // Dark Gray
+    vpx.gamedata.backdrop_color = Color::from_rgb(0x060606); // Dark Gray
     vpx.gamedata.playfield_material = "Playfield".to_string();
 
     // add a plunger

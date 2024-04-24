@@ -1,4 +1,3 @@
-use crate::vpx::color::ColorJson;
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
@@ -82,7 +81,7 @@ struct PrimitiveJson {
     sides: u32,
     name: String,
     material: String,
-    side_color: ColorJson,
+    side_color: Color,
     is_visible: bool,
     draw_textures_inside: bool,
     hit_event: bool,
@@ -113,7 +112,7 @@ struct PrimitiveJson {
     add_blend: Option<bool>,
     use_depth_mask: Option<bool>,
     alpha: Option<f32>,
-    color: Option<ColorJson>,
+    color: Option<Color>,
     light_map: Option<String>,
     reflection_probe: Option<String>,
     reflection_strength: Option<f32>,
@@ -132,7 +131,7 @@ impl PrimitiveJson {
             sides: primitive.sides,
             name: primitive.name.clone(),
             material: primitive.material.clone(),
-            side_color: ColorJson::from_color(&primitive.side_color),
+            side_color: primitive.side_color,
             is_visible: primitive.is_visible,
             draw_textures_inside: primitive.draw_textures_inside,
             hit_event: primitive.hit_event,
@@ -173,7 +172,7 @@ impl PrimitiveJson {
             add_blend: primitive.add_blend,
             use_depth_mask: primitive.use_depth_mask,
             alpha: primitive.alpha,
-            color: primitive.color.map(|c| ColorJson::from_color(&c)),
+            color: primitive.color,
             light_map: primitive.light_map.clone(),
             reflection_probe: primitive.reflection_probe.clone(),
             reflection_strength: primitive.reflection_strength,
@@ -191,7 +190,7 @@ impl PrimitiveJson {
             sides: self.sides,
             name: self.name.clone(),
             material: self.material.clone(),
-            side_color: self.side_color.to_color(),
+            side_color: self.side_color,
             is_visible: self.is_visible,
             draw_textures_inside: self.draw_textures_inside,
             hit_event: self.hit_event,
@@ -230,7 +229,7 @@ impl PrimitiveJson {
             add_blend: self.add_blend,
             use_depth_mask: self.use_depth_mask,
             alpha: self.alpha,
-            color: self.color.as_ref().map(ColorJson::to_color),
+            color: self.color,
             light_map: self.light_map.clone(),
             reflection_probe: self.reflection_probe.clone(),
             reflection_strength: self.reflection_strength,
@@ -277,7 +276,7 @@ impl BiffRead for Primitive {
         let mut sides: u32 = 4;
         let mut name = Default::default();
         let mut material = Default::default();
-        let mut side_color = Color::new_bgr(0x0);
+        let mut side_color = Color::BLACK;
         let mut is_visible: bool = true;
         let mut draw_textures_inside: bool = false;
         let mut hit_event: bool = true;
@@ -394,7 +393,7 @@ impl BiffRead for Primitive {
                     material = reader.get_string();
                 }
                 "SCOL" => {
-                    side_color = Color::biff_read_bgr(reader);
+                    side_color = Color::biff_read(reader);
                 }
                 "TVIS" => {
                     is_visible = reader.get_bool();
@@ -532,7 +531,7 @@ impl BiffRead for Primitive {
                     alpha = Some(reader.get_f32());
                 }
                 "COLR" => {
-                    color = Some(Color::biff_read_bgr(reader));
+                    color = Some(Color::biff_read(reader));
                 }
                 "LMAP" => {
                     light_map = Some(reader.get_string());
@@ -655,7 +654,7 @@ impl BiffWrite for Primitive {
         writer.write_tagged_u32("SIDS", self.sides);
         writer.write_tagged_wide_string("NAME", &self.name);
         writer.write_tagged_string("MATR", &self.material);
-        writer.write_tagged_with("SCOL", &self.side_color, Color::biff_write_bgr);
+        writer.write_tagged_with("SCOL", &self.side_color, Color::biff_write);
         writer.write_tagged_bool("TVIS", self.is_visible);
         writer.write_tagged_bool("DTXI", self.draw_textures_inside);
         writer.write_tagged_bool("HTEV", self.hit_event);
@@ -753,7 +752,7 @@ impl BiffWrite for Primitive {
             writer.write_tagged_f32("FALP", alpha);
         }
         if let Some(color) = &self.color {
-            writer.write_tagged_with("COLR", color, Color::biff_write_bgr);
+            writer.write_tagged_with("COLR", color, Color::biff_write);
         }
         if let Some(light_map) = &self.light_map {
             writer.write_tagged_string("LMAP", light_map);
@@ -788,6 +787,7 @@ impl BiffWrite for Primitive {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
+    use fake::{Fake, Faker};
 
     use super::*;
     use pretty_assertions::assert_eq;
@@ -805,7 +805,7 @@ mod tests {
             sides: 1,
             name: "name".to_string(),
             material: "material".to_string(),
-            side_color: Color::new_bgr(0x12345678),
+            side_color: Faker.fake(),
             is_visible: rng.gen(),
             // random bool
             draw_textures_inside: rng.gen(),
@@ -848,7 +848,7 @@ mod tests {
             add_blend: rng.gen(),
             use_depth_mask: rng.gen(),
             alpha: Some(13.0),
-            color: Some(Color::new_bgr(0x23456789)),
+            color: Faker.fake(),
             light_map: Some("light_map".to_string()),
             reflection_probe: Some("reflection_probe".to_string()),
             reflection_strength: Some(14.0),

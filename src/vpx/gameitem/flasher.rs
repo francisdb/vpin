@@ -1,4 +1,3 @@
-use crate::vpx::color::ColorJson;
 use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
@@ -131,12 +130,49 @@ pub struct Flasher {
     pub light_map: Option<String>,
     // LMAP added in 10.8
     pub drag_points: Vec<DragPoint>,
+
     // these are shared between all items
     pub is_locked: bool,
     pub editor_layer: u32,
     pub editor_layer_name: Option<String>,
     // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+}
+
+impl Default for Flasher {
+    fn default() -> Self {
+        Self {
+            height: 50.0,
+            pos_x: 0.0,
+            pos_y: 0.0,
+            rot_x: 0.0,
+            rot_y: 0.0,
+            rot_z: 0.0,
+            color: Color::WHITE,
+            is_timer_enabled: false,
+            timer_interval: 0,
+            name: "".to_string(),
+            image_a: "".to_string(),
+            image_b: "".to_string(),
+            alpha: 100,
+            modulate_vs_add: 0.9,
+            is_visible: true,
+            add_blend: false,
+            is_dmd: None,
+            display_texture: false,
+            depth_bias: 0.0,
+            image_alignment: RampImageAlignment::Wrap,
+            filter: Filter::Overlay,
+            filter_amount: 100,
+            light_map: None,
+            drag_points: vec![],
+
+            is_locked: false,
+            editor_layer: 0,
+            editor_layer_name: None,
+            editor_layer_visibility: None,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -147,7 +183,7 @@ pub(crate) struct FlasherJson {
     rot_x: f32,
     rot_y: f32,
     rot_z: f32,
-    color: ColorJson,
+    color: Color,
     is_timer_enabled: bool,
     timer_interval: i32,
     name: String,
@@ -176,7 +212,7 @@ impl FlasherJson {
             rot_x: flasher.rot_x,
             rot_y: flasher.rot_y,
             rot_z: flasher.rot_z,
-            color: ColorJson::from_color(&flasher.color),
+            color: flasher.color,
             is_timer_enabled: flasher.is_timer_enabled,
             timer_interval: flasher.timer_interval,
             name: flasher.name.clone(),
@@ -204,7 +240,7 @@ impl FlasherJson {
             rot_x: self.rot_x,
             rot_y: self.rot_y,
             rot_z: self.rot_z,
-            color: self.color.to_color(),
+            color: self.color,
             is_timer_enabled: self.is_timer_enabled,
             timer_interval: self.timer_interval,
             name: self.name.clone(),
@@ -255,37 +291,7 @@ impl<'de> Deserialize<'de> for Flasher {
 
 impl BiffRead for Flasher {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
-        let mut height = 50.0;
-        let mut pos_x = Default::default();
-        let mut pos_y = Default::default();
-        let mut rot_x = Default::default();
-        let mut rot_y = Default::default();
-        let mut rot_z = Default::default();
-        let mut color = Color::new_bgr(0xfffffff);
-        let mut is_timer_enabled = Default::default();
-        let mut timer_interval = Default::default();
-        let mut name = Default::default();
-        let mut image_a = Default::default();
-        let mut image_b = Default::default();
-        let mut alpha = 100;
-        let mut modulate_vs_add = 0.9;
-        let mut is_visible = true;
-        let mut add_blend = Default::default();
-        let mut is_dmd = None;
-        let mut display_texture = Default::default();
-        let mut depth_bias = Default::default();
-        let mut image_alignment = RampImageAlignment::Wrap;
-        let mut filter = Filter::Overlay;
-        let mut filter_amount: u32 = 100;
-        let mut light_map: Option<String> = None;
-
-        // these are shared between all items
-        let mut is_locked: bool = false;
-        let mut editor_layer: u32 = Default::default();
-        let mut editor_layer_name: Option<String> = None;
-        let mut editor_layer_visibility: Option<bool> = None;
-
-        let mut drag_points: Vec<DragPoint> = Default::default();
+        let mut flasher = Flasher::default();
 
         loop {
             reader.next(biff::WARN);
@@ -296,91 +302,91 @@ impl BiffRead for Flasher {
             let tag_str = tag.as_str();
             match tag_str {
                 "FHEI" => {
-                    height = reader.get_f32();
+                    flasher.height = reader.get_f32();
                 }
                 "FLAX" => {
-                    pos_x = reader.get_f32();
+                    flasher.pos_x = reader.get_f32();
                 }
                 "FLAY" => {
-                    pos_y = reader.get_f32();
+                    flasher.pos_y = reader.get_f32();
                 }
                 "FROX" => {
-                    rot_x = reader.get_f32();
+                    flasher.rot_x = reader.get_f32();
                 }
                 "FROY" => {
-                    rot_y = reader.get_f32();
+                    flasher.rot_y = reader.get_f32();
                 }
                 "FROZ" => {
-                    rot_z = reader.get_f32();
+                    flasher.rot_z = reader.get_f32();
                 }
                 "COLR" => {
-                    color = Color::biff_read_bgr(reader);
+                    flasher.color = Color::biff_read(reader);
                 }
                 "TMON" => {
-                    is_timer_enabled = reader.get_bool();
+                    flasher.is_timer_enabled = reader.get_bool();
                 }
                 "TMIN" => {
-                    timer_interval = reader.get_i32();
+                    flasher.timer_interval = reader.get_i32();
                 }
                 "NAME" => {
-                    name = reader.get_wide_string();
+                    flasher.name = reader.get_wide_string();
                 }
                 "IMAG" => {
-                    image_a = reader.get_string();
+                    flasher.image_a = reader.get_string();
                 }
                 "IMAB" => {
-                    image_b = reader.get_string();
+                    flasher.image_b = reader.get_string();
                 }
                 "FALP" => {
-                    alpha = reader.get_i32();
+                    flasher.alpha = reader.get_i32();
                 }
                 "MOVA" => {
-                    modulate_vs_add = reader.get_f32();
+                    flasher.modulate_vs_add = reader.get_f32();
                 }
                 "FVIS" => {
-                    is_visible = reader.get_bool();
+                    flasher.is_visible = reader.get_bool();
                 }
                 "DSPT" => {
-                    display_texture = reader.get_bool();
+                    flasher.display_texture = reader.get_bool();
                 }
                 "ADDB" => {
-                    add_blend = reader.get_bool();
+                    flasher.add_blend = reader.get_bool();
                 }
                 "IDMD" => {
-                    is_dmd = Some(reader.get_bool());
+                    flasher.is_dmd = Some(reader.get_bool());
                 }
                 "FLDB" => {
-                    depth_bias = reader.get_f32();
+                    flasher.depth_bias = reader.get_f32();
                 }
                 "ALGN" => {
-                    image_alignment = reader.get_u32().into();
+                    flasher.image_alignment = reader.get_u32().into();
                 }
                 "FILT" => {
-                    filter = reader.get_u32().into();
+                    flasher.filter = reader.get_u32().into();
                 }
                 "FIAM" => {
-                    filter_amount = reader.get_u32();
+                    flasher.filter_amount = reader.get_u32();
                 }
                 "LMAP" => {
-                    light_map = Some(reader.get_string());
+                    flasher.light_map = Some(reader.get_string());
                 }
                 // shared
                 "LOCK" => {
-                    is_locked = reader.get_bool();
+                    flasher.is_locked = reader.get_bool();
                 }
                 "LAYR" => {
-                    editor_layer = reader.get_u32();
+                    flasher.editor_layer = reader.get_u32();
                 }
                 "LANR" => {
-                    editor_layer_name = Some(reader.get_string());
+                    flasher.editor_layer_name = Some(reader.get_string());
                 }
                 "LVIS" => {
-                    editor_layer_visibility = Some(reader.get_bool());
+                    flasher.editor_layer_visibility = Some(reader.get_bool());
                 }
 
                 "DPNT" => {
                     let point = DragPoint::biff_read(reader);
-                    drag_points.push(point);
+                    flasher.drag_points.push(point);
                 }
                 _ => {
                     println!(
@@ -392,36 +398,7 @@ impl BiffRead for Flasher {
                 }
             }
         }
-        Flasher {
-            height,
-            pos_x,
-            pos_y,
-            rot_x,
-            rot_y,
-            rot_z,
-            color,
-            is_timer_enabled,
-            timer_interval,
-            name,
-            image_a,
-            image_b,
-            alpha,
-            modulate_vs_add,
-            is_visible,
-            add_blend,
-            is_dmd,
-            display_texture,
-            depth_bias,
-            image_alignment,
-            filter,
-            filter_amount,
-            light_map,
-            is_locked,
-            editor_layer,
-            editor_layer_name,
-            editor_layer_visibility,
-            drag_points,
-        }
+        flasher
     }
 }
 
@@ -433,7 +410,7 @@ impl BiffWrite for Flasher {
         writer.write_tagged_f32("FROX", self.rot_x);
         writer.write_tagged_f32("FROY", self.rot_y);
         writer.write_tagged_f32("FROZ", self.rot_z);
-        writer.write_tagged_with("COLR", &self.color, Color::biff_write_bgr);
+        writer.write_tagged_with("COLR", &self.color, Color::biff_write);
         writer.write_tagged_bool("TMON", self.is_timer_enabled);
         writer.write_tagged_i32("TMIN", self.timer_interval);
         writer.write_tagged_wide_string("NAME", &self.name);
@@ -492,7 +469,7 @@ mod tests {
             rot_x: rng.gen(),
             rot_y: rng.gen(),
             rot_z: rng.gen(),
-            color: Color::new_bgr(rng.gen()),
+            color: Faker.fake(),
             is_timer_enabled: rng.gen(),
             timer_interval: rng.gen(),
             name: "test name".to_string(),

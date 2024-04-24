@@ -1,4 +1,3 @@
-use crate::vpx::color::ColorJson;
 use crate::vpx::json::F32WithNanInf;
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
@@ -246,8 +245,8 @@ struct LightJson {
     falloff_power: f32,
     state_u32: u32,
     state: Option<f32>,
-    color: ColorJson,
-    color2: ColorJson,
+    color: Color,
+    color2: Color,
     is_timer_enabled: bool,
     timer_interval: u32,
     blink_pattern: String,
@@ -284,8 +283,8 @@ impl LightJson {
             falloff_power: light.falloff_power,
             state_u32: light.state_u32,
             state: light.state,
-            color: ColorJson::from_color(&light.color),
-            color2: ColorJson::from_color(&light.color2),
+            color: light.color,
+            color2: light.color2,
             is_timer_enabled: light.is_timer_enabled,
             timer_interval: light.timer_interval,
             blink_pattern: light.blink_pattern.clone(),
@@ -322,8 +321,8 @@ impl LightJson {
             falloff_power: self.falloff_power,
             state_u32: self.state_u32,
             state: self.state,
-            color: self.color.to_color(),
-            color2: self.color2.to_color(),
+            color: self.color,
+            color2: self.color2,
             is_timer_enabled: self.is_timer_enabled,
             timer_interval: self.timer_interval,
             blink_pattern: self.blink_pattern.clone(),
@@ -390,9 +389,10 @@ impl Default for Light {
         let falloff_power: f32 = Default::default();
         let status: u32 = Default::default();
         let state: Option<f32> = None;
-        // should these not have alpha ff?
-        let color: Color = Color::from_argb(0xffff00);
-        let color2: Color = Color::from_argb(0xffffff);
+        // Default to 2700K incandescent bulb
+        let color: Color = Color::rgb(255, 169, 87);
+        // Default to 2700K incandescent bulb (burst is useless since VPX is HDR)
+        let color2: Color = Color::rgb(255, 169, 87);
         let is_timer_enabled: bool = false;
         let timer_interval: u32 = Default::default();
         let blink_pattern: String = "10".to_owned();
@@ -481,8 +481,8 @@ impl BiffRead for Light {
                 "FAPO" => light.falloff_power = reader.get_f32(),
                 "STAT" => light.state_u32 = reader.get_u32(),
                 "STTF" => light.state = Some(reader.get_f32()),
-                "COLR" => light.color = Color::biff_read_bgr(reader),
-                "COL2" => light.color2 = Color::biff_read_bgr(reader),
+                "COLR" => light.color = Color::biff_read(reader),
+                "COL2" => light.color2 = Color::biff_read(reader),
                 "TMON" => light.is_timer_enabled = reader.get_bool(),
                 "TMIN" => light.timer_interval = reader.get_u32(),
                 "BPAT" => light.blink_pattern = reader.get_string(),
@@ -545,8 +545,8 @@ impl BiffWrite for Light {
         if let Some(state) = self.state {
             writer.write_tagged_f32("STTF", state);
         }
-        writer.write_tagged_with("COLR", &self.color, Color::biff_write_bgr);
-        writer.write_tagged_with("COL2", &self.color2, Color::biff_write_bgr);
+        writer.write_tagged_with("COLR", &self.color, Color::biff_write);
+        writer.write_tagged_with("COL2", &self.color2, Color::biff_write);
         writer.write_tagged_bool("TMON", self.is_timer_enabled);
         writer.write_tagged_u32("TMIN", self.timer_interval);
         writer.write_tagged_string("BPAT", &self.blink_pattern);
@@ -616,8 +616,8 @@ mod tests {
             falloff_power: 3.0,
             state_u32: 4,
             state: Some(5.0),
-            color: Color::from_argb(0x123456),
-            color2: Color::from_argb(0x654321),
+            color: Faker.fake(),
+            color2: Faker.fake(),
             is_timer_enabled: true,
             timer_interval: 7,
             blink_pattern: "test pattern".to_string(),

@@ -1,4 +1,3 @@
-use crate::vpx::color::ColorJson;
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
@@ -204,7 +203,7 @@ struct DecalJson {
     text: String,
     decal_type: DecalType,
     material: String,
-    color: ColorJson,
+    color: Color,
     sizing_type: SizingType,
     vertical_text: bool,
     backglass: bool,
@@ -224,7 +223,7 @@ impl DecalJson {
             text: decal.text.clone(),
             decal_type: decal.decal_type.clone(),
             material: decal.material.clone(),
-            color: ColorJson::from_color(&decal.color),
+            color: decal.color,
             sizing_type: decal.sizing_type.clone(),
             vertical_text: decal.vertical_text,
             backglass: decal.backglass,
@@ -244,7 +243,7 @@ impl DecalJson {
             text: self.text.clone(),
             decal_type: self.decal_type.clone(),
             material: self.material.clone(),
-            color: self.color.to_color(),
+            color: self.color,
             sizing_type: self.sizing_type.clone(),
             vertical_text: self.vertical_text,
             backglass: self.backglass,
@@ -274,7 +273,7 @@ impl Default for Decal {
             text: Default::default(),
             decal_type: DecalType::Image,
             material: Default::default(),
-            color: Color::new_bgr(0x000000),
+            color: Color::from_rgb(0x000000),
             sizing_type: SizingType::ManualSize,
             vertical_text: false,
             backglass: false,
@@ -354,7 +353,7 @@ impl BiffRead for Decal {
                     decal.material = reader.get_string();
                 }
                 "COLR" => {
-                    decal.color = Color::biff_read_bgr(reader);
+                    decal.color = Color::biff_read(reader);
                 }
                 "SIZE" => {
                     decal.sizing_type = reader.get_u32().into();
@@ -409,7 +408,7 @@ impl BiffWrite for Decal {
         writer.write_tagged_string("TEXT", &self.text);
         writer.write_tagged_u32("TYPE", (&self.decal_type).into());
         writer.write_tagged_string("MATR", &self.material);
-        writer.write_tagged_with("COLR", &self.color, Color::biff_write_bgr);
+        writer.write_tagged_with("COLR", &self.color, Color::biff_write);
         writer.write_tagged_u32("SIZE", (&self.sizing_type).into());
         writer.write_tagged_bool("VERT", self.vertical_text);
         writer.write_tagged_bool("BGLS", self.backglass);
@@ -453,7 +452,7 @@ mod tests {
             text: "text".to_owned(),
             decal_type: Faker.fake(),
             material: "material".to_owned(),
-            color: Color::new_bgr(0x010203),
+            color: Faker.fake(),
             sizing_type: Faker.fake(),
             vertical_text: true,
             backglass: true,
