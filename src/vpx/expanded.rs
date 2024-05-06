@@ -317,19 +317,20 @@ fn write_image_bmp(
     width: u32,
     height: u32,
 ) -> io::Result<()> {
-    // decompress the image in RGBA format
-    let decompressed_rgba = lzw_decompress(lzw_compressed_data, width, height);
+    // TODO get rid of the required copy here
+    let copy = lzw_compressed_data.to_vec();
+    let cursor = io::Cursor::new(copy);
+    let mut reader = LzwReader::new(Box::new(cursor), width, height, 4);
+    let decompressed_rgba = reader.decompress();
 
-    // drop the alpha channel
-    let decompressed_rgb = rgba_to_rgb(decompressed_rgba);
-    image::save_buffer(
-        &file_path,
-        &decompressed_rgb,
-        width,
-        height,
-        image::ExtendedColorType::Rgb8,
-    )
-    .map_err(|image_error| {
+    let rgba_image = image::RgbaImage::from_raw(width, height, decompressed_rgba).unwrap();
+    let dynamic_image = image::DynamicImage::ImageRgba8(rgba_image);
+
+    // convert to RGB
+    let rgb_image = dynamic_image.to_rgb8();
+
+    // save the image
+    rgb_image.save(file_path).map_err(|image_error| {
         io::Error::new(
             io::ErrorKind::Other,
             format!(
@@ -339,32 +340,6 @@ fn write_image_bmp(
             ),
         )
     })
-}
-
-fn rgba_to_rgb(decompressed: Vec<u8>) -> Vec<u8> {
-    let decompressed_no_alpha = decompressed
-        .chunks_exact(4)
-        .flat_map(|rgba| rgba.iter().take(3).copied())
-        .collect::<Vec<u8>>();
-    decompressed_no_alpha
-}
-
-fn rgb_to_rgba(decompressed: Vec<u8>) -> Vec<u8> {
-    let decompressed_with_alpha = decompressed
-        .chunks_exact(3)
-        .flat_map(|rgb| rgb.iter().copied().chain(std::iter::once(255)))
-        .collect::<Vec<u8>>();
-    decompressed_with_alpha
-}
-
-/// decode using our own LZW decoder
-fn lzw_decompress(bits: &[u8], width: u32, height: u32) -> Vec<u8> {
-    // TODO why do we have to clone here?
-    //   we seem to otherwise get a "lifetime may not live long enough" error
-    let copy = bits.to_vec();
-    let cursor = io::Cursor::new(copy);
-    let mut reader = LzwReader::new(Box::new(cursor), width, height, 4);
-    reader.decompress()
 }
 
 fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
