@@ -26,7 +26,6 @@ use byteorder::ReadBytesExt;
 use std::io::Read;
 
 const MAX_CODES: u16 = 4095;
-const FILE_BUF_SIZE: i32 = 4096;
 
 const CODE_MASK: [u16; 13] = [
     0, 0x0001, 0x0003, 0x0007, 0x000F, 0x001F, 0x003F, 0x007F, 0x00FF, 0x01FF, 0x03FF, 0x07FF,
@@ -375,9 +374,7 @@ mod test {
 
     #[test]
     fn test_lzw_reader_minimal() {
-        let compressed_data: Vec<u8> =
-            vec![13, 0, 255, 169, 82, 37, 176, 224, 192, 127, 8, 19, 6, 4];
-        let compressed_data = Cursor::new(compressed_data);
+        let compressed_data = Cursor::new(LZW_COMPRESSED_DATA);
         let mut lzw_reader = LzwReader::new(Box::new(compressed_data), 2, 2, 4);
         let decompressed_data = lzw_reader.decompress();
         #[rustfmt::skip]
@@ -405,16 +402,6 @@ mod test {
         let width = 128;
         let height = 128;
         let bytes_per_pixel = 4;
-
-        // data was written like this:
-        // var lzwWriter = new LzwWriter(writer, ToggleRgbBgr(Data), Width * 4, Height, Pitch());
-        // lzwWriter.CompressBits(8 + 1);
-        //
-        // And read like this:
-        // // BMP stored as a 32-bit SBGRA picture
-        // BYTE* const __restrict tmp = new BYTE[(size_t)m_width * m_height * 4];
-        // LZWReader lzwreader(pbr->m_pistream, (int *)tmp, m_width * 4, m_height, m_width * 4);
-        // lzwreader.Decoder();
 
         let mut lzw_reader =
             LzwReader::new(Box::new(compressed_data), width, height, bytes_per_pixel);

@@ -29,7 +29,6 @@ const H_SIZE: usize = 5003; // 80% occupancy
 const BITS: u16 = 12;
 const MAX_BITS: u16 = BITS;
 const MAX_MAX_CODE: u16 = 1 << BITS;
-const GIF_EOF: i32 = -1;
 
 pub(crate) struct LzwWriter {
     compressed: Vec<u8>,
@@ -169,19 +168,14 @@ impl LzwWriter {
                     ent = self.code_tab[i as usize];
                     LoopResult::NextByte
                 } else {
-                    let mut disp;
-                    if i == 0 {
-                        disp = 1;
-                    } else {
-                        disp = H_SIZE as u16 - i;
-                    }
+                    let disp = if i == 0 { 1 } else { H_SIZE as u16 - i };
 
                     let mut loop_result = None;
                     while loop_result.is_none() {
                         i -= disp;
-                        if i < 0 {
-                            i += H_SIZE as u16;
-                        }
+                        // if i < 0 {
+                        //     i += H_SIZE as u16;
+                        // }
 
                         if self.code_tab[i as usize] == 0 {
                             // goto processByte;
