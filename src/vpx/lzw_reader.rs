@@ -370,16 +370,24 @@ mod test {
     use pretty_assertions::assert_eq;
     use std::io::Cursor;
 
+    const LZW_COMPRESSED_DATA: [u8; 14] =
+        [13, 0, 255, 169, 82, 37, 176, 224, 192, 127, 8, 19, 6, 4];
+
     #[test]
     fn test_lzw_reader_minimal() {
-        let compressed_data: Vec<u8> = vec![
-            21, 0, 1, 4, 16, 48, 128, 64, 1, 3, 7, 16, 36, 80, 176, 128, 65, 3, 7, 15, 2, 2,
-        ];
+        let compressed_data: Vec<u8> =
+            vec![13, 0, 255, 169, 82, 37, 176, 224, 192, 127, 8, 19, 6, 4];
         let compressed_data = Cursor::new(compressed_data);
         let mut lzw_reader = LzwReader::new(Box::new(compressed_data), 2, 2, 4);
         let decompressed_data = lzw_reader.decompress();
-        let expected_data: Vec<u8> = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
-        assert_eq!(decompressed_data, expected_data);
+        #[rustfmt::skip]
+        let expected = vec![
+            0xFF, 0xAA, 0xAA, 0xFF, // red
+            0xAA, 0xFF, 0xAA, 0xFF, // green
+            0xAA, 0xAA, 0xFF, 0xFF, // blue
+            0xFF, 0xFF, 0xFF, 0xFF // white
+        ];
+        assert_eq!(decompressed_data, expected);
     }
 
     #[test]

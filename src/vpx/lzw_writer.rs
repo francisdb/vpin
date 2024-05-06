@@ -31,7 +31,7 @@ const MAX_BITS: u16 = BITS;
 const MAX_MAX_CODE: u16 = 1 << BITS;
 const GIF_EOF: i32 = -1;
 
-struct LzwWriter {
+pub(crate) struct LzwWriter {
     compressed: Vec<u8>,
     bits: Vec<u8>,
     width: u32,
@@ -56,7 +56,7 @@ struct LzwWriter {
 }
 
 impl LzwWriter {
-    fn new(bits: Vec<u8>, width: u32, height: u32, bytes_per_pixel: u8) -> LzwWriter {
+    pub(crate) fn new(bits: Vec<u8>, width: u32, height: u32, bytes_per_pixel: u8) -> LzwWriter {
         let stride = width * bytes_per_pixel as u32;
         LzwWriter {
             compressed: vec![],
@@ -112,7 +112,7 @@ impl LzwWriter {
         Some(ch)
     }
 
-    fn compress_bits(&mut self, init_bits: u16) -> Vec<u8> {
+    pub(crate) fn compress_bits(&mut self, init_bits: u16) -> Vec<u8> {
         let mut c: i32;
 
         // Used to be in write gif
@@ -318,8 +318,14 @@ mod tests {
 
     #[test]
     fn test_lzw_writer_minimal() {
-        let writer = std::io::stdout();
-        let bits = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+        // we keep alpha channel at 0xAA because it will be dropped in other tests
+        #[rustfmt::skip]
+        let bits = vec![
+            0xFF, 0xAA, 0xAA, 0xFF, // red
+            0xAA, 0xFF, 0xAA, 0xFF, // green
+            0xAA, 0xAA, 0xFF, 0xFF, // blue
+            0xFF, 0xFF, 0xFF, 0xFF // white
+        ];
         let width = 2;
         let height = 2;
         let bytes_per_pixel = 4;
@@ -327,7 +333,7 @@ mod tests {
         let compressed = lzw_writer.compress_bits(8 + 1);
         assert_eq!(
             compressed,
-            vec![21, 0, 1, 4, 16, 48, 128, 64, 1, 3, 7, 16, 36, 80, 176, 128, 65, 3, 7, 15, 2, 2,]
+            vec![13, 0, 255, 169, 82, 37, 176, 224, 192, 127, 8, 19, 6, 4,]
         );
     }
 }

@@ -29,6 +29,7 @@ use crate::vpx::gameitem::GameItemEnum;
 use crate::vpx::image::{ImageData, ImageDataBits, ImageDataJson};
 use crate::vpx::jsonmodel::{collections_json, info_to_json, json_to_collections, json_to_info};
 use crate::vpx::lzw_reader::LzwReader;
+use crate::vpx::lzw_writer::LzwWriter;
 use crate::vpx::material::{
     Material, MaterialJson, SaveMaterial, SaveMaterialJson, SavePhysicsMaterial,
     SavePhysicsMaterialJson,
@@ -285,29 +286,12 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
                 // the extension should be .bmp
                 assert_eq!(image.ext(), "bmp");
 
-                // decompress the image in RGBA format
-                let decompressed = lzw_decompress(image, &bits.data);
-
-                // drop the alpha channel
-                let decompressed_no_alpha = rgba_to_rgb(decompressed);
-
-                image::save_buffer(
+                write_image_bmp(
                     &file_path,
-                    &decompressed_no_alpha,
+                    &bits.lzw_compressed_data,
                     image.width,
                     image.height,
-                    image::ExtendedColorType::Rgb8,
                 )
-                .map_err(|image_error| {
-                    io::Error::new(
-                        io::ErrorKind::Other,
-                        format!(
-                            "Failed to write bitmap to {}: {}",
-                            file_path.display(),
-                            image_error.to_string()
-                        ),
-                    )
-                })
             } else {
                 Err(io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -327,6 +311,36 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
     Ok(())
 }
 
+fn write_image_bmp(
+    file_path: &PathBuf,
+    lzw_compressed_data: &[u8],
+    width: u32,
+    height: u32,
+) -> io::Result<()> {
+    // decompress the image in RGBA format
+    let decompressed_rgba = lzw_decompress(lzw_compressed_data, width, height);
+
+    // drop the alpha channel
+    let decompressed_rgb = rgba_to_rgb(decompressed_rgba);
+    image::save_buffer(
+        &file_path,
+        &decompressed_rgb,
+        width,
+        height,
+        image::ExtendedColorType::Rgb8,
+    )
+    .map_err(|image_error| {
+        io::Error::new(
+            io::ErrorKind::Other,
+            format!(
+                "Failed to write bitmap to {}: {}",
+                file_path.display(),
+                image_error.to_string()
+            ),
+        )
+    })
+}
+
 fn rgba_to_rgb(decompressed: Vec<u8>) -> Vec<u8> {
     let decompressed_no_alpha = decompressed
         .chunks_exact(4)
@@ -335,12 +349,21 @@ fn rgba_to_rgb(decompressed: Vec<u8>) -> Vec<u8> {
     decompressed_no_alpha
 }
 
+fn rgb_to_rgba(decompressed: Vec<u8>) -> Vec<u8> {
+    let decompressed_with_alpha = decompressed
+        .chunks_exact(3)
+        .flat_map(|rgb| rgb.iter().copied().chain(std::iter::once(255)))
+        .collect::<Vec<u8>>();
+    decompressed_with_alpha
+}
+
 /// decode using our own LZW decoder
-fn lzw_decompress(image: &ImageData, bits: &Vec<u8>) -> Vec<u8> {
+fn lzw_decompress(bits: &[u8], width: u32, height: u32) -> Vec<u8> {
     // TODO why do we have to clone here?
     //   we seem to otherwise get a "lifetime may not live long enough" error
-    let cursor = io::Cursor::new(bits.clone());
-    let mut reader = LzwReader::new(Box::new(cursor), image.width, image.height, 4);
+    let copy = bits.to_vec();
+    let cursor = io::Cursor::new(copy);
+    let mut reader = LzwReader::new(Box::new(cursor), width, height, 4);
     reader.decompress()
 }
 
@@ -367,8 +390,12 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
                     if let Some(jpg) = &mut image.jpeg {
                         jpg.data = image_data;
                     } else if image.bits.is_some() {
+                        let compressed_data =
+                            read_image_bmp(&image_data, image.width, image.height)?;
                         // the json serializer makes sure we have a Some with empty data
-                        let image_data = ImageDataBits { data: image_data };
+                        let image_data = ImageDataBits {
+                            lzw_compressed_data: compressed_data,
+                        };
                         image.bits = Some(image_data);
                     }
                     Ok(image)
@@ -382,6 +409,28 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
         })
         .collect();
     images
+}
+
+fn read_image_bmp(data: &[u8], width: u32, height: u32) -> io::Result<Vec<u8>> {
+    let image = image::load_from_memory_with_format(data, image::ImageFormat::Bmp).map_err(
+        |image_error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Failed to read bitmap: {}", image_error.to_string()),
+            )
+        },
+    )?;
+
+    // make assertions on the image dimensions
+    assert_eq!(image.width(), width);
+    assert_eq!(image.height(), height);
+    assert_eq!(image.color(), image::ColorType::Rgb8);
+
+    // get the raw image data
+    let raw = image.to_rgba8().into_raw();
+
+    let mut encoder = LzwWriter::new(raw, width, height, 4);
+    Ok(encoder.compress_bits(8 + 1))
 }
 
 fn write_sounds<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
@@ -1455,6 +1504,25 @@ mod test {
     use testdir::testdir;
     use testresult::TestResult;
 
+    // Encoded data for 2x2 argb with alpha always 0xFF because the vpinball
+    // bmp export does not support alpha channel.
+    // See lzw_writer tests on what colors these are.
+    const LZW_COMPRESSED_DATA: [u8; 14] =
+        [13, 0, 255, 169, 82, 37, 176, 224, 192, 127, 8, 19, 6, 4];
+
+    #[test]
+    pub fn test_write_read_bmp() -> TestResult {
+        let test_dir = testdir!();
+        let bmp_path = test_dir.join("test_image.bmp");
+
+        write_image_bmp(&bmp_path, &LZW_COMPRESSED_DATA, 2, 2)?;
+
+        let file_bytes = std::fs::read(&bmp_path)?;
+        let read_compressed_data = read_image_bmp(&file_bytes, 2, 2)?;
+
+        Ok(assert_eq!(LZW_COMPRESSED_DATA, *read_compressed_data))
+    }
+
     #[test]
     pub fn test_expand_write_read() -> TestResult {
         let expanded_path = testdir!();
@@ -1613,11 +1681,7 @@ mod test {
                     is_signed: Some(false),
                     jpeg: None,
                     bits: Some(ImageDataBits {
-                        // encoded data for 2x2 argb [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
-                        data: vec![
-                            21, 0, 1, 4, 16, 48, 128, 64, 1, 3, 7, 16, 36, 80, 176, 128, 65, 3, 7,
-                            15, 2, 2,
-                        ],
+                        lzw_compressed_data: LZW_COMPRESSED_DATA.to_vec(),
                     }),
                 },
             ],
