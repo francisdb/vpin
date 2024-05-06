@@ -323,7 +323,8 @@ fn write_image_bmp(
     let mut reader = LzwReader::new(Box::new(cursor), width, height, 4);
     let decompressed_rgba = reader.decompress();
 
-    let rgba_image = image::RgbaImage::from_raw(width, height, decompressed_rgba).unwrap();
+    let rgba_image = image::RgbaImage::from_raw(width, height, decompressed_rgba)
+        .expect("Decompressed image data does not match dimensions");
     let dynamic_image = image::DynamicImage::ImageRgba8(rgba_image);
 
     // convert to RGB
