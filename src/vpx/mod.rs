@@ -62,6 +62,8 @@ pub mod material;
 pub mod renderprobe;
 
 pub(crate) mod json;
+mod lzw_reader;
+mod lzw_writer;
 mod obj;
 pub(crate) mod wav;
 

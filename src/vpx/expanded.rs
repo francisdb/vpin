@@ -28,6 +28,7 @@ use crate::vpx::gameitem::primitive::Primitive;
 use crate::vpx::gameitem::GameItemEnum;
 use crate::vpx::image::{ImageData, ImageDataBits, ImageDataJson};
 use crate::vpx::jsonmodel::{collections_json, info_to_json, json_to_collections, json_to_info};
+use crate::vpx::lzw_reader::LzwReader;
 use crate::vpx::material::{
     Material, MaterialJson, SaveMaterial, SaveMaterialJson, SavePhysicsMaterial,
     SavePhysicsMaterialJson,
@@ -281,7 +282,32 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
             } else if let Some(jpeg) = &image.jpeg {
                 file.write_all(&jpeg.data)
             } else if let Some(bits) = &image.bits {
-                file.write_all(&bits.data)
+                // the extension should be .bmp
+                assert_eq!(image.ext(), "bmp");
+
+                // decompress the image in RGBA format
+                let decompressed = lzw_decompress(image, &bits.data);
+
+                // drop the alpha channel
+                let decompressed_no_alpha = rgba_to_rgb(decompressed);
+
+                image::save_buffer(
+                    &file_path,
+                    &decompressed_no_alpha,
+                    image.width,
+                    image.height,
+                    image::ExtendedColorType::Rgb8,
+                )
+                .map_err(|image_error| {
+                    io::Error::new(
+                        io::ErrorKind::Other,
+                        format!(
+                            "Failed to write bitmap to {}: {}",
+                            file_path.display(),
+                            image_error.to_string()
+                        ),
+                    )
+                })
             } else {
                 Err(io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -299,6 +325,23 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
         }
     })?;
     Ok(())
+}
+
+fn rgba_to_rgb(decompressed: Vec<u8>) -> Vec<u8> {
+    let decompressed_no_alpha = decompressed
+        .chunks_exact(4)
+        .flat_map(|rgba| rgba.iter().take(3).copied())
+        .collect::<Vec<u8>>();
+    decompressed_no_alpha
+}
+
+/// decode using our own LZW decoder
+fn lzw_decompress(image: &ImageData, bits: &Vec<u8>) -> Vec<u8> {
+    // TODO why do we have to clone here?
+    //   we seem to otherwise get a "lifetime may not live long enough" error
+    let cursor = io::Cursor::new(bits.clone());
+    let mut reader = LzwReader::new(Box::new(cursor), image.width, image.height, 4);
+    reader.decompress()
 }
 
 fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
@@ -1561,16 +1604,20 @@ mod test {
                 ImageData {
                     name: "test image 2".to_string(),
                     internal_name: None,
-                    path: "test2.png".to_string(),
-                    width: 0,
-                    height: 0,
+                    path: "test2.bmp".to_string(),
+                    width: 2,
+                    height: 2,
                     link: None,
                     alpha_test_value: 0.0,
                     is_opaque: Some(true),
                     is_signed: Some(false),
                     jpeg: None,
                     bits: Some(ImageDataBits {
-                        data: vec![0, 1, 2, 3],
+                        // encoded data for 2x2 argb [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
+                        data: vec![
+                            21, 0, 1, 4, 16, 48, 128, 64, 1, 3, 7, 16, 36, 80, 176, 128, 65, 3, 7,
+                            15, 2, 2,
+                        ],
                     }),
                 },
             ],

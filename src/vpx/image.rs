@@ -33,13 +33,14 @@ impl fmt::Debug for ImageDataJpeg {
  */
 #[derive(PartialEq)]
 pub struct ImageDataBits {
+    /// Lzw compressed raw BMP 32-bit SBGRA data
     pub data: Vec<u8>,
 }
 
 impl fmt::Debug for ImageDataBits {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // avoid writing the data to the debug output
-        f.debug_struct("ImageDataJpeg")
+        f.debug_struct("ImageDataBits")
             .field("data", &self.data.len())
             .finish()
     }
