@@ -149,7 +149,7 @@ impl LzwReader {
 
         // Set up the stack pointer and decode buffer pointer
         let mut sp = 0;
-        let mut buf_ptr = buf.clone();
+        let mut buf_ptr = buf;
         let mut buf_cnt = self.width;
 
         // This is the main loop.  For each code we get we pass through the
@@ -202,7 +202,7 @@ impl LzwReader {
 
                 if buf_cnt == 0 {
                     buf = self.next_line();
-                    buf_ptr = buf.clone();
+                    buf_ptr = buf;
                     buf_cnt = self.width;
                 }
             } else {
@@ -254,11 +254,9 @@ impl LzwReader {
                     self.slot += 1;
                     oc = c;
                 }
-                if self.slot >= self.top_slot {
-                    if self.current_code_size < 12 {
-                        self.top_slot <<= 1;
-                        self.current_code_size += 1;
-                    }
+                if self.slot >= self.top_slot && self.current_code_size < 12 {
+                    self.top_slot <<= 1;
+                    self.current_code_size += 1;
                 }
 
                 // Now that we've pushed the decoded string (in reverse order)
@@ -274,7 +272,7 @@ impl LzwReader {
                     // buf_ptr.incr();
                     if buf_cnt == 0 {
                         buf = self.next_line();
-                        buf_ptr = buf.clone();
+                        buf_ptr = buf;
                         buf_cnt = self.width;
                     }
                 }
@@ -308,7 +306,7 @@ impl LzwReader {
         let next_line_cursor = self.decompressed_data_cursor;
         self.decompressed_data_cursor += self.stride as usize; // fucking upside down dibs!
         self.lines_left -= 1;
-        return next_line_cursor;
+        next_line_cursor
     }
 
     /// gets the next code from the GIF file.  Returns the code, or else
@@ -344,7 +342,7 @@ impl LzwReader {
     }
 
     fn read_next_block(&mut self) {
-        if self.num_avail_bytes <= 0 {
+        if self.num_avail_bytes == 0 {
             // Out of bytes in current block, so read next block
             self.block_buff_cursor = 0;
             self.num_avail_bytes = self.get_byte();

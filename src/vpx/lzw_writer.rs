@@ -88,7 +88,7 @@ impl LzwWriter {
 
     fn write_sz(&mut self, sz: &[u8], num_bytes: usize) {
         self.compressed
-            .write(&sz.iter().take(num_bytes).cloned().collect::<Vec<u8>>())
+            .write_all(&sz.iter().take(num_bytes).cloned().collect::<Vec<u8>>())
             .unwrap();
     }
 

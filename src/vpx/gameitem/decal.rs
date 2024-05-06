@@ -479,7 +479,9 @@ mod tests {
         // json does not store the shared fields
         decal_read.is_locked = decal.is_locked;
         decal_read.editor_layer = decal.editor_layer;
-        decal_read.editor_layer_name = decal.editor_layer_name.clone();
+        decal_read
+            .editor_layer_name
+            .clone_from(&decal.editor_layer_name);
         decal_read.editor_layer_visibility = decal.editor_layer_visibility;
         assert_eq!(decal, decal_read);
     }

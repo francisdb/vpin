@@ -337,7 +337,7 @@ fn write_image_bmp(
             format!(
                 "Failed to write bitmap to {}: {}",
                 file_path.display(),
-                image_error.to_string()
+                image_error
             ),
         )
     })
@@ -392,7 +392,7 @@ fn read_image_bmp(data: &[u8], width: u32, height: u32) -> io::Result<Vec<u8>> {
         |image_error| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("Failed to read bitmap: {}", image_error.to_string()),
+                format!("Failed to read bitmap: {}", image_error),
             )
         },
     )?;

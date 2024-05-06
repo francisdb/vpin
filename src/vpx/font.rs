@@ -81,7 +81,7 @@ pub fn read(input: &[u8]) -> FontData {
             "DATA" => match size_opt {
                 Some(size) => {
                     let d = reader.get_data(size.try_into().unwrap());
-                    data = d.to_owned();
+                    d.clone_into(&mut data);
                 }
                 None => {
                     panic!("DATA tag without SIZE tag");
