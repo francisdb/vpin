@@ -33,7 +33,7 @@ impl fmt::Debug for ImageDataJpeg {
  */
 #[derive(PartialEq)]
 pub struct ImageDataBits {
-    /// Lzw compressed raw BMP 32-bit SBGRA data
+    /// Lzw compressed raw BMP 32-bit rgba bitmap data
     pub lzw_compressed_data: Vec<u8>,
 }
 
