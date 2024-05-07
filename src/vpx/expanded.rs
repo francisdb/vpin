@@ -321,7 +321,15 @@ fn write_image_bmp(
     let copy = lzw_compressed_data.to_vec();
     let cursor = io::Cursor::new(copy);
     let mut reader = LzwReader::new(Box::new(cursor), width, height, 4);
-    let decompressed_rgba = reader.decompress();
+    let decompressed_bgra = reader.decompress();
+
+    // assert that alpha is 255 for all pixels
+    for bgra in decompressed_bgra.chunks_exact(4) {
+        assert_eq!(bgra[3], 255);
+    }
+
+    // convert to RGBA
+    let decompressed_rgba: Vec<u8> = swap_red_and_blue(&decompressed_bgra);
 
     let rgba_image = image::RgbaImage::from_raw(width, height, decompressed_rgba)
         .expect("Decompressed image data does not match dimensions");
@@ -341,6 +349,15 @@ fn write_image_bmp(
             ),
         )
     })
+}
+
+/// Can convert between RGBA and BGRA by swapping the red and blue channels
+fn swap_red_and_blue(data: &[u8]) -> Vec<u8> {
+    let mut swapped = Vec::with_capacity(data.len());
+    for chunk in data.chunks_exact(4) {
+        swapped.extend_from_slice(&[chunk[2], chunk[1], chunk[0], chunk[3]])
+    }
+    swapped
 }
 
 fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
@@ -403,9 +420,12 @@ fn read_image_bmp(data: &[u8], width: u32, height: u32) -> io::Result<Vec<u8>> {
     assert_eq!(image.color(), image::ColorType::Rgb8);
 
     // get the raw image data
-    let raw = image.to_rgba8().into_raw();
+    let raw_rgba = image.to_rgba8().into_raw();
 
-    let mut encoder = LzwWriter::new(raw, width, height, 4);
+    // convert to BGRA
+    let raw_bgra: Vec<u8> = swap_red_and_blue(&raw_rgba);
+
+    let mut encoder = LzwWriter::new(raw_bgra, width, height, 4);
     Ok(encoder.compress_bits(8 + 1))
 }
 
@@ -1497,6 +1517,16 @@ mod test {
         let read_compressed_data = read_image_bmp(&file_bytes, 2, 2)?;
 
         Ok(assert_eq!(LZW_COMPRESSED_DATA, *read_compressed_data))
+    }
+
+    #[test]
+    pub fn test_swap_red_and_blue() {
+        let rgba = vec![1, 2, 3, 255];
+        let bgra = swap_red_and_blue(&rgba);
+        assert_eq!(bgra, vec![3, 2, 1, 255]);
+        // a second time should be the same as the original
+        let rgba2 = swap_red_and_blue(&bgra);
+        assert_eq!(rgba2, rgba);
     }
 
     #[test]

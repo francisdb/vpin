@@ -29,11 +29,12 @@ impl fmt::Debug for ImageDataJpeg {
 }
 
 /**
- * An bitmap blob, typically used by textures.
+ * A bitmap blob, typically used by textures.
  */
 #[derive(PartialEq)]
 pub struct ImageDataBits {
-    /// Lzw compressed raw BMP 32-bit rgba bitmap data
+    /// Lzw compressed raw BMP 32-bit sBGRA bitmap data
+    /// However we expect the alpha channel to always be 255
     pub lzw_compressed_data: Vec<u8>,
 }
 
