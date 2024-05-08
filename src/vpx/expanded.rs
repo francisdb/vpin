@@ -284,7 +284,7 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
                 file.write_all(&jpeg.data)
             } else if let Some(bits) = &image.bits {
                 // the extension should be .bmp
-                assert_eq!(image.ext(), "bmp");
+                assert_eq!(image.ext().to_ascii_lowercase(), "bmp", "Images stored as bits should have the extension .bmp");
 
                 write_image_bmp(
                     &file_path,
@@ -411,9 +411,9 @@ fn read_image_bmp(data: &[u8], width: u32, height: u32) -> io::Result<Vec<u8>> {
     )?;
 
     // make assertions on the image dimensions
-    assert_eq!(image.width(), width);
-    assert_eq!(image.height(), height);
-    assert_eq!(image.color(), image::ColorType::Rgb8);
+    assert_eq!(image.width(), width, "Image width does not match");
+    assert_eq!(image.height(), height, "Image height does not match");
+    assert_eq!(image.color(), image::ColorType::Rgb8, "Image is not RGB");
 
     // get the raw image data
     let raw_rgba = image.to_rgba8().into_raw();
