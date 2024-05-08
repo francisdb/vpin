@@ -284,7 +284,11 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
                 file.write_all(&jpeg.data)
             } else if let Some(bits) = &image.bits {
                 // the extension should be .bmp
-                assert_eq!(image.ext().to_ascii_lowercase(), "bmp", "Images stored as bits should have the extension .bmp");
+                assert_eq!(
+                    image.ext().to_ascii_lowercase(),
+                    "bmp",
+                    "Images stored as bits should have the extension .bmp"
+                );
 
                 write_image_bmp(
                     &file_path,
