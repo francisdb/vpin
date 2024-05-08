@@ -62,8 +62,9 @@ pub mod material;
 pub mod renderprobe;
 
 pub(crate) mod json;
-mod lzw_reader;
-mod lzw_writer;
+
+// we have to make this public for the integration tests
+pub mod lzw;
 mod obj;
 pub(crate) mod wav;
 
