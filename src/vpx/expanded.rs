@@ -28,6 +28,8 @@ use crate::vpx::gameitem::primitive::Primitive;
 use crate::vpx::gameitem::GameItemEnum;
 use crate::vpx::image::{ImageData, ImageDataBits, ImageDataJson};
 use crate::vpx::jsonmodel::{collections_json, info_to_json, json_to_collections, json_to_info};
+use crate::vpx::lzw::{from_lzw_blocks, to_lzw_blocks};
+
 use crate::vpx::material::{
     Material, MaterialJson, SaveMaterial, SaveMaterialJson, SavePhysicsMaterial,
     SavePhysicsMaterialJson,
@@ -281,7 +283,19 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
             } else if let Some(jpeg) = &image.jpeg {
                 file.write_all(&jpeg.data)
             } else if let Some(bits) = &image.bits {
-                file.write_all(&bits.data)
+                // the extension should be .bmp
+                assert_eq!(
+                    image.ext().to_ascii_lowercase(),
+                    "bmp",
+                    "Images stored as bits should have the extension .bmp"
+                );
+
+                write_image_bmp(
+                    &file_path,
+                    &bits.lzw_compressed_data,
+                    image.width,
+                    image.height,
+                )
             } else {
                 Err(io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -299,6 +313,51 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
         }
     })?;
     Ok(())
+}
+
+fn write_image_bmp(
+    file_path: &PathBuf,
+    lzw_compressed_data: &[u8],
+    width: u32,
+    height: u32,
+) -> io::Result<()> {
+    let decompressed_bgra = from_lzw_blocks(lzw_compressed_data);
+
+    // assert that alpha is 255 for all pixels
+    for bgra in decompressed_bgra.chunks_exact(4) {
+        assert_eq!(bgra[3], 255);
+    }
+
+    // convert to RGBA
+    let decompressed_rgba: Vec<u8> = swap_red_and_blue(&decompressed_bgra);
+
+    let rgba_image = image::RgbaImage::from_raw(width, height, decompressed_rgba)
+        .expect("Decompressed image data does not match dimensions");
+    let dynamic_image = image::DynamicImage::ImageRgba8(rgba_image);
+
+    // convert to RGB
+    let rgb_image = dynamic_image.to_rgb8();
+
+    // save the image
+    rgb_image.save(file_path).map_err(|image_error| {
+        io::Error::new(
+            io::ErrorKind::Other,
+            format!(
+                "Failed to write bitmap to {}: {}",
+                file_path.display(),
+                image_error
+            ),
+        )
+    })
+}
+
+/// Can convert between RGBA and BGRA by swapping the red and blue channels
+fn swap_red_and_blue(data: &[u8]) -> Vec<u8> {
+    let mut swapped = Vec::with_capacity(data.len());
+    for chunk in data.chunks_exact(4) {
+        swapped.extend_from_slice(&[chunk[2], chunk[1], chunk[0], chunk[3]])
+    }
+    swapped
 }
 
 fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
@@ -324,8 +383,12 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
                     if let Some(jpg) = &mut image.jpeg {
                         jpg.data = image_data;
                     } else if image.bits.is_some() {
+                        let compressed_data =
+                            read_image_bmp(&image_data, image.width, image.height)?;
                         // the json serializer makes sure we have a Some with empty data
-                        let image_data = ImageDataBits { data: image_data };
+                        let image_data = ImageDataBits {
+                            lzw_compressed_data: compressed_data,
+                        };
                         image.bits = Some(image_data);
                     }
                     Ok(image)
@@ -339,6 +402,30 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
         })
         .collect();
     images
+}
+
+fn read_image_bmp(data: &[u8], width: u32, height: u32) -> io::Result<Vec<u8>> {
+    let image = image::load_from_memory_with_format(data, image::ImageFormat::Bmp).map_err(
+        |image_error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Failed to read bitmap: {}", image_error),
+            )
+        },
+    )?;
+
+    // make assertions on the image dimensions
+    assert_eq!(image.width(), width, "Image width does not match");
+    assert_eq!(image.height(), height, "Image height does not match");
+    assert_eq!(image.color(), image::ColorType::Rgb8, "Image is not RGB");
+
+    // get the raw image data
+    let raw_rgba = image.to_rgba8().into_raw();
+
+    // convert to BGRA
+    let raw_bgra: Vec<u8> = swap_red_and_blue(&raw_rgba);
+
+    Ok(to_lzw_blocks(&raw_bgra))
 }
 
 fn write_sounds<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
@@ -1412,6 +1499,35 @@ mod test {
     use testdir::testdir;
     use testresult::TestResult;
 
+    // Encoded data for 2x2 argb with alpha always 0xFF because the vpinball
+    // bmp export does not support alpha channel.
+    // See lzw_writer tests on what colors these are.
+    const LZW_COMPRESSED_DATA: [u8; 14] =
+        [13, 0, 255, 169, 82, 37, 176, 224, 192, 127, 8, 19, 6, 4];
+
+    #[test]
+    pub fn test_write_read_bmp() -> TestResult {
+        let test_dir = testdir!();
+        let bmp_path = test_dir.join("test_image.bmp");
+
+        write_image_bmp(&bmp_path, &LZW_COMPRESSED_DATA, 2, 2)?;
+
+        let file_bytes = std::fs::read(&bmp_path)?;
+        let read_compressed_data = read_image_bmp(&file_bytes, 2, 2)?;
+
+        Ok(assert_eq!(LZW_COMPRESSED_DATA, *read_compressed_data))
+    }
+
+    #[test]
+    pub fn test_swap_red_and_blue() {
+        let rgba = vec![1, 2, 3, 255];
+        let bgra = swap_red_and_blue(&rgba);
+        assert_eq!(bgra, vec![3, 2, 1, 255]);
+        // a second time should be the same as the original
+        let rgba2 = swap_red_and_blue(&bgra);
+        assert_eq!(rgba2, rgba);
+    }
+
     #[test]
     pub fn test_expand_write_read() -> TestResult {
         let expanded_path = testdir!();
@@ -1561,16 +1677,16 @@ mod test {
                 ImageData {
                     name: "test image 2".to_string(),
                     internal_name: None,
-                    path: "test2.png".to_string(),
-                    width: 0,
-                    height: 0,
+                    path: "test2.bmp".to_string(),
+                    width: 2,
+                    height: 2,
                     link: None,
                     alpha_test_value: 0.0,
                     is_opaque: Some(true),
                     is_signed: Some(false),
                     jpeg: None,
                     bits: Some(ImageDataBits {
-                        data: vec![0, 1, 2, 3],
+                        lzw_compressed_data: LZW_COMPRESSED_DATA.to_vec(),
                     }),
                 },
             ],

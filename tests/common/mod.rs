@@ -10,6 +10,7 @@ use std::io;
 use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf, MAIN_SEPARATOR_STR};
 use vpin::vpx::biff::BiffReader;
+use vpin::vpx::lzw::from_lzw_blocks;
 use walkdir::WalkDir;
 
 pub(crate) fn find_files<P: AsRef<Path>>(
@@ -124,10 +125,16 @@ fn compound_file_paths_and_lengths(compound_file_path: &Path) -> Vec<(PathBuf, u
         .map(|entry| {
             let path = entry.path();
             // Hack for compressed items
-            // If a GameItem is a promitive it's vertex data is compressed,
-            // so we ignore the size of those items.
+            // - If a GameItem is a primitive it's vertex data is compressed and the library we use
+            // picks the most efficient compression algorithm. This means that the algorithm
+            // can be different from what the library used by vpinball picks. So we ignore
+            // the size of those items.
+            // - If an image is a BMP it's data is compressed, however the algorithm is
+            // slightly different from the standard lzw compression.
             // Later on in the test they will get a proper check on the decompressed data
-            let size = if path.to_string_lossy().contains("GameItem") {
+            let size = if path.to_string_lossy().contains("GameItem")
+                || path.to_string_lossy().contains("Image")
+            {
                 // take something obviously recognizable
                 123456789
             } else {
@@ -208,8 +215,16 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, usize, u
             }
             "BITS" => {
                 let data = reader.data_until("ALTV".as_bytes());
-                let hash = hash_data(&data);
-                tags.push(("BITS".to_string(), read_tag_size, data.len(), hash));
+                // Looks like vpinball encodes de lzw stream in a slightly different way.
+                // However, vpinball can also read the standard lzw stream we write.
+                let decompressed = from_lzw_blocks(&data);
+                let hash = hash_data(&decompressed);
+                tags.push((
+                    "BITS (decompressed)".to_string(),
+                    read_tag_size,
+                    decompressed.len(),
+                    hash,
+                ));
             }
             "CODE" => {
                 let len = reader.get_u32_no_remaining_update();

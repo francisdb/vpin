@@ -29,18 +29,20 @@ impl fmt::Debug for ImageDataJpeg {
 }
 
 /**
- * An bitmap blob, typically used by textures.
+ * A bitmap blob, typically used by textures.
  */
 #[derive(PartialEq)]
 pub struct ImageDataBits {
-    pub data: Vec<u8>,
+    /// Lzw compressed raw BMP 32-bit sBGRA bitmap data
+    /// However we expect the alpha channel to always be 255
+    pub lzw_compressed_data: Vec<u8>,
 }
 
 impl fmt::Debug for ImageDataBits {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // avoid writing the data to the debug output
-        f.debug_struct("ImageDataJpeg")
-            .field("data", &self.data.len())
+        f.debug_struct("ImageDataBits")
+            .field("data", &self.lzw_compressed_data.len())
             .finish()
     }
 }
@@ -156,7 +158,9 @@ impl ImageDataJson {
             is_signed: self.is_signed,
             jpeg: self.jpeg.as_ref().map(|jpeg| jpeg.to_image_data_jpeg()),
             bits: if self.bits {
-                Some(ImageDataBits { data: vec![] })
+                Some(ImageDataBits {
+                    lzw_compressed_data: vec![],
+                })
             } else {
                 None
             },
@@ -246,7 +250,9 @@ fn read(reader: &mut BiffReader) -> ImageData {
 
                 // uncompressed = zlib.decompress(image_data.data[image_data.pos:]) #, wbits=9)
                 // reader.skip_end_tag(len.try_into().unwrap());
-                image_data.bits = Some(ImageDataBits { data });
+                image_data.bits = Some(ImageDataBits {
+                    lzw_compressed_data: data,
+                });
             }
             "JPEG" => {
                 // these have zero as length
@@ -284,7 +290,7 @@ fn write(data: &ImageData, writer: &mut BiffWriter) {
         writer.write_tagged_u32("LINK", link);
     }
     if let Some(bits) = &data.bits {
-        writer.write_tagged_data_without_size("BITS", &bits.data);
+        writer.write_tagged_data_without_size("BITS", &bits.lzw_compressed_data);
     }
     if let Some(jpeg) = &data.jpeg {
         let bits = write_jpg(jpeg);
