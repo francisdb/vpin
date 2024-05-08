@@ -30,12 +30,11 @@ fn from_blocks(uncompressed: &[u8]) -> Vec<u8> {
 /// This is the reverse of unblock
 ///
 /// typically the max_block_len is 254
-fn to_blocks(compressed: Vec<u8>, max_block_len: u8) -> Vec<u8> {
+fn to_blocks(compressed: &[u8], max_block_len: u8) -> Vec<u8> {
     let mut blocks: Vec<u8> = vec![];
-    let mut iter = compressed.iter();
     let mut block: Vec<u8> = vec![];
     let mut block_len = 0;
-    while let Some(byte) = iter.next() {
+    for byte in compressed {
         block.push(*byte);
         block_len += 1;
         if block_len == max_block_len {
@@ -53,14 +52,14 @@ fn to_blocks(compressed: Vec<u8>, max_block_len: u8) -> Vec<u8> {
 
 fn to_lzw(data: &[u8]) -> Vec<u8> {
     weezl::encode::Encoder::new(BitOrder::Lsb, 8)
-        .encode(&data)
+        .encode(data)
         .unwrap()
 }
 
 pub fn to_lzw_blocks(data: &[u8]) -> Vec<u8> {
-    let compressed = to_lzw(&data);
+    let compressed = to_lzw(data);
     // convert compressed bytes to gif blocks
-    to_blocks(compressed, 254)
+    to_blocks(&compressed, 254)
 }
 
 pub fn from_lzw_blocks(compressed: &[u8]) -> Vec<u8> {
@@ -70,10 +69,9 @@ pub fn from_lzw_blocks(compressed: &[u8]) -> Vec<u8> {
 }
 
 fn from_lzw(compressed: &[u8]) -> Vec<u8> {
-    let decompressed = weezl::decode::Decoder::new(BitOrder::Lsb, 8)
-        .decode(&compressed)
-        .unwrap();
-    decompressed
+    weezl::decode::Decoder::new(BitOrder::Lsb, 8)
+        .decode(compressed)
+        .unwrap()
 }
 
 #[cfg(test)]
@@ -157,7 +155,7 @@ mod tests {
     fn test_to_blocks_from_blocks() {
         let compressed = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
         let max_block_len = 3;
-        let blocks = to_blocks(compressed.clone(), max_block_len);
+        let blocks = to_blocks(&compressed, max_block_len);
         let uncompressed = from_blocks(&blocks);
         assert_eq!(uncompressed, compressed);
     }
@@ -166,7 +164,7 @@ mod tests {
     fn test_to_blocks_empty() {
         let compressed = vec![];
         let max_block_len = 3;
-        let blocks = to_blocks(compressed.clone(), max_block_len);
+        let blocks = to_blocks(&compressed, max_block_len);
 
         // should this be [0] ?
         assert_eq!(blocks, [0u8; 0]);
