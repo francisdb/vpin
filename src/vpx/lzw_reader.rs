@@ -129,6 +129,7 @@ impl LzwReader {
             // strange that is the same as stride
             width: stride,
             // height,
+            // +1 because 1 gets taken off immediately in Decoder
             lines_left: height + 1,
         }
     }
@@ -136,20 +137,26 @@ impl LzwReader {
     pub(crate) fn decompress(&mut self) -> Vec<u8> {
         let mut fc: u16 = 0;
 
-        // Initialize for decoding a new image...
-        let code_size: u8 = 8;
-        self.init_exp(code_size);
+        const CODE_SIZE: u8 = 8;
+        self.current_code_size = CODE_SIZE + 1;
+        self.top_slot = 1 << self.current_code_size;
+
+        self.clear_code = 1 << CODE_SIZE;
+        self.ending_code = self.clear_code + 1;
+        self.new_codes = self.ending_code + 1;
+
+        self.slot = self.new_codes;
+
+        self.num_bits_left = 0;
+        self.num_avail_bytes = 0;
 
         // Initialize in case they forgot to put in a clear code.
         // (This shouldn't happen, but we'll try and decode it anyway...)
         let mut oc = fc;
 
-        // Allocate space for the decode buffer
-        let mut buf = self.next_line();
-
         // Set up the stack pointer and decode buffer pointer
         let mut sp = 0;
-        let mut buf_ptr = buf;
+        let mut buf_ptr = self.next_line();
         let mut buf_cnt = self.width;
 
         // This is the main loop.  For each code we get we pass through the
@@ -163,7 +170,10 @@ impl LzwReader {
         while c != self.ending_code {
             // If the code is a clear code, reinitialize all necessary items.
             if c == self.clear_code {
-                self.current_code_size = code_size + 1;
+                // discard entire working dictionary
+                // drop back to 9-bit codes
+                // start over again in the middle of processing.
+                self.current_code_size = CODE_SIZE + 1;
                 self.slot = self.new_codes;
                 self.top_slot = 1 << self.current_code_size;
 
@@ -201,8 +211,7 @@ impl LzwReader {
                 // buf_ptr.incr();
 
                 if buf_cnt == 0 {
-                    buf = self.next_line();
-                    buf_ptr = buf;
+                    buf_ptr = self.next_line();
                     buf_cnt = self.width;
                 }
             } else {
@@ -271,8 +280,7 @@ impl LzwReader {
                     // buf_ptr.set(sp.get());
                     // buf_ptr.incr();
                     if buf_cnt == 0 {
-                        buf = self.next_line();
-                        buf_ptr = buf;
+                        buf_ptr = self.next_line();
                         buf_cnt = self.width;
                     }
                 }
@@ -286,20 +294,6 @@ impl LzwReader {
         // let length = self.pstm.get_pos();
 
         self.decompressed_data.clone()
-    }
-
-    /// This function initializes the decoder for reading a new image.
-    fn init_exp(&mut self, size: u8) {
-        self.current_code_size = size + 1;
-        self.top_slot = 1 << self.current_code_size;
-        self.clear_code = 1 << size;
-        self.ending_code = self.clear_code + 1;
-
-        self.new_codes = self.ending_code + 1;
-        self.slot = self.new_codes;
-
-        self.num_bits_left = 0;
-        self.num_avail_bytes = 0;
     }
 
     fn next_line(&mut self) -> usize {

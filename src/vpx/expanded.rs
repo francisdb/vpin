@@ -29,7 +29,9 @@ use crate::vpx::gameitem::GameItemEnum;
 use crate::vpx::image::{ImageData, ImageDataBits, ImageDataJson};
 use crate::vpx::jsonmodel::{collections_json, info_to_json, json_to_collections, json_to_info};
 use crate::vpx::lzw_reader::LzwReader;
-use crate::vpx::lzw_writer::LzwWriter;
+use crate::vpx::lzw_writer::{
+    from_lzw_blocks, from_lzw_blocks_old, to_lzw_blocks, to_lzw_blocks_old, LzwWriter,
+};
 use crate::vpx::material::{
     Material, MaterialJson, SaveMaterial, SaveMaterialJson, SavePhysicsMaterial,
     SavePhysicsMaterialJson,
@@ -317,11 +319,13 @@ fn write_image_bmp(
     width: u32,
     height: u32,
 ) -> io::Result<()> {
-    // TODO get rid of the required copy here
-    let copy = lzw_compressed_data.to_vec();
-    let cursor = io::Cursor::new(copy);
-    let mut reader = LzwReader::new(Box::new(cursor), width, height, 4);
-    let decompressed_bgra = reader.decompress();
+    // let copy = lzw_compressed_data.to_vec();
+    // let cursor = io::Cursor::new(copy);
+    // let mut reader = LzwReader::new(Box::new(cursor), width, height, 4);
+    // let decompressed_bgra = reader.decompress();
+
+    let decompressed_bgra = from_lzw_blocks_old(lzw_compressed_data, width, height, 4);
+    //let decompressed_bgra = from_lzw_blocks(lzw_compressed_data);
 
     // assert that alpha is 255 for all pixels
     for bgra in decompressed_bgra.chunks_exact(4) {
@@ -425,8 +429,11 @@ fn read_image_bmp(data: &[u8], width: u32, height: u32) -> io::Result<Vec<u8>> {
     // convert to BGRA
     let raw_bgra: Vec<u8> = swap_red_and_blue(&raw_rgba);
 
-    let mut encoder = LzwWriter::new(raw_bgra, width, height, 4);
-    Ok(encoder.compress_bits(8 + 1))
+    // let mut encoder = LzwWriter::new(raw_bgra, width, height, 4);
+    // Ok(encoder.compress_bits(8 + 1))
+
+    Ok(to_lzw_blocks_old(&raw_bgra, width, height, 4))
+    //Ok(to_lzw_blocks(&raw_bgra))
 }
 
 fn write_sounds<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
