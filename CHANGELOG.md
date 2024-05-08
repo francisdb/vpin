@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0](https://github.com/francisdb/vpin/compare/v0.13.0...v0.14.0) - 2024-05-08
+
+### Fixed
+- *(vpx)* bmp image export/import ([#69](https://github.com/francisdb/vpin/pull/69))
+
 ## [0.13.0](https://github.com/francisdb/vpin/compare/v0.12.0...v0.13.0) - 2024-04-24
 
 ### Added
