@@ -272,7 +272,7 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
             if let Some(jpeg) = &image.jpeg {
                 // Only if the actual image dimensions are different from
                 // the ones in the vpx file we add them to the json.
-                let dimensions_file = read_image_dimensions_from_file_steam(&file_name, jpeg)?;
+                let dimensions_file = read_image_dimensions_from_file_steam(&file_name, jpeg);
                 match dimensions_file {
                     Some((width_file, height_file)) => {
                         if image.width != width_file {
@@ -527,16 +527,17 @@ fn read_image_dimensions(file_path: &PathBuf) -> io::Result<Option<(u32, u32)>> 
 fn read_image_dimensions_from_file_steam(
     file_name: &String,
     jpeg: &ImageDataJpeg,
-) -> io::Result<Option<(u32, u32)>> {
-    let format = image::ImageFormat::from_path(file_name).map_err(|e| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("Failed to determine image format for {}: {}", file_name, e),
-        )
-    })?;
+) -> Option<(u32, u32)> {
+    let format = match image::ImageFormat::from_path(file_name) {
+        Ok(format) => Some(format),
+        Err(e) => {
+            eprintln!("Failed to determine image format for {}: {}", file_name, e);
+            None
+        }
+    }?;
     let cursor = std::io::Cursor::new(&jpeg.data);
     let decoder = image::io::Reader::with_format(cursor, format);
-    let dimensions_file = match decoder.into_dimensions() {
+    match decoder.into_dimensions() {
         Ok(dimensions) => Some(dimensions),
         Err(image_error) => {
             eprintln!(
@@ -545,8 +546,7 @@ fn read_image_dimensions_from_file_steam(
             );
             None
         }
-    };
-    Ok(dimensions_file)
+    }
 }
 
 struct ImageBmp {
