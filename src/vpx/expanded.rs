@@ -272,7 +272,7 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
             if let Some(jpeg) = &image.jpeg {
                 // Only if the actual image dimensions are different from
                 // the ones in the vpx file we add them to the json.
-                let dimensions_file = read_image_dimensions_from_file_steam(&file_name, &jpeg)?;
+                let dimensions_file = read_image_dimensions_from_file_steam(&file_name, jpeg)?;
                 match dimensions_file {
                     Some((width_file, height_file)) => {
                         if image.width != width_file {
@@ -296,7 +296,7 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
                     }
                 }
             };
-            if let Some(_) = &image.link {
+            if image.link.is_some() {
                 // Links always store the dimensions in the json
                 json.width = Some(image.width);
                 json.height = Some(image.height);
@@ -528,7 +528,7 @@ fn read_image_dimensions_from_file_steam(
     file_name: &String,
     jpeg: &ImageDataJpeg,
 ) -> io::Result<Option<(u32, u32)>> {
-    let format = image::ImageFormat::from_path(&file_name).map_err(|e| {
+    let format = image::ImageFormat::from_path(file_name).map_err(|e| {
         io::Error::new(
             io::ErrorKind::InvalidData,
             format!("Failed to determine image format for {}: {}", file_name, e),
