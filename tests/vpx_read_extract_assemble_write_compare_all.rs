@@ -29,6 +29,7 @@ mod test {
         // * Johnny Mnemonic (Williams 1995) VPW v1.0.2.vpx - animated frames that overlap with primitive names
         // * Future Spa (Bally 1979) v4.3.vpx - NaN in table setup values
         // * InvaderTable_2.260.vpx - Symbol fonts
+        // * Guns N Roses (Data East 1994).vpx - contains BMP with non-255 alpha values
         let filtered: Vec<&PathBuf> = paths
             .iter()
             // .filter(|path| {

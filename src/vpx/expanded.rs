@@ -1,6 +1,7 @@
 use bytes::{Buf, BufMut, BytesMut};
 use std::collections::HashSet;
 use std::error::Error;
+use std::ffi::OsStr;
 use std::fmt::{Display, Formatter};
 use std::io::{self, Read, Write};
 use std::iter::Zip;
@@ -10,6 +11,7 @@ use std::{fs::File, path::Path};
 
 use cfb::CompoundFile;
 use flate2::read::ZlibDecoder;
+use image::DynamicImage;
 use serde::de;
 use serde_json::Value;
 
@@ -322,24 +324,32 @@ fn write_image_bmp(
     height: u32,
 ) -> io::Result<()> {
     let decompressed_bgra = from_lzw_blocks(lzw_compressed_data);
-
-    // assert that alpha is 255 for all pixels
-    for bgra in decompressed_bgra.chunks_exact(4) {
-        assert_eq!(bgra[3], 255);
-    }
-
-    // convert to RGBA
     let decompressed_rgba: Vec<u8> = swap_red_and_blue(&decompressed_bgra);
 
     let rgba_image = image::RgbaImage::from_raw(width, height, decompressed_rgba)
         .expect("Decompressed image data does not match dimensions");
-    let dynamic_image = image::DynamicImage::ImageRgba8(rgba_image);
+    let dynamic_image = DynamicImage::ImageRgba8(rgba_image);
 
-    // convert to RGB
-    let rgb_image = dynamic_image.to_rgb8();
-
-    // save the image
-    rgb_image.save(file_path).map_err(|image_error| {
+    let uses_alpha = decompressed_bgra.chunks_exact(4).any(|bgra| bgra[3] != 255);
+    let image_to_save = if uses_alpha {
+        // One example is the table "Guns N Roses (Data East 1994).vpx"
+        // that contains vp9 images with non-255 alpha values.
+        // They are actually labeled as sRGBA in the Visual Pinball image manager.
+        // However, when Visual Pinball itself exports the image it uses 255 alpha values.
+        let file_name = file_path
+            .file_name()
+            .map(OsStr::to_string_lossy)
+            .unwrap_or_default();
+        eprintln!(
+            "Image {} has non-opaque pixels, writing as RGBA BMP that might not be supported by all applications",
+            file_name
+        );
+        dynamic_image
+    } else {
+        let rgb_image = dynamic_image.to_rgb8();
+        DynamicImage::ImageRgb8(rgb_image)
+    };
+    image_to_save.save(file_path).map_err(|image_error| {
         io::Error::new(
             io::ErrorKind::Other,
             format!(
@@ -409,7 +419,7 @@ fn read_image_bmp(data: &[u8], width: u32, height: u32) -> io::Result<Vec<u8>> {
         |image_error| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("Failed to read bitmap: {}", image_error),
+                format!("Failed to read BMP image: {}", image_error),
             )
         },
     )?;
@@ -417,10 +427,17 @@ fn read_image_bmp(data: &[u8], width: u32, height: u32) -> io::Result<Vec<u8>> {
     // make assertions on the image dimensions
     assert_eq!(image.width(), width, "Image width does not match");
     assert_eq!(image.height(), height, "Image height does not match");
-    assert_eq!(image.color(), image::ColorType::Rgb8, "Image is not RGB");
 
-    // get the raw image data
-    let raw_rgba = image.to_rgba8().into_raw();
+    let raw_rgba = match image.color() {
+        image::ColorType::Rgb8 => image.to_rgba8().into_raw(),
+        image::ColorType::Rgba8 => image.to_rgba8().into_raw(),
+        other => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("BMP image uses {:?}, expecting Rgb8 or Rgba8 format", other),
+            ))
+        }
+    };
 
     // convert to BGRA
     let raw_bgra: Vec<u8> = swap_red_and_blue(&raw_rgba);
