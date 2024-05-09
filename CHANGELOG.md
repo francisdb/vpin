@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.2](https://github.com/francisdb/vpin/compare/v0.14.1...v0.14.2) - 2024-05-09
+
+### Added
+- *(extracted)* do not write dimensions in json if not needed ([#75](https://github.com/francisdb/vpin/pull/75))
+
 ## [0.14.1](https://github.com/francisdb/vpin/compare/v0.14.0...v0.14.1) - 2024-05-09
 
 ### Fixed
