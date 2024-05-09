@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.1](https://github.com/francisdb/vpin/compare/v0.14.0...v0.14.1) - 2024-05-09
+
+### Fixed
+- *(vpx)* keep alpha channels for rgba bmp ([#73](https://github.com/francisdb/vpin/pull/73))
+
 ## [0.14.0](https://github.com/francisdb/vpin/compare/v0.13.0...v0.14.0) - 2024-05-08
 
 ### Fixed
