@@ -75,6 +75,14 @@ impl ImageData {
     pub fn is_link(&self) -> bool {
         self.link == Some(1)
     }
+
+    pub(crate) fn ext(&self) -> String {
+        // TODO we might want to also check the jpeg fsPath
+        match self.path.split('.').last() {
+            Some(ext) => ext.to_string(),
+            None => "bin".to_string(),
+        }
+    }
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
@@ -106,19 +114,20 @@ impl ImageDataJpegJson {
 
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
 pub(crate) struct ImageDataJson {
-    name: String,
+    pub(crate) name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     internal_name: Option<String>,
     path: String,
-    width: u32,
-    height: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) width: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) height: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     link: Option<u32>,
     alpha_test_value: f32,
     is_opaque: Option<bool>,
     is_signed: Option<bool>,
     jpeg: Option<ImageDataJpegJson>,
-    bits: bool,
     // in case we have a duplicate name
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) name_dedup: Option<String>,
@@ -130,8 +139,8 @@ impl ImageDataJson {
             name: image_data.name.clone(),
             internal_name: image_data.internal_name.clone(),
             path: image_data.path.clone(),
-            width: image_data.width,
-            height: image_data.height,
+            width: None,  // will be set later if needed
+            height: None, // will be set later if needed
             link: image_data.link,
             alpha_test_value: image_data.alpha_test_value,
             is_opaque: image_data.is_opaque,
@@ -140,41 +149,40 @@ impl ImageDataJson {
                 .jpeg
                 .as_ref()
                 .map(ImageDataJpegJson::from_image_data_jpeg),
-            bits: image_data.bits.is_some(),
             name_dedup: None,
         }
     }
 
-    pub fn to_image_data(&self) -> ImageData {
+    pub fn to_image_data(&self, width: u32, height: u32, bits: Option<ImageDataBits>) -> ImageData {
         ImageData {
             name: self.name.clone(),
             internal_name: self.internal_name.clone(),
             path: self.path.clone(),
-            width: self.width,
-            height: self.height,
+            width,
+            height,
             link: self.link,
             alpha_test_value: self.alpha_test_value,
             is_opaque: self.is_opaque,
             is_signed: self.is_signed,
             jpeg: self.jpeg.as_ref().map(|jpeg| jpeg.to_image_data_jpeg()),
-            bits: if self.bits {
-                Some(ImageDataBits {
-                    lzw_compressed_data: vec![],
-                })
-            } else {
-                None
-            },
+            bits,
         }
     }
-}
 
-impl ImageData {
+    pub fn is_link(&self) -> bool {
+        self.link == Some(1)
+    }
+
     pub(crate) fn ext(&self) -> String {
         // TODO we might want to also check the jpeg fsPath
         match self.path.split('.').last() {
             Some(ext) => ext.to_string(),
             None => "bin".to_string(),
         }
+    }
+
+    pub(crate) fn is_bmp(&self) -> bool {
+        self.ext().to_ascii_lowercase() == "bmp"
     }
 }
 
@@ -449,6 +457,38 @@ mod test {
         let mut writer = BiffWriter::new();
         ImageData::biff_write(&image, &mut writer);
         let image_read = read(&mut BiffReader::new(writer.get_data()));
+        assert_eq!(image, image_read);
+    }
+
+    #[test]
+    fn test_write_read_json() {
+        let image: ImageData = ImageData {
+            name: "name_value".to_string(),
+            internal_name: Some("inme_value".to_string()),
+            path: "path_value".to_string(),
+            width: 1,
+            height: 2,
+            link: None,
+            alpha_test_value: 1.0,
+            is_opaque: Some(true),
+            is_signed: Some(false),
+            jpeg: Some(ImageDataJpeg {
+                path: "path_value".to_string(),
+                name: "name_value".to_string(),
+                internal_name: Some("inme_value".to_string()),
+                // alpha_test_value: 1.0,
+                data: vec![1, 2, 3],
+            }),
+            bits: None,
+        };
+        let image_json = ImageDataJson::from_image_data(&image);
+        let mut image_read = image_json.to_image_data(1, 2, None);
+        // these are populated later whe reading the actual images from the file
+        if let Some(jpeg) = &mut image_read.jpeg {
+            jpeg.data = vec![1, 2, 3];
+        }
+        image_read.width = 1;
+        image_read.height = 2;
         assert_eq!(image, image_read);
     }
 }
