@@ -28,7 +28,7 @@ use crate::vpx::custominfotags::CustomInfoTags;
 use crate::vpx::font::{FontData, FontDataJson};
 use crate::vpx::gameitem::primitive::Primitive;
 use crate::vpx::gameitem::GameItemEnum;
-use crate::vpx::image::{ImageData, ImageDataBits, ImageDataJson};
+use crate::vpx::image::{ImageData, ImageDataBits, ImageDataJpeg, ImageDataJson};
 use crate::vpx::jsonmodel::{collections_json, info_to_json, json_to_collections, json_to_info};
 use crate::vpx::lzw::{from_lzw_blocks, to_lzw_blocks};
 
@@ -249,7 +249,7 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
     let mut image_names_lower: HashSet<String> = HashSet::new();
     let mut image_names_dupe_counter = 0;
     let mut json_images = Vec::with_capacity(vpx.sounds.len());
-    let images: Vec<(String, &ImageData)> = vpx
+    let images: io::Result<Vec<(String, &ImageData)>> = vpx
         .images
         .iter()
         .map(|image| {
@@ -268,10 +268,46 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
 
             let actual_name = json.name_dedup.as_ref().unwrap_or(&image.name);
             let file_name = format!("{}.{}", actual_name, image.ext());
+
+            if let Some(jpeg) = &image.jpeg {
+                // Only if the actual image dimensions are different from
+                // the ones in the vpx file we add them to the json.
+                let dimensions_file = read_image_dimensions_from_file_steam(&file_name, jpeg)?;
+                match dimensions_file {
+                    Some((width_file, height_file)) => {
+                        if image.width != width_file {
+                            eprintln!(
+                                "Image width override for {} in vpx ({}) vs in image ({})",
+                                file_name, image.width, width_file
+                            );
+                            json.width = Some(image.width);
+                        }
+                        if image.height != height_file {
+                            eprintln!(
+                                "Image height override for {} in vpx ({}) vs in image ({})",
+                                file_name, image.height, height_file
+                            );
+                            json.height = Some(image.height);
+                        }
+                    }
+                    None => {
+                        json.width = Some(image.width);
+                        json.height = Some(image.height);
+                    }
+                }
+            };
+            if image.link.is_some() {
+                // Links always store the dimensions in the json
+                json.width = Some(image.width);
+                json.height = Some(image.height);
+            }
+            // for bits images we don't store the dimensions in the json as they always match
+
             json_images.push(json);
-            (file_name, image)
+            Ok((file_name, image))
         })
         .collect();
+    let images = images?;
     serde_json::to_writer_pretty(&mut images_index_file, &json_images)?;
 
     let images_dir = expanded_dir.as_ref().join("images");
@@ -335,7 +371,7 @@ fn write_image_bmp(
         // One example is the table "Guns N Roses (Data East 1994).vpx"
         // that contains vp9 images with non-255 alpha values.
         // They are actually labeled as sRGBA in the Visual Pinball image manager.
-        // However, when Visual Pinball itself exports the image it uses 255 alpha values.
+        // However, when Visual Pinball itself exports the image it drops the alpha values.
         let file_name = file_path
             .file_name()
             .map(OsStr::to_string_lossy)
@@ -378,29 +414,86 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
     let images: io::Result<Vec<ImageData>> = images_index_json
         .into_iter()
         .map(|image_data_json| {
-            let mut image = image_data_json.to_image_data();
-            if image.is_link() {
+            if image_data_json.is_link() {
                 // linked images have no data
+                let image = image_data_json.to_image_data(
+                    image_data_json.width.unwrap_or(0),
+                    image_data_json.height.unwrap_or(0),
+                    None,
+                );
                 Ok(image)
             } else {
-                let file_name = image_data_json.name_dedup.as_ref().unwrap_or(&image.name);
-                let full_file_name = format!("{}.{}", file_name, image.ext());
-                let file_path = images_dir.join(full_file_name);
+                let file_name = image_data_json
+                    .name_dedup
+                    .as_ref()
+                    .unwrap_or(&image_data_json.name);
+                let full_file_name = format!("{}.{}", file_name, image_data_json.ext());
+                let file_path = images_dir.join(&full_file_name);
                 if file_path.exists() {
                     let mut image_file = File::open(&file_path)?;
                     let mut image_data = Vec::new();
                     image_file.read_to_end(&mut image_data)?;
-                    if let Some(jpg) = &mut image.jpeg {
-                        jpg.data = image_data;
-                    } else if image.bits.is_some() {
-                        let compressed_data =
-                            read_image_bmp(&image_data, image.width, image.height)?;
+                    let image = if image_data_json.is_bmp() {
+                        let read_bmp = read_image_bmp(&image_data)?;
                         // the json serializer makes sure we have a Some with empty data
                         let image_data = ImageDataBits {
-                            lzw_compressed_data: compressed_data,
+                            lzw_compressed_data: read_bmp.lzw_compressed_data,
                         };
-                        image.bits = Some(image_data);
-                    }
+                        // For now we don't support width and height overrides for BMPs
+                        // as we have not encountered any in the wild.
+                        image_data_json.to_image_data(
+                            read_bmp.width,
+                            read_bmp.height,
+                            Some(image_data),
+                        )
+                    } else {
+                        // use image library to get the actual dimensions
+                        let dimensions_from_file = read_image_dimensions(&file_path)?;
+
+                        let width = match image_data_json.width {
+                            Some(w) => {
+                                if let Some(dimensions) = dimensions_from_file {
+                                    if w != dimensions.0 {
+                                        eprintln!(
+                                            "Image width override for {} in json ({}) vs in image ({})",
+                                            full_file_name, w, dimensions.0
+                                        );
+                                    }
+                                }
+                                w
+                            }
+                            None =>
+                                match dimensions_from_file {
+                                    Some((width_file,_)) => width_file,
+                                    None => return Err(io::Error::new(io::ErrorKind::InvalidData, "Image width not provided and could not be read from file")),
+                                }
+                        };
+
+                        let height = match image_data_json.height {
+                            Some(h) => {
+                                if let Some(dimensions) = dimensions_from_file {
+                                    if h != dimensions.1 {
+                                        eprintln!(
+                                            "Image height override for {} in json ({}) vs in image ({})",
+                                            full_file_name, h, dimensions.1
+                                        );
+                                    }
+                                }
+                                h
+                            }
+                            None =>
+                                match dimensions_from_file {
+                                    Some((_,height_file)) => height_file,
+                                    None => return Err(io::Error::new(io::ErrorKind::InvalidData, "Image height not provided and could not be read from file")),
+                                }
+                             };
+
+                        let mut image = image_data_json.to_image_data(width, height, None);
+                        if let Some(jpg) = &mut image.jpeg {
+                            jpg.data = image_data;
+                        }
+                        image
+                    };
                     Ok(image)
                 } else {
                     Err(io::Error::new(
@@ -414,7 +507,55 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
     images
 }
 
-fn read_image_bmp(data: &[u8], width: u32, height: u32) -> io::Result<Vec<u8>> {
+fn read_image_dimensions(file_path: &PathBuf) -> io::Result<Option<(u32, u32)>> {
+    let decoder = image::io::Reader::open(file_path)?.with_guessed_format()?;
+    let dimensions_from_file = match decoder.into_dimensions() {
+        Ok(dimensions) => Some(dimensions),
+        Err(image_error) => {
+            // one issue we encountered is https://github.com/image-rs/image/issues/2231
+            eprintln!(
+                "Failed to read image dimensions for {}: {}",
+                file_path.display(),
+                image_error
+            );
+            None
+        }
+    };
+    Ok(dimensions_from_file)
+}
+
+fn read_image_dimensions_from_file_steam(
+    file_name: &String,
+    jpeg: &ImageDataJpeg,
+) -> io::Result<Option<(u32, u32)>> {
+    let format = image::ImageFormat::from_path(file_name).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Failed to determine image format for {}: {}", file_name, e),
+        )
+    })?;
+    let cursor = std::io::Cursor::new(&jpeg.data);
+    let decoder = image::io::Reader::with_format(cursor, format);
+    let dimensions_file = match decoder.into_dimensions() {
+        Ok(dimensions) => Some(dimensions),
+        Err(image_error) => {
+            eprintln!(
+                "Failed to read image dimensions for {}: {}",
+                file_name, image_error
+            );
+            None
+        }
+    };
+    Ok(dimensions_file)
+}
+
+struct ImageBmp {
+    width: u32,
+    height: u32,
+    lzw_compressed_data: Vec<u8>,
+}
+
+fn read_image_bmp(data: &[u8]) -> io::Result<ImageBmp> {
     let image = image::load_from_memory_with_format(data, image::ImageFormat::Bmp).map_err(
         |image_error| {
             io::Error::new(
@@ -423,10 +564,6 @@ fn read_image_bmp(data: &[u8], width: u32, height: u32) -> io::Result<Vec<u8>> {
             )
         },
     )?;
-
-    // make assertions on the image dimensions
-    assert_eq!(image.width(), width, "Image width does not match");
-    assert_eq!(image.height(), height, "Image height does not match");
 
     let raw_rgba = match image.color() {
         image::ColorType::Rgb8 => image.to_rgba8().into_raw(),
@@ -442,7 +579,13 @@ fn read_image_bmp(data: &[u8], width: u32, height: u32) -> io::Result<Vec<u8>> {
     // convert to BGRA
     let raw_bgra: Vec<u8> = swap_red_and_blue(&raw_rgba);
 
-    Ok(to_lzw_blocks(&raw_bgra))
+    let image_bmp = ImageBmp {
+        width: image.width(),
+        height: image.height(),
+        lzw_compressed_data: to_lzw_blocks(&raw_bgra),
+    };
+
+    Ok(image_bmp)
 }
 
 fn write_sounds<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
@@ -1530,9 +1673,15 @@ mod test {
         write_image_bmp(&bmp_path, &LZW_COMPRESSED_DATA, 2, 2)?;
 
         let file_bytes = std::fs::read(&bmp_path)?;
-        let read_compressed_data = read_image_bmp(&file_bytes, 2, 2)?;
+        let read_compressed_data = read_image_bmp(&file_bytes)?;
 
-        Ok(assert_eq!(LZW_COMPRESSED_DATA, *read_compressed_data))
+        assert_eq!(2, read_compressed_data.width);
+        assert_eq!(2, read_compressed_data.height);
+
+        Ok(assert_eq!(
+            LZW_COMPRESSED_DATA,
+            *read_compressed_data.lzw_compressed_data
+        ))
     }
 
     #[test]
