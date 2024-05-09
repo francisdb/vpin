@@ -86,33 +86,6 @@ impl ImageData {
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
-pub(crate) struct ImageDataJpegJson {
-    path: String,
-    name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    inme: Option<String>,
-}
-
-impl ImageDataJpegJson {
-    pub fn from_image_data_jpeg(image_data_jpeg: &ImageDataJpeg) -> Self {
-        ImageDataJpegJson {
-            path: image_data_jpeg.path.clone(),
-            name: image_data_jpeg.name.clone(),
-            inme: image_data_jpeg.internal_name.clone(),
-        }
-    }
-
-    pub fn to_image_data_jpeg(&self) -> ImageDataJpeg {
-        ImageDataJpeg {
-            path: self.path.clone(),
-            name: self.name.clone(),
-            internal_name: self.inme.clone(),
-            data: vec![], // data is stored in a separate file
-        }
-    }
-}
-
-#[derive(PartialEq, Debug, Serialize, Deserialize)]
 pub(crate) struct ImageDataJson {
     pub(crate) name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -125,9 +98,19 @@ pub(crate) struct ImageDataJson {
     #[serde(skip_serializing_if = "Option::is_none")]
     link: Option<u32>,
     alpha_test_value: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     is_opaque: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     is_signed: Option<bool>,
-    jpeg: Option<ImageDataJpegJson>,
+
+    // these are just for full compatibility with the original file
+    #[serde(skip_serializing_if = "Option::is_none")]
+    jpeg_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    jpeg_internal_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    jpeg_path: Option<String>,
+
     // in case we have a duplicate name
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) name_dedup: Option<String>,
@@ -135,6 +118,27 @@ pub(crate) struct ImageDataJson {
 
 impl ImageDataJson {
     pub fn from_image_data(image_data: &ImageData) -> Self {
+        let (jpeg_name, jpeg_path) = if let Some(jpeg) = &image_data.jpeg {
+            let jpeg_name = if jpeg.name == image_data.name {
+                None
+            } else {
+                Some(jpeg.name.clone())
+            };
+            let jpeg_path = if jpeg.path == image_data.path {
+                None
+            } else {
+                Some(jpeg.path.clone())
+            };
+            (jpeg_name, jpeg_path)
+        } else {
+            (None, None)
+        };
+
+        let jpeg_internal_name = image_data
+            .jpeg
+            .as_ref()
+            .and_then(|jpeg| jpeg.internal_name.clone());
+
         ImageDataJson {
             name: image_data.name.clone(),
             internal_name: image_data.internal_name.clone(),
@@ -145,15 +149,36 @@ impl ImageDataJson {
             alpha_test_value: image_data.alpha_test_value,
             is_opaque: image_data.is_opaque,
             is_signed: image_data.is_signed,
-            jpeg: image_data
-                .jpeg
-                .as_ref()
-                .map(ImageDataJpegJson::from_image_data_jpeg),
+            jpeg_name,
+            jpeg_internal_name,
+            jpeg_path,
             name_dedup: None,
         }
     }
 
     pub fn to_image_data(&self, width: u32, height: u32, bits: Option<ImageDataBits>) -> ImageData {
+        let mut jpeg = None;
+        if !self.is_bmp() && !self.is_link() {
+            let name = match &self.jpeg_name {
+                Some(name) => name.clone(),
+                None => self.name.clone(),
+            };
+            let path = match &self.jpeg_path {
+                Some(path) => path.clone(),
+                None => self.path.clone(),
+            };
+            let internal_name = match &self.jpeg_internal_name {
+                Some(name) => Some(name.clone()),
+                None => self.internal_name.clone(),
+            };
+
+            jpeg = Some(ImageDataJpeg {
+                path,
+                name,
+                internal_name,
+                data: vec![], // populated later
+            });
+        }
         ImageData {
             name: self.name.clone(),
             internal_name: self.internal_name.clone(),
@@ -164,7 +189,7 @@ impl ImageDataJson {
             alpha_test_value: self.alpha_test_value,
             is_opaque: self.is_opaque,
             is_signed: self.is_signed,
-            jpeg: self.jpeg.as_ref().map(|jpeg| jpeg.to_image_data_jpeg()),
+            jpeg,
             bits,
         }
     }
