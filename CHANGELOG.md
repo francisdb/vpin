@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.3](https://github.com/francisdb/vpin/compare/v0.14.2...v0.14.3) - 2024-05-09
+
+### Fixed
+- *(extracted)* unknown image extension ([#77](https://github.com/francisdb/vpin/pull/77))
+
 ## [0.14.2](https://github.com/francisdb/vpin/compare/v0.14.1...v0.14.2) - 2024-05-09
 
 ### Added
