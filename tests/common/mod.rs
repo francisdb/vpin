@@ -215,8 +215,10 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, usize, u
             }
             "BITS" => {
                 let data = reader.data_until("ALTV".as_bytes());
-                // Looks like vpinball encodes de lzw stream in a slightly different way.
+                // Looks like vpinball encodes de lzw stream in a slightly different way. Ending
+                // up with the same compressed size but different compressed data.
                 // However, vpinball can also read the standard lzw stream we write.
+                // So for these images we look at the raw data hash.
                 let decompressed = from_lzw_blocks(&data);
                 let hash = hash_data(&decompressed);
                 tags.push((
