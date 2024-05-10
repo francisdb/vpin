@@ -62,8 +62,11 @@ pub struct ImageData {
     // TODO seems to be 1 for some kind of link type img, related to screenshots.
     // we only see this where a screenshot is set on the table info.
     // https://github.com/vpinball/vpinball/blob/1a70aa35eb57ec7b5fbbb9727f6735e8ef3183e0/Texture.cpp#L588
-    pub link: Option<u32>,       // LINK
-    pub alpha_test_value: f32,   // ALTV
+    pub link: Option<u32>, // LINK
+    /// ALTV
+    /// Alpha test value, used for transparency
+    /// Used to default to 1.0, now defaults to -1.0 since 10.8
+    pub alpha_test_value: f32, // ALTV
     pub is_opaque: Option<bool>, // OPAQ (added in 10.8)
     pub is_signed: Option<bool>, // SIGN (added in 10.8)
     // TODO we can probably only have one of these so we can make an enum
@@ -72,6 +75,8 @@ pub struct ImageData {
 }
 
 impl ImageData {
+    const ALPHA_TEST_VALUE_DEFAULT: f32 = -1.0;
+
     pub fn is_link(&self) -> bool {
         self.link == Some(1)
     }
@@ -97,7 +102,8 @@ pub(crate) struct ImageDataJson {
     pub(crate) height: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     link: Option<u32>,
-    alpha_test_value: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    alpha_test_value: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     is_opaque: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -118,7 +124,7 @@ pub(crate) struct ImageDataJson {
 
 impl ImageDataJson {
     pub fn from_image_data(image_data: &ImageData) -> Self {
-        let (jpeg_name, jpeg_path) = if let Some(jpeg) = &image_data.jpeg {
+        let (jpeg_name, jpeg_path, jpeg_internal_name) = if let Some(jpeg) = &image_data.jpeg {
             let jpeg_name = if jpeg.name == image_data.name {
                 None
             } else {
@@ -129,15 +135,20 @@ impl ImageDataJson {
             } else {
                 Some(jpeg.path.clone())
             };
-            (jpeg_name, jpeg_path)
+            let jpeg_internal_name = jpeg.internal_name.clone();
+            (jpeg_name, jpeg_path, jpeg_internal_name)
         } else {
-            (None, None)
+            (None, None, None)
         };
 
-        let jpeg_internal_name = image_data
-            .jpeg
-            .as_ref()
-            .and_then(|jpeg| jpeg.internal_name.clone());
+        // TODO we might want to generate a warning if the alpha_test_value is the old default of 1.0
+        //   which caused overhead in the shader
+        let alpha_test_value = if image_data.alpha_test_value == ImageData::ALPHA_TEST_VALUE_DEFAULT
+        {
+            None
+        } else {
+            Some(image_data.alpha_test_value)
+        };
 
         ImageDataJson {
             name: image_data.name.clone(),
@@ -146,7 +157,7 @@ impl ImageDataJson {
             width: None,  // will be set later if needed
             height: None, // will be set later if needed
             link: image_data.link,
-            alpha_test_value: image_data.alpha_test_value,
+            alpha_test_value,
             is_opaque: image_data.is_opaque,
             is_signed: image_data.is_signed,
             jpeg_name,
@@ -167,10 +178,7 @@ impl ImageDataJson {
                 Some(path) => path.clone(),
                 None => self.path.clone(),
             };
-            let internal_name = match &self.jpeg_internal_name {
-                Some(name) => Some(name.clone()),
-                None => self.internal_name.clone(),
-            };
+            let internal_name = self.jpeg_internal_name.clone();
 
             jpeg = Some(ImageDataJpeg {
                 path,
@@ -179,6 +187,10 @@ impl ImageDataJson {
                 data: vec![], // populated later
             });
         }
+
+        let alpha_test_value = self
+            .alpha_test_value
+            .unwrap_or(ImageData::ALPHA_TEST_VALUE_DEFAULT);
         ImageData {
             name: self.name.clone(),
             internal_name: self.internal_name.clone(),
@@ -186,7 +198,7 @@ impl ImageDataJson {
             width,
             height,
             link: self.link,
-            alpha_test_value: self.alpha_test_value,
+            alpha_test_value,
             is_opaque: self.is_opaque,
             is_signed: self.is_signed,
             jpeg,
