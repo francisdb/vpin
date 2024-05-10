@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.4](https://github.com/francisdb/vpin/compare/v0.14.3...v0.14.4) - 2024-05-10
+
+### Added
+- *(exported)* more redundant img fields removed ([#79](https://github.com/francisdb/vpin/pull/79))
+
 ## [0.14.3](https://github.com/francisdb/vpin/compare/v0.14.2...v0.14.3) - 2024-05-09
 
 ### Fixed
