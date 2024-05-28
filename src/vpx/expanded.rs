@@ -1651,7 +1651,7 @@ mod test {
     use crate::vpx::gameitem;
     use crate::vpx::gameitem::GameItemEnum;
     use crate::vpx::image::ImageDataJpeg;
-    use crate::vpx::sound::WaveForm;
+    use crate::vpx::sound::{OutputTarget, WaveForm};
     use crate::vpx::tableinfo::TableInfo;
     use fake::{Fake, Faker};
     use pretty_assertions::assert_eq;
@@ -1874,7 +1874,7 @@ mod test {
                     fade: 0,
                     volume: 0,
                     balance: 0,
-                    output_target: 0,
+                    output_target: OutputTarget::Table,
                 },
                 SoundData {
                     name: "test sound2".to_string(),
@@ -1885,7 +1885,7 @@ mod test {
                     fade: 1,
                     volume: 2,
                     balance: 3,
-                    output_target: 4,
+                    output_target: OutputTarget::Backglass,
                 },
             ],
             fonts: vec![
