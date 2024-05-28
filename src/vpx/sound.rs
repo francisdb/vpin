@@ -2,12 +2,89 @@ use std::fmt;
 
 use crate::vpx::wav::{read_wav_header, write_wav_header, WavHeader};
 use bytes::{BufMut, BytesMut};
-use serde::{Deserialize, Serialize};
+use fake::Dummy;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::Value;
 
 use super::{
     biff::{BiffReader, BiffWriter},
     Version,
 };
+
+#[derive(Debug, PartialEq, Dummy, Clone)]
+pub enum OutputTarget {
+    Table = 0,
+    Backglass = 1,
+}
+
+impl From<&OutputTarget> for u8 {
+    fn from(decal_type: &OutputTarget) -> u8 {
+        match decal_type {
+            OutputTarget::Table => 0,
+            OutputTarget::Backglass => 1,
+        }
+    }
+}
+
+impl From<u8> for OutputTarget {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => OutputTarget::Table,
+            1 => OutputTarget::Backglass,
+            _ => panic!("Invalid value for OutputTarget: {}, we expect 0, 1", value),
+        }
+    }
+}
+
+/// A serializer for OutputTarget that writes it as lowercase
+impl Serialize for OutputTarget {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let value = match self {
+            OutputTarget::Table => "table",
+            OutputTarget::Backglass => "backglass",
+        };
+        serializer.serialize_str(value)
+    }
+}
+
+/// A deserializer for OutputTarget that reads it as lowercase
+/// or number for backwards compatibility.
+impl<'de> Deserialize<'de> for OutputTarget {
+    fn deserialize<D>(deserializer: D) -> Result<OutputTarget, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer);
+        match value {
+            Ok(Value::String(value)) => match value.as_str() {
+                "table" => Ok(OutputTarget::Table),
+                "backglass" => Ok(OutputTarget::Backglass),
+                _ => Err(serde::de::Error::custom(format!(
+                    "Invalid value for OutputTarget: {}, we expect \"table\", \"backglass\"",
+                    value
+                ))),
+            },
+            Ok(Value::Number(value)) => {
+                let value = value.as_u64().unwrap();
+                match value {
+                    0 => Ok(OutputTarget::Table),
+                    1 => Ok(OutputTarget::Backglass),
+                    _ => Err(serde::de::Error::custom(format!(
+                        "Invalid value for OutputTarget: {}, we expect 0, 1",
+                        value
+                    ))),
+                }
+            }
+            _ => Err(serde::de::Error::custom(format!(
+                "Invalid value for OutputTarget: {:?}, we expect a string or a number",
+                value
+            ))),
+        }
+    }
+}
 
 const NEW_SOUND_FORMAT_VERSION: u32 = 1031;
 
@@ -42,7 +119,7 @@ pub struct SoundData {
     pub fade: u32,
     pub volume: u32,
     pub balance: u32,
-    pub output_target: u8,
+    pub output_target: OutputTarget,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -53,7 +130,7 @@ pub(crate) struct SoundDataJson {
     fade: u32,
     volume: u32,
     balance: u32,
-    output_target: u8,
+    output_target: OutputTarget,
     // in case we have a duplicate name
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) name_dedup: Option<String>,
@@ -68,7 +145,7 @@ impl SoundDataJson {
             fade: sound_data.fade,
             volume: sound_data.volume,
             balance: sound_data.balance,
-            output_target: sound_data.output_target,
+            output_target: sound_data.output_target.clone(),
             name_dedup: None,
         }
     }
@@ -83,7 +160,7 @@ impl SoundDataJson {
             fade: self.fade,
             volume: self.volume,
             balance: self.balance,
-            output_target: self.output_target,
+            output_target: self.output_target.clone(),
         }
     }
 }
@@ -234,7 +311,7 @@ pub(crate) fn read(file_version: &Version, reader: &mut BiffReader) -> SoundData
     let mut fade: u32 = 0;
     let mut volume: u32 = 0;
     let mut balance: u32 = 0;
-    let mut output_target: u8 = 0;
+    let mut output_target: OutputTarget = OutputTarget::Table;
     let mut data: Vec<u8> = Vec::new();
     let mut wave_form: WaveForm = WaveForm::new();
 
@@ -274,7 +351,7 @@ pub(crate) fn read(file_version: &Version, reader: &mut BiffReader) -> SoundData
                 data = reader.get_data_no_remaining_update();
             }
             5 => {
-                output_target = reader.get_u8_no_remaining_update();
+                output_target = reader.get_u8_no_remaining_update().into();
             }
             6 => {
                 volume = reader.get_u32_no_remaining_update();
@@ -329,7 +406,7 @@ pub(crate) fn write(file_version: &Version, sound: &SoundData, writer: &mut Biff
     }
 
     writer.write_length_prefixed_data(&sound.data);
-    writer.write_u8(sound.output_target);
+    writer.write_u8((&sound.output_target).into());
     if file_version.u32() >= NEW_SOUND_FORMAT_VERSION {
         writer.write_u32(sound.volume);
         writer.write_u32(sound.balance);
@@ -376,8 +453,8 @@ fn write_wave_form(writer: &mut BiffWriter, wave_form: &WaveForm) {
 
 #[cfg(test)]
 mod test {
-
     use super::*;
+    use fake::{Fake, Faker};
     use pretty_assertions::assert_eq;
 
     // TODO add test for non-wav sound
@@ -401,7 +478,7 @@ mod test {
             fade: 1,
             volume: 2,
             balance: 3,
-            output_target: 4,
+            output_target: Faker.fake(),
         };
         let mut writer = BiffWriter::new();
         write(&Version::new(1074), &sound, &mut writer);
@@ -421,7 +498,7 @@ mod test {
             fade: 1,
             volume: 2,
             balance: 3,
-            output_target: 4,
+            output_target: Faker.fake(),
         };
         let mut writer = BiffWriter::new();
         write(&Version::new(1083), &sound, &mut writer);
@@ -444,7 +521,7 @@ mod test {
             fade: 1,
             volume: 2,
             balance: 3,
-            output_target: 4,
+            output_target: OutputTarget::Backglass,
         };
         let sound_data = write_sound(&sound);
         let mut sound_read = SoundData {
@@ -456,7 +533,7 @@ mod test {
             fade: 1,
             volume: 2,
             balance: 3,
-            output_target: 4,
+            output_target: OutputTarget::Backglass,
         };
         read_sound(&sound_data, &mut sound_read);
         assert_eq!(sound, sound_read);
