@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.5](https://github.com/francisdb/vpin/compare/v0.14.4...v0.14.5) - 2024-05-28
+
+### Added
+- sound output type enum ([#84](https://github.com/francisdb/vpin/pull/84))
+
+### Other
+- *(deps)* update roxmltree requirement from 0.19.0 to 0.20.0 ([#82](https://github.com/francisdb/vpin/pull/82))
+
 ## [0.14.4](https://github.com/francisdb/vpin/compare/v0.14.3...v0.14.4) - 2024-05-10
 
 ### Added
