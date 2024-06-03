@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0](https://github.com/francisdb/vpin/compare/v0.14.5...v0.15.0) - 2024-06-03
+
+### Added
+- more/open tonemapper values ([#85](https://github.com/francisdb/vpin/pull/85))
+
 ## [0.14.5](https://github.com/francisdb/vpin/compare/v0.14.4...v0.14.5) - 2024-05-28
 
 ### Added
