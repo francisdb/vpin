@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.1](https://github.com/francisdb/vpin/compare/v0.15.0...v0.15.1) - 2024-06-09
+
+### Fixed
+- timer interval signed ([#88](https://github.com/francisdb/vpin/pull/88))
+
 ## [0.15.0](https://github.com/francisdb/vpin/compare/v0.14.5...v0.15.0) - 2024-06-03
 
 ### Added
