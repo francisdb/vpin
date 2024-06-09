@@ -131,7 +131,7 @@ pub struct Ramp {
     pub width_top: f32,                      // 4
     pub material: String,                    // 5
     pub is_timer_enabled: bool,              // 6
-    pub timer_interval: u32,                 // 7
+    pub timer_interval: i32,                 // 7
     pub ramp_type: RampType,                 // TYPE 8
     pub name: String,                        // 9
     pub image: String,                       // 10
@@ -174,7 +174,7 @@ struct RampJson {
     width_top: f32,
     material: String,
     is_timer_enabled: bool,
-    timer_interval: u32,
+    timer_interval: i32,
     ramp_type: RampType,
     name: String,
     image: String,
@@ -375,7 +375,7 @@ impl BiffRead for Ramp {
                     ramp.is_timer_enabled = reader.get_bool();
                 }
                 "TMIN" => {
-                    ramp.timer_interval = reader.get_u32();
+                    ramp.timer_interval = reader.get_i32();
                 }
                 "TYPE" => {
                     ramp.ramp_type = reader.get_u32().into();
@@ -489,7 +489,7 @@ impl BiffWrite for Ramp {
         writer.write_tagged_f32("WDTP", self.width_top);
         writer.write_tagged_string("MATR", &self.material);
         writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_u32("TMIN", self.timer_interval);
+        writer.write_tagged_i32("TMIN", self.timer_interval);
         writer.write_tagged_u32("TYPE", (&self.ramp_type).into());
         writer.write_tagged_wide_string("NAME", &self.name);
         writer.write_tagged_string("IMAG", &self.image);

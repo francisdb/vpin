@@ -126,7 +126,7 @@ pub struct Plunger {
     scatter_velocity: f32,
     momentum_xfer: f32,
     is_timer_enabled: bool,
-    timer_interval: u32,
+    timer_interval: i32,
     is_visible: bool,
     is_reflection_enabled: Option<bool>, // REEN (was missing in 10.01)
     surface: String,
@@ -213,7 +213,7 @@ struct PlungerJson {
     scatter_velocity: f32,
     momentum_xfer: f32,
     is_timer_enabled: bool,
-    timer_interval: u32,
+    timer_interval: i32,
     is_visible: bool,
     is_reflection_enabled: Option<bool>,
     surface: String,
@@ -402,7 +402,7 @@ impl BiffRead for Plunger {
                     plunger.is_timer_enabled = reader.get_bool();
                 }
                 "TMIN" => {
-                    plunger.timer_interval = reader.get_u32();
+                    plunger.timer_interval = reader.get_i32();
                 }
                 "VSBL" => {
                     plunger.is_visible = reader.get_bool();
@@ -491,7 +491,7 @@ impl BiffWrite for Plunger {
         writer.write_tagged_f32("PSCV", self.scatter_velocity);
         writer.write_tagged_f32("MOMX", self.momentum_xfer);
         writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_u32("TMIN", self.timer_interval);
+        writer.write_tagged_i32("TMIN", self.timer_interval);
         writer.write_tagged_bool("VSBL", self.is_visible);
         if let Some(is_reflection_enabled) = self.is_reflection_enabled {
             writer.write_tagged_bool("REEN", is_reflection_enabled);

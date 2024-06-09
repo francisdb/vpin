@@ -171,7 +171,7 @@ pub struct HitTarget {
     pub is_dropped: bool,
     pub drop_speed: f32,
     pub is_timer_enabled: bool,
-    pub timer_interval: u32,
+    pub timer_interval: i32,
     pub raise_delay: Option<u32>,
     // RADE (added in 10.?)
     pub physics_material: Option<String>,
@@ -212,7 +212,7 @@ impl Default for HitTarget {
         let is_dropped: bool = false;
         let drop_speed: f32 = 0.5;
         let is_timer_enabled: bool = false;
-        let timer_interval: u32 = 0;
+        let timer_interval: i32 = 0;
         let raise_delay: Option<u32> = None; //100;
         let physics_material: Option<String> = None;
         let overwrite_physics: Option<bool> = None; //false;
@@ -285,7 +285,7 @@ struct HitTargetJson {
     is_dropped: bool,
     drop_speed: f32,
     is_timer_enabled: bool,
-    timer_interval: u32,
+    timer_interval: i32,
     raise_delay: Option<u32>,
     physics_material: Option<String>,
     overwrite_physics: Option<bool>,
@@ -412,7 +412,7 @@ impl BiffRead for HitTarget {
         let mut is_dropped: bool = false;
         let mut drop_speed: f32 = 0.5;
         let mut is_timer_enabled: bool = false;
-        let mut timer_interval: u32 = 0;
+        let mut timer_interval: i32 = 0;
         let mut raise_delay: Option<u32> = None; //100;
         let mut physics_material: Option<String> = None;
         let mut overwrite_physics: Option<bool> = None; //false;
@@ -503,7 +503,7 @@ impl BiffRead for HitTarget {
                 "TMON" => {
                     is_timer_enabled = reader.get_bool();
                 }
-                "TMIN" => timer_interval = reader.get_u32(),
+                "TMIN" => timer_interval = reader.get_i32(),
                 "RADE" => raise_delay = Some(reader.get_u32()),
                 "MAPH" => physics_material = Some(reader.get_string()),
                 "OVPH" => overwrite_physics = Some(reader.get_bool()),
@@ -600,7 +600,7 @@ impl BiffWrite for HitTarget {
         writer.write_tagged_bool("ISDR", self.is_dropped);
         writer.write_tagged_f32("DRSP", self.drop_speed);
         writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_u32("TMIN", self.timer_interval);
+        writer.write_tagged_i32("TMIN", self.timer_interval);
         if let Some(raise_delay) = self.raise_delay {
             writer.write_tagged_u32("RADE", raise_delay);
         }

@@ -112,7 +112,7 @@ pub struct TextBox {
     intensity_scale: f32,   // INSC
     text: String,           // TEXT
     is_timer_enabled: bool, // TMON
-    timer_interval: u32,    // TMIN
+    timer_interval: i32,    // TMIN
     pub name: String,       // NAME
     align: TextAlignment,   // ALGN
     is_transparent: bool,   // TRNS
@@ -138,7 +138,7 @@ struct TextBoxJson {
     intensity_scale: f32,
     text: String,
     is_timer_enabled: bool,
-    timer_interval: u32,
+    timer_interval: i32,
     name: String,
     align: TextAlignment,
     is_transparent: bool,
@@ -269,7 +269,7 @@ impl BiffRead for TextBox {
                     textbox.is_timer_enabled = reader.get_bool();
                 }
                 "TMIN" => {
-                    textbox.timer_interval = reader.get_u32();
+                    textbox.timer_interval = reader.get_i32();
                 }
                 "NAME" => {
                     textbox.name = reader.get_wide_string();
@@ -323,7 +323,7 @@ impl BiffWrite for TextBox {
         writer.write_tagged_f32("INSC", self.intensity_scale);
         writer.write_tagged_string("TEXT", &self.text);
         writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_u32("TMIN", self.timer_interval);
+        writer.write_tagged_i32("TMIN", self.timer_interval);
         writer.write_tagged_wide_string("NAME", &self.name);
         writer.write_tagged_u32("ALGN", (&self.align).into());
         writer.write_tagged_bool("TRNS", self.is_transparent);

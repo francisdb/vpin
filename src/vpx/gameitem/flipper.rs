@@ -16,7 +16,7 @@ pub struct Flipper {
     override_physics: u32,
     mass: f32,
     is_timer_enabled: bool,
-    timer_interval: u32,
+    timer_interval: i32,
     surface: String,
     material: String,
     pub name: String,
@@ -65,7 +65,7 @@ pub(crate) struct FlipperJson {
     override_physics: u32,
     mass: f32,
     is_timer_enabled: bool,
-    timer_interval: u32,
+    timer_interval: i32,
     surface: String,
     material: String,
     name: String,
@@ -296,7 +296,7 @@ impl BiffRead for Flipper {
                     flipper.is_timer_enabled = reader.get_bool();
                 }
                 "TMIN" => {
-                    flipper.timer_interval = reader.get_u32();
+                    flipper.timer_interval = reader.get_i32();
                 }
                 "SURF" => {
                     flipper.surface = reader.get_string();
@@ -410,7 +410,7 @@ impl BiffWrite for Flipper {
         writer.write_tagged_u32("OVRP", self.override_physics);
         writer.write_tagged_f32("FORC", self.mass);
         writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_u32("TMIN", self.timer_interval);
+        writer.write_tagged_i32("TMIN", self.timer_interval);
         writer.write_tagged_string("SURF", &self.surface);
         writer.write_tagged_string("MATR", &self.material);
         writer.write_tagged_wide_string("NAME", &self.name);

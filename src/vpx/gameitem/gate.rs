@@ -79,7 +79,7 @@ pub struct Gate {
     pub is_timer_enabled: bool,              // 6 TMON
     pub show_bracket: bool,                  // 7 GSUP
     pub is_collidable: bool,                 // 8 GCOL
-    pub timer_interval: u32,                 // 9 TMIN
+    pub timer_interval: i32,                 // 9 TMIN
     pub imgf: Option<String>,                // IMGF (was in use in 10.01)
     pub imgb: Option<String>,                // IMGB (was in use in 10.01)
     pub surface: String,                     // 10 SURF
@@ -147,7 +147,7 @@ pub(crate) struct GateJson {
     is_timer_enabled: bool,
     show_bracket: bool,
     is_collidable: bool,
-    timer_interval: u32,
+    timer_interval: i32,
     imgf: Option<String>,
     imgb: Option<String>,
     surface: String,
@@ -285,7 +285,7 @@ impl BiffRead for Gate {
                     gate.is_collidable = reader.get_bool();
                 }
                 "TMIN" => {
-                    gate.timer_interval = reader.get_u32();
+                    gate.timer_interval = reader.get_i32();
                 }
                 "IMGF" => {
                     gate.imgf = Some(reader.get_string());
@@ -368,7 +368,7 @@ impl BiffWrite for Gate {
         writer.write_tagged_bool("TMON", self.is_timer_enabled);
         writer.write_tagged_bool("GSUP", self.show_bracket);
         writer.write_tagged_bool("GCOL", self.is_collidable);
-        writer.write_tagged_u32("TMIN", self.timer_interval);
+        writer.write_tagged_i32("TMIN", self.timer_interval);
         if let Some(imgf) = &self.imgf {
             writer.write_tagged_string("IMGF", imgf);
         }

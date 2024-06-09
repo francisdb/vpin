@@ -9,7 +9,7 @@ pub struct Spinner {
     center: Vertex2D,
     rotation: f32,
     is_timer_enabled: bool,
-    timer_interval: u32,
+    timer_interval: i32,
     height: f32,
     length: f32,
     damping: f32,
@@ -37,7 +37,7 @@ struct SpinnerJson {
     center: Vertex2D,
     rotation: f32,
     is_timer_enabled: bool,
-    timer_interval: u32,
+    timer_interval: i32,
     height: f32,
     length: f32,
     damping: f32,
@@ -175,7 +175,7 @@ impl BiffRead for Spinner {
                     spinner.is_timer_enabled = reader.get_bool();
                 }
                 "TMIN" => {
-                    spinner.timer_interval = reader.get_u32();
+                    spinner.timer_interval = reader.get_i32();
                 }
                 "HIGH" => {
                     spinner.height = reader.get_f32();
@@ -248,7 +248,7 @@ impl BiffWrite for Spinner {
         writer.write_tagged("VCEN", &self.center);
         writer.write_tagged_f32("ROTA", self.rotation);
         writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_u32("TMIN", self.timer_interval);
+        writer.write_tagged_i32("TMIN", self.timer_interval);
         writer.write_tagged_f32("HIGH", self.height);
         writer.write_tagged_f32("LGTH", self.length);
         writer.write_tagged_f32("AFRC", self.damping);

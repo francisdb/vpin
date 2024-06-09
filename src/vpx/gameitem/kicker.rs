@@ -135,7 +135,7 @@ pub struct Kicker {
     center: Vertex2D,
     radius: f32,
     is_timer_enabled: bool,
-    timer_interval: u32,
+    timer_interval: i32,
     material: String,
     surface: String,
     is_enabled: bool,
@@ -161,7 +161,7 @@ struct KickerJson {
     center: Vertex2D,
     radius: f32,
     is_timer_enabled: bool,
-    timer_interval: u32,
+    timer_interval: i32,
     material: String,
     surface: String,
     is_enabled: bool,
@@ -292,7 +292,7 @@ impl BiffRead for Kicker {
                     kicker.is_timer_enabled = reader.get_bool();
                 }
                 "TMIN" => {
-                    kicker.timer_interval = reader.get_u32();
+                    kicker.timer_interval = reader.get_i32();
                 }
                 "MATR" => {
                     kicker.material = reader.get_string();
@@ -360,7 +360,7 @@ impl BiffWrite for Kicker {
         writer.write_tagged("VCEN", &self.center);
         writer.write_tagged_f32("RADI", self.radius);
         writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_u32("TMIN", self.timer_interval);
+        writer.write_tagged_i32("TMIN", self.timer_interval);
         writer.write_tagged_string("MATR", &self.material);
         writer.write_tagged_string("SURF", &self.surface);
         writer.write_tagged_bool("EBLD", self.is_enabled);
