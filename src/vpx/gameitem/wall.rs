@@ -15,7 +15,7 @@ pub struct Wall {
     pub is_bottom_solid: bool,
     pub is_collidable: bool,
     pub is_timer_enabled: bool,
-    pub timer_interval: u32,
+    pub timer_interval: i32,
     pub threshold: f32,
     pub image: String,
     pub side_image: String,
@@ -60,7 +60,7 @@ struct WallJson {
     is_bottom_solid: bool,
     is_collidable: bool,
     is_timer_enabled: bool,
-    timer_interval: u32,
+    timer_interval: i32,
     threshold: f32,
     image: String,
     side_image: String,
@@ -335,7 +335,7 @@ impl BiffRead for Wall {
                     wall.is_timer_enabled = reader.get_bool();
                 }
                 "TMIN" => {
-                    wall.timer_interval = reader.get_u32();
+                    wall.timer_interval = reader.get_i32();
                 }
                 "PMAT" => {
                     wall.physics_material = Some(reader.get_string());
@@ -447,7 +447,7 @@ impl BiffWrite for Wall {
         writer.write_tagged_bool("ISBS", self.is_bottom_solid);
         writer.write_tagged_bool("CLDW", self.is_collidable);
         writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_u32("TMIN", self.timer_interval);
+        writer.write_tagged_i32("TMIN", self.timer_interval);
         writer.write_tagged_f32("THRS", self.threshold);
         writer.write_tagged_string("IMAG", &self.image);
         writer.write_tagged_string("SIMG", &self.side_image);

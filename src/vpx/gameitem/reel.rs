@@ -13,7 +13,7 @@ pub struct Reel {
     ver2: Vertex2D,    // position on map (top right corner)
     back_color: Color, // colour of the background
     is_timer_enabled: bool,
-    timer_interval: u32,
+    timer_interval: i32,
     is_transparent: bool, // is the background transparent
     image: String,
     sound: String, // sound to play for each turn of a digit
@@ -44,7 +44,7 @@ struct ReelJson {
     ver2: Vertex2D,
     back_color: Color,
     is_timer_enabled: bool,
-    timer_interval: u32,
+    timer_interval: i32,
     is_transparent: bool,
     image: String,
     sound: String,
@@ -192,7 +192,7 @@ impl BiffRead for Reel {
                     reel.is_timer_enabled = reader.get_bool();
                 }
                 "TMIN" => {
-                    reel.timer_interval = reader.get_u32();
+                    reel.timer_interval = reader.get_i32();
                 }
                 "TRNS" => {
                     reel.is_transparent = reader.get_bool();
@@ -270,7 +270,7 @@ impl BiffWrite for Reel {
         writer.write_tagged("VER2", &self.ver2);
         writer.write_tagged_with("CLRB", &self.back_color, Color::biff_write);
         writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_u32("TMIN", self.timer_interval);
+        writer.write_tagged_i32("TMIN", self.timer_interval);
         writer.write_tagged_bool("TRNS", self.is_transparent);
         writer.write_tagged_string("IMAG", &self.image);
         writer.write_tagged_string("SOUN", &self.sound);

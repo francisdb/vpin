@@ -203,7 +203,7 @@ pub struct Light {
     pub color: Color,                       // COLR
     pub color2: Color,                      // COL2
     pub is_timer_enabled: bool,             // TMON
-    pub timer_interval: u32,                // TMIN
+    pub timer_interval: i32,                // TMIN
     pub blink_pattern: String,              // BPAT
     pub off_image: String,                  // IMG1
     pub blink_interval: u32,                // BINT
@@ -248,7 +248,7 @@ struct LightJson {
     color: Color,
     color2: Color,
     is_timer_enabled: bool,
-    timer_interval: u32,
+    timer_interval: i32,
     blink_pattern: String,
     off_image: String,
     blink_interval: u32,
@@ -394,7 +394,7 @@ impl Default for Light {
         // Default to 2700K incandescent bulb (burst is useless since VPX is HDR)
         let color2: Color = Color::rgb(255, 169, 87);
         let is_timer_enabled: bool = false;
-        let timer_interval: u32 = Default::default();
+        let timer_interval: i32 = Default::default();
         let blink_pattern: String = "10".to_owned();
         let off_image: String = Default::default();
         let blink_interval: u32 = Default::default();
@@ -484,7 +484,7 @@ impl BiffRead for Light {
                 "COLR" => light.color = Color::biff_read(reader),
                 "COL2" => light.color2 = Color::biff_read(reader),
                 "TMON" => light.is_timer_enabled = reader.get_bool(),
-                "TMIN" => light.timer_interval = reader.get_u32(),
+                "TMIN" => light.timer_interval = reader.get_i32(),
                 "BPAT" => light.blink_pattern = reader.get_string(),
                 "IMG1" => light.off_image = reader.get_string(),
                 "BINT" => light.blink_interval = reader.get_u32(),
@@ -548,7 +548,7 @@ impl BiffWrite for Light {
         writer.write_tagged_with("COLR", &self.color, Color::biff_write);
         writer.write_tagged_with("COL2", &self.color2, Color::biff_write);
         writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_u32("TMIN", self.timer_interval);
+        writer.write_tagged_i32("TMIN", self.timer_interval);
         writer.write_tagged_string("BPAT", &self.blink_pattern);
         writer.write_tagged_string("IMG1", &self.off_image);
         writer.write_tagged_u32("BINT", self.blink_interval);

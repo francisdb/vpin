@@ -12,7 +12,7 @@ pub struct LightSequencer {
     pos_y: f32,
     update_interval: u32,
     is_timer_enabled: bool,
-    timer_interval: u32,
+    timer_interval: i32,
     pub name: String,
     backglass: bool,
 
@@ -34,7 +34,7 @@ struct LightSequencerJson {
     pos_y: f32,
     update_interval: u32,
     is_timer_enabled: bool,
-    timer_interval: u32,
+    timer_interval: i32,
     name: String,
     backglass: bool,
 }
@@ -145,7 +145,7 @@ impl BiffRead for LightSequencer {
                     light_sequencer.is_timer_enabled = reader.get_bool();
                 }
                 "TMIN" => {
-                    light_sequencer.timer_interval = reader.get_u32();
+                    light_sequencer.timer_interval = reader.get_i32();
                 }
                 "NAME" => {
                     light_sequencer.name = reader.get_wide_string();
@@ -189,7 +189,7 @@ impl BiffWrite for LightSequencer {
         writer.write_tagged_f32("CTRY", self.pos_y);
         writer.write_tagged_u32("UPTM", self.update_interval);
         writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_u32("TMIN", self.timer_interval);
+        writer.write_tagged_i32("TMIN", self.timer_interval);
         writer.write_tagged_wide_string("NAME", &self.name);
         writer.write_tagged_bool("BGLS", self.backglass);
 
