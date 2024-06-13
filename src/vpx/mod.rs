@@ -226,11 +226,7 @@ pub fn open<P: AsRef<Path>>(path: P) -> io::Result<VpxFile<File>> {
 }
 
 pub fn open_rw<P: AsRef<Path>>(path: P) -> io::Result<VpxFile<File>> {
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .open(path)?;
+    let file = OpenOptions::new().read(true).write(true).open(path)?;
     VpxFile::open_rw(file)
 }
 
