@@ -1,3 +1,4 @@
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -72,6 +73,22 @@ pub struct ImageData {
     // TODO we can probably only have one of these so we can make an enum
     pub jpeg: Option<ImageDataJpeg>,
     pub bits: Option<ImageDataBits>,
+}
+
+impl ImageData {
+    pub(crate) fn change_extension(&mut self, ext: &str) {
+        let mut path = self.path.clone();
+        let re = Regex::new(r"\.[a-zA-Z0-9]+$").unwrap();
+        path = re.replace(&path, format!(".{ext}")).to_string();
+        self.path = path;
+
+        // to the same for the jpeg path
+        if let Some(jpeg) = &mut self.jpeg {
+            let mut path = jpeg.path.clone();
+            path = re.replace(&path, format!(".{ext}")).to_string();
+            jpeg.path = path;
+        }
+    }
 }
 
 impl ImageData {

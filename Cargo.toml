@@ -33,6 +33,7 @@ wavefront_rs = "2.0.0-beta.1"
 flate2 = "1.0.28"
 image = "0.25.1"
 weezl = "0.1.8"
+regex = "1.10.5"
 
 [dev-dependencies]
 dirs = "5.0.1"
