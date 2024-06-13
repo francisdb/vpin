@@ -875,6 +875,9 @@ fn images_to_webp<F: Read + Write + Seek>(
             _ => {}
         }
     }
+    // TODO the vpx file is not actually compacted, so the file size will not be reduced
+    // see https://github.com/mdsteele/rust-cfb/issues/55
+    // A workaround would be to copy all streams to a new file and then rename it
     Ok(conversions)
 }
 
