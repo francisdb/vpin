@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.2](https://github.com/francisdb/vpin/compare/v0.15.1...v0.15.2) - 2024-06-14
+
+### Added
+- images to webp ([#92](https://github.com/francisdb/vpin/pull/92))
+
+### Other
+- *(deps)* update quick-xml requirement from 0.31.0 to 0.32.0 ([#90](https://github.com/francisdb/vpin/pull/90))
+
 ## [0.15.1](https://github.com/francisdb/vpin/compare/v0.15.0...v0.15.1) - 2024-06-09
 
 ### Fixed
