@@ -359,15 +359,8 @@ fn write_image_bmp(
     width: u32,
     height: u32,
 ) -> io::Result<()> {
-    let decompressed_bgra = from_lzw_blocks(lzw_compressed_data);
-    let decompressed_rgba: Vec<u8> = swap_red_and_blue(&decompressed_bgra);
-
-    let rgba_image = image::RgbaImage::from_raw(width, height, decompressed_rgba)
-        .expect("Decompressed image data does not match dimensions");
-    let dynamic_image = DynamicImage::ImageRgba8(rgba_image);
-
-    let uses_alpha = decompressed_bgra.chunks_exact(4).any(|bgra| bgra[3] != 255);
-    let image_to_save = if uses_alpha {
+    let image_to_save = vpx_image_to_dynamic_image(lzw_compressed_data, width, height);
+    if image_to_save.color().has_alpha() {
         // One example is the table "Guns N Roses (Data East 1994).vpx"
         // that contains vp9 images with non-255 alpha values.
         // They are actually labeled as sRGBA in the Visual Pinball image manager.
@@ -380,11 +373,7 @@ fn write_image_bmp(
             "Image {} has non-opaque pixels, writing as RGBA BMP that might not be supported by all applications",
             file_name
         );
-        dynamic_image
-    } else {
-        let rgb_image = dynamic_image.to_rgb8();
-        DynamicImage::ImageRgb8(rgb_image)
-    };
+    }
     image_to_save.save(file_path).map_err(|image_error| {
         io::Error::new(
             io::ErrorKind::Other,
@@ -395,6 +384,27 @@ fn write_image_bmp(
             ),
         )
     })
+}
+
+pub(crate) fn vpx_image_to_dynamic_image(
+    lzw_compressed_data: &[u8],
+    width: u32,
+    height: u32,
+) -> DynamicImage {
+    let decompressed_bgra = from_lzw_blocks(lzw_compressed_data);
+    let decompressed_rgba: Vec<u8> = swap_red_and_blue(&decompressed_bgra);
+
+    let rgba_image = image::RgbaImage::from_raw(width, height, decompressed_rgba)
+        .expect("Decompressed image data does not match dimensions");
+    let dynamic_image = DynamicImage::ImageRgba8(rgba_image);
+
+    let uses_alpha = decompressed_bgra.chunks_exact(4).any(|bgra| bgra[3] != 255);
+    if uses_alpha {
+        dynamic_image
+    } else {
+        let rgb_image = dynamic_image.to_rgb8();
+        DynamicImage::ImageRgb8(rgb_image)
+    }
 }
 
 /// Can convert between RGBA and BGRA by swapping the red and blue channels

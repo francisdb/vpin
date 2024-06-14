@@ -14,7 +14,9 @@
 //! ```
 //!
 
-use std::io::{self, Read, Seek, Write};
+use ::image::ImageFormat;
+use std::fs::OpenOptions;
+use std::io::{self, Error, Read, Seek, Write};
 use std::path::MAIN_SEPARATOR_STR;
 use std::{
     fs::File,
@@ -27,6 +29,8 @@ use md2::{Digest, Md2};
 
 use crate::vpx::biff::BiffReader;
 
+use crate::vpx::expanded::vpx_image_to_dynamic_image;
+use crate::vpx::image::ImageDataJpeg;
 use crate::vpx::tableinfo::read_tableinfo;
 use tableinfo::{write_tableinfo, TableInfo};
 use version::Version;
@@ -99,6 +103,11 @@ pub struct VPX {
     pub collections: Vec<Collection>,
 }
 
+pub enum AddImageResult {
+    Added,
+    Replaced(Box<ImageData>),
+}
+
 impl VPX {
     pub fn add_game_item(&mut self, item: GameItemEnum) -> &Self {
         self.gameitems.push(item);
@@ -109,6 +118,26 @@ impl VPX {
     pub fn set_script(&mut self, script: String) -> &Self {
         self.gamedata.set_code(script);
         self
+    }
+
+    pub fn add_or_replace_image(&mut self, image: ImageData) -> AddImageResult {
+        // make sure there is a unique name
+        let existing_pos = self
+            .images
+            .iter()
+            .position(|i| i.name.to_ascii_lowercase() == image.name.to_ascii_lowercase());
+        match existing_pos {
+            Some(pos) => {
+                let existing = self.images[pos].clone();
+                self.images[pos] = image;
+                AddImageResult::Replaced(Box::new(existing))
+            }
+            None => {
+                self.gamedata.images_size += 1;
+                self.images.push(image);
+                AddImageResult::Added
+            }
+        }
     }
 }
 
@@ -151,6 +180,12 @@ impl<F: Read + Seek + Write> VpxFile<F> {
     /// underlying reader also supports the `Write` trait, then the
     /// `CompoundFile` object will be writable as well.
     pub fn open(inner: F) -> io::Result<VpxFile<F>> {
+        // TODO the fact that this is read only should be reflected in the VpxFile type
+        let compound_file = CompoundFile::open_strict(inner)?;
+        Ok(VpxFile { compound_file })
+    }
+
+    pub fn open_rw(inner: F) -> io::Result<VpxFile<F>> {
         let compound_file = CompoundFile::open_strict(inner)?;
         Ok(VpxFile { compound_file })
     }
@@ -197,11 +232,72 @@ impl<F: Read + Seek + Write> VpxFile<F> {
     pub fn read_custominfotags(&mut self) -> io::Result<CustomInfoTags> {
         read_custominfotags(&mut self.compound_file)
     }
+
+    /// Convert all PNG and BMP images to WebP format and write them back to the VPX file.
+    /// This will overwrite the existing images.
+    /// The images will be converted to lossless WebP.
+    ///
+    /// Note: this will not shrink the vpx file, that requires compacting the file.
+    ///
+    /// Returns a list of conversions that were made.
+    pub fn images_to_webp(&mut self) -> io::Result<Vec<ImageToWebpConversion>> {
+        // We need to make sure we have read access, or we will get a: Bad file descriptor (os error 9)
+        let gamedata = self.read_gamedata()?;
+        let results = images_to_webp(&mut self.compound_file, &gamedata)?;
+        self.compound_file.flush()?;
+        Ok(results)
+    }
+}
+
+/// Tries to reduce the size of the VPX file by rewriting it.
+/// Useful after removing or replacing data in the vpx file
+pub fn compact<P: AsRef<Path>>(path: P) -> io::Result<()> {
+    compact_cfb(path)
+}
+
+/// Rewrites the whole compound file with the same data causing the file to be compacted.
+fn compact_cfb<P: AsRef<Path>>(in_path: P) -> io::Result<()> {
+    // requested to be added in https://github.com/mdsteele/rust-cfb/issues/55
+    let out_path: PathBuf = in_path.as_ref().with_extension("compacting");
+    let mut original = cfb::open(&in_path)?;
+    let version = original.version();
+    let out_file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&out_path)?;
+    let mut duplicate = CompoundFile::create_with_version(version, out_file)?;
+    let mut stream_paths = Vec::<PathBuf>::new();
+    for entry in original.walk() {
+        if entry.is_storage() {
+            if !entry.is_root() {
+                duplicate.create_storage(entry.path())?;
+            }
+            duplicate.set_storage_clsid(entry.path(), *entry.clsid())?;
+        } else {
+            stream_paths.push(entry.path().to_path_buf());
+        }
+    }
+    for path in stream_paths.iter() {
+        std::io::copy(
+            &mut original.open_stream(path)?,
+            &mut duplicate.create_new_stream(path)?,
+        )?;
+    }
+    duplicate.flush()?;
+    std::fs::remove_file(&in_path)?;
+    std::fs::rename(&out_path, &in_path)
 }
 
 /// Opens a handle to an existing VPX file
 pub fn open<P: AsRef<Path>>(path: P) -> io::Result<VpxFile<File>> {
     VpxFile::open(File::open(path)?)
+}
+
+pub fn open_rw<P: AsRef<Path>>(path: P) -> io::Result<VpxFile<File>> {
+    let file = OpenOptions::new().read(true).write(true).open(path)?;
+    VpxFile::open_rw(file)
 }
 
 /// Reads a VPX file from disk to memory
@@ -726,15 +822,17 @@ fn read_images<F: Read + Seek>(
     gamedata: &GameData,
 ) -> io::Result<Vec<ImageData>> {
     (0..gamedata.images_size)
-        .map(|index| {
-            let path = format!("GameStg/Image{}", index);
-            let mut input = Vec::new();
-            let mut stream = comp.open_stream(&path)?;
-            stream.read_to_end(&mut input)?;
-            let mut reader = BiffReader::new(&input);
-            Ok(ImageData::biff_read(&mut reader))
-        })
+        .map(|index| read_image(comp, index))
         .collect()
+}
+
+fn read_image<F: Read + Seek>(comp: &mut CompoundFile<F>, index: u32) -> Result<ImageData, Error> {
+    let path = format!("GameStg/Image{}", index);
+    let mut input = Vec::new();
+    let mut stream = comp.open_stream(&path)?;
+    stream.read_to_end(&mut input)?;
+    let mut reader = BiffReader::new(&input);
+    Ok(ImageData::biff_read(&mut reader))
 }
 
 fn write_images<F: Read + Write + Seek>(
@@ -742,13 +840,109 @@ fn write_images<F: Read + Write + Seek>(
     images: &[ImageData],
 ) -> io::Result<()> {
     for (index, image) in images.iter().enumerate() {
-        let path = format!("GameStg/Image{}", index);
-        let mut stream = comp.create_stream(&path)?;
-        let mut writer = BiffWriter::new();
-        image.biff_write(&mut writer);
-        stream.write_all(writer.get_data())?;
+        write_image(comp, index, image)?;
     }
     Ok(())
+}
+
+fn write_image<F: Read + Write + Seek>(
+    comp: &mut CompoundFile<F>,
+    index: usize,
+    image: &ImageData,
+) -> Result<(), Error> {
+    let path = format!("GameStg/Image{}", index);
+    let mut stream = comp.create_stream(&path)?;
+    let mut writer = BiffWriter::new();
+    image.biff_write(&mut writer);
+    stream.write_all(writer.get_data())?;
+    Ok(())
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct ImageToWebpConversion {
+    pub name: String,
+    pub old_extension: String,
+    pub new_extension: String,
+}
+
+fn images_to_webp<F: Read + Write + Seek>(
+    comp: &mut CompoundFile<F>,
+    gamedata: &GameData,
+) -> io::Result<Vec<ImageToWebpConversion>> {
+    let mut conversions = Vec::new();
+    for index in 0..gamedata.images_size {
+        let mut image_data = read_image(comp, index)?;
+        match image_data.ext().to_lowercase().as_str() {
+            "png" => {
+                // convert the image to webp
+                image_data.change_extension("webp");
+                if let Some(jpeg) = &mut image_data.jpeg {
+                    // read the image bytes using the rust image library
+                    let dynamic_image =
+                        match ::image::load_from_memory_with_format(&jpeg.data, ImageFormat::Png) {
+                            Ok(image) => image,
+                            Err(e) => {
+                                // see https://github.com/image-rs/image/issues/2260
+                                println!("Skipping image {}: {}", image_data.name, e);
+                                continue;
+                            }
+                        };
+
+                    // write as webp back to the image
+                    let mut webp = Vec::new();
+                    let mut cursor = io::Cursor::new(&mut webp);
+                    // should be lossless according to the docs
+                    dynamic_image
+                        .write_to(&mut cursor, ImageFormat::WebP)
+                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+                    jpeg.data = webp;
+                    write_image(comp, index as usize, &image_data)?;
+                    conversions.push(ImageToWebpConversion {
+                        name: image_data.name.clone(),
+                        old_extension: "png".to_string(),
+                        new_extension: "webp".to_string(),
+                    });
+                }
+            }
+            "bmp" => {
+                // convert the image to webp
+                image_data.change_extension("webp");
+                if let Some(bits) = &mut image_data.bits {
+                    // read the image bytes using the rust image library
+
+                    let dynamic_image = vpx_image_to_dynamic_image(
+                        &bits.lzw_compressed_data,
+                        image_data.width,
+                        image_data.height,
+                    );
+
+                    // write as webp back to the image
+                    let mut webp = Vec::new();
+                    let mut cursor = io::Cursor::new(&mut webp);
+                    // should be lossless according to the docs
+                    dynamic_image
+                        .write_to(&mut cursor, ImageFormat::WebP)
+                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+                    let jpg = ImageDataJpeg {
+                        path: image_data.path.clone(),
+                        name: image_data.name.clone(),
+                        internal_name: None,
+                        data: webp,
+                    };
+                    image_data.bits = None;
+                    image_data.jpeg = Some(jpg);
+                    write_image(comp, index as usize, &image_data)?;
+                }
+                conversions.push(ImageToWebpConversion {
+                    name: image_data.name.clone(),
+                    old_extension: "bmp".to_string(),
+                    new_extension: "webp".to_string(),
+                });
+            }
+            _ => {}
+        }
+    }
+    Ok(conversions)
 }
 
 fn read_fonts<F: Read + Seek>(
@@ -814,6 +1008,7 @@ fn write_custominfotags<F: Read + Write + Seek>(
 
 #[cfg(test)]
 mod tests {
+    use crate::vpx::image::ImageDataBits;
     use pretty_assertions::assert_eq;
     use std::io::Cursor;
     use testdir::testdir;
@@ -949,6 +1144,93 @@ mod tests {
         let vpx = read_vpx(&mut comp)?;
         assert_eq!(vpx.info.table_name, None);
         assert_eq!(vpx.info.table_version, None);
+        Ok(())
+    }
+
+    #[test]
+    fn images_to_webp_and_compact() -> io::Result<()> {
+        let dir: PathBuf = testdir!();
+        let test_vpx_path = dir.join("test.vpx");
+        let mut vpx = VPX::default();
+        // generate random values for the pixels
+        let random_pixels = (0..1000 * 1000 * 4)
+            .map(|_| rand::random::<u8>())
+            .collect::<Vec<u8>>();
+        let bmp_image = ImageData {
+            name: "bpmimage".to_string(),
+            internal_name: None,
+            path: "test.bmp".to_string(),
+            width: 1000,
+            height: 1000,
+            link: None,
+            alpha_test_value: 0.0,
+            is_opaque: None,
+            is_signed: None,
+            jpeg: None,
+            bits: Some(ImageDataBits {
+                lzw_compressed_data: lzw::to_lzw_blocks(&random_pixels),
+            }),
+        };
+        let dynamic_image = ::image::RgbaImage::from_raw(1000, 1000, random_pixels).unwrap();
+        // write the image to a png file in memory
+        let mut png_data = Vec::new();
+        let mut cursor = io::Cursor::new(&mut png_data);
+        dynamic_image
+            .write_to(&mut cursor, ImageFormat::Png)
+            .unwrap();
+        let png_image = ImageData {
+            name: "pngimage".to_string(),
+            internal_name: None,
+            path: "test.png".to_string(),
+            width: 1000,
+            height: 1000,
+            link: None,
+            alpha_test_value: 0.0,
+            is_opaque: None,
+            is_signed: None,
+            jpeg: Some(ImageDataJpeg {
+                path: "pngimage".to_string(),
+                name: "test.png".to_string(),
+                internal_name: None,
+                data: png_data,
+            }),
+            bits: None,
+        };
+        vpx.add_or_replace_image(bmp_image);
+        vpx.add_or_replace_image(png_image);
+        write(&test_vpx_path, &vpx)?;
+
+        let initial_size = test_vpx_path.metadata()?.len();
+
+        let mut vpx = open_rw(&test_vpx_path)?;
+        let updates = vpx.images_to_webp()?;
+
+        compact(&test_vpx_path)?;
+
+        let final_size = test_vpx_path.metadata()?.len();
+        assert_eq!(
+            updates,
+            vec!(
+                ImageToWebpConversion {
+                    name: "bpmimage".to_string(),
+                    old_extension: "bmp".to_string(),
+                    new_extension: "webp".to_string(),
+                },
+                ImageToWebpConversion {
+                    name: "pngimage".to_string(),
+                    old_extension: "png".to_string(),
+                    new_extension: "webp".to_string(),
+                },
+            )
+        );
+        println!("Initial size: {}, Final size: {}", initial_size, final_size);
+        assert!(
+            final_size < initial_size,
+            "Final size: {} >= Initial size: {}!",
+            final_size,
+            initial_size
+        );
+
         Ok(())
     }
 }

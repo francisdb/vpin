@@ -1,9 +1,10 @@
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
 use super::biff::{self, BiffRead, BiffReader, BiffWrite, BiffWriter};
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub struct ImageDataJpeg {
     pub path: String,
     pub name: String,
@@ -31,7 +32,7 @@ impl fmt::Debug for ImageDataJpeg {
 /**
  * A bitmap blob, typically used by textures.
  */
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub struct ImageDataBits {
     /// Lzw compressed raw BMP 32-bit sBGRA bitmap data
     /// However we expect the alpha channel to always be 255
@@ -47,7 +48,7 @@ impl fmt::Debug for ImageDataBits {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct ImageData {
     pub name: String, // NAME
     // /**
@@ -76,6 +77,20 @@ pub struct ImageData {
 
 impl ImageData {
     const ALPHA_TEST_VALUE_DEFAULT: f32 = -1.0;
+
+    pub(crate) fn change_extension(&mut self, ext: &str) {
+        let mut path = self.path.clone();
+        let re = Regex::new(r"\.[a-zA-Z0-9]+$").unwrap();
+        path = re.replace(&path, format!(".{ext}")).to_string();
+        self.path = path;
+
+        // to the same for the jpeg path
+        if let Some(jpeg) = &mut self.jpeg {
+            let mut path = jpeg.path.clone();
+            path = re.replace(&path, format!(".{ext}")).to_string();
+            jpeg.path = path;
+        }
+    }
 
     pub fn is_link(&self) -> bool {
         self.link == Some(1)
