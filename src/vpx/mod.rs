@@ -1158,18 +1158,13 @@ mod tests {
             .collect::<Vec<u8>>();
         let bmp_image = ImageData {
             name: "bpmimage".to_string(),
-            internal_name: None,
             path: "test.bmp".to_string(),
             width: 1000,
             height: 1000,
-            link: None,
-            alpha_test_value: 0.0,
-            is_opaque: None,
-            is_signed: None,
-            jpeg: None,
             bits: Some(ImageDataBits {
                 lzw_compressed_data: lzw::to_lzw_blocks(&random_pixels),
             }),
+            ..Default::default()
         };
         let dynamic_image = ::image::RgbaImage::from_raw(1000, 1000, random_pixels).unwrap();
         // write the image to a png file in memory
@@ -1180,21 +1175,16 @@ mod tests {
             .unwrap();
         let png_image = ImageData {
             name: "pngimage".to_string(),
-            internal_name: None,
             path: "test.png".to_string(),
             width: 1000,
             height: 1000,
-            link: None,
-            alpha_test_value: 0.0,
-            is_opaque: None,
-            is_signed: None,
             jpeg: Some(ImageDataJpeg {
                 path: "pngimage".to_string(),
                 name: "test.png".to_string(),
                 internal_name: None,
                 data: png_data,
             }),
-            bits: None,
+            ..Default::default()
         };
         vpx.add_or_replace_image(bmp_image);
         vpx.add_or_replace_image(png_image);
