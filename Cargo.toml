@@ -35,6 +35,7 @@ image = "0.25.1"
 weezl = "0.1.8"
 regex = "1.10.5"
 gltf = "1.4.1"
+unicase = "2.7.0"
 
 [dev-dependencies]
 dirs = "5.0.1"

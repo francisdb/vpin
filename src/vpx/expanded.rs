@@ -14,6 +14,7 @@ use flate2::read::ZlibDecoder;
 use image::DynamicImage;
 use serde::de;
 use serde_json::Value;
+use unicase::UniCase;
 
 use super::{read_gamedata, Version, VPX};
 
@@ -28,7 +29,7 @@ use crate::vpx::custominfotags::CustomInfoTags;
 use crate::vpx::font::{FontData, FontDataJson};
 use crate::vpx::gameitem::primitive::Primitive;
 use crate::vpx::gameitem::GameItemEnum;
-use crate::vpx::gltf::{write_gltf, Output};
+use crate::vpx::gltf::{write_gltf, write_whole_table_gltf, Output};
 use crate::vpx::image::{ImageData, ImageDataBits, ImageDataJpeg, ImageDataJson};
 use crate::vpx::jsonmodel::{collections_json, info_to_json, json_to_collections, json_to_info};
 use crate::vpx::lzw::{from_lzw_blocks, to_lzw_blocks};
@@ -102,18 +103,43 @@ pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteErr
     let json_collections = collections_json(&vpx.collections);
     serde_json::to_writer_pretty(&mut collections_json_file, &json_collections)?;
     let image_index = write_images(vpx, expanded_dir)?;
-    write_gameitems(vpx, expanded_dir, &image_index)?;
-    write_sounds(vpx, expanded_dir)?;
-    write_fonts(vpx, expanded_dir)?;
-    write_game_data(vpx, expanded_dir)?;
-    if vpx.gamedata.materials.is_some() {
+    let material_index = if let Some(materials) = &vpx.gamedata.materials {
         write_materials(vpx, expanded_dir)?;
+        materials_index(materials)
     } else {
         write_old_materials(vpx, expanded_dir)?;
         write_old_materials_physics(vpx, expanded_dir)?;
-    }
+        materials_old_index(&vpx)
+    };
+    write_gameitems(vpx, expanded_dir, &image_index, &material_index)?;
+    write_sounds(vpx, expanded_dir)?;
+    write_fonts(vpx, expanded_dir)?;
+    write_game_data(vpx, expanded_dir)?;
+
     write_renderprobes(vpx, expanded_dir)?;
     Ok(())
+}
+
+fn materials_index(materials: &Vec<Material>) -> HashMap<String, Material> {
+    let mut index = HashMap::new();
+    materials.iter().for_each(|m| {
+        index.insert(m.name.clone(), (*m).clone());
+    });
+    index
+}
+
+fn materials_old_index(vpx: &&VPX) -> HashMap<String, Material> {
+    let mut material_index = HashMap::new();
+    vpx.gamedata.materials_old.iter().for_each(|m| {
+        let physics = vpx
+            .gamedata
+            .materials_physics_old
+            .as_ref()
+            .and_then(|physics| physics.iter().find(|p| p.name == m.name));
+        let material = (m, physics).into();
+        material_index.insert(m.name.clone(), material);
+    });
+    material_index
 }
 
 pub fn read<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<VPX> {
@@ -244,8 +270,9 @@ where
 fn write_images<P: AsRef<Path>>(
     vpx: &VPX,
     expanded_dir: &P,
-) -> Result<HashMap<String, PathBuf>, WriteError> {
-    let mut index = HashMap::new();
+) -> Result<HashMap<UniCase<String>, PathBuf>, WriteError> {
+    // Images are referenced by name in a case-insensitive way!
+    let mut index: HashMap<UniCase<String>, PathBuf> = HashMap::new();
     // create an image index
     let images_index_path = expanded_dir.as_ref().join("images.json");
     let mut images_index_file = File::create(images_index_path)?;
@@ -318,7 +345,7 @@ fn write_images<P: AsRef<Path>>(
     std::fs::create_dir_all(&images_dir)?;
     images.iter().try_for_each(|(image_file_name, image)| {
         let file_path = images_dir.join(image_file_name);
-        index.insert(image.name.clone(), file_path.clone());
+        index.insert(UniCase::new(image.name.clone()), file_path.clone());
         if !file_path.exists() {
             let mut file = File::create(&file_path)?;
             if image.is_link() {
@@ -845,7 +872,8 @@ struct GameItemInfoJson {
 fn write_gameitems<P: AsRef<Path>>(
     vpx: &VPX,
     expanded_dir: &P,
-    image_index: &HashMap<String, PathBuf>,
+    image_index: &HashMap<UniCase<String>, PathBuf>,
+    material_index: &HashMap<String, Material>,
 ) -> Result<(), WriteError> {
     let gameitems_dir = expanded_dir.as_ref().join("gameitems");
     std::fs::create_dir_all(&gameitems_dir)?;
@@ -887,8 +915,17 @@ fn write_gameitems<P: AsRef<Path>>(
         }
         let gameitem_file = File::create(&gameitem_path)?;
         serde_json::to_writer_pretty(&gameitem_file, &gameitem)?;
-        write_gameitem_binaries(&gameitems_dir, gameitem, file_name, image_index)?;
+        write_gameitem_binaries(
+            &gameitems_dir,
+            gameitem,
+            file_name,
+            image_index,
+            material_index,
+        )?;
     }
+    let full_table_gltf_path = expanded_dir.as_ref().join("table.gltf");
+    write_whole_table_gltf(&vpx, &full_table_gltf_path)
+        .map_err(|e| WriteError::Io(io::Error::new(io::ErrorKind::Other, format!("{}", e))))?;
     // write the gameitems index as array with names being the type and the name
     let gameitems_index_path = expanded_dir.as_ref().join("gameitems.json");
     let mut gameitems_index_file = File::create(gameitems_index_path)?;
@@ -929,7 +966,8 @@ fn write_gameitem_binaries(
     gameitems_dir: &Path,
     gameitem: &GameItemEnum,
     json_file_name: String,
-    image_index: &HashMap<String, PathBuf>,
+    image_index: &HashMap<UniCase<String>, PathBuf>,
+    material_index: &HashMap<String, Material>,
 ) -> Result<(), WriteError> {
     if let GameItemEnum::Primitive(primitive) = gameitem {
         // use wavefront-rs to write the vertices and indices
@@ -943,25 +981,49 @@ fn write_gameitem_binaries(
                     WriteError::Io(io::Error::new(io::ErrorKind::Other, format!("{}", e)))
                 })?;
                 let gltf_path = gameitems_dir.join(format!("{}.gltf", json_file_name));
-                // TODO only if the image is not empty?
-                let image_path = image_index.get(&primitive.image);
-                let image_rel_path = if let Some(p) = image_path {
-                    PathBuf::from("..")
-                        .join("images")
-                        .join(p.file_name().unwrap())
+                let image_rel_path = if !&primitive.image.is_empty() {
+                    let primitive_image = UniCase::new(primitive.image.clone().into());
+                    if let Some(p) = image_index.get(&primitive_image) {
+                        let file_name = p.file_name().unwrap().to_string_lossy().to_string();
+                        Some(
+                            PathBuf::from("..")
+                                .join("images")
+                                .join(file_name)
+                                .to_str()
+                                .unwrap()
+                                .to_string(),
+                        )
+                    } else {
+                        eprintln!(
+                            "Image not found for primitive {}: {}",
+                            primitive.name, primitive.image
+                        );
+                        None
+                    }
                 } else {
-                    eprintln!(
-                        "Image not found for primitive {}: {}",
-                        primitive.name, primitive.image
-                    );
-                    PathBuf::new()
+                    None
                 };
+                let material = if !primitive.material.is_empty() {
+                    if let Some(m) = material_index.get(&primitive.material) {
+                        Some(m.name.clone())
+                    } else {
+                        eprintln!(
+                            "Material not found for primitive {}: {}",
+                            primitive.name, primitive.material
+                        );
+                        None
+                    }
+                } else {
+                    None
+                };
+                let material = material_index.get(&primitive.material);
                 write_gltf(
                     gameitem.name().to_string(),
                     &mesh,
                     &gltf_path,
                     Output::Standard,
-                    image_rel_path.to_str().unwrap(),
+                    image_rel_path.clone(),
+                    material,
                 )
                 .map_err(|e| {
                     WriteError::Io(io::Error::new(io::ErrorKind::Other, format!("{}", e)))
@@ -971,7 +1033,8 @@ fn write_gameitem_binaries(
                     &mesh,
                     &gltf_path,
                     Output::Binary,
-                    image_rel_path.to_str().unwrap(),
+                    image_rel_path,
+                    material,
                 )
                 .map_err(|e| {
                     WriteError::Io(io::Error::new(io::ErrorKind::Other, format!("{}", e)))

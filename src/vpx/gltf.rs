@@ -1,7 +1,12 @@
 use crate::vpx::expanded::ReadMesh;
+use crate::vpx::gameitem::GameItemEnum;
+use crate::vpx::VPX;
 use gltf::json;
+use gltf::json::material::{PbrBaseColorFactor, StrengthFactor};
+use gltf::json::mesh::Primitive;
 use gltf::json::validation::Checked::Valid;
 use gltf::json::validation::USize64;
+use gltf::json::{Index, Material, Root};
 use std::borrow::Cow;
 use std::error::Error;
 use std::fs::File;
@@ -57,15 +62,121 @@ fn to_padded_byte_vector<T>(vec: Vec<T>) -> Vec<u8> {
     new_vec
 }
 
+pub(crate) fn write_whole_table_gltf(
+    vpx: &VPX,
+    gltf_file_path: &PathBuf,
+) -> Result<(), Box<dyn Error>> {
+    let mut root = json::Root::default();
+    vpx.gameitems.iter().for_each(|gameitem| match gameitem {
+        GameItemEnum::Primitive(p) => {
+
+            // append to binary file and increase buffer_length and offset
+        }
+        GameItemEnum::Light(l) => {
+            // TODO add lights
+        }
+        _ => {}
+    });
+    write_gltf_file(gltf_file_path, root)
+}
+
 pub(crate) fn write_gltf(
     name: String,
     mesh: &ReadMesh,
     gltf_file_path: &PathBuf,
     output: Output,
-    image_rel_path: &str,
+    image_rel_path: Option<String>,
+    mat: Option<&crate::vpx::material::Material>,
 ) -> Result<(), Box<dyn Error>> {
     let bin_path = gltf_file_path.with_extension("bin");
 
+    let mut root = json::Root::default();
+
+    let material = material(mat, image_rel_path, &mut root);
+
+    let (vertices, buffer_length, primitive) =
+        primitive(&mesh, output, &bin_path, &mut root, material);
+
+    let mesh = root.push(json::Mesh {
+        extensions: Default::default(),
+        extras: Default::default(),
+        name: None,
+        primitives: vec![primitive],
+        weights: None,
+    });
+
+    let node = root.push(json::Node {
+        mesh: Some(mesh),
+        name: Some(name),
+        ..Default::default()
+    });
+
+    root.push(json::Scene {
+        extensions: Default::default(),
+        extras: Default::default(),
+        name: Some("table1".to_string()),
+        nodes: vec![node],
+    });
+
+    match output {
+        Output::Standard => {
+            write_vertices_binary(bin_path, vertices)?;
+            write_gltf_file(gltf_file_path, root)?;
+        }
+        Output::Binary => {
+            write_glb_file(gltf_file_path, root, vertices, buffer_length)?;
+        }
+    }
+    Ok(())
+}
+
+fn write_gltf_file(gltf_file_path: &PathBuf, root: Root) -> Result<(), Box<dyn Error>> {
+    let writer = File::create(gltf_file_path)?;
+    json::serialize::to_writer_pretty(writer, &root)?;
+    Ok(())
+}
+
+fn write_vertices_binary(bin_path: PathBuf, vertices: Vec<Vertex>) -> Result<(), Box<dyn Error>> {
+    let bin = to_padded_byte_vector(vertices);
+    let mut writer = File::create(bin_path)?;
+    writer.write_all(&bin)?;
+    Ok(())
+}
+
+fn write_glb_file(
+    gltf_file_path: &PathBuf,
+    root: Root,
+    vertices: Vec<Vertex>,
+    buffer_length: usize,
+) -> Result<(), Box<dyn Error>> {
+    let json_string = json::serialize::to_string(&root)?;
+    let mut json_offset = json_string.len();
+    align_to_multiple_of_four(&mut json_offset);
+    let glb = gltf::binary::Glb {
+        header: gltf::binary::Header {
+            magic: *b"glTF",
+            version: 2,
+            // N.B., the size of binary glTF file is limited to range of `u32`.
+            length: (json_offset + buffer_length)
+                .try_into()
+                .expect("file size exceeds binary glTF limit"),
+        },
+        bin: Some(Cow::Owned(to_padded_byte_vector(vertices))),
+        json: Cow::Owned(json_string.into_bytes()),
+    };
+    let glb_path = gltf_file_path.with_extension("glb");
+    let writer = std::fs::File::create(glb_path)?;
+    glb.to_writer(writer)?;
+    Ok(())
+}
+
+fn primitive(
+    mesh: &&ReadMesh,
+    output: Output,
+    bin_path: &PathBuf,
+    root: &mut Root,
+    material: Index<Material>,
+) -> (Vec<Vertex>, usize, Primitive) {
     // use the indices to look up the vertices
     let vertices = mesh
         .indices
@@ -81,8 +192,6 @@ pub(crate) fn write_gltf(
         .collect::<Vec<Vertex>>();
 
     let (min, max) = bounding_coords(&vertices);
-
-    let mut root = json::Root::default();
 
     let buffer_length = vertices.len() * mem::size_of::<Vertex>();
     let buffer = root.push(json::Buffer {
@@ -164,62 +273,6 @@ pub(crate) fn write_gltf(
         sparse: None,
     });
 
-    let image = root.push(json::Image {
-        buffer_view: None,
-        uri: Some(image_rel_path.to_string()),
-        mime_type: None,
-        name: Some("gottlieb_flipper_red".to_string()),
-        extensions: None,
-        extras: Default::default(),
-    });
-
-    let sampler = root.push(json::texture::Sampler {
-        mag_filter: None,
-        min_filter: None,
-        wrap_s: Valid(json::texture::WrappingMode::Repeat),
-        wrap_t: Valid(json::texture::WrappingMode::Repeat),
-        extensions: Default::default(),
-        extras: Default::default(),
-        name: None,
-    });
-
-    let texture = root.push(json::Texture {
-        sampler: Some(sampler),
-        source: image,
-        extensions: Default::default(),
-        extras: Default::default(),
-        name: None,
-    });
-
-    let material = root.push(json::Material {
-        pbr_metallic_roughness: json::material::PbrMetallicRoughness {
-            base_color_texture: Some(json::texture::Info {
-                index: texture,
-                tex_coord: 0,
-                extensions: Default::default(),
-                extras: Default::default(),
-            }),
-            // base_color_factor: PbrBaseColorFactor([1.0, 1.0, 1.0, 1.0]),
-            // metallic_factor: StrengthFactor(1.0),
-            // roughness_factor: StrengthFactor(1.0),
-            // metallic_roughness_texture: None,
-            // extensions: Default::default(),
-            // extras: Default::default(),
-            ..Default::default()
-        },
-        // normal_texture: None,
-        // occlusion_texture: None,
-        // emissive_texture: None,
-        // emissive_factor: EmissiveFactor([0.0, 0.0, 0.0]),
-        // alpha_mode: Valid(json::material::AlphaMode::Opaque),
-        // alpha_cutoff: Some(AlphaCutoff(0.5)),
-        // double_sided: false,
-        // extensions: Default::default(),
-        // extras: Default::default(),
-        name: Some("material1".to_string()),
-        ..Default::default()
-    });
-
     let primitive = json::mesh::Primitive {
         material: Some(material),
         attributes: {
@@ -236,56 +289,96 @@ pub(crate) fn write_gltf(
         mode: Valid(json::mesh::Mode::Triangles),
         targets: None,
     };
+    (vertices, buffer_length, primitive)
+}
 
-    let mesh = root.push(json::Mesh {
-        extensions: Default::default(),
-        extras: Default::default(),
-        name: None,
-        primitives: vec![primitive],
-        weights: None,
+fn material(
+    mat: Option<&crate::vpx::material::Material>,
+    image_rel_path: Option<String>,
+    root: &mut Root,
+) -> Index<Material> {
+    let texture_opt = &image_rel_path.map(|image_path| {
+        let image = root.push(json::Image {
+            buffer_view: None,
+            uri: Some(image_path),
+            mime_type: None,
+            name: Some("gottlieb_flipper_red".to_string()),
+            extensions: None,
+            extras: Default::default(),
+        });
+
+        let sampler = root.push(json::texture::Sampler {
+            mag_filter: None,
+            min_filter: None,
+            wrap_s: Valid(json::texture::WrappingMode::Repeat),
+            wrap_t: Valid(json::texture::WrappingMode::Repeat),
+            extensions: Default::default(),
+            extras: Default::default(),
+            name: None,
+        });
+
+        let texture = root.push(json::Texture {
+            sampler: Some(sampler),
+            source: image,
+            extensions: Default::default(),
+            extras: Default::default(),
+            name: None,
+        });
+
+        texture
     });
 
-    let node = root.push(json::Node {
-        mesh: Some(mesh),
-        name: Some(name),
+    // TODO is this color already in sRGB format?
+    // see https://stackoverflow.com/questions/66469497/gltf-setting-colors-basecolorfactor
+    fn to_srgb(c: u8) -> f32 {
+        // Math.pow(200 / 255, 2.2)
+        (c as f32 / 255.0).powf(2.2)
+    }
+
+    let mut base_color_factor = PbrBaseColorFactor::default();
+    let mut roughness_factor = StrengthFactor(1.0);
+    let mut alpha_mode = Valid(json::material::AlphaMode::Opaque);
+    if let Some(mat) = mat {
+        base_color_factor.0[0] = to_srgb(mat.base_color.r);
+        base_color_factor.0[1] = to_srgb(mat.base_color.g);
+        base_color_factor.0[2] = to_srgb(mat.base_color.b);
+        // looks like the roughness is inverted, in blender 0.0 is smooth and 1.0 is rough
+        // in vpinball 0.0 is rough and 1.0 is smooth
+        roughness_factor = StrengthFactor(1.0 - mat.roughness);
+        alpha_mode = if mat.opacity_active {
+            Valid(json::material::AlphaMode::Blend)
+        } else {
+            Valid(json::material::AlphaMode::Opaque)
+        };
+    };
+
+    let material = root.push(json::Material {
+        pbr_metallic_roughness: json::material::PbrMetallicRoughness {
+            base_color_texture: texture_opt.map(|texture| json::texture::Info {
+                index: texture,
+                tex_coord: 0,
+                extensions: Default::default(),
+                extras: Default::default(),
+            }),
+            base_color_factor,
+            //metallic_factor: StrengthFactor(mat.metallic),
+            roughness_factor,
+            // metallic_roughness_texture: None,
+            // extensions: Default::default(),
+            // extras: Default::default(),
+            ..Default::default()
+        },
+        // normal_texture: None,
+        // occlusion_texture: None,
+        // emissive_texture: None,
+        // emissive_factor: EmissiveFactor([0.0, 0.0, 0.0]),
+        alpha_mode,
+        // alpha_cutoff: Some(AlphaCutoff(0.5)),
+        // double_sided: false,
+        // extensions: Default::default(),
+        // extras: Default::default(),
+        name: Some("material1".to_string()),
         ..Default::default()
     });
-
-    root.push(json::Scene {
-        extensions: Default::default(),
-        extras: Default::default(),
-        name: Some("table1".to_string()),
-        nodes: vec![node],
-    });
-
-    match output {
-        Output::Standard => {
-            let writer = File::create(gltf_file_path)?;
-            json::serialize::to_writer_pretty(writer, &root)?;
-            let bin = to_padded_byte_vector(vertices);
-            let mut writer = File::create(bin_path)?;
-            writer.write_all(&bin)?;
-        }
-        Output::Binary => {
-            let json_string = json::serialize::to_string(&root)?;
-            let mut json_offset = json_string.len();
-            align_to_multiple_of_four(&mut json_offset);
-            let glb = gltf::binary::Glb {
-                header: gltf::binary::Header {
-                    magic: *b"glTF",
-                    version: 2,
-                    // N.B., the size of binary glTF file is limited to range of `u32`.
-                    length: (json_offset + buffer_length)
-                        .try_into()
-                        .expect("file size exceeds binary glTF limit"),
-                },
-                bin: Some(Cow::Owned(to_padded_byte_vector(vertices))),
-                json: Cow::Owned(json_string.into_bytes()),
-            };
-            let glb_path = gltf_file_path.with_extension("glb");
-            let writer = std::fs::File::create(glb_path)?;
-            glb.to_writer(writer)?;
-        }
-    }
-    Ok(())
+    material
 }
