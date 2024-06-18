@@ -34,6 +34,7 @@ flate2 = "1.0.28"
 image = "0.25.1"
 weezl = "0.1.8"
 regex = "1.10.5"
+gltf = "1.4.1"
 
 [dev-dependencies]
 dirs = "5.0.1"

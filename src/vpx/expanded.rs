@@ -1,5 +1,5 @@
 use bytes::{Buf, BufMut, BytesMut};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fmt::{Display, Formatter};
@@ -28,10 +28,10 @@ use crate::vpx::custominfotags::CustomInfoTags;
 use crate::vpx::font::{FontData, FontDataJson};
 use crate::vpx::gameitem::primitive::Primitive;
 use crate::vpx::gameitem::GameItemEnum;
+use crate::vpx::gltf::{write_gltf, Output};
 use crate::vpx::image::{ImageData, ImageDataBits, ImageDataJpeg, ImageDataJson};
 use crate::vpx::jsonmodel::{collections_json, info_to_json, json_to_collections, json_to_info};
 use crate::vpx::lzw::{from_lzw_blocks, to_lzw_blocks};
-
 use crate::vpx::material::{
     Material, MaterialJson, SaveMaterial, SaveMaterialJson, SavePhysicsMaterial,
     SavePhysicsMaterialJson,
@@ -101,8 +101,8 @@ pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteErr
     let mut collections_json_file = File::create(collections_json_path)?;
     let json_collections = collections_json(&vpx.collections);
     serde_json::to_writer_pretty(&mut collections_json_file, &json_collections)?;
-    write_gameitems(vpx, expanded_dir)?;
-    write_images(vpx, expanded_dir)?;
+    let image_index = write_images(vpx, expanded_dir)?;
+    write_gameitems(vpx, expanded_dir, &image_index)?;
     write_sounds(vpx, expanded_dir)?;
     write_fonts(vpx, expanded_dir)?;
     write_game_data(vpx, expanded_dir)?;
@@ -241,7 +241,11 @@ where
     })
 }
 
-fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
+fn write_images<P: AsRef<Path>>(
+    vpx: &VPX,
+    expanded_dir: &P,
+) -> Result<HashMap<String, PathBuf>, WriteError> {
+    let mut index = HashMap::new();
     // create an image index
     let images_index_path = expanded_dir.as_ref().join("images.json");
     let mut images_index_file = File::create(images_index_path)?;
@@ -314,6 +318,7 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
     std::fs::create_dir_all(&images_dir)?;
     images.iter().try_for_each(|(image_file_name, image)| {
         let file_path = images_dir.join(image_file_name);
+        index.insert(image.name.clone(), file_path.clone());
         if !file_path.exists() {
             let mut file = File::create(&file_path)?;
             if image.is_link() {
@@ -350,7 +355,7 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
             ))
         }
     })?;
-    Ok(())
+    Ok(index)
 }
 
 fn write_image_bmp(
@@ -837,7 +842,11 @@ struct GameItemInfoJson {
     editor_layer_visibility: Option<bool>,
 }
 
-fn write_gameitems<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
+fn write_gameitems<P: AsRef<Path>>(
+    vpx: &VPX,
+    expanded_dir: &P,
+    image_index: &HashMap<String, PathBuf>,
+) -> Result<(), WriteError> {
     let gameitems_dir = expanded_dir.as_ref().join("gameitems");
     std::fs::create_dir_all(&gameitems_dir)?;
     let mut used_names_lowercase: HashSet<String> = HashSet::new();
@@ -878,7 +887,7 @@ fn write_gameitems<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Wr
         }
         let gameitem_file = File::create(&gameitem_path)?;
         serde_json::to_writer_pretty(&gameitem_file, &gameitem)?;
-        write_gameitem_binaries(&gameitems_dir, gameitem, file_name)?;
+        write_gameitem_binaries(&gameitems_dir, gameitem, file_name, image_index)?;
     }
     // write the gameitems index as array with names being the type and the name
     let gameitems_index_path = expanded_dir.as_ref().join("gameitems.json");
@@ -920,6 +929,7 @@ fn write_gameitem_binaries(
     gameitems_dir: &Path,
     gameitem: &GameItemEnum,
     json_file_name: String,
+    image_index: &HashMap<String, PathBuf>,
 ) -> Result<(), WriteError> {
     if let GameItemEnum::Primitive(primitive) = gameitem {
         // use wavefront-rs to write the vertices and indices
@@ -927,12 +937,45 @@ fn write_gameitem_binaries(
 
         if let Some(vertices_data) = &primitive.compressed_vertices_data {
             if let Some(indices_data) = &primitive.compressed_indices_data {
-                let (vertices, indices) = read_mesh(primitive, vertices_data, indices_data)?;
+                let mesh = read_mesh(primitive, vertices_data, indices_data)?;
                 let obj_path = gameitems_dir.join(format!("{}.obj", json_file_name));
-                write_obj(gameitem.name().to_string(), &vertices, &indices, &obj_path).map_err(
-                    |e| WriteError::Io(io::Error::new(io::ErrorKind::Other, format!("{}", e))),
-                )?;
-
+                write_obj(gameitem.name().to_string(), &mesh, &obj_path).map_err(|e| {
+                    WriteError::Io(io::Error::new(io::ErrorKind::Other, format!("{}", e)))
+                })?;
+                let gltf_path = gameitems_dir.join(format!("{}.gltf", json_file_name));
+                // TODO only if the image is not empty?
+                let image_path = image_index.get(&primitive.image);
+                let image_rel_path = if let Some(p) = image_path {
+                    PathBuf::from("..")
+                        .join("images")
+                        .join(p.file_name().unwrap())
+                } else {
+                    eprintln!(
+                        "Image not found for primitive {}: {}",
+                        primitive.name, primitive.image
+                    );
+                    PathBuf::new()
+                };
+                write_gltf(
+                    gameitem.name().to_string(),
+                    &mesh,
+                    &gltf_path,
+                    Output::Standard,
+                    image_rel_path.to_str().unwrap(),
+                )
+                .map_err(|e| {
+                    WriteError::Io(io::Error::new(io::ErrorKind::Other, format!("{}", e)))
+                })?;
+                write_gltf(
+                    gameitem.name().to_string(),
+                    &mesh,
+                    &gltf_path,
+                    Output::Binary,
+                    image_rel_path.to_str().unwrap(),
+                )
+                .map_err(|e| {
+                    WriteError::Io(io::Error::new(io::ErrorKind::Other, format!("{}", e)))
+                })?;
                 if let Some(animation_frames) = &primitive.compressed_animation_vertices_data {
                     if let Some(compressed_lengths) = &primitive.compressed_animation_vertices_len {
                         // zip frames with the counts
@@ -941,8 +984,7 @@ fn write_gameitem_binaries(
                             gameitems_dir,
                             gameitem,
                             &json_file_name,
-                            &vertices,
-                            &indices,
+                            &mesh,
                             zipped,
                         )?;
                     } else {
@@ -973,39 +1015,37 @@ fn write_animation_frames_to_objs(
     gameitems_dir: &Path,
     gameitem: &GameItemEnum,
     json_file_name: &str,
-    vertices: &[([u8; 32], Vertex3dNoTex2)],
-    indices: &[i64],
+    base_mesh: &ReadMesh,
     zipped: Zip<Iter<Vec<u8>>, Iter<u32>>,
 ) -> Result<(), WriteError> {
     for (i, (compressed_frame, compressed_length)) in zipped.enumerate() {
         let animation_frame_vertices =
             read_vpx_animation_frame(compressed_frame, compressed_length);
-        let full_vertices = replace_vertices(vertices, animation_frame_vertices)?;
+        let full_vertices = replace_vertices(&base_mesh.vertices, animation_frame_vertices)?;
         // The file name of the sequence must be <meshname>_x.obj where x is the frame number.
         let file_name_without_ext = json_file_name.trim_end_matches(".json");
         let file_name = animation_frame_file_name(file_name_without_ext, i);
         let obj_path = gameitems_dir.join(file_name);
-        write_obj(
-            gameitem.name().to_string(),
-            &full_vertices,
-            indices,
-            &obj_path,
-        )
-        .map_err(|e| WriteError::Io(io::Error::new(io::ErrorKind::Other, format!("{}", e))))?;
+        let new_mesh = ReadMesh {
+            vertices: full_vertices,
+            indices: base_mesh.indices.clone(),
+        };
+        write_obj(gameitem.name().to_string(), &new_mesh, &obj_path)
+            .map_err(|e| WriteError::Io(io::Error::new(io::ErrorKind::Other, format!("{}", e))))?;
     }
     Ok(())
 }
 
 fn replace_vertices(
-    vertices: &[([u8; 32], Vertex3dNoTex2)],
+    vertices: &[ReadVertex],
     animation_frame_vertices: Result<Vec<VertData>, WriteError>,
-) -> Result<Vec<([u8; 32], Vertex3dNoTex2)>, WriteError> {
+) -> Result<Vec<ReadVertex>, WriteError> {
     // combine animation_vertices with the vertices and indices from the mesh
     let full_vertices = vertices
         .iter()
         .zip(animation_frame_vertices?.iter())
-        .map(|((_, vertex), animation_vertex)| {
-            let mut full_vertex: Vertex3dNoTex2 = (*vertex).clone();
+        .map(|(v, animation_vertex)| {
+            let mut full_vertex: Vertex3dNoTex2 = v.vertex.clone();
             full_vertex.x = animation_vertex.x;
             full_vertex.y = animation_vertex.y;
             full_vertex.z = -animation_vertex.z;
@@ -1013,7 +1053,10 @@ fn replace_vertices(
             full_vertex.ny = animation_vertex.ny;
             full_vertex.nz = -animation_vertex.nz;
             // TODO we don't have a full representation of the vertex, so we use a zeroed hash
-            ([0u8; 32], full_vertex)
+            ReadVertex {
+                raw: [0u8; 32],
+                vertex: full_vertex,
+            }
         })
         .collect::<Vec<_>>();
     Ok(full_vertices)
@@ -1044,7 +1087,17 @@ fn read_vpx_animation_frame(
     Ok(vertices)
 }
 
-type ReadMesh = (Vec<([u8; 32], Vertex3dNoTex2)>, Vec<i64>);
+pub(crate) struct ReadVertex {
+    /// In case we find a NaN in the data we provide the raw bytes
+    /// This is mainly because we want 100% compatibility with the original data
+    pub(crate) raw: [u8; BYTES_PER_VERTEX],
+    pub(crate) vertex: Vertex3dNoTex2,
+}
+
+pub(crate) struct ReadMesh {
+    pub(crate) vertices: Vec<ReadVertex>,
+    pub(crate) indices: Vec<i64>,
+}
 
 fn read_mesh(
     primitive: &Primitive,
@@ -1076,14 +1129,14 @@ fn read_mesh(
     } else {
         2
     };
-    let mut vertices: Vec<([u8; 32], Vertex3dNoTex2)> = Vec::with_capacity(num_vertices);
+    let mut vertices: Vec<ReadVertex> = Vec::with_capacity(num_vertices);
 
     let mut buff = BytesMut::from(raw_vertices.as_slice());
     for _ in 0..num_vertices {
         let mut vertex = read_vertex(&mut buff);
         // invert the z axis for both position and normal
-        vertex.1.z = -vertex.1.z;
-        vertex.1.nz = -vertex.1.nz;
+        vertex.vertex.z = -vertex.vertex.z;
+        vertex.vertex.nz = -vertex.vertex.nz;
         vertices.push(vertex);
     }
 
@@ -1099,7 +1152,7 @@ fn read_mesh(
         indices.push(v2);
         indices.push(v1);
     }
-    Ok((vertices, indices))
+    Ok(ReadMesh { vertices, indices })
 }
 
 /// Animation frame vertex data
@@ -1145,7 +1198,7 @@ fn write_animation_vertex_data(buff: &mut BytesMut, vertex: &VertData) {
     buff.put_f32_le(vertex.nz);
 }
 
-fn read_vertex(buffer: &mut BytesMut) -> ([u8; 32], Vertex3dNoTex2) {
+fn read_vertex(buffer: &mut BytesMut) -> ReadVertex {
     let mut bytes = [0; 32];
     buffer.copy_to_slice(&mut bytes);
     let mut vertex_buff = BytesMut::from(bytes.as_ref());
@@ -1170,7 +1223,10 @@ fn read_vertex(buffer: &mut BytesMut) -> ([u8; 32], Vertex3dNoTex2) {
         tu,
         tv,
     };
-    (bytes, v3d)
+    ReadVertex {
+        raw: bytes,
+        vertex: v3d,
+    }
 }
 
 pub trait BytesMutExt {
