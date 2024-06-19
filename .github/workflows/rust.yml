@@ -31,6 +31,11 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      # make sure we are on rust 1.79
+      # see https://github.com/tuffy/bitstream-io/commit/241eaed73b0cd814640ceaf01b8220e5c98927d6#commitcomment-143198388
+      # TODO remove this once github is on a newer version of rust
+      - name: Set up Rust
+        run: rustup update
       - name: Build
         run: cargo build --verbose
       - name: Run tests
