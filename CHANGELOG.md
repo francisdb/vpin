@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.3](https://github.com/francisdb/vpin/compare/v0.15.2...v0.15.3) - 2024-06-19
+
+### Added
+- expose gamedata to json ([#95](https://github.com/francisdb/vpin/pull/95))
+
+### Other
+- test code cleanup
+
 ## [0.15.2](https://github.com/francisdb/vpin/compare/v0.15.1...v0.15.2) - 2024-06-14
 
 ### Added
