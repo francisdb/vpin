@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use crate::vpx::collection::Collection;
 use crate::vpx::custominfotags::CustomInfoTags;
+use crate::vpx::gamedata::{GameData, GameDataJson};
 use crate::vpx::tableinfo::TableInfo;
 
 #[derive(Serialize, Deserialize)]
@@ -112,4 +113,62 @@ pub fn json_to_collections(json: serde_json::Value) -> Result<Vec<Collection>, s
         collections.push(collection);
     }
     Ok(collections)
+}
+
+pub fn game_data_to_json(game_data: &GameData) -> serde_json::Value {
+    let game_data_json = GameDataJson::from_game_data(game_data);
+    to_value(game_data_json).unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vpx::collection::Collection;
+    use crate::vpx::custominfotags::CustomInfoTags;
+    use crate::vpx::gamedata::GameData;
+    use crate::vpx::tableinfo::TableInfo;
+    use serde_json::Value;
+
+    #[test]
+    fn test_info_to_json() {
+        let table_info = TableInfo::default();
+        let custom_info_tags = CustomInfoTags::default();
+        let json = info_to_json(&table_info, &custom_info_tags);
+        let (table_info2, custom_info_tags2) = json_to_info(json, None).unwrap();
+        assert_eq!(table_info, table_info2);
+        assert_eq!(custom_info_tags, custom_info_tags2);
+    }
+
+    #[test]
+    fn test_collections_to_json() {
+        let collections = vec![
+            Collection {
+                name: "collection1".to_string(),
+                items: vec!["item1".to_string(), "item2".to_string()],
+                fire_events: true,
+                stop_single_events: false,
+                group_elements: true,
+            },
+            Collection {
+                name: "collection2".to_string(),
+                items: vec!["item3".to_string(), "item4".to_string()],
+                fire_events: false,
+                stop_single_events: true,
+                group_elements: false,
+            },
+        ];
+        let json = collections_json(&collections);
+        let collections2 = json_to_collections(json).unwrap();
+        assert_eq!(collections, collections2);
+    }
+
+    #[test]
+    fn test_game_data_to_json() {
+        let game_data = GameData::default();
+        let json = game_data_to_json(&game_data);
+        // assert that we have a value of type object that at least contains "name": String("Table1")
+        let map = json.as_object().unwrap();
+        let name = map.get("name").unwrap();
+        assert_eq!(name, &Value::String("Table1".to_string()));
+    }
 }
