@@ -120,7 +120,7 @@ pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteErr
     Ok(())
 }
 
-fn materials_index(materials: &Vec<Material>) -> HashMap<String, Material> {
+fn materials_index(materials: &[Material]) -> HashMap<String, Material> {
     let mut index = HashMap::new();
     materials.iter().for_each(|m| {
         index.insert(m.name.clone(), (*m).clone());
@@ -924,7 +924,7 @@ fn write_gameitems<P: AsRef<Path>>(
         )?;
     }
     let full_table_gltf_path = expanded_dir.as_ref().join("table.gltf");
-    write_whole_table_gltf(&vpx, &full_table_gltf_path)
+    write_whole_table_gltf(vpx, &full_table_gltf_path)
         .map_err(|e| WriteError::Io(io::Error::new(io::ErrorKind::Other, format!("{}", e))))?;
     // write the gameitems index as array with names being the type and the name
     let gameitems_index_path = expanded_dir.as_ref().join("gameitems.json");
@@ -982,7 +982,7 @@ fn write_gameitem_binaries(
                 })?;
                 let gltf_path = gameitems_dir.join(format!("{}.gltf", json_file_name));
                 let image_rel_path = if !&primitive.image.is_empty() {
-                    let primitive_image = UniCase::new(primitive.image.clone().into());
+                    let primitive_image = UniCase::new(primitive.image.clone());
                     if let Some(p) = image_index.get(&primitive_image) {
                         let file_name = p.file_name().unwrap().to_string_lossy().to_string();
                         Some(
@@ -1005,7 +1005,7 @@ fn write_gameitem_binaries(
                 };
                 let material = if !primitive.material.is_empty() {
                     if let Some(m) = material_index.get(&primitive.material) {
-                        Some(m.name.clone())
+                        Some(m)
                     } else {
                         eprintln!(
                             "Material not found for primitive {}: {}",
@@ -1016,7 +1016,6 @@ fn write_gameitem_binaries(
                 } else {
                     None
                 };
-                let material = material_index.get(&primitive.material);
                 write_gltf(
                     gameitem.name().to_string(),
                     &mesh,

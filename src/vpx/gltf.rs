@@ -12,7 +12,7 @@ use std::error::Error;
 use std::fs::File;
 use std::io::Write;
 use std::mem;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum Output {
@@ -66,17 +66,18 @@ pub(crate) fn write_whole_table_gltf(
     vpx: &VPX,
     gltf_file_path: &PathBuf,
 ) -> Result<(), Box<dyn Error>> {
-    let mut root = json::Root::default();
+    let root = json::Root::default();
     vpx.gameitems.iter().for_each(|gameitem| match gameitem {
-        GameItemEnum::Primitive(p) => {
+        GameItemEnum::Primitive(_p) => {
 
             // append to binary file and increase buffer_length and offset
         }
-        GameItemEnum::Light(l) => {
+        GameItemEnum::Light(_l) => {
             // TODO add lights
         }
         _ => {}
     });
+    // TODO add playfield
     write_gltf_file(gltf_file_path, root)
 }
 
@@ -144,7 +145,7 @@ fn write_vertices_binary(bin_path: PathBuf, vertices: Vec<Vertex>) -> Result<(),
 }
 
 fn write_glb_file(
-    gltf_file_path: &PathBuf,
+    gltf_file_path: &Path,
     root: Root,
     vertices: Vec<Vertex>,
     buffer_length: usize,
@@ -173,7 +174,7 @@ fn write_glb_file(
 fn primitive(
     mesh: &&ReadMesh,
     output: Output,
-    bin_path: &PathBuf,
+    bin_path: &Path,
     root: &mut Root,
     material: Index<Material>,
 ) -> (Vec<Vertex>, usize, Primitive) {
@@ -206,7 +207,7 @@ fn primitive(
                 .to_str()
                 .expect("Invalid file name")
                 .to_string();
-            Some(path.into())
+            Some(path)
         } else {
             None
         },
@@ -317,21 +318,20 @@ fn material(
             name: None,
         });
 
-        let texture = root.push(json::Texture {
+        root.push(json::Texture {
             sampler: Some(sampler),
             source: image,
             extensions: Default::default(),
             extras: Default::default(),
             name: None,
-        });
-
-        texture
+        })
     });
 
     // TODO is this color already in sRGB format?
     // see https://stackoverflow.com/questions/66469497/gltf-setting-colors-basecolorfactor
     fn to_srgb(c: u8) -> f32 {
         // Math.pow(200 / 255, 2.2)
+        // TODO it's well possible that vpinball already uses sRGB colors
         (c as f32 / 255.0).powf(2.2)
     }
 
@@ -352,7 +352,7 @@ fn material(
         };
     };
 
-    let material = root.push(json::Material {
+    root.push(json::Material {
         pbr_metallic_roughness: json::material::PbrMetallicRoughness {
             base_color_texture: texture_opt.map(|texture| json::texture::Info {
                 index: texture,
@@ -379,6 +379,5 @@ fn material(
         // extras: Default::default(),
         name: Some("material1".to_string()),
         ..Default::default()
-    });
-    material
+    })
 }

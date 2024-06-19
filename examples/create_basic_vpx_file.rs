@@ -3,6 +3,8 @@ use vpin::vpx;
 use vpin::vpx::color::Color;
 use vpin::vpx::gameitem::bumper::Bumper;
 use vpin::vpx::gameitem::flipper::Flipper;
+use vpin::vpx::gameitem::plunger::Plunger;
+use vpin::vpx::gameitem::vertex2d::Vertex2D;
 use vpin::vpx::gameitem::GameItemEnum;
 use vpin::vpx::material::Material;
 use vpin::vpx::VPX;
@@ -11,10 +13,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut vpx = VPX::default();
 
     // playfield material
-    let mut material = Material::default();
-    material.name = "Playfield".to_string();
-    // material defaults to purple
-    material.base_color = Color::from_rgb(0x966F33); // Wood
+    let material = Material {
+        name: "Playfield".to_string(),
+        // material defaults to purple
+        base_color: Color::from_rgb(0x966F33), // Wood
+        ..Default::default()
+    };
     vpx.gamedata.materials = Some(vec![material]);
 
     // black background (default is bluish gray)
@@ -22,34 +26,54 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     vpx.gamedata.playfield_material = "Playfield".to_string();
 
     // add a plunger
-    let mut plunger = vpx::gameitem::plunger::Plunger::default();
-    plunger.name = "Plunger".to_string();
-    plunger.center.x = 898.027;
-    plunger.center.y = 2105.312;
+    let plunger = Plunger {
+        name: "Plunger".to_string(),
+        center: Vertex2D {
+            x: 898.027,
+            y: 2105.312,
+        },
+        ..Default::default()
+    };
+
     vpx.add_game_item(GameItemEnum::Plunger(plunger));
 
     // add a bumper in the center of the playfield
-    let mut bumper = Bumper::default();
-    bumper.name = "Bumper1".to_string();
-    bumper.center.x = (vpx.gamedata.left + vpx.gamedata.right) / 2.;
-    bumper.center.y = (vpx.gamedata.top + vpx.gamedata.bottom) / 2.;
+    let bumper = Bumper {
+        name: "Bumper1".to_string(),
+        center: Vertex2D {
+            x: (vpx.gamedata.left + vpx.gamedata.right) / 2.,
+            y: (vpx.gamedata.top + vpx.gamedata.bottom) / 2.,
+        },
+        ..Default::default()
+    };
+
     vpx.add_game_item(GameItemEnum::Bumper(bumper));
 
     // add 2 flippers
-    let mut flipper_left = Flipper::default();
-    flipper_left.name = "LeftFlipper".to_string();
-    flipper_left.center.x = 278.2138;
-    flipper_left.center.y = 1803.271;
-    flipper_left.start_angle = 120.5;
-    flipper_left.end_angle = 70.;
+    let flipper_left = Flipper {
+        name: "LeftFlipper".to_string(),
+        center: Vertex2D {
+            x: 278.2138,
+            y: 1803.271,
+        },
+        start_angle: 120.5,
+        end_angle: 70.,
+        ..Default::default()
+    };
+
     vpx.add_game_item(GameItemEnum::Flipper(flipper_left));
 
-    let mut flipper_right = Flipper::default();
-    flipper_right.name = "RightFlipper".to_string();
-    flipper_right.center.x = 595.869;
-    flipper_right.center.y = 1803.271;
-    flipper_right.start_angle = -120.5;
-    flipper_right.end_angle = -70.;
+    let flipper_right = Flipper {
+        name: "RightFlipper".to_string(),
+        center: Vertex2D {
+            x: 595.869,
+            y: 1803.271,
+        },
+        start_angle: -120.5,
+        end_angle: -70.,
+        ..Default::default()
+    };
+
     vpx.add_game_item(GameItemEnum::Flipper(flipper_right));
 
     // add a script
