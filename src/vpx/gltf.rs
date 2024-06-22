@@ -46,8 +46,8 @@ fn bounding_coords(points: &[Vertex]) -> ([f32; 3], [f32; 3]) {
     (min, max)
 }
 
-fn align_to_multiple_of_four(n: &mut usize) {
-    *n = (*n + 3) & !3;
+fn align_to_multiple_of_four(n: usize) -> usize {
+    (n + 3) & !3
 }
 
 fn to_padded_byte_vector<T>(vec: Vec<T>) -> Vec<u8> {
@@ -95,7 +95,7 @@ pub(crate) fn write_gltf(
 
     let material = material(mat, image_rel_path, &mut root);
 
-    let (vertices, buffer_length, primitive) =
+    let (vertices, indices, buffer_length, primitive) =
         primitive(&mesh, output, &bin_path, &mut root, material);
 
     let mesh = root.push(json::Mesh {
@@ -121,7 +121,7 @@ pub(crate) fn write_gltf(
 
     match output {
         Output::Standard => {
-            write_vertices_binary(bin_path, vertices)?;
+            write_vertices_binary(bin_path, vertices, indices)?;
             write_gltf_file(gltf_file_path, root)?;
         }
         Output::Binary => {
@@ -137,10 +137,15 @@ fn write_gltf_file(gltf_file_path: &PathBuf, root: Root) -> Result<(), Box<dyn E
     Ok(())
 }
 
-fn write_vertices_binary(bin_path: PathBuf, vertices: Vec<Vertex>) -> Result<(), Box<dyn Error>> {
+fn write_vertices_binary(
+    bin_path: PathBuf,
+    vertices: Vec<Vertex>,
+    indices: Vec<u32>,
+) -> Result<(), Box<dyn Error>> {
     let bin = to_padded_byte_vector(vertices);
     let mut writer = File::create(bin_path)?;
     writer.write_all(&bin)?;
+    writer.write_all(bytemuck::cast_slice(&indices))?;
     Ok(())
 }
 
@@ -151,8 +156,7 @@ fn write_glb_file(
     buffer_length: usize,
 ) -> Result<(), Box<dyn Error>> {
     let json_string = json::serialize::to_string(&root)?;
-    let mut json_offset = json_string.len();
-    align_to_multiple_of_four(&mut json_offset);
+    let json_offset = align_to_multiple_of_four(json_string.len());
     let glb = gltf::binary::Glb {
         header: gltf::binary::Header {
             magic: *b"glTF",
@@ -172,29 +176,32 @@ fn write_glb_file(
 }
 
 fn primitive(
-    mesh: &&ReadMesh,
+    mesh: &ReadMesh,
     output: Output,
     bin_path: &Path,
     root: &mut Root,
     material: Index<Material>,
-) -> (Vec<Vertex>, usize, Primitive) {
-    // use the indices to look up the vertices
-    let vertices = mesh
-        .indices
+) -> (Vec<Vertex>, Vec<u32>, usize, Primitive) {
+    let vertices_data = mesh
+        .vertices
         .iter()
-        .map(|i| {
-            let v = &mesh.vertices[*i as usize];
-            Vertex {
-                position: [v.vertex.x, v.vertex.y, v.vertex.z],
-                normal: [v.vertex.nx, v.vertex.ny, v.vertex.nz],
-                uv: [v.vertex.tu, v.vertex.tv],
-            }
+        .map(|v| Vertex {
+            position: [v.vertex.x, v.vertex.y, v.vertex.z],
+            normal: [v.vertex.nx, v.vertex.ny, v.vertex.nz],
+            uv: [v.vertex.tu, v.vertex.tv],
         })
         .collect::<Vec<Vertex>>();
 
-    let (min, max) = bounding_coords(&vertices);
+    let indices_data = mesh.indices.iter().map(|i| *i as u32).collect::<Vec<u32>>();
 
-    let buffer_length = vertices.len() * mem::size_of::<Vertex>();
+    let (min, max) = bounding_coords(&vertices_data);
+
+    let vertices_data_len = vertices_data.len() * mem::size_of::<Vertex>();
+    let vertices_data_len_padded = align_to_multiple_of_four(vertices_data_len);
+    let indices_data_len = indices_data.len() * mem::size_of::<u32>();
+    let indices_data_len_padded = align_to_multiple_of_four(indices_data_len);
+    let buffer_length = vertices_data_len_padded + indices_data_len_padded;
+
     let buffer = root.push(json::Buffer {
         byte_length: USize64::from(buffer_length),
         extensions: Default::default(),
@@ -212,7 +219,7 @@ fn primitive(
             None
         },
     });
-    let buffer_view = root.push(json::buffer::View {
+    let positions_buffer_view = root.push(json::buffer::View {
         buffer,
         byte_length: USize64::from(buffer_length),
         byte_offset: None,
@@ -223,9 +230,9 @@ fn primitive(
         target: Some(Valid(json::buffer::Target::ArrayBuffer)),
     });
     let positions = root.push(json::Accessor {
-        buffer_view: Some(buffer_view),
+        buffer_view: Some(positions_buffer_view),
         byte_offset: Some(USize64(0)),
-        count: USize64::from(vertices.len()),
+        count: USize64::from(vertices_data.len()),
         component_type: Valid(json::accessor::GenericComponentType(
             json::accessor::ComponentType::F32,
         )),
@@ -238,11 +245,40 @@ fn primitive(
         normalized: false,
         sparse: None,
     });
+
+    let indices_buffer_view = root.push(json::buffer::View {
+        buffer,
+        byte_length: USize64::from(indices_data_len),
+        byte_offset: Some(USize64::from(vertices_data_len_padded)),
+        byte_stride: None,
+        extensions: Default::default(),
+        extras: Default::default(),
+        name: None,
+        target: Some(Valid(json::buffer::Target::ElementArrayBuffer)),
+    });
+    let indices = root.push(json::Accessor {
+        buffer_view: Some(indices_buffer_view),
+        byte_offset: Some(USize64(0)),
+        count: USize64::from(mesh.indices.len()),
+        component_type: Valid(json::accessor::GenericComponentType(
+            // TODO maybe use U16 if indices.len() < 65536
+            json::accessor::ComponentType::U32,
+        )),
+        extensions: None,
+        extras: Default::default(),
+        type_: Valid(json::accessor::Type::Scalar),
+        min: None,
+        max: None,
+        name: None,
+        normalized: false,
+        sparse: None,
+    });
+
     let normals = root.push(json::Accessor {
-        buffer_view: Some(buffer_view),
+        buffer_view: Some(positions_buffer_view),
         // we have to skip the first 3 floats to get to the normals
         byte_offset: Some(USize64::from(3 * mem::size_of::<f32>())),
-        count: USize64::from(vertices.len()),
+        count: USize64::from(vertices_data.len()),
         component_type: Valid(json::accessor::GenericComponentType(
             json::accessor::ComponentType::F32,
         )),
@@ -257,10 +293,10 @@ fn primitive(
     });
 
     let tex_coords = root.push(json::Accessor {
-        buffer_view: Some(buffer_view),
+        buffer_view: Some(positions_buffer_view),
         // we have to skip the first 5 floats to get to the texture coordinates
         byte_offset: Some(USize64::from(6 * mem::size_of::<f32>())),
-        count: USize64::from(vertices.len()),
+        count: USize64::from(vertices_data.len()),
         component_type: Valid(json::accessor::GenericComponentType(
             json::accessor::ComponentType::F32,
         )),
@@ -286,11 +322,11 @@ fn primitive(
         },
         extensions: Default::default(),
         extras: Default::default(),
-        indices: None,
+        indices: Some(indices),
         mode: Valid(json::mesh::Mode::Triangles),
         targets: None,
     };
-    (vertices, buffer_length, primitive)
+    (vertices_data, indices_data, buffer_length, primitive)
 }
 
 fn material(
