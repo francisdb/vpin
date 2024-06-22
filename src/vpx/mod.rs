@@ -68,6 +68,7 @@ pub mod renderprobe;
 pub(crate) mod json;
 
 // we have to make this public for the integration tests
+mod gltf;
 pub mod lzw;
 mod obj;
 pub(crate) mod wav;

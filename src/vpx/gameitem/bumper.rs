@@ -13,19 +13,19 @@ pub struct Bumper {
     pub timer_interval: i32,
     pub threshold: f32,
     pub force: f32,
+    /// BSCT (added in ?)
     pub scatter: Option<f32>,
-    // BSCT (added in ?)
     pub height_scale: f32,
     pub ring_speed: f32,
     pub orientation: f32,
+    /// RDLI (added in ?)
     pub ring_drop_offset: Option<f32>,
-    // RDLI (added in ?)
     pub cap_material: String,
     pub base_material: String,
     pub socket_material: String,
+    /// RIMA (added in ?)
     pub ring_material: Option<String>,
-    // RIMA (added in ?)
-    surface: String,
+    pub surface: String,
     pub name: String,
     pub is_cap_visible: bool,
     pub is_base_visible: bool,
