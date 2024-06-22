@@ -1027,17 +1027,17 @@ fn write_gameitem_binaries(
                 .map_err(|e| {
                     WriteError::Io(io::Error::new(io::ErrorKind::Other, format!("{}", e)))
                 })?;
-                write_gltf(
-                    gameitem.name().to_string(),
-                    &mesh,
-                    &gltf_path,
-                    Output::Binary,
-                    image_rel_path,
-                    material,
-                )
-                .map_err(|e| {
-                    WriteError::Io(io::Error::new(io::ErrorKind::Other, format!("{}", e)))
-                })?;
+                // write_gltf(
+                //     gameitem.name().to_string(),
+                //     &mesh,
+                //     &gltf_path,
+                //     Output::Binary,
+                //     image_rel_path,
+                //     material,
+                // )
+                // .map_err(|e| {
+                //     WriteError::Io(io::Error::new(io::ErrorKind::Other, format!("{}", e)))
+                // })?;
                 if let Some(animation_frames) = &primitive.compressed_animation_vertices_data {
                     if let Some(compressed_lengths) = &primitive.compressed_animation_vertices_len {
                         // zip frames with the counts
