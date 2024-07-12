@@ -980,42 +980,10 @@ fn write_gameitem_binaries(
                 write_obj(gameitem.name().to_string(), &mesh, &obj_path).map_err(|e| {
                     WriteError::Io(io::Error::new(io::ErrorKind::Other, format!("{}", e)))
                 })?;
+
                 let gltf_path = gameitems_dir.join(format!("{}.gltf", json_file_name));
-                let image_rel_path = if !&primitive.image.is_empty() {
-                    let primitive_image = UniCase::new(primitive.image.clone());
-                    if let Some(p) = image_index.get(&primitive_image) {
-                        let file_name = p.file_name().unwrap().to_string_lossy().to_string();
-                        Some(
-                            PathBuf::from("..")
-                                .join("images")
-                                .join(file_name)
-                                .to_str()
-                                .unwrap()
-                                .to_string(),
-                        )
-                    } else {
-                        eprintln!(
-                            "Image not found for primitive {}: {}",
-                            primitive.name, primitive.image
-                        );
-                        None
-                    }
-                } else {
-                    None
-                };
-                let material = if !primitive.material.is_empty() {
-                    if let Some(m) = material_index.get(&primitive.material) {
-                        Some(m)
-                    } else {
-                        eprintln!(
-                            "Material not found for primitive {}: {}",
-                            primitive.name, primitive.material
-                        );
-                        None
-                    }
-                } else {
-                    None
-                };
+                let image_rel_path = primitive_image(image_index, &primitive);
+                let material = primitive_material(material_index, &primitive);
                 write_gltf(
                     gameitem.name().to_string(),
                     &mesh,
@@ -1027,6 +995,7 @@ fn write_gameitem_binaries(
                 .map_err(|e| {
                     WriteError::Io(io::Error::new(io::ErrorKind::Other, format!("{}", e)))
                 })?;
+                // TODO do we want to keep this binary gltf?
                 // write_gltf(
                 //     gameitem.name().to_string(),
                 //     &mesh,
@@ -1071,6 +1040,53 @@ fn write_gameitem_binaries(
         }
     }
     Ok(())
+}
+
+fn primitive_material(
+    material_index: &HashMap<String, Material>,
+    primitive: &&Primitive,
+) -> Option<&Material> {
+    if !primitive.material.is_empty() {
+        if let Some(m) = material_index.get(&primitive.material) {
+            Some(m)
+        } else {
+            eprintln!(
+                "Material not found for primitive {}: {}",
+                primitive.name, primitive.material
+            );
+            None
+        }
+    } else {
+        None
+    }
+}
+
+fn primitive_image(
+    image_index: &HashMap<UniCase<String>, PathBuf>,
+    primitive: &&Primitive,
+) -> Option<String> {
+    if !&primitive.image.is_empty() {
+        let primitive_image = UniCase::new(primitive.image.clone());
+        if let Some(p) = image_index.get(&primitive_image) {
+            let file_name = p.file_name().unwrap().to_string_lossy().to_string();
+            Some(
+                PathBuf::from("..")
+                    .join("images")
+                    .join(file_name)
+                    .to_str()
+                    .unwrap()
+                    .to_string(),
+            )
+        } else {
+            eprintln!(
+                "Image not found for primitive {}: {}",
+                primitive.name, primitive.image
+            );
+            None
+        }
+    } else {
+        None
+    }
 }
 
 fn write_animation_frames_to_objs(

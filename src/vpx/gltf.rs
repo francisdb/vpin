@@ -99,7 +99,7 @@ pub(crate) fn write_gltf(
 
     let mut root = json::Root::default();
 
-    let material = material(mat, image_rel_path, &mut root);
+    let material = material(mat, image_rel_path.clone(), &mut root);
 
     let (vertices, indices, buffer_length, primitive) =
         primitive(&mesh, output, &bin_path, &mut root, material);
@@ -118,12 +118,13 @@ pub(crate) fn write_gltf(
         ..Default::default()
     });
 
-    root.push(json::Scene {
+    let scene = root.push(json::Scene {
         extensions: Default::default(),
         extras: Default::default(),
         name: Some("table1".to_string()),
         nodes: vec![node],
     });
+    root.scene = Some(scene);
 
     match output {
         Output::Standard => {
@@ -135,20 +136,9 @@ pub(crate) fn write_gltf(
         }
     }
 
-    // create file with _test suffix
-    let test_gltf_file_path = gltf_file_path.with_file_name(
-        gltf_file_path
-            .file_stem()
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .to_string()
-            + "_test.gltf",
-    );
-    let mut writer = GlTFWriter::new(&test_gltf_file_path)?;
-    writer.write(name, vertices, &indices)?;
+    let mut writer = GlTFWriter::new(&gltf_file_path, "table1".to_string())?;
+    writer.write(name, vertices, &indices, image_rel_path, mat)?;
     writer.finish()?;
-
     Ok(())
 }
 
@@ -242,7 +232,7 @@ fn primitive(
     });
     let positions_buffer_view = root.push(json::buffer::View {
         buffer,
-        byte_length: USize64::from(buffer_length),
+        byte_length: USize64::from(vertices_data_len),
         byte_offset: None,
         byte_stride: Some(json::buffer::Stride(mem::size_of::<Vertex>())),
         extensions: Default::default(),
@@ -439,23 +429,50 @@ fn material(
     })
 }
 
+/// TODO this is a copy of the struct in the gltf crate, we should use the one from the crate
+/// TODO is the above true?
+/// TODO move any buffer logic to this struct, eg writing vertices and indices
+struct GLTFBuffer<W: Write> {
+    buffer: W,
+    /// The length of the buffer in bytes.
+    buffer_length: usize,
+}
+
+impl<W: Write> GLTFBuffer<W> {
+    fn new(buffer: W) -> Self {
+        Self {
+            buffer,
+            buffer_length: 0,
+        }
+    }
+
+    fn write(&mut self, data: &[u8]) -> io::Result<()> {
+        self.buffer.write_all(data)?;
+        self.buffer_length += data.len();
+        Ok(())
+    }
+}
+
 struct GlTFWriter {
     file_path: PathBuf,
     root: Root,
-    buffer: Index<json::Buffer>,
+    buffer_index: Index<json::Buffer>,
     bin_file: Option<File>,
     buffer_length: usize,
 }
 
 impl GlTFWriter {
-    fn new(file_path: &Path) -> io::Result<Self> {
+    fn new(file_path: &Path, scene_name: String) -> io::Result<Self> {
         if file_path.exists() {
             panic!("File already exists: {:?}", file_path);
         }
         let mut bin_file = None;
+        let mut bin_file_path = None;
         match file_path.extension() {
             Some(ext) if ext == "gltf" => {
-                bin_file = Some(File::create(file_path.with_extension("bin"))?);
+                let p = file_path.with_extension("bin");
+                bin_file = Some(File::create(&p)?);
+                bin_file_path = Some(p);
             }
             Some(ext) if ext == "glb" => {
                 todo!("Support for binary glTF files");
@@ -468,12 +485,17 @@ impl GlTFWriter {
             extensions: Default::default(),
             extras: Default::default(),
             name: None,
-            uri: None,
+            uri: bin_file_path
+                .iter()
+                .flat_map(|f| f.file_name())
+                .next()
+                .and_then(|f| f.to_str())
+                .map(|s| s.to_string()),
         });
         let scene = root.push(json::Scene {
             extensions: Default::default(),
             extras: Default::default(),
-            name: Some("scene1".to_string()),
+            name: Some(scene_name),
             nodes: vec![],
         });
         // set the default scene
@@ -481,22 +503,30 @@ impl GlTFWriter {
         Ok(Self {
             file_path: file_path.to_owned(),
             root,
-            buffer,
+            buffer_index: buffer,
             bin_file,
             buffer_length: 0,
         })
     }
 
-    fn write(&mut self, name: String, vertices: Vec<Vertex>, indices: &[u32]) -> io::Result<()> {
+    fn write(
+        &mut self,
+        name: String,
+        vertices: Vec<Vertex>,
+        indices: &[u32],
+        image_rel_path: Option<String>,
+        mat: Option<&crate::vpx::material::Material>,
+    ) -> io::Result<()> {
         let mut writer = self.bin_file.as_ref().unwrap();
 
+        let (vertices_min, vertices_max) = bounding_coords(&vertices);
         let vertices_len = vertices.len();
         let vertices_data_len = vertices_len * mem::size_of::<Vertex>();
         let vertices_data_len_padded = align_to_multiple_of_four(vertices_data_len);
         let bin = to_padded_byte_vector(vertices);
         writer.write_all(&bin)?;
-
         self.buffer_length += vertices_data_len_padded;
+
         let indices_data_len = indices.len() * mem::size_of::<u32>();
         let indices_data_len_padded = align_to_multiple_of_four(indices_data_len);
         self.buffer_length += indices_data_len_padded;
@@ -510,16 +540,16 @@ impl GlTFWriter {
 
         // add buffer view and accessor for the vertices
         let vertices_buffer_view = self.root.push(json::buffer::View {
-            buffer: self.buffer,
+            buffer: self.buffer_index,
             byte_length: USize64::from(vertices_data_len_padded),
             byte_offset: None,
             byte_stride: Some(json::buffer::Stride(mem::size_of::<Vertex>())),
             extensions: Default::default(),
             extras: Default::default(),
-            name: None,
+            name: Some("vertices".to_string()),
             target: Some(Valid(json::buffer::Target::ArrayBuffer)),
         });
-        let vertices_accessor = self.root.push(json::Accessor {
+        let positions_accessor = self.root.push(json::Accessor {
             buffer_view: Some(vertices_buffer_view),
             byte_offset: Some(USize64(0)),
             count: USize64::from(vertices_len),
@@ -529,23 +559,93 @@ impl GlTFWriter {
             extensions: Default::default(),
             extras: Default::default(),
             type_: Valid(json::accessor::Type::Vec3),
-            min: None,
-            max: None,
-            name: None,
+            min: Some(json::Value::from(Vec::from(vertices_min))),
+            max: Some(json::Value::from(Vec::from(vertices_max))),
+            name: Some("positions".to_string()),
             normalized: false,
             sparse: None,
         });
 
+        let indices_buffer_view = self.root.push(json::buffer::View {
+            buffer: self.buffer_index,
+            byte_length: USize64::from(indices_data_len_padded),
+            byte_offset: Some(USize64::from(vertices_data_len_padded)),
+            byte_stride: None,
+            extensions: Default::default(),
+            extras: Default::default(),
+            name: Some("indices".to_string()),
+            target: Some(Valid(json::buffer::Target::ElementArrayBuffer)),
+        });
+        let indices_accessor = self.root.push(json::Accessor {
+            buffer_view: Some(indices_buffer_view),
+            byte_offset: Some(USize64(0)),
+            count: USize64::from(indices.len()),
+            component_type: Valid(json::accessor::GenericComponentType(
+                json::accessor::ComponentType::U32,
+            )),
+            extensions: None,
+            extras: Default::default(),
+            type_: Valid(json::accessor::Type::Scalar),
+            min: None,
+            max: None,
+            name: Some("indices".to_string()),
+            normalized: false,
+            sparse: None,
+        });
+
+        let normals_accessor = self.root.push(json::Accessor {
+            buffer_view: Some(vertices_buffer_view),
+            // we have to skip the first 3 floats to get to the normals
+            byte_offset: Some(USize64::from(3 * mem::size_of::<f32>())),
+            count: USize64::from(vertices_len),
+            component_type: Valid(json::accessor::GenericComponentType(
+                json::accessor::ComponentType::F32,
+            )),
+            extensions: Default::default(),
+            extras: Default::default(),
+            type_: Valid(json::accessor::Type::Vec3),
+            min: None,
+            max: None,
+            name: Some("normals".to_string()),
+            normalized: false,
+            sparse: None,
+        });
+
+        let tex_coords_accessor = self.root.push(json::Accessor {
+            buffer_view: Some(vertices_buffer_view),
+            // we have to skip the first 5 floats to get to the texture coordinates
+            byte_offset: Some(USize64::from(6 * mem::size_of::<f32>())),
+            count: USize64::from(vertices_len),
+            component_type: Valid(json::accessor::GenericComponentType(
+                json::accessor::ComponentType::F32,
+            )),
+            extensions: Default::default(),
+            extras: Default::default(),
+            type_: Valid(json::accessor::Type::Vec2),
+            min: None,
+            max: None,
+            name: Some("tex_coords".to_string()),
+            normalized: false,
+            sparse: None,
+        });
+
+        let material = material(mat, image_rel_path, &mut self.root);
+
         let primitive = json::mesh::Primitive {
-            material: None,
+            material: Some(material),
             attributes: {
                 let mut map = std::collections::BTreeMap::new();
-                map.insert(Valid(json::mesh::Semantic::Positions), vertices_accessor);
+                map.insert(Valid(json::mesh::Semantic::Positions), positions_accessor);
+                map.insert(Valid(json::mesh::Semantic::Normals), normals_accessor);
+                map.insert(
+                    Valid(json::mesh::Semantic::TexCoords(0)),
+                    tex_coords_accessor,
+                );
                 map
             },
             extensions: Default::default(),
             extras: Default::default(),
-            indices: None,
+            indices: Some(indices_accessor),
             mode: Valid(json::mesh::Mode::Triangles),
             targets: None,
         };
@@ -575,7 +675,7 @@ impl GlTFWriter {
         // update the buffer length
         self.root
             .buffers
-            .get_mut(self.buffer.value())
+            .get_mut(self.buffer_index.value())
             .expect("The buffer should exist")
             .byte_length = USize64::from(self.buffer_length);
         json::serialize::to_writer_pretty(writer, &self.root)?;
