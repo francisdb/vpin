@@ -1,6 +1,6 @@
 //! Wavefront OBJ file reader and writer
 
-use crate::vpx::model::Vertex3dNoTex2;
+use crate::vpx::expanded::ReadMesh;
 use std::error::Error;
 use std::fs::File;
 use std::io::BufRead;
@@ -50,8 +50,7 @@ fn obj_parse_vpx_comment(comment: &str) -> Option<VpxNormalBytes> {
 /// so we have to negate the z values.
 pub(crate) fn write_obj(
     name: String,
-    vertices: &Vec<([u8; 32], Vertex3dNoTex2)>,
-    indices: &[i64],
+    mesh: &ReadMesh,
     obj_file_path: &PathBuf,
 ) -> Result<(), Box<dyn Error>> {
     let mut obj_file = File::create(obj_file_path)?;
@@ -81,7 +80,11 @@ pub(crate) fn write_obj(
     };
     obj_writer.write(&mut writer, &comment)?;
     let comment = Entity::Comment {
-        content: format!("numVerts: {} numFaces: {}", vertices.len(), indices.len()),
+        content: format!(
+            "numVerts: {} numFaces: {}",
+            mesh.vertices.len(),
+            mesh.indices.len()
+        ),
     };
     obj_writer.write(&mut writer, &comment)?;
 
@@ -90,49 +93,49 @@ pub(crate) fn write_obj(
     obj_writer.write(&mut writer, &object)?;
 
     // write all vertices to the wavefront obj file
-    for (_, vertex) in vertices {
+    for v in &mesh.vertices {
         let vertex = Entity::Vertex {
-            x: vertex.x as f64,
-            y: vertex.y as f64,
-            z: vertex.z as f64,
+            x: v.vertex.x as f64,
+            y: v.vertex.y as f64,
+            z: v.vertex.z as f64,
             w: None,
         };
         obj_writer.write(&mut writer, &vertex)?;
     }
     // write all vertex texture coordinates to the wavefront obj file
-    for (_, vertex) in vertices {
+    for v in &mesh.vertices {
         let vertex = Entity::VertexTexture {
-            u: vertex.tu as f64,
-            v: Some(vertex.tv as f64),
+            u: v.vertex.tu as f64,
+            v: Some(v.vertex.tv as f64),
             w: None,
         };
         obj_writer.write(&mut writer, &vertex)?;
     }
     // write all vertex normals to the wavefront obj file
-    for (bytes, vertex) in vertices {
+    for v in &mesh.vertices {
         // if one of the values is NaN we write a special comment with the bytes
-        if vertex.nx.is_nan() || vertex.ny.is_nan() || vertex.nz.is_nan() {
-            println!("NaN found in vertex normal: {:?}", vertex);
-            let data = bytes[12..24].try_into().unwrap();
+        if v.vertex.nx.is_nan() || v.vertex.ny.is_nan() || v.vertex.nz.is_nan() {
+            println!("NaN found in vertex normal: {:?}", v.vertex);
+            let data = v.raw[12..24].try_into().unwrap();
             let content = obj_vpx_comment(&data);
             let comment = Entity::Comment { content };
             obj_writer.write(&mut writer, &comment)?;
         }
         let vertex = Entity::VertexNormal {
-            x: if vertex.nx.is_nan() {
+            x: if v.vertex.nx.is_nan() {
                 0.0
             } else {
-                vertex.nx as f64
+                v.vertex.nx as f64
             },
-            y: if vertex.ny.is_nan() {
+            y: if v.vertex.ny.is_nan() {
                 0.0
             } else {
-                vertex.ny as f64
+                v.vertex.ny as f64
             },
-            z: if vertex.nz.is_nan() {
+            z: if v.vertex.nz.is_nan() {
                 0.0
             } else {
-                vertex.nz as f64
+                v.vertex.nz as f64
             },
         };
         obj_writer.write(&mut writer, &vertex)?;
@@ -141,7 +144,7 @@ pub(crate) fn write_obj(
     // write all faces to the wavefront obj file
 
     // write in groups of 3
-    for chunk in indices.chunks(3) {
+    for chunk in mesh.indices.chunks(3) {
         // obj indices are 1 based
         // since the z axis is inverted we have to reverse the order of the vertices
         let v1 = chunk[0] + 1;
@@ -250,6 +253,8 @@ pub(crate) struct ObjData {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::vpx::expanded::ReadVertex;
+    use crate::vpx::model::Vertex3dNoTex2;
     use pretty_assertions::assert_eq;
     use std::io::BufReader;
     use testdir::testdir;
@@ -318,34 +323,32 @@ f 1/1/1 1/1/1 1/1/1
         let written_obj_path = testdir.join("screw.obj");
 
         // zip vertices, texture coordinates and normals into a single vec
-        let vertices: Vec<([u8; 32], Vertex3dNoTex2)> = obj_data
+        let vertices: Vec<ReadVertex> = obj_data
             .vertices
             .iter()
             .zip(&obj_data.texture_coordinates)
             .zip(&obj_data.normals)
-            .map(|((v, vt), (vn, _))| {
-                (
-                    [0u8; 32],
-                    Vertex3dNoTex2 {
-                        x: v.0 as f32,
-                        y: v.1 as f32,
-                        z: v.2 as f32,
-                        nx: vn.0 as f32,
-                        ny: vn.1 as f32,
-                        nz: vn.2 as f32,
-                        tu: vt.0 as f32,
-                        tv: vt.1.unwrap_or(0.0) as f32,
-                    },
-                )
+            .map(|((v, vt), (vn, _))| ReadVertex {
+                raw: [0u8; 32],
+                vertex: Vertex3dNoTex2 {
+                    x: v.0 as f32,
+                    y: v.1 as f32,
+                    z: v.2 as f32,
+                    nx: vn.0 as f32,
+                    ny: vn.1 as f32,
+                    nz: vn.2 as f32,
+                    tu: vt.0 as f32,
+                    tv: vt.1.unwrap_or(0.0) as f32,
+                },
             })
             .collect();
 
-        write_obj(
-            obj_data.name,
-            &vertices,
-            &obj_data.indices,
-            &written_obj_path,
-        )?;
+        let mesh = ReadMesh {
+            vertices,
+            indices: obj_data.indices.clone(),
+        };
+
+        write_obj(obj_data.name, &mesh, &written_obj_path)?;
 
         // compare both files as strings
         let mut original = std::fs::read_to_string(&screw_path)?;

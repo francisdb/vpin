@@ -2,7 +2,7 @@ use crate::vpx::biff;
 use crate::vpx::biff::{BiffRead, BiffReader, BiffWrite, BiffWriter};
 use crate::vpx::color::Color;
 use crate::vpx::json::F32WithNanInf;
-use crate::vpx::math::quantize_u8;
+use crate::vpx::math::{dequantize_u8, quantize_u8};
 use bytes::{Buf, BufMut, BytesMut};
 use encoding_rs::mem::{decode_latin1, encode_latin1_lossy};
 use fake::Dummy;
@@ -206,6 +206,43 @@ impl From<&Material> for SaveMaterial {
     }
 }
 
+impl From<(&SaveMaterial, Option<&SavePhysicsMaterial>)> for Material {
+    fn from((mat, physics_opt): (&SaveMaterial, Option<&SavePhysicsMaterial>)) -> Self {
+        let glossy_image_lerp: f32 = 1.0 - dequantize_u8(8, 255 - mat.glossy_image_lerp);
+        let thickness: f32 = dequantize_u8(8, mat.thickness);
+        let edge_alpha: f32 = dequantize_u8(7, mat.opacity_active_edge_alpha >> 1);
+        let opacity_active: bool = mat.opacity_active_edge_alpha & 1 != 0;
+        let mut material = Material {
+            name: mat.name.clone(),
+            type_: if mat.is_metal {
+                MaterialType::Metal
+            } else {
+                MaterialType::Basic
+            },
+            wrap_lighting: mat.wrap_lighting,
+            roughness: mat.roughness,
+            glossy_image_lerp,
+            thickness,
+            edge: mat.edge,
+            edge_alpha,
+            opacity: mat.opacity,
+            base_color: mat.base_color,
+            glossy_color: mat.glossy_color,
+            clearcoat_color: mat.clearcoat_color,
+            // Transparency active in the UI
+            opacity_active,
+            ..Default::default()
+        };
+        if let Some(physics) = physics_opt {
+            material.elasticity = physics.elasticity;
+            material.elasticity_falloff = physics.elasticity_falloff;
+            material.friction = physics.friction;
+            material.scatter_angle = physics.scatter_angle;
+        }
+        material
+    }
+}
+
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct SaveMaterialJson {
     name: String,
@@ -332,11 +369,11 @@ impl SaveMaterial {
  */
 #[derive(Dummy, Debug, PartialEq)]
 pub struct SavePhysicsMaterial {
-    name: String,
-    elasticity: f32,
-    elasticity_falloff: f32,
-    friction: f32,
-    scatter_angle: f32,
+    pub name: String,
+    pub elasticity: f32,
+    pub elasticity_falloff: f32,
+    pub friction: f32,
+    pub scatter_angle: f32,
 }
 
 impl From<&Material> for SavePhysicsMaterial {
@@ -455,32 +492,44 @@ fn get_padding_3_validate(bytes: &mut BytesMut) {
     //assert_eq!(padding.to_vec(), [0, 0, 0]);
 }
 
-#[derive(Dummy, Debug, PartialEq)]
+#[derive(Dummy, Clone, Debug, PartialEq)]
 pub struct Material {
     pub name: String,
 
     // shading properties
+    /// basic or metal material
     pub type_: MaterialType,
+    /// wrap/rim lighting factor (0(off)..1(full))
     pub wrap_lighting: f32,
+    /// roughness of glossy layer (0(diffuse)..1(specular))
     pub roughness: f32,
+    /// use image also for the glossy layer (0(no tinting at all)..1(use image))
     pub glossy_image_lerp: f32,
+    /// thickness for transparent materials (0(paper thin)..1(maximum))
     pub thickness: f32,
+    /// edge weight/brightness for glossy and clearcoat (0(dark edges)..1(full fresnel))
     pub edge: f32,
+    /// edge weight for fresnel (0(no opacity change)..1(full fresnel))
     pub edge_alpha: f32,
     pub opacity: f32,
+    /// can be overridden by texture on object itself
     pub base_color: Color,
+    /// specular of glossy layer
     pub glossy_color: Color,
+    /// specular of clearcoat layer
     pub clearcoat_color: Color,
-    // Transparency active in the UI
+    /// transparency active (from the UI)
     pub opacity_active: bool,
 
     // physic properties
-    elasticity: f32,
-    elasticity_falloff: f32,
-    friction: f32,
-    scatter_angle: f32,
+    pub elasticity: f32,
+    pub elasticity_falloff: f32,
+    pub friction: f32,
+    pub scatter_angle: f32,
 
-    refraction_tint: Color, // 10.8+ only
+    /// color of the refraction
+    /// 10.8+ only
+    pub refraction_tint: Color,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

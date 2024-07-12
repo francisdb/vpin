@@ -7,43 +7,43 @@ use super::{vertex2d::Vertex2D, GameItem};
 #[derive(Debug, PartialEq, Clone, Dummy)]
 pub struct Flipper {
     pub center: Vertex2D,
-    base_radius: f32,
-    end_radius: f32,
-    flipper_radius_max: f32,
-    return_: f32,
+    pub base_radius: f32,
+    pub end_radius: f32,
+    pub flipper_radius_max: f32,
+    pub return_: f32,
     pub start_angle: f32,
     pub end_angle: f32,
-    override_physics: u32,
-    mass: f32,
-    is_timer_enabled: bool,
-    timer_interval: i32,
-    surface: String,
-    material: String,
+    pub override_physics: u32,
+    pub mass: f32,
+    pub is_timer_enabled: bool,
+    pub timer_interval: i32,
+    pub surface: String,
+    pub material: String,
     pub name: String,
-    rubber_material: String,
-    rubber_thickness_int: u32,     // RTHK deprecated
-    rubber_thickness: Option<f32>, // RTHF (added in 10.?)
-    rubber_height_int: u32,        // RHGT deprecated
-    rubber_height: Option<f32>,    // RHGF (added in 10.?)
-    rubber_width_int: u32,         // RWDT deprecated
-    rubber_width: Option<f32>,     // RHGF (added in 10.?)
-    strength: f32,
-    elasticity: f32,
-    elasticity_falloff: f32,
-    friction: f32,
-    ramp_up: f32,
-    scatter: Option<f32>,
+    pub rubber_material: String,
+    pub rubber_thickness_int: u32,     // RTHK deprecated
+    pub rubber_thickness: Option<f32>, // RTHF (added in 10.?)
+    pub rubber_height_int: u32,        // RHGT deprecated
+    pub rubber_height: Option<f32>,    // RHGF (added in 10.?)
+    pub rubber_width_int: u32,         // RWDT deprecated
+    pub rubber_width: Option<f32>,     // RHGF (added in 10.?)
+    pub strength: f32,
+    pub elasticity: f32,
+    pub elasticity_falloff: f32,
+    pub friction: f32,
+    pub ramp_up: f32,
+    pub scatter: Option<f32>,
     // SCTR (added in 10.?)
-    torque_damping: Option<f32>,
+    pub torque_damping: Option<f32>,
     // TODA (added in 10.?)
-    torque_damping_angle: Option<f32>,
+    pub torque_damping_angle: Option<f32>,
     // TDAA (added in 10.?)
-    flipper_radius_min: f32,
-    is_visible: bool,
-    is_enabled: bool,
-    height: f32,
-    image: Option<String>,               // IMAG (was missing in 10.01)
-    is_reflection_enabled: Option<bool>, // REEN (was missing in 10.01)
+    pub flipper_radius_min: f32,
+    pub is_visible: bool,
+    pub is_enabled: bool,
+    pub height: f32,
+    pub image: Option<String>,               // IMAG (was missing in 10.01)
+    pub is_reflection_enabled: Option<bool>, // REEN (was missing in 10.01)
 
     // these are shared between all items
     pub is_locked: bool,
