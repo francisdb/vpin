@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.4](https://github.com/francisdb/vpin/compare/v0.15.3...v0.15.4) - 2024-08-16
+
+### Other
+- *(deps)* dependency updates that dependabot skipped ([#101](https://github.com/francisdb/vpin/pull/101))
+- *(deps)* update quick-xml requirement from 0.35.0 to 0.36.0 ([#100](https://github.com/francisdb/vpin/pull/100))
+- *(deps)* update quick-xml requirement from 0.34.0 to 0.35.0 ([#99](https://github.com/francisdb/vpin/pull/99))
+- *(deps)* update quick-xml requirement from 0.32.0 to 0.34.0 ([#97](https://github.com/francisdb/vpin/pull/97))
+
 ## [0.15.3](https://github.com/francisdb/vpin/compare/v0.15.2...v0.15.3) - 2024-06-19
 
 ### Added
