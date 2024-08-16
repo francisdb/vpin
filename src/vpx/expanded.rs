@@ -474,7 +474,7 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
                             }
                             None =>
                                 match dimensions_from_file {
-                                    Some((width_file,_)) => width_file,
+                                    Some((width_file, _)) => width_file,
                                     None => return Err(io::Error::new(io::ErrorKind::InvalidData, "Image width not provided and could not be read from file")),
                                 }
                         };
@@ -493,10 +493,10 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
                             }
                             None =>
                                 match dimensions_from_file {
-                                    Some((_,height_file)) => height_file,
+                                    Some((_, height_file)) => height_file,
                                     None => return Err(io::Error::new(io::ErrorKind::InvalidData, "Image height not provided and could not be read from file")),
                                 }
-                             };
+                        };
 
                         let mut image = image_data_json.to_image_data(width, height, None);
                         if let Some(jpg) = &mut image.jpeg {
@@ -518,7 +518,7 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
 }
 
 fn read_image_dimensions(file_path: &PathBuf) -> io::Result<Option<(u32, u32)>> {
-    let decoder = image::io::Reader::open(file_path)?.with_guessed_format()?;
+    let decoder = image::ImageReader::open(file_path)?.with_guessed_format()?;
     let dimensions_from_file = match decoder.into_dimensions() {
         Ok(dimensions) => Some(dimensions),
         Err(image_error) => {
@@ -546,7 +546,7 @@ fn read_image_dimensions_from_file_steam(
         }
     }?;
     let cursor = std::io::Cursor::new(&jpeg.data);
-    let decoder = image::io::Reader::with_format(cursor, format);
+    let decoder = image::ImageReader::with_format(cursor, format);
     match decoder.into_dimensions() {
         Ok(dimensions) => Some(dimensions),
         Err(image_error) => {
