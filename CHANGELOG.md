@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.5](https://github.com/francisdb/vpin/compare/v0.15.4...v0.15.5) - 2024-08-28
+
+### Fixed
+- *(wav)* handle additional wav headers ([#103](https://github.com/francisdb/vpin/pull/103))
+
 ## [0.15.4](https://github.com/francisdb/vpin/compare/v0.15.3...v0.15.4) - 2024-08-16
 
 ### Other
