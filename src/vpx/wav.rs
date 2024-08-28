@@ -82,6 +82,8 @@ pub(crate) fn write_wav_header(wav_header: &WavHeader, writer: &mut BytesMut) {
         writer.put_u16_le(extension_size);
         writer.put(&wav_header.extra_fields[..]);
     }
+    // write the extra fields
+    writer.put(&wav_header.extra_fields[..]);
     writer.put(&b"data"[..]);
     writer.put_u32_le(wav_header.data_size);
 }
@@ -113,7 +115,7 @@ pub(crate) fn read_wav_header(reader: &mut BytesMut) -> WavHeader {
         }
     };
 
-    reader.expect_bytes(b"data");
+    let extra_fields = read_chunks_until_data(reader);
     let data_size = reader.get_u32_le();
     WavHeader {
         size,
@@ -125,9 +127,25 @@ pub(crate) fn read_wav_header(reader: &mut BytesMut) -> WavHeader {
         block_align,
         bits_per_sample,
         extension_size,
-        extra_fields: Vec::new(),
+        extra_fields,
         data_size,
     }
+}
+
+fn read_chunks_until_data(reader: &mut BytesMut) -> Vec<u8> {
+    let mut extra_fields = Vec::new();
+    let mut chunk_name: [u8; 4] = reader.read_bytes();
+    while chunk_name != *b"data" {
+        let size = reader.get_u32_le();
+        // store the extra fields
+        let data = reader.read_bytes_vec(size as usize);
+        //println!("chunk {}: {}", String::from_utf8_lossy(&chunk_name), size);
+        extra_fields.extend_from_slice(&chunk_name);
+        extra_fields.extend_from_slice(&size.to_le_bytes());
+        extra_fields.extend_from_slice(&data);
+        chunk_name = reader.read_bytes();
+    }
+    extra_fields
 }
 
 trait ReadBytesExt {
@@ -138,8 +156,8 @@ trait ReadBytesExt {
 
 impl ReadBytesExt for BytesMut {
     fn read_bytes_vec(&mut self, n: usize) -> Vec<u8> {
-        let mut arr = Vec::with_capacity(n);
-        self.copy_to_slice(&mut arr);
+        let mut arr = vec![0; n];
+        arr.copy_from_slice(&self.split_to(n));
         arr
     }
 
@@ -158,7 +176,18 @@ impl ReadBytesExt for BytesMut {
 #[cfg(test)]
 mod test {
     use super::*;
+    use nom::AsBytes;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn test_read_write_wav_header() {
+        let data = include_bytes!("../../testdata/fx_coin_converted.wav");
+        let mut bytes_mut_in = BytesMut::from(data.as_bytes());
+        let header_read = read_wav_header(&mut bytes_mut_in);
+        let mut bytes_mut_out = BytesMut::new();
+        write_wav_header(&header_read, &mut bytes_mut_out);
+        assert_eq!(data[..78], bytes_mut_out[..78]);
+    }
 
     #[test]
     fn test_write_read_wav_header() {
@@ -181,6 +210,7 @@ mod test {
         assert_eq!(header, header_read);
     }
 
+    // https://github.com/francisdb/vpin/issues/102
     #[test]
     fn test_write_read_wav_header_pcm_float() {
         let header = WavHeader {
