@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.6](https://github.com/francisdb/vpin/compare/v0.15.5...v0.15.6) - 2024-09-10
+
+### Fixed
+
+- *(vpx)* io error propagation for extractvbs/verify ([#105](https://github.com/francisdb/vpin/pull/105))
+
 ## [0.15.5](https://github.com/francisdb/vpin/compare/v0.15.4...v0.15.5) - 2024-08-28
 
 ### Fixed
