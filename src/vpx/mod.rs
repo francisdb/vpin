@@ -141,11 +141,13 @@ impl VPX {
     }
 }
 
+#[derive(Debug)]
 pub enum ExtractResult {
     Extracted(PathBuf),
     Existed(PathBuf),
 }
 
+#[derive(Eq, PartialEq, Debug)]
 pub enum VerifyResult {
     Ok(PathBuf),
     Failed(PathBuf, String),
@@ -409,20 +411,20 @@ pub fn extractvbs(
     vpx_file_path: &PathBuf,
     overwrite: bool,
     extension: Option<&str>,
-) -> ExtractResult {
+) -> io::Result<ExtractResult> {
     let script_path = match extension {
         Some(ext) => path_for(vpx_file_path, ext),
         None => vbs_path_for(vpx_file_path),
     };
 
     if !script_path.exists() || (script_path.exists() && overwrite) {
-        let mut comp = cfb::open(vpx_file_path).unwrap();
-        let version = read_version(&mut comp).unwrap();
-        let gamedata = read_gamedata(&mut comp, &version).unwrap();
-        extract_script(&gamedata, &script_path).unwrap();
-        ExtractResult::Extracted(script_path)
+        let mut comp = cfb::open(vpx_file_path)?;
+        let version = read_version(&mut comp)?;
+        let gamedata = read_gamedata(&mut comp, &version)?;
+        extract_script(&gamedata, &script_path)?;
+        Ok(ExtractResult::Extracted(script_path))
     } else {
-        ExtractResult::Existed(script_path)
+        Ok(ExtractResult::Existed(script_path))
     }
 }
 
@@ -454,24 +456,27 @@ pub fn importvbs(vpx_file_path: &PathBuf, extension: Option<&str>) -> io::Result
 
 /// Verifies the MAC signature of a VPX file
 pub fn verify(vpx_file_path: &PathBuf) -> VerifyResult {
-    let mut comp = match cfb::open(vpx_file_path) {
-        Ok(comp) => comp,
-        Err(e) => {
-            return VerifyResult::Failed(
-                vpx_file_path.clone(),
-                format!("Failed to open VPX file {}: {}", vpx_file_path.display(), e),
-            )
+    let result = move || -> io::Result<_> {
+        let mut comp = cfb::open(vpx_file_path)?;
+        let mac = read_mac(&mut comp)?;
+        let generated_mac = generate_mac(&mut comp)?;
+        Ok((mac, generated_mac))
+    }();
+    match result {
+        Ok((mac, generated_mac)) => {
+            if mac == generated_mac {
+                VerifyResult::Ok(vpx_file_path.clone())
+            } else {
+                VerifyResult::Failed(
+                    vpx_file_path.clone(),
+                    format!("MAC mismatch: {:?} != {:?}", mac, generated_mac),
+                )
+            }
         }
-    };
-    let mac = read_mac(&mut comp).unwrap();
-    let generated_mac = generate_mac(&mut comp).unwrap();
-    if mac == generated_mac {
-        VerifyResult::Ok(vpx_file_path.clone())
-    } else {
-        VerifyResult::Failed(
+        Err(e) => VerifyResult::Failed(
             vpx_file_path.clone(),
-            format!("MAC mismatch: {:?} != {:?}", mac, generated_mac),
-        )
+            format!("Failed to read VPX file {}: {}", vpx_file_path.display(), e),
+        ),
     }
 }
 
@@ -528,7 +533,7 @@ impl FileStructureItem {
     }
 }
 
-fn generate_mac<F: Read + Seek>(comp: &mut CompoundFile<F>) -> Result<Vec<u8>, io::Error> {
+fn generate_mac<F: Read + Seek>(comp: &mut CompoundFile<F>) -> io::Result<Vec<u8>> {
     // Regarding mac generation, see
     //  https://github.com/freezy/VisualPinball.Engine/blob/ec1e9765cd4832c134e889d6e6d03320bc404bd5/VisualPinball.Engine/VPT/Table/TableWriter.cs#L42
     //  https://github.com/vbousquet/vpx_lightmapper/blob/ca5fddd4c2a0fbe817fd546c5f4db609f9d0da9f/addons/vpx_lightmapper/vlm_export.py#L906-L913
@@ -1222,5 +1227,42 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn test_extractvbs_empty_file() {
+        let dir: PathBuf = testdir!();
+        let test_vpx_path = dir.join("test.vpx");
+        // make an empty file
+        File::create(&test_vpx_path).unwrap();
+        let result = extractvbs(&test_vpx_path, false, None);
+        let script_path = vbs_path_for(&test_vpx_path);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Invalid CFB file (0 bytes is too small)",
+        );
+        assert!(!script_path.exists());
+    }
+
+    #[test]
+    fn test_verify_empty_file() {
+        let dir: PathBuf = testdir!();
+        let test_vpx_path = dir.join("test.vpx");
+        // make an empty file
+        File::create(&test_vpx_path).unwrap();
+        let result = verify(&test_vpx_path);
+        let script_path = vbs_path_for(&test_vpx_path);
+        assert_eq!(
+            result,
+            VerifyResult::Failed(
+                test_vpx_path.clone(),
+                format!(
+                    "Failed to read VPX file {}: Invalid CFB file (0 bytes is too small)",
+                    test_vpx_path.display()
+                )
+            ),
+        );
+        assert!(!script_path.exists());
     }
 }
