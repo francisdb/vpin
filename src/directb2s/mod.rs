@@ -599,7 +599,10 @@ pub fn read<R: BufRead>(reader: R) -> Result<DirectB2SData, DeError> {
     from_reader(reader)
 }
 
-pub fn write<W: std::fmt::Write>(data: &DirectB2SData, writer: &mut W) -> Result<(), DeError> {
+pub fn write<W: std::fmt::Write>(
+    data: &DirectB2SData,
+    writer: &mut W,
+) -> Result<WriteResult, SeError> {
     let mut ser = Serializer::new(writer);
     ser.indent(' ', 2);
     data.serialize(ser)
