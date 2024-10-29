@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.7](https://github.com/francisdb/vpin/compare/v0.15.6...v0.15.7) - 2024-10-29
+
+### Other
+
+- *(deps)* update quick-xml requirement from 0.36.0 to 0.37.0 ([#108](https://github.com/francisdb/vpin/pull/108))
+
 ## [0.15.6](https://github.com/francisdb/vpin/compare/v0.15.5...v0.15.6) - 2024-09-10
 
 ### Fixed
