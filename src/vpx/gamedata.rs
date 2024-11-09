@@ -164,14 +164,14 @@ impl Default for ViewSetup {
 pub enum ToneMapper {
     /// Reinhard, used to be the default until 10.8
     Reinhard,
-    /// Precomputed high quality phenomenological tonemapping https://github.com/h3r2tic/tony-mc-mapface
-    TonyMcMapface,
+    /// AgX tonemapper, used in Blender, implementation derived from threeJs which derives its implementation from Filament
+    AgX,
     /// Filmic tonemapper
     Filmic,
     /// Neutral tonemapper, designed for e-commerce, keeps sRGB colors kinda original
     Neutral,
-    /// AgX tonemapper, used in Blender, implementation derived from threeJs which derives its implementation from Filament
-    AgX,
+    /// AgX tonemapper, punchy look curve (more contrast/saturation)
+    AgXPunchy,
     Other(u32),
 }
 
@@ -179,10 +179,10 @@ impl From<u32> for ToneMapper {
     fn from(value: u32) -> Self {
         match value {
             0 => ToneMapper::Reinhard,
-            1 => ToneMapper::TonyMcMapface,
+            1 => ToneMapper::AgX,
             2 => ToneMapper::Filmic,
             3 => ToneMapper::Neutral,
-            4 => ToneMapper::AgX,
+            4 => ToneMapper::AgXPunchy,
             other => ToneMapper::Other(other),
         }
     }
@@ -192,10 +192,10 @@ impl From<&ToneMapper> for u32 {
     fn from(value: &ToneMapper) -> Self {
         match value {
             ToneMapper::Reinhard => 0,
-            ToneMapper::TonyMcMapface => 1,
+            ToneMapper::AgX => 1,
             ToneMapper::Filmic => 2,
             ToneMapper::Neutral => 3,
-            ToneMapper::AgX => 4,
+            ToneMapper::AgXPunchy => 4,
             ToneMapper::Other(other) => *other,
         }
     }
@@ -209,10 +209,10 @@ impl Serialize for ToneMapper {
     {
         match self {
             ToneMapper::Reinhard => serializer.serialize_str("reinhard"),
-            ToneMapper::TonyMcMapface => serializer.serialize_str("tony_mc_mapface"),
+            ToneMapper::AgX => serializer.serialize_str("agx"),
             ToneMapper::Filmic => serializer.serialize_str("filmic"),
             ToneMapper::Neutral => serializer.serialize_str("neutral"),
-            ToneMapper::AgX => serializer.serialize_str("agx"),
+            ToneMapper::AgXPunchy => serializer.serialize_str("agx_punchy"),
             ToneMapper::Other(other) => serializer.serialize_u32(*other),
         }
     }
@@ -254,10 +254,12 @@ impl<'de> Deserialize<'de> for ToneMapper {
             {
                 match value {
                     "reinhard" => Ok(ToneMapper::Reinhard),
-                    "tony_mc_mapface" => Ok(ToneMapper::TonyMcMapface),
+                    "agx" => Ok(ToneMapper::AgX),
                     "filmic" => Ok(ToneMapper::Filmic),
                     "neutral" => Ok(ToneMapper::Neutral),
-                    "agx" => Ok(ToneMapper::AgX),
+                    "agx_punchy" => Ok(ToneMapper::AgXPunchy),
+                    // backwards comptibilty for 10.8.1, tony_mc_mapface was renamed to agx
+                    "tony_mc_mapface" => Ok(ToneMapper::AgX),
                     _ => Err(serde::de::Error::unknown_variant(
                         value,
                         &["reinhard", "tony_mc_mapface", "filmic", "neutral", "agx"],
