@@ -258,11 +258,12 @@ impl<'de> Deserialize<'de> for ToneMapper {
                     "filmic" => Ok(ToneMapper::Filmic),
                     "neutral" => Ok(ToneMapper::Neutral),
                     "agx_punchy" => Ok(ToneMapper::AgXPunchy),
-                    // backwards comptibilty for 10.8.1, tony_mc_mapface was renamed to agx
+                    // backwards compatibility, tony_mc_mapface was renamed to agx
+                    // see https://github.com/vpinball/vpinball/pull/1999
                     "tony_mc_mapface" => Ok(ToneMapper::AgX),
                     _ => Err(serde::de::Error::unknown_variant(
                         value,
-                        &["reinhard", "tony_mc_mapface", "filmic", "neutral", "agx"],
+                        &["reinhard", "agx", "filmic", "neutral", "agx_punchy"],
                     )),
                 }
             }
