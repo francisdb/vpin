@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.1](https://github.com/francisdb/vpin/compare/v0.16.0...v0.16.1) - 2024-11-12
+
+### Other
+
+- *(deps)* dependency updates that dependabot skipped
+
 ## [0.16.0](https://github.com/francisdb/vpin/compare/v0.15.6...v0.16.0) - 2024-11-12
 
 ### Other
