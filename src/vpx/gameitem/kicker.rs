@@ -72,7 +72,7 @@ impl<'de> Deserialize<'de> for KickerType {
     {
         struct KickerTypeVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for KickerTypeVisitor {
+        impl serde::de::Visitor<'_> for KickerTypeVisitor {
             type Value = KickerType;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {

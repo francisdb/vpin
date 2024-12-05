@@ -56,7 +56,7 @@ impl<'de> Deserialize<'de> for ShadowMode {
     {
         struct ShadowModeVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for ShadowModeVisitor {
+        impl serde::de::Visitor<'_> for ShadowModeVisitor {
             type Value = ShadowMode;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -148,7 +148,7 @@ impl<'de> Deserialize<'de> for Fader {
     {
         struct FaderVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for FaderVisitor {
+        impl serde::de::Visitor<'_> for FaderVisitor {
             type Value = Fader;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {

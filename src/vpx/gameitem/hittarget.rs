@@ -81,7 +81,7 @@ impl<'de> Deserialize<'de> for TargetType {
     {
         struct TargetTypeVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for TargetTypeVisitor {
+        impl serde::de::Visitor<'_> for TargetTypeVisitor {
             type Value = TargetType;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {

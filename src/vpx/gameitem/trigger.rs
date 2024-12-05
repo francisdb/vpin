@@ -77,7 +77,7 @@ impl<'de> Deserialize<'de> for TriggerShape {
     {
         struct TriggerShapeVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for TriggerShapeVisitor {
+        impl serde::de::Visitor<'_> for TriggerShapeVisitor {
             type Value = TriggerShape;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {

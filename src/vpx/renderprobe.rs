@@ -35,7 +35,7 @@ impl<'de> Deserialize<'de> for RenderProbeType {
         D: serde::de::Deserializer<'de>,
     {
         struct RenderProbeTypeVisitor;
-        impl<'de> serde::de::Visitor<'de> for RenderProbeTypeVisitor {
+        impl serde::de::Visitor<'_> for RenderProbeTypeVisitor {
             type Value = RenderProbeType;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -163,7 +163,7 @@ impl<'de> Deserialize<'de> for ReflectionMode {
         D: serde::de::Deserializer<'de>,
     {
         struct ReflectionModeVisitor;
-        impl<'de> serde::de::Visitor<'de> for ReflectionModeVisitor {
+        impl serde::de::Visitor<'_> for ReflectionModeVisitor {
             type Value = ReflectionMode;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
