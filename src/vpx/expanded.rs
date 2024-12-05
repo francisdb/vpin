@@ -1688,10 +1688,11 @@ mod test {
         assert_eq!(2, read_compressed_data.width);
         assert_eq!(2, read_compressed_data.height);
 
-        Ok(assert_eq!(
+        assert_eq!(
             LZW_COMPRESSED_DATA,
             *read_compressed_data.lzw_compressed_data
-        ))
+        );
+        Ok(())
     }
 
     #[test]

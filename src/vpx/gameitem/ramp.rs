@@ -68,7 +68,7 @@ impl<'de> Deserialize<'de> for RampType {
     {
         struct RampTypeVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for RampTypeVisitor {
+        impl serde::de::Visitor<'_> for RampTypeVisitor {
             type Value = RampType;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {

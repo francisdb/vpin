@@ -54,7 +54,7 @@ impl<'de> Deserialize<'de> for RampImageAlignment {
     {
         struct RampImageAlignmentVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for RampImageAlignmentVisitor {
+        impl serde::de::Visitor<'_> for RampImageAlignmentVisitor {
             type Value = RampImageAlignment;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {

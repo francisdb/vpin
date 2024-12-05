@@ -61,7 +61,7 @@ impl<'de> Deserialize<'de> for TextAlignment {
     {
         struct TextAlignmentVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for TextAlignmentVisitor {
+        impl serde::de::Visitor<'_> for TextAlignmentVisitor {
             type Value = TextAlignment;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {

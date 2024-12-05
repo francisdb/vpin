@@ -1083,7 +1083,8 @@ mod tests {
 
         let read = read_gamedata(&mut comp2, &version)?;
 
-        Ok(assert_eq!(original, read))
+        assert_eq!(original, read);
+        Ok(())
     }
 
     #[test]

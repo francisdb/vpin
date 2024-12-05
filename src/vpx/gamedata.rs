@@ -69,7 +69,7 @@ impl<'de> Deserialize<'de> for ViewLayoutMode {
     {
         struct ViewLayoutModeVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for ViewLayoutModeVisitor {
+        impl serde::de::Visitor<'_> for ViewLayoutModeVisitor {
             type Value = ViewLayoutMode;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -227,7 +227,7 @@ impl<'de> Deserialize<'de> for ToneMapper {
     {
         struct ToneMapperVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for ToneMapperVisitor {
+        impl serde::de::Visitor<'_> for ToneMapperVisitor {
             type Value = ToneMapper;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
