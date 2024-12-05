@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0](https://github.com/francisdb/vpin/compare/v0.16.1...v0.17.0) - 2024-12-05
+
+### Other
+
+- *(directb2s)* add missing fields ([#114](https://github.com/francisdb/vpin/pull/114))
+- new clippy rules ([#115](https://github.com/francisdb/vpin/pull/115))
+
 ## [0.16.1](https://github.com/francisdb/vpin/compare/v0.16.0...v0.16.1) - 2024-11-12
 
 ### Other
