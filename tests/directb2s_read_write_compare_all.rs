@@ -137,7 +137,7 @@ fn write_node<W: Write>(
                     a.name(),
                     &value.len(),
                     calculate_hash(&value),
-                    &value[0..100]
+                    value.chars().take(100).collect::<String>()
                 )
             } else {
                 format!("{}={}", a.name(), a.value())

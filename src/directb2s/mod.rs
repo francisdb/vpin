@@ -123,6 +123,8 @@ pub struct AnimationStep {
     pub off: String,
     #[serde(rename = "@WaitLoopsAfterOff")]
     pub wait_loops_after_off: String,
+    #[serde(rename = "@PulseSwitch", skip_serializing_if = "Option::is_none")]
+    pub pulse_switch: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -139,6 +141,10 @@ pub struct Animation {
     pub loops: String,
     #[serde(rename = "@IDJoin")]
     pub id_join: String,
+    #[serde(rename = "@RandomQuality", skip_serializing_if = "Option::is_none")]
+    pub random_quality: Option<String>,
+    #[serde(rename = "@RandomStart", skip_serializing_if = "Option::is_none")]
+    pub random_start: Option<String>,
     #[serde(rename = "@StartAnimationAtBackglassStartup")]
     pub start_animation_at_backglass_startup: String,
     #[serde(
@@ -169,8 +175,8 @@ pub struct Animation {
         skip_serializing_if = "Option::is_none"
     )]
     pub run_animation_til_end: Option<String>,
-    #[serde(rename = "AnimationStep")]
-    pub animation_step: Vec<AnimationStep>,
+    #[serde(rename = "AnimationStep", skip_serializing_if = "Option::is_none")]
+    pub animation_step: Option<Vec<AnimationStep>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -467,6 +473,18 @@ pub struct DMDDefaultLocation {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct VRDMDLocation {
+    #[serde(rename = "@LocX")]
+    pub loc_x: String,
+    #[serde(rename = "@LocY")]
+    pub loc_y: String,
+    #[serde(rename = "@Width")]
+    pub width: String,
+    #[serde(rename = "@Height")]
+    pub height: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct GrillHeight {
     #[serde(rename = "@Value")]
     pub value: String,
@@ -487,6 +505,8 @@ pub struct DirectB2SData {
     pub dmd_type: DmdTypeTag,
     #[serde(rename = "DMDDefaultLocation")]
     pub dmd_default_location: DMDDefaultLocation,
+    #[serde(rename = "VRDMDLocation", skip_serializing_if = "Option::is_none")]
+    pub vr_dmd_location: Option<VRDMDLocation>,
     #[serde(rename = "GrillHeight")]
     pub grill_height: GrillHeight,
     #[serde(rename = "ProjectGUID")]
