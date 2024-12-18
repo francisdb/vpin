@@ -15,7 +15,7 @@ use image::DynamicImage;
 use serde::de;
 use serde_json::Value;
 
-use super::{read_gamedata, Version, VPX};
+use super::{gameitem, read_gamedata, Version, VPX};
 
 use super::collection::Collection;
 use super::font;
@@ -837,28 +837,44 @@ struct GameItemInfoJson {
     editor_layer_visibility: Option<bool>,
 }
 
+/// Abstraction for making sure file names are unique
+#[derive(Default)]
+struct FileNameGen {
+    used_names_lowercase: HashSet<String>,
+}
+
+impl FileNameGen {
+    fn ensure_unique(&mut self, file_name: String) -> String {
+        let lower_name = file_name.to_lowercase();
+        if !self.used_names_lowercase.contains(&lower_name) {
+            self.used_names_lowercase.insert(lower_name.clone());
+            return file_name;
+        }
+
+        let mut counter = 1;
+        let mut unique_name;
+        loop {
+            // There is a chance that the name we give is already used in one of the next files.
+            // Therefore, we use double underscores to increase the chance it is unique.
+            unique_name = format!("{}__{}", file_name, counter);
+            let unique_name_lower = unique_name.to_lowercase();
+            if !self.used_names_lowercase.contains(&unique_name_lower) {
+                self.used_names_lowercase.insert(unique_name_lower);
+                break;
+            }
+            counter += 1;
+        }
+        unique_name
+    }
+}
+
 fn write_gameitems<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
     let gameitems_dir = expanded_dir.as_ref().join("gameitems");
     std::fs::create_dir_all(&gameitems_dir)?;
-    let mut used_names_lowercase: HashSet<String> = HashSet::new();
+    let mut file_name_gen = FileNameGen::default();
     let mut files: Vec<GameItemInfoJson> = Vec::new();
-    let mut id_gen = 0;
     for gameitem in &vpx.gameitems {
-        let mut name = gameitem.name().to_string();
-        if name.is_empty() {
-            name = "unnamed".to_string();
-        }
-        // escape any characters that are not allowed in file names, for any os
-        name = name.replace(|c: char| !c.is_alphanumeric(), "_");
-        let mut file_name = format!("{}.{}", gameitem.type_name(), name);
-
-        let lower_name = file_name.to_lowercase();
-        if used_names_lowercase.contains(&lower_name) {
-            file_name = format!("{}_{}", file_name, id_gen);
-            id_gen += 1;
-        }
-        used_names_lowercase.insert(lower_name);
-
+        let file_name = gameitem_filename_stem(&mut file_name_gen, gameitem);
         let file_name_json = format!("{}.json", &file_name);
         let gameitem_info = GameItemInfoJson {
             file_name: file_name_json.clone(),
@@ -885,6 +901,17 @@ fn write_gameitems<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Wr
     let mut gameitems_index_file = File::create(gameitems_index_path)?;
     serde_json::to_writer_pretty(&mut gameitems_index_file, &files)?;
     Ok(())
+}
+
+fn gameitem_filename_stem(file_name_gen: &mut FileNameGen, gameitem: &GameItemEnum) -> String {
+    let mut name = gameitem.name().to_string();
+    if name.is_empty() {
+        name = "unnamed".to_string();
+    }
+    // escape any characters that are not allowed in file names, for any os
+    name = name.replace(|c: char| !c.is_alphanumeric(), "_");
+    let file_name = format!("{}.{}", gameitem.type_name(), name);
+    file_name_gen.ensure_unique(file_name)
 }
 
 // This is how they were compressed using zlib
@@ -1581,6 +1608,23 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
         files.push(file_path.to_string_lossy().to_string());
     });
 
+    let gameitems_path = root_dir_path.join("gameitems");
+    let gameitems_size = gamedata.gameitems_size;
+    let mut file_name_gen = FileNameGen::default();
+    for index in 0..gameitems_size {
+        let path = format!("GameStg/GameItem{}", index);
+        let mut input = Vec::new();
+        comp.open_stream(&path)
+            .unwrap()
+            .read_to_end(&mut input)
+            .unwrap();
+        let gameitem = gameitem::read(&input);
+        let mut gameitem_path = gameitems_path.clone();
+        let file_name_stem = gameitem_filename_stem(&mut file_name_gen, &gameitem);
+        gameitem_path.push(format!("{}.json", file_name_stem));
+        files.push(gameitem_path.to_string_lossy().to_string());
+    }
+
     files.sort();
 
     // These files are made by:
@@ -1606,7 +1650,6 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
             .to_string_lossy()
             .to_string(),
     );
-    // TODO -extract_gameitems
 
     files = files
         .into_iter()
@@ -1934,5 +1977,20 @@ mod test {
 
         assert_eq!(&vpx, &read);
         Ok(())
+    }
+
+    #[test]
+    fn test_file_name_gen() {
+        let mut file_name_gen = FileNameGen::default();
+        let first = file_name_gen.ensure_unique("test".to_string());
+        assert_eq!("test".to_string(), first);
+        let second = file_name_gen.ensure_unique("test".to_string());
+        assert_eq!("test__1".to_string(), second);
+        let other = file_name_gen.ensure_unique("test1".to_string());
+        assert_eq!("test1".to_string(), other);
+        let future = file_name_gen.ensure_unique("test__2".to_string());
+        assert_eq!("test__2".to_string(), future);
+        let last = file_name_gen.ensure_unique("test".to_string());
+        assert_eq!("test__3".to_string(), last);
     }
 }
