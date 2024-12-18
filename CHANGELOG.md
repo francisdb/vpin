@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.1](https://github.com/francisdb/vpin/compare/v0.17.0...v0.17.1) - 2024-12-18
+
+### Added
+
+- extractvbs now can write to any vbs path (#118)
+
 ## [0.17.0](https://github.com/francisdb/vpin/compare/v0.16.1...v0.17.0) - 2024-12-05
 
 ### Other
