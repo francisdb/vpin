@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.2](https://github.com/francisdb/vpin/compare/v0.17.1...v0.17.2) - 2024-12-18
+
+### Fixed
+
+- ls should show gameitems (#120)
+
 ## [0.17.1](https://github.com/francisdb/vpin/compare/v0.17.0...v0.17.1) - 2024-12-18
 
 ### Added
