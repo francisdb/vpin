@@ -400,20 +400,19 @@ fn create_game_storage<F: Read + Write + Seek>(comp: &mut CompoundFile<F>) -> io
     comp.create_storage(&game_stg_path)
 }
 
-/// Extracts the vbs script from an existing `vpx` file and writes it next to the file as sidecar script.
+/// Extracts the script from an existing `vpx` file.
 ///
-/// @param vpx_file_path Path to the VPX file
-/// @param overwrite If true, the script will be extracted even if it already exists
-/// @param extension If set, the script will be written to a file with that extension instead of `vbs`
-///
-/// *When Visual Pinball finds this script it will use that instead of the one embedded in the file.*
+/// # Arguments
+/// * `vpx_file_path` Path to the VPX file
+/// * `vbs_file_path` Optional path to the script file to write. Defaults to the VPX sidecar script location.
+/// * `overwrite` If true, the script will be extracted even if it already exists
 pub fn extractvbs(
     vpx_file_path: &PathBuf,
+    vbs_file_path: Option<PathBuf>,
     overwrite: bool,
-    extension: Option<&str>,
 ) -> io::Result<ExtractResult> {
-    let script_path = match extension {
-        Some(ext) => path_for(vpx_file_path, ext),
+    let script_path = match vbs_file_path {
+        Some(vbs_file_path) => vbs_file_path,
         None => vbs_path_for(vpx_file_path),
     };
 
@@ -428,12 +427,16 @@ pub fn extractvbs(
     }
 }
 
-/// Imports the sidecar script into the provided `vpx` file.
+/// Imports a script into the provided `vpx` file.
+///
+/// # Arguments
+/// * `vpx_file_path` Path to the VPX file
+/// * `vbs_file_path` Optional path to the script file to import. Defaults to the VPX sidecar script location.
 ///
 /// see also [extractvbs]
-pub fn importvbs(vpx_file_path: &PathBuf, extension: Option<&str>) -> io::Result<PathBuf> {
-    let script_path = match extension {
-        Some(ext) => path_for(vpx_file_path, ext),
+pub fn importvbs(vpx_file_path: &PathBuf, vbs_file_path: Option<PathBuf>) -> io::Result<PathBuf> {
+    let script_path = match vbs_file_path {
+        Some(vbs_file_path) => vbs_file_path,
         None => vbs_path_for(vpx_file_path),
     };
     if !script_path.exists() {
@@ -1236,7 +1239,7 @@ mod tests {
         let test_vpx_path = dir.join("test.vpx");
         // make an empty file
         File::create(&test_vpx_path).unwrap();
-        let result = extractvbs(&test_vpx_path, false, None);
+        let result = extractvbs(&test_vpx_path, None, false);
         let script_path = vbs_path_for(&test_vpx_path);
         assert!(result.is_err());
         assert_eq!(
