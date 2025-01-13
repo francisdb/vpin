@@ -36,7 +36,7 @@ weezl = "0.1.8"
 regex = "1.11.1"
 
 [dev-dependencies]
-dirs = "5.0.1"
+dirs = "6.0.0"
 pretty_assertions = "1.4.1"
 rand = "0.8.5"
 rayon = "1.10.0"
