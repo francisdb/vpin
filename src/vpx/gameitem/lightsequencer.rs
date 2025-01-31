@@ -216,27 +216,28 @@ mod tests {
     use crate::vpx::biff::BiffWriter;
 
     use super::*;
+    use crate::vpx::gameitem::tests::RandomOption;
     use pretty_assertions::assert_eq;
     use rand::Rng;
 
     #[test]
     fn test_write_read() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         // values not equal to the defaults
         let spinner = LightSequencer {
-            center: Vertex2D::new(rng.gen(), rng.gen()),
+            center: Vertex2D::new(rng.random(), rng.random()),
             collection: "test collection".to_string(),
-            pos_x: rng.gen(),
-            pos_y: rng.gen(),
-            update_interval: rng.gen(),
-            is_timer_enabled: rng.gen(),
-            timer_interval: rng.gen(),
+            pos_x: rng.random(),
+            pos_y: rng.random(),
+            update_interval: rng.random(),
+            is_timer_enabled: rng.random(),
+            timer_interval: rng.random(),
             name: "test name".to_string(),
-            backglass: rng.gen(),
-            is_locked: rng.gen(),
-            editor_layer: rng.gen(),
+            backglass: rng.random(),
+            is_locked: rng.random_option(),
+            editor_layer: rng.random_option(),
             editor_layer_name: Some("test layer name".to_string()),
-            editor_layer_visibility: rng.gen(),
+            editor_layer_visibility: rng.random_option(),
         };
         let mut writer = BiffWriter::new();
         LightSequencer::biff_write(&spinner, &mut writer);

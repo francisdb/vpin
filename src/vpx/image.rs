@@ -234,7 +234,7 @@ impl ImageDataJson {
     }
 
     pub(crate) fn is_bmp(&self) -> bool {
-        self.ext().to_ascii_lowercase() == "bmp"
+        self.ext().eq_ignore_ascii_case("bmp")
     }
 }
 

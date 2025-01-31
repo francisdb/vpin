@@ -790,12 +790,13 @@ mod tests {
     use fake::{Fake, Faker};
 
     use super::*;
+    use crate::vpx::gameitem::tests::RandomOption;
     use pretty_assertions::assert_eq;
     use rand::Rng;
 
     #[test]
     fn test_write_read() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let primitive: Primitive = Primitive {
             position: Vertex3D::new(1.0, 2.0, 3.0),
             size: Vertex3D::new(4.0, 5.0, 6.0),
@@ -806,10 +807,10 @@ mod tests {
             name: "name".to_string(),
             material: "material".to_string(),
             side_color: Faker.fake(),
-            is_visible: rng.gen(),
+            is_visible: rng.random(),
             // random bool
-            draw_textures_inside: rng.gen(),
-            hit_event: rng.gen(),
+            draw_textures_inside: rng.random(),
+            hit_event: rng.random(),
             threshold: 1.0,
             elasticity: 2.0,
             elasticity_falloff: 3.0,
@@ -817,19 +818,19 @@ mod tests {
             scatter: 5.0,
             edge_factor_ui: 6.0,
             collision_reduction_factor: Some(7.0),
-            is_collidable: rng.gen(),
-            is_toy: rng.gen(),
-            use_3d_mesh: rng.gen(),
-            static_rendering: rng.gen(),
-            disable_lighting_top_old: Some(rng.gen()),
-            disable_lighting_top: Some(rng.gen()),
-            disable_lighting_below: rng.gen(),
-            is_reflection_enabled: rng.gen(),
-            backfaces_enabled: rng.gen(),
+            is_collidable: rng.random(),
+            is_toy: rng.random(),
+            use_3d_mesh: rng.random(),
+            static_rendering: rng.random(),
+            disable_lighting_top_old: Some(rng.random()),
+            disable_lighting_top: Some(rng.random()),
+            disable_lighting_below: rng.random_option(),
+            is_reflection_enabled: rng.random_option(),
+            backfaces_enabled: rng.random_option(),
             physics_material: Some("physics_material".to_string()),
-            overwrite_physics: rng.gen(),
-            display_texture: rng.gen(),
-            object_space_normal_map: rng.gen(),
+            overwrite_physics: rng.random_option(),
+            display_texture: rng.random_option(),
+            object_space_normal_map: rng.random_option(),
             min_aa_bound: Some(vec![0, 1, 2, 3, 4, 5, 6, 7, 8]),
             max_aa_bound: Some(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]),
             mesh_file_name: Some("mesh_file_name".to_string()),
@@ -845,8 +846,8 @@ mod tests {
                 vec![5, 6, 7, 8, 9, 10, 11, 12],
             ]),
             depth_bias: 12.0,
-            add_blend: rng.gen(),
-            use_depth_mask: rng.gen(),
+            add_blend: rng.random_option(),
+            use_depth_mask: rng.random_option(),
             alpha: Some(13.0),
             color: Faker.fake(),
             light_map: Some("light_map".to_string()),
@@ -854,10 +855,10 @@ mod tests {
             reflection_strength: Some(14.0),
             refraction_probe: Some("refraction_probe".to_string()),
             refraction_thickness: Some(15.0),
-            is_locked: rng.gen(),
+            is_locked: rng.random(),
             editor_layer: 17,
             editor_layer_name: Some("editor_layer_name".to_string()),
-            editor_layer_visibility: rng.gen(),
+            editor_layer_visibility: rng.random_option(),
         };
         let mut writer = BiffWriter::new();
         Primitive::biff_write(&primitive, &mut writer);

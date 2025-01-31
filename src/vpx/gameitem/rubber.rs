@@ -409,20 +409,21 @@ mod tests {
     use crate::vpx::biff::BiffWriter;
 
     use super::*;
+    use crate::vpx::gameitem::tests::RandomOption;
     use pretty_assertions::assert_eq;
     use rand::Rng;
 
     #[test]
     fn test_write_read() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         // values not equal to the defaults
         let rubber: Rubber = Rubber {
             height: 1.0,
             hit_height: Some(2.0),
             thickness: 3,
-            hit_event: rng.gen(),
+            hit_event: rng.random(),
             material: "material".to_string(),
-            is_timer_enabled: rng.gen(),
+            is_timer_enabled: rng.random(),
             timer_interval: 4,
             name: "name".to_string(),
             image: "image".to_string(),
@@ -430,21 +431,21 @@ mod tests {
             elasticity_falloff: 6.0,
             friction: 7.0,
             scatter: 8.0,
-            is_collidable: rng.gen(),
-            is_visible: rng.gen(),
+            is_collidable: rng.random(),
+            is_visible: rng.random(),
             radb: Some(9.0),
-            static_rendering: rng.gen(),
-            show_in_editor: rng.gen(),
+            static_rendering: rng.random(),
+            show_in_editor: rng.random(),
             rot_x: 9.0,
             rot_y: 10.0,
             rot_z: 11.0,
-            is_reflection_enabled: rng.gen(),
+            is_reflection_enabled: rng.random_option(),
             physics_material: Some("physics_material".to_string()),
-            overwrite_physics: rng.gen(),
-            is_locked: rng.gen(),
+            overwrite_physics: rng.random_option(),
+            is_locked: rng.random(),
             editor_layer: 12,
             editor_layer_name: Some("editor_layer_name".to_string()),
-            editor_layer_visibility: rng.gen(),
+            editor_layer_visibility: rng.random_option(),
             drag_points: vec![DragPoint::default()],
         };
         let mut writer = BiffWriter::new();

@@ -306,37 +306,38 @@ mod tests {
     use fake::{Fake, Faker};
 
     use super::*;
+    use crate::vpx::gameitem::tests::RandomOption;
     use pretty_assertions::assert_eq;
     use rand::Rng;
 
     #[test]
     fn test_write_read() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         // values not equal to the defaults
         let reel = Reel {
-            ver1: Vertex2D::new(rng.gen(), rng.gen()),
-            ver2: Vertex2D::new(rng.gen(), rng.gen()),
+            ver1: Vertex2D::new(rng.random(), rng.random()),
+            ver2: Vertex2D::new(rng.random(), rng.random()),
             back_color: Faker.fake(),
-            is_timer_enabled: rng.gen(),
-            timer_interval: rng.gen(),
-            is_transparent: rng.gen(),
+            is_timer_enabled: rng.random(),
+            timer_interval: rng.random(),
+            is_transparent: rng.random(),
             image: "test image".to_string(),
             sound: "test sound".to_string(),
             name: "test name".to_string(),
-            width: rng.gen(),
-            height: rng.gen(),
-            reel_count: rng.gen(),
-            reel_spacing: rng.gen(),
-            motor_steps: rng.gen(),
-            digit_range: rng.gen(),
-            update_interval: rng.gen(),
-            use_image_grid: rng.gen(),
-            is_visible: rng.gen(),
-            images_per_grid_row: rng.gen(),
-            is_locked: rng.gen(),
-            editor_layer: rng.gen(),
+            width: rng.random(),
+            height: rng.random(),
+            reel_count: rng.random(),
+            reel_spacing: rng.random(),
+            motor_steps: rng.random(),
+            digit_range: rng.random(),
+            update_interval: rng.random(),
+            use_image_grid: rng.random(),
+            is_visible: rng.random(),
+            images_per_grid_row: rng.random(),
+            is_locked: rng.random(),
+            editor_layer: rng.random(),
             editor_layer_name: Some("test layer name".to_string()),
-            editor_layer_visibility: rng.gen(),
+            editor_layer_visibility: rng.random_option(),
         };
         let mut writer = BiffWriter::new();
         Reel::biff_write(&reel, &mut writer);

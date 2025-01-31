@@ -515,7 +515,7 @@ mod tests {
 
     #[test]
     fn test_write_read() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let wall = Wall {
             hit_event: true,
             is_droppable: true,
@@ -543,8 +543,8 @@ mod tests {
             is_top_bottom_visible: true,
             slingshot_animation: true,
             is_side_visible: true,
-            disable_lighting_top_old: Some(rng.gen()),
-            disable_lighting_top: Some(rng.gen()),
+            disable_lighting_top_old: Some(rng.random()),
+            disable_lighting_top: Some(rng.random()),
             disable_lighting_below: Some(12.0),
             is_reflection_enabled: Some(true),
             physics_material: Some("physics_material".to_string()),

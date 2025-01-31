@@ -546,44 +546,45 @@ mod tests {
     use crate::vpx::biff::BiffWriter;
 
     use super::*;
+    use crate::vpx::gameitem::tests::RandomOption;
     use fake::{Fake, Faker};
     use pretty_assertions::assert_eq;
     use rand::Rng;
 
     #[test]
     fn test_write_read() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let ramp = Ramp {
             height_bottom: 1.0,
             height_top: 2.0,
             width_bottom: 3.0,
             width_top: 4.0,
             material: "material".to_string(),
-            is_timer_enabled: rng.gen(),
+            is_timer_enabled: rng.random(),
             timer_interval: 5,
             ramp_type: Faker.fake(),
             name: "name".to_string(),
             image: "image".to_string(),
             image_alignment: Faker.fake(),
-            image_walls: rng.gen(),
+            image_walls: rng.random(),
             left_wall_height: 8.0,
             right_wall_height: 9.0,
             left_wall_height_visible: 10.0,
             right_wall_height_visible: 11.0,
-            hit_event: rng.gen(),
-            threshold: rng.gen(),
+            hit_event: rng.random_option(),
+            threshold: rng.random_option(),
             elasticity: 13.0,
             friction: 14.0,
             scatter: 15.0,
-            is_collidable: rng.gen(),
-            is_visible: rng.gen(),
+            is_collidable: rng.random(),
+            is_visible: rng.random(),
             depth_bias: 16.0,
             wire_diameter: 17.0,
             wire_distance_x: 18.0,
             wire_distance_y: 19.0,
-            is_reflection_enabled: rng.gen(),
+            is_reflection_enabled: rng.random_option(),
             physics_material: Some("physics_material".to_string()),
-            overwrite_physics: rng.gen(),
+            overwrite_physics: rng.random_option(),
             drag_points: vec![DragPoint::default()],
             is_locked: true,
             editor_layer: 22,
