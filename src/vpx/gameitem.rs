@@ -693,9 +693,9 @@ mod tests {
         where
             StandardUniform: Distribution<T>,
         {
-            // generate a value with only a 30% chance of being None
+            // generate a value with only a 70% chance of being Some
             // that's a bit arbitrary, but it's just for testing
-            if self.random_bool(0.3) {
+            if self.random_bool(0.7) {
                 Some(self.random::<T>())
             } else {
                 None
