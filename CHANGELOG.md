@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.3](https://github.com/francisdb/vpin/compare/v0.17.2...v0.17.3) - 2025-01-31
+
+### Other
+
+- *(deps)* update nom requirement from 7.1.3 to 8.0.0 (#124)
+- *(deps)* update rand requirement from 0.8.5 to 0.9.0 (#125)
+- *(deps)* update dirs requirement from 5.0.1 to 6.0.0 (#122)
+
 ## [0.17.2](https://github.com/francisdb/vpin/compare/v0.17.1...v0.17.2) - 2024-12-18
 
 ### Fixed
