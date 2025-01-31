@@ -630,46 +630,47 @@ mod tests {
     use fake::{Fake, Faker};
 
     use super::*;
+    use crate::vpx::gameitem::tests::RandomOption;
     use pretty_assertions::assert_eq;
     use rand::Rng;
 
     #[test]
     fn test_write_read() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         // values not equal to the defaults
         let hittarget = HitTarget {
-            position: Vertex3D::new(rng.gen(), rng.gen(), rng.gen()),
-            size: Vertex3D::new(rng.gen(), rng.gen(), rng.gen()),
-            rot_z: rng.gen(),
+            position: Vertex3D::new(rng.random(), rng.random(), rng.random()),
+            size: Vertex3D::new(rng.random(), rng.random(), rng.random()),
+            rot_z: rng.random(),
             image: "test image".to_string(),
             target_type: Faker.fake(),
             name: "test name".to_string(),
             material: "test material".to_string(),
-            is_visible: rng.gen(),
-            is_legacy: rng.gen(),
-            use_hit_event: rng.gen(),
-            threshold: rng.gen(),
-            elasticity: rng.gen(),
-            elasticity_falloff: rng.gen(),
-            friction: rng.gen(),
-            scatter: rng.gen(),
-            is_collidable: rng.gen(),
-            disable_lighting_top_old: Some(rng.gen()),
-            disable_lighting_top: Some(rng.gen()),
-            disable_lighting_below: rng.gen(),
-            is_reflection_enabled: rng.gen(),
-            depth_bias: rng.gen(),
-            is_dropped: rng.gen(),
-            drop_speed: rng.gen(),
-            is_timer_enabled: rng.gen(),
-            timer_interval: rng.gen(),
-            raise_delay: rng.gen(),
+            is_visible: rng.random(),
+            is_legacy: rng.random(),
+            use_hit_event: rng.random(),
+            threshold: rng.random(),
+            elasticity: rng.random(),
+            elasticity_falloff: rng.random(),
+            friction: rng.random(),
+            scatter: rng.random(),
+            is_collidable: rng.random(),
+            disable_lighting_top_old: Some(rng.random()),
+            disable_lighting_top: Some(rng.random()),
+            disable_lighting_below: rng.random_option(),
+            is_reflection_enabled: rng.random(),
+            depth_bias: rng.random(),
+            is_dropped: rng.random(),
+            drop_speed: rng.random(),
+            is_timer_enabled: rng.random(),
+            timer_interval: rng.random(),
+            raise_delay: rng.random_option(),
             physics_material: Some("test physics material".to_string()),
-            overwrite_physics: rng.gen(),
-            is_locked: rng.gen(),
-            editor_layer: rng.gen(),
+            overwrite_physics: rng.random_option(),
+            is_locked: rng.random(),
+            editor_layer: rng.random(),
             editor_layer_name: Some("test layer name".to_string()),
-            editor_layer_visibility: rng.gen(),
+            editor_layer_visibility: rng.random_option(),
         };
         let mut writer = BiffWriter::new();
         HitTarget::biff_write(&hittarget, &mut writer);

@@ -674,3 +674,32 @@ fn write_with_type<T: BiffWrite>(item_type: u32, item: &T) -> Vec<u8> {
     item.biff_write(&mut writer);
     writer.get_data().to_vec()
 }
+
+#[cfg(test)]
+mod tests {
+    use rand::distr::{Distribution, StandardUniform};
+    use rand::prelude::ThreadRng;
+    use rand::Rng;
+
+    /// see https://github.com/rust-random/rand/issues/1573
+    pub(crate) trait RandomOption {
+        fn random_option<T>(&mut self) -> Option<T>
+        where
+            StandardUniform: Distribution<T>;
+    }
+
+    impl RandomOption for ThreadRng {
+        fn random_option<T>(&mut self) -> Option<T>
+        where
+            StandardUniform: Distribution<T>,
+        {
+            // generate a value with only a 30% chance of being None
+            // that's a bit arbitrary, but it's just for testing
+            if self.random_bool(0.3) {
+                Some(self.random::<T>())
+            } else {
+                None
+            }
+        }
+    }
+}

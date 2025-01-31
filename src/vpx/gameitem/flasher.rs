@@ -455,41 +455,42 @@ mod tests {
     use fake::{Fake, Faker};
 
     use super::*;
+    use crate::vpx::gameitem::tests::RandomOption;
     use pretty_assertions::assert_eq;
     use rand::Rng;
 
     #[test]
     fn test_write_read() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         // values not equal to the defaults
         let flasher = Flasher {
-            height: rng.gen(),
-            pos_x: rng.gen(),
-            pos_y: rng.gen(),
-            rot_x: rng.gen(),
-            rot_y: rng.gen(),
-            rot_z: rng.gen(),
+            height: rng.random(),
+            pos_x: rng.random(),
+            pos_y: rng.random(),
+            rot_x: rng.random(),
+            rot_y: rng.random(),
+            rot_z: rng.random(),
             color: Faker.fake(),
-            is_timer_enabled: rng.gen(),
-            timer_interval: rng.gen(),
+            is_timer_enabled: rng.random(),
+            timer_interval: rng.random(),
             name: "test name".to_string(),
             image_a: "test image a".to_string(),
             image_b: "test image b".to_string(),
-            alpha: rng.gen(),
-            modulate_vs_add: rng.gen(),
-            is_visible: rng.gen(),
-            add_blend: rng.gen(),
-            is_dmd: rng.gen(),
-            display_texture: rng.gen(),
-            depth_bias: rng.gen(),
+            alpha: rng.random(),
+            modulate_vs_add: rng.random(),
+            is_visible: rng.random(),
+            add_blend: rng.random(),
+            is_dmd: rng.random_option(),
+            display_texture: rng.random(),
+            depth_bias: rng.random(),
             image_alignment: Faker.fake(),
             filter: Faker.fake(),
-            filter_amount: rng.gen(),
+            filter_amount: rng.random(),
             light_map: Some("test light map".to_string()),
-            is_locked: rng.gen(),
-            editor_layer: rng.gen(),
+            is_locked: rng.random(),
+            editor_layer: rng.random(),
             editor_layer_name: Some("test layer".to_string()),
-            editor_layer_visibility: rng.gen(),
+            editor_layer_visibility: rng.random_option(),
             drag_points: vec![DragPoint::default()],
         };
         let mut writer = BiffWriter::new();

@@ -284,35 +284,36 @@ mod tests {
     use crate::vpx::biff::BiffWriter;
 
     use super::*;
+    use crate::vpx::gameitem::tests::RandomOption;
     use pretty_assertions::assert_eq;
     use rand::Rng;
 
     #[test]
     fn test_write_read() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         // values not equal to the defaults
         let spinner = Spinner {
-            center: Vertex2D::new(rng.gen(), rng.gen()),
-            rotation: rng.gen(),
-            is_timer_enabled: rng.gen(),
-            timer_interval: rng.gen(),
-            height: rng.gen(),
-            length: rng.gen(),
-            damping: rng.gen(),
-            angle_max: rng.gen(),
-            angle_min: rng.gen(),
-            elasticity: rng.gen(),
-            is_visible: rng.gen(),
-            show_bracket: rng.gen(),
+            center: Vertex2D::new(rng.random(), rng.random()),
+            rotation: rng.random(),
+            is_timer_enabled: rng.random(),
+            timer_interval: rng.random(),
+            height: rng.random(),
+            length: rng.random(),
+            damping: rng.random(),
+            angle_max: rng.random(),
+            angle_min: rng.random(),
+            elasticity: rng.random(),
+            is_visible: rng.random(),
+            show_bracket: rng.random(),
             material: "test material".to_string(),
             image: "test image".to_string(),
             surface: "test surface".to_string(),
             name: "test name".to_string(),
-            is_reflection_enabled: rng.gen(),
-            is_locked: rng.gen(),
-            editor_layer: rng.gen(),
+            is_reflection_enabled: rng.random_option(),
+            is_locked: rng.random(),
+            editor_layer: rng.random(),
             editor_layer_name: Some("test layer name".to_string()),
-            editor_layer_visibility: rng.gen(),
+            editor_layer_visibility: rng.random_option(),
         };
         let mut writer = BiffWriter::new();
         Spinner::biff_write(&spinner, &mut writer);

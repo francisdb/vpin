@@ -125,7 +125,7 @@ impl VPX {
         let existing_pos = self
             .images
             .iter()
-            .position(|i| i.name.to_ascii_lowercase() == image.name.to_ascii_lowercase());
+            .position(|i| i.name.eq_ignore_ascii_case(&image.name));
         match existing_pos {
             Some(pos) => {
                 let existing = self.images[pos].clone();
