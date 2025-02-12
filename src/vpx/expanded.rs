@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fmt::{Display, Formatter};
-use std::io::{self, Read, Write};
+use std::io::{self, BufRead, Read, Seek, Write};
 use std::iter::Zip;
 use std::path::PathBuf;
 use std::slice::Iter;
@@ -28,7 +28,7 @@ use crate::vpx::custominfotags::CustomInfoTags;
 use crate::vpx::font::{FontData, FontDataJson};
 use crate::vpx::gameitem::primitive::Primitive;
 use crate::vpx::gameitem::GameItemEnum;
-use crate::vpx::image::{ImageData, ImageDataBits, ImageDataJpeg, ImageDataJson};
+use crate::vpx::image::{ImageData, ImageDataBits, ImageDataJson};
 use crate::vpx::jsonmodel::{collections_json, info_to_json, json_to_collections, json_to_info};
 use crate::vpx::lzw::{from_lzw_blocks, to_lzw_blocks};
 
@@ -272,7 +272,8 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
             if let Some(jpeg) = &image.jpeg {
                 // Only if the actual image dimensions are different from
                 // the ones in the vpx file we add them to the json.
-                let dimensions_file = read_image_dimensions_from_file_steam(&file_name, jpeg);
+                let cursor = io::Cursor::new(&jpeg.data);
+                let dimensions_file = read_image_dimensions_from_file_steam(&file_name, cursor)?;
                 match dimensions_file {
                     Some((width_file, height_file)) => {
                         if image.width != width_file {
@@ -534,29 +535,40 @@ fn read_image_dimensions(file_path: &PathBuf) -> io::Result<Option<(u32, u32)>> 
     Ok(dimensions_from_file)
 }
 
-fn read_image_dimensions_from_file_steam(
-    file_name: &String,
-    jpeg: &ImageDataJpeg,
-) -> Option<(u32, u32)> {
-    let format = match image::ImageFormat::from_path(file_name) {
-        Ok(format) => Some(format),
+fn read_image_dimensions_from_file_steam<R: BufRead + Seek>(
+    file_name: &str,
+    reader: R,
+) -> io::Result<Option<(u32, u32)>> {
+    let dimensions_from_file = match image::ImageFormat::from_path(file_name) {
+        Ok(format) => {
+            let decoder = image::ImageReader::with_format(reader, format).with_guessed_format()?;
+            if Some(format) != decoder.format() {
+                eprintln!(
+                    "Detected image format {} for [{}] where the extension suggests {:?}",
+                    decoder
+                        .format()
+                        .map_or("unknown".to_string(), |f| format!("{:?}", f)),
+                    file_name,
+                    format,
+                );
+            }
+            match decoder.into_dimensions() {
+                Ok(dimensions) => Some(dimensions),
+                Err(image_error) => {
+                    eprintln!(
+                        "Failed to read image dimensions for {}: {}",
+                        file_name, image_error
+                    );
+                    None
+                }
+            }
+        }
         Err(e) => {
             eprintln!("Failed to determine image format for {}: {}", file_name, e);
             None
         }
-    }?;
-    let cursor = std::io::Cursor::new(&jpeg.data);
-    let decoder = image::ImageReader::with_format(cursor, format);
-    match decoder.into_dimensions() {
-        Ok(dimensions) => Some(dimensions),
-        Err(image_error) => {
-            eprintln!(
-                "Failed to read image dimensions for {}: {}",
-                file_name, image_error
-            );
-            None
-        }
-    }
+    };
+    Ok(dimensions_from_file)
 }
 
 struct ImageBmp {
@@ -1709,6 +1721,7 @@ mod test {
     use fake::{Fake, Faker};
     use pretty_assertions::assert_eq;
     use std::collections::HashMap;
+    use std::io::BufReader;
     use testdir::testdir;
     use testresult::TestResult;
 
@@ -1992,5 +2005,46 @@ mod test {
         assert_eq!("test__2".to_string(), future);
         let last = file_name_gen.ensure_unique("test".to_string());
         assert_eq!("test__3".to_string(), last);
+    }
+
+    #[test]
+    fn test_read_image_dimensions_png_as_hdr() {
+        // this file is actually a png file but with hdr extension
+        // see https://github.com/francisdb/vpin/issues/110
+        let hdr_path = Path::new("testdata").join("wrongly_labeled_png.hdr");
+        let dimensions = read_image_dimensions(&hdr_path).unwrap();
+
+        assert_eq!(dimensions, Some((512, 256)));
+    }
+
+    #[test]
+    fn test_read_image_dimensions_png_as_hdr_stream() {
+        // this file is actually a png file but with hdr extension
+        // see https://github.com/francisdb/vpin/issues/110
+        let hdr_path = Path::new("testdata").join("wrongly_labeled_png.hdr");
+        let file = File::open(&hdr_path).unwrap();
+        let reader = BufReader::new(file);
+        let dimensions =
+            read_image_dimensions_from_file_steam("wrongly_labeled_png.hdr", reader).unwrap();
+
+        assert_eq!(dimensions, Some((512, 256)));
+    }
+
+    #[test]
+    fn test_read_image_dimensions_fail_invalid_unknown() {
+        let cursor = std::io::Cursor::new(vec![0; 10]);
+        let reader = BufReader::new(cursor);
+        let dimensions = read_image_dimensions_from_file_steam("test.zero", reader).unwrap();
+
+        assert_eq!(dimensions, None);
+    }
+
+    #[test]
+    fn test_read_image_dimensions_fail_invalid_png() {
+        let cursor = std::io::Cursor::new(vec![0; 10]);
+        let reader = BufReader::new(cursor);
+        let dimensions = read_image_dimensions_from_file_steam("test.png", reader).unwrap();
+
+        assert_eq!(dimensions, None);
     }
 }
