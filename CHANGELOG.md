@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.4](https://github.com/francisdb/vpin/compare/v0.17.3...v0.17.4) - 2025-02-12
+
+### Fixed
+
+- guess image file format and fall back to extension (#127)
+- *(test)* option random distribution
+
 ## [0.17.3](https://github.com/francisdb/vpin/compare/v0.17.2...v0.17.3) - 2025-01-31
 
 ### Other
