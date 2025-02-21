@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.5](https://github.com/francisdb/vpin/compare/v0.17.4...v0.17.5) - 2025-02-21
+
+### Other
+
+- rust edition 2024 (#130)
+- Revert "build: rust edition 2024"
+- rust edition 2024
+- *(deps)* update fake requirement from 3.0.1 to 4.0.0 (#128)
+
 ## [0.17.4](https://github.com/francisdb/vpin/compare/v0.17.3...v0.17.4) - 2025-02-12
 
 ### Fixed
