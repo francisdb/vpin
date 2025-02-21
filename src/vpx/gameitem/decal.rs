@@ -6,7 +6,7 @@ use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
-use super::{font::Font, font::FontJson, vertex2d::Vertex2D, GameItem};
+use super::{GameItem, font::Font, font::FontJson, vertex2d::Vertex2D};
 
 #[derive(Debug, PartialEq, Dummy, Clone)]
 pub enum DecalType {

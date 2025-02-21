@@ -677,9 +677,9 @@ fn write_with_type<T: BiffWrite>(item_type: u32, item: &T) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    use rand::Rng;
     use rand::distr::{Distribution, StandardUniform};
     use rand::prelude::ThreadRng;
-    use rand::Rng;
 
     /// see https://github.com/rust-random/rand/issues/1573
     pub(crate) trait RandomOption {

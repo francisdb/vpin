@@ -32,7 +32,7 @@ use crate::vpx::biff::BiffReader;
 use crate::vpx::expanded::vpx_image_to_dynamic_image;
 use crate::vpx::image::ImageDataJpeg;
 use crate::vpx::tableinfo::read_tableinfo;
-use tableinfo::{write_tableinfo, TableInfo};
+use tableinfo::{TableInfo, write_tableinfo};
 use version::Version;
 
 use self::biff::{BiffRead, BiffWrite, BiffWriter};

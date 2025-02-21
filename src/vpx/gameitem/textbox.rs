@@ -354,7 +354,7 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
-    use crate::vpx::gameitem::font::{FontStyle, CHARSET_ANSI};
+    use crate::vpx::gameitem::font::{CHARSET_ANSI, FontStyle};
     use pretty_assertions::assert_eq;
 
     #[test]

@@ -15,19 +15,19 @@ use image::DynamicImage;
 use serde::de;
 use serde_json::Value;
 
-use super::{gameitem, read_gamedata, Version, VPX};
+use super::{VPX, Version, gameitem, read_gamedata};
 
 use super::collection::Collection;
 use super::font;
 use super::gamedata::{GameData, GameDataJson};
 use super::sound;
-use super::sound::{read_sound, write_sound, SoundData, SoundDataJson};
+use super::sound::{SoundData, SoundDataJson, read_sound, write_sound};
 use super::version;
 use crate::vpx::biff::{BiffRead, BiffReader};
 use crate::vpx::custominfotags::CustomInfoTags;
 use crate::vpx::font::{FontData, FontDataJson};
-use crate::vpx::gameitem::primitive::Primitive;
 use crate::vpx::gameitem::GameItemEnum;
+use crate::vpx::gameitem::primitive::Primitive;
 use crate::vpx::image::{ImageData, ImageDataBits, ImageDataJson};
 use crate::vpx::jsonmodel::{collections_json, info_to_json, json_to_collections, json_to_info};
 use crate::vpx::lzw::{from_lzw_blocks, to_lzw_blocks};
@@ -37,7 +37,7 @@ use crate::vpx::material::{
     SavePhysicsMaterialJson,
 };
 use crate::vpx::model::Vertex3dNoTex2;
-use crate::vpx::obj::{read_obj_file, write_obj, ObjData};
+use crate::vpx::obj::{ObjData, read_obj_file, write_obj};
 use crate::vpx::renderprobe::{RenderProbeJson, RenderProbeWithGarbage};
 use crate::vpx::tableinfo::TableInfo;
 
@@ -594,7 +594,7 @@ fn read_image_bmp(data: &[u8]) -> io::Result<ImageBmp> {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("BMP image uses {:?}, expecting Rgb8 or Rgba8 format", other),
-            ))
+            ));
         }
     };
 

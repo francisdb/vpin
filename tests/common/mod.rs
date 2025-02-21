@@ -8,7 +8,7 @@ use std::ffi::OsStr;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io;
 use std::io::{Read, Seek, Write};
-use std::path::{Path, PathBuf, MAIN_SEPARATOR_STR};
+use std::path::{MAIN_SEPARATOR_STR, Path, PathBuf};
 use vpin::vpx::biff::BiffReader;
 use vpin::vpx::lzw::from_lzw_blocks;
 use walkdir::WalkDir;

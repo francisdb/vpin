@@ -3,7 +3,7 @@ use crate::vpx::json::F32WithNanInf;
 use fake::Dummy;
 use serde::{Deserialize, Serialize};
 
-use super::{vertex2d::Vertex2D, GameItem};
+use super::{GameItem, vertex2d::Vertex2D};
 
 #[derive(Debug, Dummy, PartialEq)]
 pub struct Bumper {

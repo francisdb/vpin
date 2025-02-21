@@ -1,6 +1,6 @@
 use encoding_rs::mem::{decode_latin1, encode_latin1_lossy};
-use nom::number::complete::{le_f32, le_f64, le_i16, le_i32, le_i64, le_u16, le_u32, le_u64};
 use nom::ToUsize;
+use nom::number::complete::{le_f32, le_f64, le_i16, le_i32, le_i64, le_u16, le_u32, le_u64};
 use utf16string::WStr;
 
 use super::model::{StringEncoding, StringWithEncoding};
