@@ -1,14 +1,14 @@
 use std::fmt;
 
-use crate::vpx::wav::{read_wav_header, write_wav_header, WavHeader};
+use crate::vpx::wav::{WavHeader, read_wav_header, write_wav_header};
 use bytes::{BufMut, BytesMut};
 use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
 use super::{
-    biff::{BiffReader, BiffWriter},
     Version,
+    biff::{BiffReader, BiffWriter},
 };
 
 #[derive(Debug, PartialEq, Dummy, Clone)]

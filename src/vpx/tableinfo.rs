@@ -1,7 +1,7 @@
 use cfb::CompoundFile;
 use std::collections::HashMap;
 use std::io::{Read, Seek, Write};
-use std::path::{Path, MAIN_SEPARATOR_STR};
+use std::path::{MAIN_SEPARATOR_STR, Path};
 use utf16string::{LittleEndian, WStr, WString};
 
 // >    "/TableInfo/AuthorName",

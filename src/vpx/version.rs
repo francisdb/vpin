@@ -4,7 +4,7 @@ use std::{
     cmp,
     fmt::Display,
     io::{self, Read, Seek, Write},
-    path::{Path, MAIN_SEPARATOR_STR},
+    path::{MAIN_SEPARATOR_STR, Path},
 };
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};

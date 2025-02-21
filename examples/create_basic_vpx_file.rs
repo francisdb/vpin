@@ -1,11 +1,11 @@
 use std::path::Path;
 use vpin::vpx;
+use vpin::vpx::VPX;
 use vpin::vpx::color::Color;
+use vpin::vpx::gameitem::GameItemEnum;
 use vpin::vpx::gameitem::bumper::Bumper;
 use vpin::vpx::gameitem::flipper::Flipper;
-use vpin::vpx::gameitem::GameItemEnum;
 use vpin::vpx::material::Material;
-use vpin::vpx::VPX;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut vpx = VPX::default();

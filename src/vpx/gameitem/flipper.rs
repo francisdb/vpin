@@ -2,7 +2,7 @@ use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
 use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use super::{vertex2d::Vertex2D, GameItem};
+use super::{GameItem, vertex2d::Vertex2D};
 
 #[derive(Debug, PartialEq, Clone, Dummy)]
 pub struct Flipper {
