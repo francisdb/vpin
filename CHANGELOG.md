@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.6](https://github.com/francisdb/vpin/compare/v0.17.5...v0.17.6) - 2025-03-10
+
+### Other
+
+- Add table ini filepath from vpx path ([#131](https://github.com/francisdb/vpin/pull/131))
+
 ## [0.17.5](https://github.com/francisdb/vpin/compare/v0.17.4...v0.17.5) - 2025-02-21
 
 ### Other
