@@ -488,6 +488,11 @@ pub fn vbs_path_for(vpx_file_path: &PathBuf) -> PathBuf {
     path_for(vpx_file_path, "vbs")
 }
 
+/// Returns the path to table `ini` file
+pub fn ini_path_for(vpx_file_path: &PathBuf) -> PathBuf {
+    path_for(vpx_file_path, "ini")
+}
+
 fn path_for(vpx_file_path: &PathBuf, extension: &str) -> PathBuf {
     PathBuf::from(vpx_file_path).with_extension(extension)
 }
