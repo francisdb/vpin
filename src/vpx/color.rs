@@ -11,9 +11,9 @@ pub struct Color {
     /// And since we want to round-trip the data, we need to store it in the json format as well.
     /// Seems to contain 255 or 128 in the wild.
     unused: u8,
-    r: u8,
-    g: u8,
-    b: u8,
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
 }
 
 impl Color {

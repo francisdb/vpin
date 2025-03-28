@@ -5,15 +5,15 @@ use encoding_rs::mem::{decode_latin1, encode_latin1_lossy};
 ///
 /// This struct is used for serializing and deserializing in the vpinball C++ code
 #[derive(Debug, PartialEq, Clone)]
-pub(crate) struct Vertex3dNoTex2 {
-    pub(crate) x: f32,
-    pub(crate) y: f32,
-    pub(crate) z: f32,
-    pub(crate) nx: f32,
-    pub(crate) ny: f32,
-    pub(crate) nz: f32,
-    pub(crate) tu: f32,
-    pub(crate) tv: f32,
+pub struct Vertex3dNoTex2 {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub nx: f32,
+    pub ny: f32,
+    pub nz: f32,
+    pub tu: f32,
+    pub tv: f32,
 }
 
 #[derive(Debug, PartialEq, Clone)]

@@ -57,7 +57,7 @@ mod test {
     }
 
     fn read_and_write_vpx(dir: &Path, path: &Path) -> io::Result<PathBuf> {
-        let original = vpin::vpx::read(&path.to_path_buf())?;
+        let original = vpin::vpx::read(path)?;
         // create temp file and write the vpx to it
         let file_name = path.file_name().unwrap();
         let test_vpx_path = dir.join(file_name);
