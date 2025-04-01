@@ -1,4 +1,6 @@
+use super::vertex2d::Vertex2D;
 use crate::vpx::gameitem::font::FontJson;
+use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
@@ -6,8 +8,6 @@ use crate::vpx::{
 };
 use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-use super::vertex2d::Vertex2D;
 
 #[derive(Debug, PartialEq, Clone, Dummy, Default)]
 enum TextAlignment {
@@ -127,6 +127,8 @@ pub struct TextBox {
     pub editor_layer_name: Option<String>,
     // LANR default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>, // LVIS
+    /// Added in 10.8.1
+    pub part_group_name: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -144,6 +146,8 @@ struct TextBoxJson {
     is_transparent: bool,
     is_dmd: Option<bool>,
     font: FontJson,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    part_group_name: Option<String>,
 }
 
 impl TextBoxJson {
@@ -162,6 +166,7 @@ impl TextBoxJson {
             is_transparent: textbox.is_transparent,
             is_dmd: textbox.is_dmd,
             font: FontJson::from_font(&textbox.font),
+            part_group_name: textbox.part_group_name.clone(),
         }
     }
 
@@ -188,6 +193,7 @@ impl TextBoxJson {
             editor_layer_name: None,
             // this is populated from a different file
             editor_layer_visibility: None,
+            part_group_name: self.part_group_name,
         }
     }
 }
@@ -231,7 +237,26 @@ impl Default for TextBox {
             editor_layer: Default::default(),
             editor_layer_name: None,
             editor_layer_visibility: None,
+            part_group_name: None,
         }
+    }
+}
+
+impl HasSharedAttributes for TextBox {
+    fn is_locked(&self) -> bool {
+        self.is_locked
+    }
+    fn editor_layer(&self) -> u32 {
+        self.editor_layer
+    }
+    fn editor_layer_name(&self) -> Option<&str> {
+        self.editor_layer_name.as_deref()
+    }
+    fn editor_layer_visibility(&self) -> Option<bool> {
+        self.editor_layer_visibility
+    }
+    fn part_group_name(&self) -> Option<&str> {
+        self.part_group_name.as_deref()
     }
 }
 
@@ -300,6 +325,9 @@ impl BiffRead for TextBox {
                 "LVIS" => {
                     textbox.editor_layer_visibility = Some(reader.get_bool());
                 }
+                "GRUP" => {
+                    textbox.part_group_name = Some(reader.get_string());
+                }
                 _ => {
                     println!(
                         "Unknown tag {} for {}",
@@ -331,15 +359,7 @@ impl BiffWrite for TextBox {
             writer.write_tagged_bool("IDMD", is_dmd);
         }
 
-        // shared
-        writer.write_tagged_bool("LOCK", self.is_locked);
-        writer.write_tagged_u32("LAYR", self.editor_layer);
-        if let Some(editor_layer_name) = &self.editor_layer_name {
-            writer.write_tagged_string("LANR", editor_layer_name);
-        }
-        if let Some(editor_layer_visibility) = self.editor_layer_visibility {
-            writer.write_tagged_bool("LVIS", editor_layer_visibility);
-        }
+        self.write_shared_attributes(writer);
 
         writer.write_tagged_without_size("FONT", &self.font);
 
@@ -383,6 +403,7 @@ mod tests {
             editor_layer: 1,
             editor_layer_name: Some("test layer".to_string()),
             editor_layer_visibility: Some(true),
+            part_group_name: Some("test group".to_string()),
         };
         let mut writer = BiffWriter::new();
         TextBox::biff_write(&textbox, &mut writer);

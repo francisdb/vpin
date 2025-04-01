@@ -1,8 +1,8 @@
+use super::vertex2d::Vertex2D;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
 use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-use super::vertex2d::Vertex2D;
 
 #[derive(Debug, PartialEq, Clone, Dummy)]
 pub enum GateType {
@@ -101,6 +101,8 @@ pub struct Gate {
     pub editor_layer_name: Option<String>,
     // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+    /// Added in 10.8.1
+    pub part_group_name: Option<String>,
 }
 
 impl Default for Gate {
@@ -133,6 +135,7 @@ impl Default for Gate {
             editor_layer: Default::default(),
             editor_layer_name: None,
             editor_layer_visibility: None,
+            part_group_name: None,
         }
     }
 }
@@ -162,6 +165,8 @@ pub(crate) struct GateJson {
     two_way: bool,
     is_reflection_enabled: Option<bool>,
     gate_type: Option<GateType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    part_group_name: Option<String>,
 }
 
 impl GateJson {
@@ -190,6 +195,7 @@ impl GateJson {
             two_way: gate.two_way,
             is_reflection_enabled: gate.is_reflection_enabled,
             gate_type: gate.gate_type.clone(),
+            part_group_name: gate.part_group_name.clone(),
         }
     }
     pub fn to_gate(&self) -> Gate {
@@ -225,6 +231,7 @@ impl GateJson {
             editor_layer_name: None,
             // this is populated from a different file
             editor_layer_visibility: None,
+            part_group_name: self.part_group_name.clone(),
         }
     }
 }
@@ -245,6 +252,24 @@ impl<'de> Deserialize<'de> for Gate {
     {
         let gate_json = GateJson::deserialize(deserializer)?;
         Ok(gate_json.to_gate())
+    }
+}
+
+impl HasSharedAttributes for Gate {
+    fn is_locked(&self) -> bool {
+        self.is_locked
+    }
+    fn editor_layer(&self) -> u32 {
+        self.editor_layer
+    }
+    fn editor_layer_name(&self) -> Option<&str> {
+        self.editor_layer_name.as_deref()
+    }
+    fn editor_layer_visibility(&self) -> Option<bool> {
+        self.editor_layer_visibility
+    }
+    fn part_group_name(&self) -> Option<&str> {
+        self.part_group_name.as_deref()
     }
 }
 
@@ -329,6 +354,9 @@ impl BiffRead for Gate {
                 "GATY" => {
                     gate.gate_type = Some(reader.get_u32().into());
                 }
+                "GRUP" => {
+                    gate.part_group_name = Some(reader.get_string());
+                }
 
                 // shared
                 "LOCK" => {
@@ -396,15 +424,7 @@ impl BiffWrite for Gate {
             writer.write_tagged_u32("GATY", gate_type.clone().into());
         };
 
-        // shared
-        writer.write_tagged_bool("LOCK", self.is_locked);
-        writer.write_tagged_u32("LAYR", self.editor_layer);
-        if let Some(editor_layer_name) = &self.editor_layer_name {
-            writer.write_tagged_string("LANR", editor_layer_name);
-        }
-        if let Some(editor_layer_visibility) = self.editor_layer_visibility {
-            writer.write_tagged_bool("LVIS", editor_layer_visibility);
-        }
+        self.write_shared_attributes(writer);
 
         writer.close(true);
     }
@@ -449,6 +469,7 @@ mod tests {
             editor_layer: 14,
             editor_layer_name: Some("editor_layer_name".to_string()),
             editor_layer_visibility: Some(false),
+            part_group_name: Some("part_group_name".to_string()),
         };
         let mut writer = BiffWriter::new();
         Gate::biff_write(&gate, &mut writer);

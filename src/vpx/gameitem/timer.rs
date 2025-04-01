@@ -1,8 +1,8 @@
+use super::vertex2d::Vertex2D;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
 use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-use super::vertex2d::Vertex2D;
 
 #[derive(Debug, PartialEq, Dummy)]
 pub struct Timer {
@@ -18,6 +18,8 @@ pub struct Timer {
     pub editor_layer_name: Option<String>,
     // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+    /// Added in 10.8.1
+    pub part_group_name: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -27,6 +29,8 @@ struct TimerJson {
     timer_interval: i32,
     name: String,
     backglass: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    part_group_name: Option<String>,
 }
 
 impl TimerJson {
@@ -37,6 +41,7 @@ impl TimerJson {
             timer_interval: timer.timer_interval,
             name: timer.name.clone(),
             backglass: timer.backglass,
+            part_group_name: timer.part_group_name.clone(),
         }
     }
     pub fn to_timer(&self) -> Timer {
@@ -54,6 +59,7 @@ impl TimerJson {
             editor_layer_name: None,
             // this is populated from a different file
             editor_layer_visibility: None,
+            part_group_name: self.part_group_name.clone(),
         }
     }
 }
@@ -89,7 +95,26 @@ impl Default for Timer {
             editor_layer: 0,
             editor_layer_name: None,
             editor_layer_visibility: None,
+            part_group_name: None,
         }
+    }
+}
+
+impl HasSharedAttributes for Timer {
+    fn is_locked(&self) -> bool {
+        self.is_locked
+    }
+    fn editor_layer(&self) -> u32 {
+        self.editor_layer
+    }
+    fn editor_layer_name(&self) -> Option<&str> {
+        self.editor_layer_name.as_deref()
+    }
+    fn editor_layer_visibility(&self) -> Option<bool> {
+        self.editor_layer_visibility
+    }
+    fn part_group_name(&self) -> Option<&str> {
+        self.part_group_name.as_deref()
     }
 }
 
@@ -132,6 +157,9 @@ impl BiffRead for Timer {
                 "LVIS" => {
                     timer.editor_layer_visibility = Some(reader.get_bool());
                 }
+                "GRUP" => {
+                    timer.part_group_name = Some(reader.get_string());
+                }
                 _ => {
                     println!(
                         "Unknown tag {} for {}",
@@ -153,15 +181,8 @@ impl BiffWrite for Timer {
         writer.write_tagged_i32("TMIN", self.timer_interval);
         writer.write_tagged_wide_string("NAME", &self.name);
         writer.write_tagged_bool("BGLS", self.backglass);
-        // shared
-        writer.write_tagged_bool("LOCK", self.is_locked);
-        writer.write_tagged_u32("LAYR", self.editor_layer);
-        if let Some(editor_layer_name) = &self.editor_layer_name {
-            writer.write_tagged_string("LANR", editor_layer_name);
-        }
-        if let Some(editor_layer_visibility) = self.editor_layer_visibility {
-            writer.write_tagged_bool("LVIS", editor_layer_visibility);
-        }
+
+        self.write_shared_attributes(writer);
 
         writer.close(true);
     }
@@ -187,6 +208,7 @@ mod tests {
             editor_layer: 5,
             editor_layer_name: Some("test layer".to_string()),
             editor_layer_visibility: Some(false),
+            part_group_name: Some("test group".to_string()),
         };
         let mut writer = BiffWriter::new();
         Timer::biff_write(&timer, &mut writer);

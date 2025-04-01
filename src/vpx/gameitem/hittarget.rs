@@ -1,8 +1,8 @@
+use super::vertex3d::Vertex3D;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
 use fake::Dummy;
 use serde::{Deserialize, Serialize};
-
-use super::vertex3d::Vertex3D;
 
 #[derive(Debug, PartialEq, Clone, Dummy)]
 pub enum TargetType {
@@ -184,6 +184,8 @@ pub struct HitTarget {
     pub editor_layer_name: Option<String>,
     // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+    /// Added in 10.8.1
+    pub part_group_name: Option<String>,
 }
 
 impl Default for HitTarget {
@@ -222,6 +224,7 @@ impl Default for HitTarget {
         let editor_layer: u32 = Default::default();
         let editor_layer_name: Option<String> = None;
         let editor_layer_visibility: Option<bool> = None;
+        let part_group_name: Option<String> = None;
         HitTarget {
             position,
             size,
@@ -255,6 +258,7 @@ impl Default for HitTarget {
             editor_layer,
             editor_layer_name,
             editor_layer_visibility,
+            part_group_name,
         }
     }
 }
@@ -289,6 +293,8 @@ struct HitTargetJson {
     raise_delay: Option<u32>,
     physics_material: Option<String>,
     overwrite_physics: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    part_group_name: Option<String>,
 }
 
 impl HitTargetJson {
@@ -322,6 +328,7 @@ impl HitTargetJson {
             raise_delay: hit_target.raise_delay,
             physics_material: hit_target.physics_material.clone(),
             overwrite_physics: hit_target.overwrite_physics,
+            part_group_name: hit_target.part_group_name.clone(),
         }
     }
 
@@ -355,6 +362,7 @@ impl HitTargetJson {
             raise_delay: self.raise_delay,
             physics_material: self.physics_material.clone(),
             overwrite_physics: self.overwrite_physics,
+            part_group_name: self.part_group_name.clone(),
             // this is populated from a different file
             is_locked: false,
             // this is populated from a different file
@@ -383,6 +391,24 @@ impl<'de> Deserialize<'de> for HitTarget {
     {
         let json = HitTargetJson::deserialize(deserializer)?;
         Ok(json.to_hit_target())
+    }
+}
+
+impl HasSharedAttributes for HitTarget {
+    fn is_locked(&self) -> bool {
+        self.is_locked
+    }
+    fn editor_layer(&self) -> u32 {
+        self.editor_layer
+    }
+    fn editor_layer_name(&self) -> Option<&str> {
+        self.editor_layer_name.as_deref()
+    }
+    fn editor_layer_visibility(&self) -> Option<bool> {
+        self.editor_layer_visibility
+    }
+    fn part_group_name(&self) -> Option<&str> {
+        self.part_group_name.as_deref()
     }
 }
 
@@ -422,6 +448,7 @@ impl BiffRead for HitTarget {
         let mut editor_layer: u32 = Default::default();
         let mut editor_layer_name: Option<String> = None;
         let mut editor_layer_visibility: Option<bool> = None;
+        let mut part_group_name: Option<String> = None;
 
         loop {
             reader.next(biff::WARN);
@@ -521,6 +548,9 @@ impl BiffRead for HitTarget {
                 "LVIS" => {
                     editor_layer_visibility = Some(reader.get_bool());
                 }
+                "GRUP" => {
+                    part_group_name = Some(reader.get_string());
+                }
                 _ => {
                     println!(
                         "Unknown tag {} for {}",
@@ -564,6 +594,7 @@ impl BiffRead for HitTarget {
             editor_layer,
             editor_layer_name,
             editor_layer_visibility,
+            part_group_name,
         }
     }
 }
@@ -610,15 +641,7 @@ impl BiffWrite for HitTarget {
         if let Some(overwrite_physics) = self.overwrite_physics {
             writer.write_tagged_bool("OVPH", overwrite_physics);
         }
-        // shared
-        writer.write_tagged_bool("LOCK", self.is_locked);
-        writer.write_tagged_u32("LAYR", self.editor_layer);
-        if let Some(editor_layer_name) = &self.editor_layer_name {
-            writer.write_tagged_string("LANR", editor_layer_name);
-        }
-        if let Some(editor_layer_visibility) = self.editor_layer_visibility {
-            writer.write_tagged_bool("LVIS", editor_layer_visibility);
-        }
+        self.write_shared_attributes(writer);
 
         writer.close(true);
     }
@@ -671,6 +694,7 @@ mod tests {
             editor_layer: rng.random(),
             editor_layer_name: Some("test layer name".to_string()),
             editor_layer_visibility: rng.random_option(),
+            part_group_name: Some("test group name".to_string()),
         };
         let mut writer = BiffWriter::new();
         HitTarget::biff_write(&hittarget, &mut writer);

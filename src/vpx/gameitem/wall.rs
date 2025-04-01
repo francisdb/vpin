@@ -1,8 +1,9 @@
+use super::dragpoint::DragPoint;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite, BiffWriter};
+use crate::vpx::gameitem::dragpoint;
+use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
 use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-use super::dragpoint::DragPoint;
 
 /**
  * Surface
@@ -48,6 +49,7 @@ pub struct Wall {
     pub editor_layer_name: Option<String>,
     // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+    pub part_group_name: Option<String>,
 
     drag_points: Vec<DragPoint>,
 }
@@ -87,6 +89,8 @@ struct WallJson {
     physics_material: Option<String>,
     overwrite_physics: Option<bool>,
     drag_points: Vec<DragPoint>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    part_group_name: Option<String>,
 }
 
 impl WallJson {
@@ -125,6 +129,7 @@ impl WallJson {
             physics_material: wall.physics_material.clone(),
             overwrite_physics: wall.overwrite_physics,
             drag_points: wall.drag_points.clone(),
+            part_group_name: wall.part_group_name.clone(),
         }
     }
 
@@ -170,6 +175,7 @@ impl WallJson {
             editor_layer_name: None,
             // this is populated from a different file
             editor_layer_visibility: None,
+            part_group_name: self.part_group_name.clone(),
             drag_points: self.drag_points.clone(),
         }
     }
@@ -233,8 +239,27 @@ impl Default for Wall {
             editor_layer: Default::default(),
             editor_layer_name: None,
             editor_layer_visibility: None,
+            part_group_name: None,
             drag_points: Default::default(),
         }
+    }
+}
+
+impl HasSharedAttributes for Wall {
+    fn is_locked(&self) -> bool {
+        self.is_locked
+    }
+    fn editor_layer(&self) -> u32 {
+        self.editor_layer
+    }
+    fn editor_layer_name(&self) -> Option<&str> {
+        self.editor_layer_name.as_deref()
+    }
+    fn editor_layer_visibility(&self) -> Option<bool> {
+        self.editor_layer_visibility
+    }
+    fn part_group_name(&self) -> Option<&str> {
+        self.part_group_name.as_deref()
     }
 }
 
@@ -417,6 +442,10 @@ impl BiffRead for Wall {
                 "LVIS" => {
                     wall.editor_layer_visibility = Some(reader.get_bool());
                 }
+                "GRUP" => {
+                    wall.part_group_name = Some(reader.get_string());
+                }
+
                 "PNTS" => {
                     // this is just a tag with no data
                 }
@@ -488,19 +517,14 @@ impl BiffWrite for Wall {
             writer.write_tagged_bool("OVPH", overwrite_physics);
         }
 
-        // shared
-        writer.write_tagged_bool("LOCK", self.is_locked);
-        writer.write_tagged_u32("LAYR", self.editor_layer);
-        if let Some(editor_layer_name) = &self.editor_layer_name {
-            writer.write_tagged_string("LANR", editor_layer_name);
-        }
-        if let Some(editor_layer_visibility) = self.editor_layer_visibility {
-            writer.write_tagged_bool("LVIS", editor_layer_visibility);
-        }
+        self.write_shared_attributes(writer);
 
         writer.write_marker_tag("PNTS");
+        // many of these
         for point in &self.drag_points {
-            writer.write_tagged("DPNT", point);
+            writer.new_tag("DPNT");
+            dragpoint::biff_write(point, writer, self.part_group_name.is_some());
+            writer.end_tag();
         }
 
         writer.close(true);
@@ -553,6 +577,7 @@ mod tests {
             editor_layer: 13,
             editor_layer_name: Some("editor_layer_name".to_string()),
             editor_layer_visibility: Some(true),
+            part_group_name: Some("part_group_name".to_string()),
             drag_points: vec![DragPoint::default()],
         };
         let mut writer = BiffWriter::new();

@@ -1,3 +1,5 @@
+use super::{GameItem, font::Font, font::FontJson, vertex2d::Vertex2D};
+use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
@@ -5,8 +7,6 @@ use crate::vpx::{
 use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
-
-use super::{GameItem, font::Font, font::FontJson, vertex2d::Vertex2D};
 
 #[derive(Debug, PartialEq, Dummy, Clone)]
 pub enum DecalType {
@@ -189,6 +189,8 @@ pub struct Decal {
     pub editor_layer_name: Option<String>,
     // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+    /// Added in 10.8.1
+    pub part_group_name: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -207,6 +209,8 @@ struct DecalJson {
     sizing_type: SizingType,
     vertical_text: bool,
     backglass: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    part_group_name: Option<String>,
     font: FontJson,
 }
 
@@ -227,6 +231,7 @@ impl DecalJson {
             sizing_type: decal.sizing_type.clone(),
             vertical_text: decal.vertical_text,
             backglass: decal.backglass,
+            part_group_name: decal.part_group_name.clone(),
             font: FontJson::from_font(&decal.font),
         }
     }
@@ -256,6 +261,7 @@ impl DecalJson {
             editor_layer_name: None,
             // this is populated from a different file
             editor_layer_visibility: None,
+            part_group_name: self.part_group_name.clone(),
         }
     }
 }
@@ -282,6 +288,7 @@ impl Default for Decal {
             editor_layer: Default::default(),
             editor_layer_name: None,
             editor_layer_visibility: None,
+            part_group_name: None,
         }
     }
 }
@@ -308,6 +315,28 @@ impl<'de> Deserialize<'de> for Decal {
 impl GameItem for Decal {
     fn name(&self) -> &str {
         &self.name
+    }
+}
+
+impl HasSharedAttributes for Decal {
+    fn is_locked(&self) -> bool {
+        self.is_locked
+    }
+
+    fn editor_layer(&self) -> u32 {
+        self.editor_layer
+    }
+
+    fn editor_layer_name(&self) -> Option<&str> {
+        self.editor_layer_name.as_deref()
+    }
+
+    fn editor_layer_visibility(&self) -> Option<bool> {
+        self.editor_layer_visibility
+    }
+
+    fn part_group_name(&self) -> Option<&str> {
+        self.part_group_name.as_deref()
     }
 }
 
@@ -382,6 +411,9 @@ impl BiffRead for Decal {
                 "LVIS" => {
                     decal.editor_layer_visibility = Some(reader.get_bool());
                 }
+                "GRUP" => {
+                    decal.part_group_name = Some(reader.get_string());
+                }
                 _ => {
                     println!(
                         "Unknown tag {} for {}",
@@ -413,15 +445,7 @@ impl BiffWrite for Decal {
         writer.write_tagged_bool("VERT", self.vertical_text);
         writer.write_tagged_bool("BGLS", self.backglass);
 
-        // shared
-        writer.write_tagged_bool("LOCK", self.is_locked);
-        writer.write_tagged_u32("LAYR", self.editor_layer);
-        if let Some(editor_layer_name) = &self.editor_layer_name {
-            writer.write_tagged_string("LANR", editor_layer_name);
-        }
-        if let Some(editor_layer_visibility) = self.editor_layer_visibility {
-            writer.write_tagged_bool("LVIS", editor_layer_visibility);
-        }
+        self.write_shared_attributes(writer);
 
         writer.write_tagged_without_size("FONT", &self.font);
 
@@ -461,6 +485,7 @@ mod tests {
             editor_layer: 3,
             editor_layer_name: Some("editor_layer_name".to_owned()),
             editor_layer_visibility: Some(false),
+            part_group_name: Some("part_group_name".to_owned()),
         };
         let mut writer = BiffWriter::new();
         Decal::biff_write(&decal, &mut writer);

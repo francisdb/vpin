@@ -1,8 +1,7 @@
+use super::vertex2d::Vertex2D;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
 use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-use super::vertex2d::Vertex2D;
 
 #[derive(Debug, PartialEq, Dummy)]
 pub struct LightSequencer {
@@ -24,6 +23,8 @@ pub struct LightSequencer {
     pub editor_layer_name: Option<String>,
     // LANR (added in 10.7?) default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>, // LVIS (added in 10.7?)
+    /// Added in 10.8.1
+    pub part_group_name: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -37,6 +38,8 @@ struct LightSequencerJson {
     timer_interval: i32,
     name: String,
     backglass: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    part_group_name: Option<String>,
 }
 
 impl LightSequencerJson {
@@ -51,6 +54,7 @@ impl LightSequencerJson {
             timer_interval: light_sequencer.timer_interval,
             name: light_sequencer.name.clone(),
             backglass: light_sequencer.backglass,
+            part_group_name: light_sequencer.part_group_name.clone(),
         }
     }
     pub fn to_light_sequencer(&self) -> LightSequencer {
@@ -72,6 +76,7 @@ impl LightSequencerJson {
             editor_layer_name: None,
             // this is populated from a different file
             editor_layer_visibility: None,
+            part_group_name: self.part_group_name.clone(),
         }
     }
 }
@@ -111,6 +116,7 @@ impl Default for LightSequencer {
             editor_layer: None,
             editor_layer_name: None,
             editor_layer_visibility: None,
+            part_group_name: None,
         }
     }
 }
@@ -167,6 +173,9 @@ impl BiffRead for LightSequencer {
                 "LVIS" => {
                     light_sequencer.editor_layer_visibility = Some(reader.get_bool());
                 }
+                "GRUP" => {
+                    light_sequencer.part_group_name = Some(reader.get_string());
+                }
                 _ => {
                     println!(
                         "Unknown tag {} for {}",
@@ -193,18 +202,32 @@ impl BiffWrite for LightSequencer {
         writer.write_tagged_wide_string("NAME", &self.name);
         writer.write_tagged_bool("BGLS", self.backglass);
 
-        // shared
+        // we can't use the shared code here because lock and editor_layer are optional here
+        // further the order of the tags is different when part_group_name is present
         if let Some(is_locked) = self.is_locked {
             writer.write_tagged_bool("LOCK", is_locked);
         }
-        if let Some(editor_layer) = self.editor_layer {
-            writer.write_tagged_u32("LAYR", editor_layer);
-        }
-        if let Some(editor_layer_name) = &self.editor_layer_name {
-            writer.write_tagged_string("LANR", editor_layer_name);
-        }
-        if let Some(editor_layer_visibility) = self.editor_layer_visibility {
-            writer.write_tagged_bool("LVIS", editor_layer_visibility);
+        if let Some(part_group_name) = &self.part_group_name {
+            if let Some(editor_layer_visibility) = self.editor_layer_visibility {
+                writer.write_tagged_bool("LVIS", editor_layer_visibility);
+            }
+            if let Some(editor_layer) = self.editor_layer {
+                writer.write_tagged_u32("LAYR", editor_layer);
+            }
+            if let Some(editor_layer_name) = &self.editor_layer_name {
+                writer.write_tagged_string("LANR", editor_layer_name);
+            }
+            writer.write_tagged_string("GRUP", part_group_name);
+        } else {
+            if let Some(editor_layer) = self.editor_layer {
+                writer.write_tagged_u32("LAYR", editor_layer);
+            }
+            if let Some(editor_layer_name) = &self.editor_layer_name {
+                writer.write_tagged_string("LANR", editor_layer_name);
+            }
+            if let Some(editor_layer_visibility) = self.editor_layer_visibility {
+                writer.write_tagged_bool("LVIS", editor_layer_visibility);
+            }
         }
 
         writer.close(true);
@@ -238,6 +261,7 @@ mod tests {
             editor_layer: rng.random_option(),
             editor_layer_name: Some("test layer name".to_string()),
             editor_layer_visibility: rng.random_option(),
+            part_group_name: Some("test group name".to_string()),
         };
         let mut writer = BiffWriter::new();
         LightSequencer::biff_write(&spinner, &mut writer);

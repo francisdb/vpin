@@ -1,11 +1,11 @@
+use super::vertex2d::Vertex2D;
+use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
 };
 use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-use super::vertex2d::Vertex2D;
 
 #[derive(Debug, PartialEq, Dummy)]
 pub struct Reel {
@@ -36,6 +36,8 @@ pub struct Reel {
     pub editor_layer_name: Option<String>,
     // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+    /// Added in 10.8.1
+    pub part_group_name: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -59,6 +61,8 @@ struct ReelJson {
     use_image_grid: bool,
     is_visible: bool,
     images_per_grid_row: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    part_group_name: Option<String>,
 }
 
 impl ReelJson {
@@ -83,6 +87,7 @@ impl ReelJson {
             use_image_grid: reel.use_image_grid,
             is_visible: reel.is_visible,
             images_per_grid_row: reel.images_per_grid_row,
+            part_group_name: reel.part_group_name.clone(),
         }
     }
     pub fn to_reel(&self) -> Reel {
@@ -114,6 +119,7 @@ impl ReelJson {
             editor_layer_name: None,
             // this is populated from a different file
             editor_layer_visibility: None,
+            part_group_name: self.part_group_name.clone(),
         }
     }
 }
@@ -144,6 +150,7 @@ impl Default for Reel {
             editor_layer: Default::default(),
             editor_layer_name: None,
             editor_layer_visibility: None,
+            part_group_name: None,
         }
     }
 }
@@ -164,6 +171,24 @@ impl<'de> Deserialize<'de> for Reel {
     {
         let reel_json = ReelJson::deserialize(deserializer)?;
         Ok(reel_json.to_reel())
+    }
+}
+
+impl HasSharedAttributes for Reel {
+    fn is_locked(&self) -> bool {
+        self.is_locked
+    }
+    fn editor_layer(&self) -> u32 {
+        self.editor_layer
+    }
+    fn editor_layer_name(&self) -> Option<&str> {
+        self.editor_layer_name.as_deref()
+    }
+    fn editor_layer_visibility(&self) -> Option<bool> {
+        self.editor_layer_visibility
+    }
+    fn part_group_name(&self) -> Option<&str> {
+        self.part_group_name.as_deref()
     }
 }
 
@@ -250,6 +275,9 @@ impl BiffRead for Reel {
                 "LVIS" => {
                     reel.editor_layer_visibility = Some(reader.get_bool());
                 }
+                "GRUP" => {
+                    reel.part_group_name = Some(reader.get_string());
+                }
                 _ => {
                     println!(
                         "Unknown tag {} for {}",
@@ -285,16 +313,8 @@ impl BiffWrite for Reel {
         writer.write_tagged_bool("UGRD", self.use_image_grid);
         writer.write_tagged_bool("VISI", self.is_visible);
         writer.write_tagged_u32("GIPR", self.images_per_grid_row);
-        // shared
-        writer.write_tagged_bool("LOCK", self.is_locked);
-        writer.write_tagged_u32("LAYR", self.editor_layer);
 
-        if let Some(name) = self.editor_layer_name.as_ref() {
-            writer.write_tagged_string("LANR", name);
-        }
-        if let Some(visibility) = self.editor_layer_visibility.as_ref() {
-            writer.write_tagged_bool("LVIS", *visibility);
-        }
+        self.write_shared_attributes(writer);
 
         writer.close(true);
     }
@@ -338,6 +358,7 @@ mod tests {
             editor_layer: rng.random(),
             editor_layer_name: Some("test layer name".to_string()),
             editor_layer_visibility: rng.random_option(),
+            part_group_name: Some("test part group name".to_string()),
         };
         let mut writer = BiffWriter::new();
         Reel::biff_write(&reel, &mut writer);

@@ -1,3 +1,5 @@
+use super::{dragpoint, dragpoint::DragPoint, vertex2d::Vertex2D};
+use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
 use crate::vpx::json::F32WithNanInf;
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
@@ -5,8 +7,6 @@ use crate::vpx::{
 };
 use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-use super::{dragpoint::DragPoint, vertex2d::Vertex2D};
 
 #[derive(Debug, PartialEq, Clone, Dummy)]
 pub enum ShadowMode {
@@ -233,6 +233,9 @@ pub struct Light {
     pub editor_layer_name: Option<String>,
     // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+    /// Added in 10.8.1
+    pub part_group_name: Option<String>,
+
     // last
     pub drag_points: Vec<DragPoint>,
 }
@@ -271,6 +274,8 @@ struct LightJson {
     shadows: Option<ShadowMode>,
     fader: Option<Fader>,
     visible: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    part_group_name: Option<String>,
     drag_points: Vec<DragPoint>,
 }
 
@@ -309,6 +314,7 @@ impl LightJson {
             shadows: light.shadows.clone(),
             fader: light.fader.clone(),
             visible: light.visible,
+            part_group_name: light.part_group_name.clone(),
             drag_points: light.drag_points.clone(),
         }
     }
@@ -355,7 +361,7 @@ impl LightJson {
             editor_layer_name: None,
             // this is populated from a different file
             editor_layer_visibility: None,
-            // this is populated from a different file
+            part_group_name: self.part_group_name.clone(),
             drag_points: self.drag_points.clone(),
         }
     }
@@ -422,6 +428,7 @@ impl Default for Light {
         let editor_layer: u32 = Default::default();
         let editor_layer_name: Option<String> = None;
         let editor_layer_visibility: Option<bool> = None;
+        let part_group_name: Option<String> = None;
         Self {
             center,
             height,
@@ -459,8 +466,27 @@ impl Default for Light {
             editor_layer,
             editor_layer_name,
             editor_layer_visibility,
+            part_group_name,
             drag_points: Vec::new(),
         }
+    }
+}
+
+impl HasSharedAttributes for Light {
+    fn is_locked(&self) -> bool {
+        self.is_locked
+    }
+    fn editor_layer(&self) -> u32 {
+        self.editor_layer
+    }
+    fn editor_layer_name(&self) -> Option<&str> {
+        self.editor_layer_name.as_deref()
+    }
+    fn editor_layer_visibility(&self) -> Option<bool> {
+        self.editor_layer_visibility
+    }
+    fn part_group_name(&self) -> Option<&str> {
+        self.part_group_name.as_deref()
     }
 }
 
@@ -513,6 +539,9 @@ impl BiffRead for Light {
                 "SHDW" => light.shadows = Some(reader.get_u32().into()),
                 "FADE" => light.fader = Some(reader.get_u32().into()),
                 "VSBL" => light.visible = Some(reader.get_bool()),
+                "GRUP" => {
+                    light.part_group_name = Some(reader.get_string());
+                }
                 // many of these
                 "DPNT" => {
                     let point = DragPoint::biff_read(reader);
@@ -581,18 +610,14 @@ impl BiffWrite for Light {
         if let Some(visible) = self.visible {
             writer.write_tagged_bool("VSBL", visible);
         }
-        // shared
-        writer.write_tagged_bool("LOCK", self.is_locked);
-        writer.write_tagged_u32("LAYR", self.editor_layer);
-        if let Some(editor_layer_name) = &self.editor_layer_name {
-            writer.write_tagged_string("LANR", editor_layer_name);
-        }
-        if let Some(editor_layer_visibility) = self.editor_layer_visibility {
-            writer.write_tagged_bool("LVIS", editor_layer_visibility);
-        }
+
+        self.write_shared_attributes(writer);
+
         // many of these
         for point in &self.drag_points {
-            writer.write_tagged("DPNT", point);
+            writer.new_tag("DPNT");
+            dragpoint::biff_write(point, writer, self.part_group_name.is_some());
+            writer.end_tag();
         }
         writer.close(true);
     }
@@ -646,6 +671,7 @@ mod tests {
             editor_layer: 17,
             editor_layer_name: Some("test layer".to_string()),
             editor_layer_visibility: Some(true),
+            part_group_name: Some("test group".to_string()),
             drag_points: vec![DragPoint::default()],
         };
         let mut writer = BiffWriter::new();

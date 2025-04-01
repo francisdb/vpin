@@ -32,10 +32,10 @@ mod test {
         // * Guns N Roses (Data East 1994).vpx - contains BMP with non-255 alpha values
         let filtered: Vec<&PathBuf> = paths
             .iter()
-            // .filter(|path| {
-            //     let name = path.file_name().unwrap().to_str().unwrap();
-            //     name.contains("Bob")
-            // })
+            .filter(|path| {
+                let name = path.file_name().unwrap().to_str().unwrap();
+                name.contains("Darkest")
+            })
             .collect();
 
         // TODO why is par_iter() not faster but just consuming all cpu cores?
