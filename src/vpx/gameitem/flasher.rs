@@ -375,7 +375,7 @@ impl FlasherJson {
             filter: flasher.filter.clone(),
             filter_amount: flasher.filter_amount,
             light_map: flasher.light_map.clone(),
-            backglass: flasher.backglass.clone(),
+            backglass: flasher.backglass,
             part_group_name: flasher.part_group_name.clone(),
             drag_points: flasher.drag_points.clone(),
         }
@@ -414,7 +414,7 @@ impl FlasherJson {
             filter: self.filter.clone(),
             filter_amount: self.filter_amount,
             light_map: self.light_map.clone(),
-            backglass: self.backglass.clone(),
+            backglass: self.backglass,
             part_group_name: self.part_group_name.clone(),
             drag_points: self.drag_points.clone(),
             // this is populated from a different file

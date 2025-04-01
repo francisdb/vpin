@@ -185,7 +185,7 @@ impl PartGroupJson {
     pub fn from_part_group(part_group: &PartGroup) -> Self {
         PartGroupJson {
             name: part_group.name.clone(),
-            center: part_group.center.clone(),
+            center: part_group.center,
             is_timer_enabled: part_group.is_timer_enabled,
             timer_interval: part_group.timer_interval,
             backglass: part_group.backglass,
@@ -201,7 +201,7 @@ impl PartGroupJson {
     pub fn to_part_group(&self) -> PartGroup {
         PartGroup {
             name: self.name.clone(),
-            center: self.center.clone(),
+            center: self.center,
             is_timer_enabled: self.is_timer_enabled,
             timer_interval: self.timer_interval,
             backglass: self.backglass,
