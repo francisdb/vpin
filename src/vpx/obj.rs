@@ -4,7 +4,7 @@ use crate::vpx::model::Vertex3dNoTex2;
 use std::error::Error;
 use std::fs::File;
 use std::io::BufRead;
-use std::path::PathBuf;
+use std::path::Path;
 use wavefront_rs::obj::entity::{Entity, FaceVertex};
 use wavefront_rs::obj::parser::Parser;
 use wavefront_rs::obj::writer::Writer;
@@ -52,7 +52,7 @@ pub(crate) fn write_obj(
     name: String,
     vertices: &Vec<([u8; 32], Vertex3dNoTex2)>,
     indices: &[i64],
-    obj_file_path: &PathBuf,
+    obj_file_path: &Path,
 ) -> Result<(), Box<dyn Error>> {
     let mut obj_file = File::create(obj_file_path)?;
     let mut writer = std::io::BufWriter::new(&mut obj_file);
@@ -159,7 +159,7 @@ pub(crate) fn write_obj(
     Ok(())
 }
 
-pub(crate) fn read_obj_file(obj_file_path: &PathBuf) -> Result<ObjData, Box<dyn Error>> {
+pub(crate) fn read_obj_file(obj_file_path: &Path) -> Result<ObjData, Box<dyn Error>> {
     let obj_file = File::open(obj_file_path)?;
     let mut reader = std::io::BufReader::new(obj_file);
     read_obj(&mut reader)
@@ -312,9 +312,9 @@ f 1/1/1 1/1/1 1/1/1
 
     #[test]
     fn test_read_write_obj() -> TestResult {
-        let screw_path = PathBuf::from("testdata/screw.obj");
+        let screw_path = Path::new("testdata/screw.obj");
         let testdir = testdir!();
-        let obj_data = read_obj_file(&screw_path)?;
+        let obj_data = read_obj_file(screw_path)?;
         let written_obj_path = testdir.join("screw.obj");
 
         // zip vertices, texture coordinates and normals into a single vec
@@ -348,7 +348,7 @@ f 1/1/1 1/1/1 1/1/1
         )?;
 
         // compare both files as strings
-        let mut original = std::fs::read_to_string(&screw_path)?;
+        let mut original = std::fs::read_to_string(screw_path)?;
         // When on Windows the original file will be checked out with \r\n line endings.
         if cfg!(windows) {
             original = original.replace("\r\n", "\n")

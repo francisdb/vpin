@@ -96,7 +96,7 @@ impl ImageData {
         self.link == Some(1)
     }
 
-    pub(crate) fn ext(&self) -> String {
+    pub fn ext(&self) -> String {
         // TODO we might want to also check the jpeg fsPath
         match self.path.split('.').last() {
             Some(ext) => ext.to_string(),

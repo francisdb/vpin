@@ -34,7 +34,7 @@ pub(crate) fn find_files<P: AsRef<Path>>(
     Ok(found)
 }
 
-pub(crate) fn assert_equal_vpx(vpx_path: &PathBuf, test_vpx_path: PathBuf) {
+pub(crate) fn assert_equal_vpx(vpx_path: &Path, test_vpx_path: PathBuf) {
     let mut comp = cfb::open(vpx_path).unwrap();
     let mut test_comp = cfb::open(&test_vpx_path).unwrap();
 

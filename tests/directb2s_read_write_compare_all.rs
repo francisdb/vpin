@@ -6,7 +6,7 @@ use std::fmt::Write;
 use std::hash::{Hash, Hasher};
 use std::io;
 use std::io::{Error, ErrorKind, Read};
-use std::path::PathBuf;
+use std::path::Path;
 use testresult::TestResult;
 use vpin::directb2s;
 use vpin::directb2s::DirectB2SData;
@@ -156,7 +156,7 @@ fn write_node<W: Write>(
     Ok(())
 }
 
-fn read_directb2s(path: &PathBuf) -> Result<DirectB2SData, Error> {
+fn read_directb2s(path: &Path) -> Result<DirectB2SData, Error> {
     let file = std::fs::File::open(path)?;
     let reader = std::io::BufReader::new(file);
     directb2s::read(reader).map_err(|e| {

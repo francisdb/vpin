@@ -60,7 +60,7 @@ mod test {
     }
 
     fn read_and_write_vpx(dir: &Path, path: &Path) -> io::Result<ReadAndWriteResult> {
-        let original = vpin::vpx::read(&path.to_path_buf())?;
+        let original = vpin::vpx::read(path)?;
         let extract_dir = dir.join("extracted");
         // make dir
         std::fs::create_dir_all(&extract_dir)?;

@@ -1,63 +1,86 @@
 use super::vertex3d::Vertex3D;
 use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
+
+use crate::vpx::expanded::WriteError;
+use crate::vpx::model::Vertex3dNoTex2;
+
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
 };
+use bytes::{Buf, BufMut, BytesMut};
 use fake::Dummy;
+use flate2::read::ZlibDecoder;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::io::{self, Read};
+
+const BYTES_PER_VERTEX: usize = 32;
+
+/// when there are more than 65535 vertices we use 4 bytes per index value
+/// TODO make private
+pub const MAX_VERTICES_FOR_2_BYTE_INDEX: usize = 65535;
 
 #[derive(Debug, PartialEq, Dummy)]
 pub struct Primitive {
-    pub position: Vertex3D,                                       // 0 VPOS
-    pub size: Vertex3D,                                           // 1 VSIZ
-    pub rot_and_tra: [f32; 9],                                    // 2-11 RTV0-RTV8
-    pub image: String,                                            // 12 IMAG
-    pub normal_map: Option<String>,                               // 13 NRMA (added in 10.?)
-    pub sides: u32,                                               // 14
-    pub name: String,                                             // 15
-    pub material: String,                                         // 16
-    pub side_color: Color,                                        // 17
-    pub is_visible: bool,                                         // 18
-    pub draw_textures_inside: bool,                               // 19
-    pub hit_event: bool,                                          // 20
-    pub threshold: f32,                                           // 21
-    pub elasticity: f32,                                          // 22
-    pub elasticity_falloff: f32,                                  // 23
-    pub friction: f32,                                            // 24
-    pub scatter: f32,                                             // 25
-    pub edge_factor_ui: f32,                                      // 26
-    pub collision_reduction_factor: Option<f32>,                  // 27 CORF (was missing in 10.01)
-    pub is_collidable: bool,                                      // 28
-    pub is_toy: bool,                                             // 29
-    pub use_3d_mesh: bool,                                        // 30
-    pub static_rendering: bool,                                   // 31
-    pub disable_lighting_top_old: Option<f32>,                    // DILI (removed in 10.8)
-    pub disable_lighting_top: Option<f32>,                        // DILT (added in 10.8)
-    pub disable_lighting_below: Option<f32>,                      // 33 DILB (added in 10.?)
-    pub is_reflection_enabled: Option<bool>,                      // 34 REEN (was missing in 10.01)
-    pub backfaces_enabled: Option<bool>,                          // 35 EBFC (added in 10.?)
-    pub physics_material: Option<String>,                         // 36 MAPH (added in 10.?)
-    pub overwrite_physics: Option<bool>,                          // 37 OVPH (added in 10.?)
-    pub display_texture: Option<bool>,                            // 38 DIPT (added in ?)
-    pub object_space_normal_map: Option<bool>,                    // 38.5 OSNM (added in ?)
+    pub position: Vertex3D, // 0 VPOS
+    pub size: Vertex3D,     // 1 VSIZ
+    /// Indices for RotAndTra:
+    ///      RotX = 0
+    ///      RotY = 1
+    ///      RotZ = 2
+    ///      TraX = 3
+    ///      TraY = 4
+    ///      TraZ = 5
+    ///   ObjRotX = 6
+    ///   ObjRotY = 7
+    ///   ObjRotZ = 8
+    pub rot_and_tra: [f32; 9], // 2-11 RTV0-RTV8
+    pub image: String,      // 12 IMAG
+    pub normal_map: Option<String>, // 13 NRMA (added in 10.?)
+    pub sides: u32,         // 14
+    pub name: String,       // 15
+    pub material: String,   // 16
+    pub side_color: Color,  // 17
+    pub is_visible: bool,   // 18
+    pub draw_textures_inside: bool, // 19
+    pub hit_event: bool,    // 20
+    pub threshold: f32,     // 21
+    pub elasticity: f32,    // 22
+    pub elasticity_falloff: f32, // 23
+    pub friction: f32,      // 24
+    pub scatter: f32,       // 25
+    pub edge_factor_ui: f32, // 26
+    pub collision_reduction_factor: Option<f32>, // 27 CORF (was missing in 10.01)
+    pub is_collidable: bool, // 28
+    pub is_toy: bool,       // 29
+    pub use_3d_mesh: bool,  // 30
+    pub static_rendering: bool, // 31
+    pub disable_lighting_top_old: Option<f32>, // DILI (removed in 10.8)
+    pub disable_lighting_top: Option<f32>, // DILT (added in 10.8)
+    pub disable_lighting_below: Option<f32>, // 33 DILB (added in 10.?)
+    pub is_reflection_enabled: Option<bool>, // 34 REEN (was missing in 10.01)
+    pub backfaces_enabled: Option<bool>, // 35 EBFC (added in 10.?)
+    pub physics_material: Option<String>, // 36 MAPH (added in 10.?)
+    pub overwrite_physics: Option<bool>, // 37 OVPH (added in 10.?)
+    pub display_texture: Option<bool>, // 38 DIPT (added in ?)
+    pub object_space_normal_map: Option<bool>, // 38.5 OSNM (added in ?)
     pub min_aa_bound: Option<Vec<u8>>, // BMIN added in 10.8 ( TODO Vector3D)
     pub max_aa_bound: Option<Vec<u8>>, // BMAX added in 10.8( TODO Vector3D)
     pub mesh_file_name: Option<String>, // 39 M3DN
-    pub num_vertices: Option<u32>,     // 40 M3VN
+    pub num_vertices: Option<u32>, // 40 M3VN
     pub compressed_vertices_len: Option<u32>, // 41 M3CY
     pub compressed_vertices_data: Option<Vec<u8>>, // 42 M3CX
-    pub num_indices: Option<u32>,      // 43 M3FN
+    pub num_indices: Option<u32>, // 43 M3FN
     pub compressed_indices_len: Option<u32>, // 44 M3CJ
     pub compressed_indices_data: Option<Vec<u8>>, // 45 M3CI
     pub compressed_animation_vertices_len: Option<Vec<u32>>, // 46 M3AY multiple
     pub compressed_animation_vertices_data: Option<Vec<Vec<u8>>>, // 47 M3AX multiple
-    pub depth_bias: f32,               // 45 PIDB
-    pub add_blend: Option<bool>,       // 46 ADDB - added in ?
-    pub use_depth_mask: Option<bool>,  // ZMSK added in 10.8
-    pub alpha: Option<f32>,            // 47 FALP - added in ?
-    pub color: Option<Color>,          // 48 COLR - added in ?
-    pub light_map: Option<String>,     // LMAP - added in 10.8
+    pub depth_bias: f32,    // 45 PIDB
+    pub add_blend: Option<bool>, // 46 ADDB - added in ?
+    pub use_depth_mask: Option<bool>, // ZMSK added in 10.8
+    pub alpha: Option<f32>, // 47 FALP - added in ?
+    pub color: Option<Color>, // 48 COLR - added in ?
+    pub light_map: Option<String>, // LMAP - added in 10.8
     pub reflection_probe: Option<String>, // REFL - added in 10.8
     pub reflection_strength: Option<f32>, // RSTR - added in 10.8
     pub refraction_probe: Option<String>, // REFR - added in 10.8
@@ -122,6 +145,79 @@ struct PrimitiveJson {
     refraction_thickness: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     part_group_name: Option<String>,
+}
+
+pub struct ReadMesh {
+    pub vertices: Vec<([u8; 32], Vertex3dNoTex2)>,
+    pub indices: Vec<i64>,
+}
+
+impl Primitive {
+    pub fn read_mesh(&self) -> Result<Option<ReadMesh>, WriteError> {
+        if let Some(vertices_data) = &self.compressed_vertices_data {
+            if let Some(indices_data) = &self.compressed_indices_data {
+                let raw_vertices = decompress_data(vertices_data)?;
+                let indices = decompress_data(indices_data)?;
+                let calculated_num_vertices = raw_vertices.len() / BYTES_PER_VERTEX;
+                assert_eq!(
+                    calculated_num_vertices,
+                    self.num_vertices.unwrap_or(0) as usize,
+                    "Vertices count mismatch"
+                );
+
+                let calculated_num_indices =
+                    if calculated_num_vertices > MAX_VERTICES_FOR_2_BYTE_INDEX {
+                        indices.len() / 4
+                    } else {
+                        indices.len() / 2
+                    };
+                assert_eq!(
+                    calculated_num_indices,
+                    self.num_indices.unwrap_or(0) as usize,
+                    "Indices count mismatch"
+                );
+                let num_vertices = raw_vertices.len() / 32;
+                let bytes_per_index: u8 = if num_vertices > MAX_VERTICES_FOR_2_BYTE_INDEX {
+                    4
+                } else {
+                    2
+                };
+                let mut vertices: Vec<([u8; 32], Vertex3dNoTex2)> =
+                    Vec::with_capacity(num_vertices);
+
+                let mut buff = BytesMut::from(raw_vertices.as_slice());
+                for _ in 0..num_vertices {
+                    let mut vertex = read_vertex(&mut buff);
+                    // invert the z axis for both position and normal
+                    vertex.1.z = -vertex.1.z;
+                    vertex.1.nz = -vertex.1.nz;
+                    vertices.push(vertex);
+                }
+
+                let mut buff = BytesMut::from(indices.as_slice());
+                let num_indices = indices.len() / bytes_per_index as usize;
+                let mut indices: Vec<i64> = Vec::with_capacity(num_indices);
+                for _ in 0..num_indices / 3 {
+                    // Looks like the indices are in reverse order
+                    let v1 = read_vertex_index_from_vpx(bytes_per_index, &mut buff);
+                    let v2 = read_vertex_index_from_vpx(bytes_per_index, &mut buff);
+                    let v3 = read_vertex_index_from_vpx(bytes_per_index, &mut buff);
+                    indices.push(v3);
+                    indices.push(v2);
+                    indices.push(v1);
+                }
+
+                Ok(Some(ReadMesh { vertices, indices }))
+            } else {
+                Err(WriteError::Io(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("Primitive {} has vertices but no indices", self.name),
+                )))
+            }
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 impl PrimitiveJson {
@@ -887,4 +983,122 @@ mod tests {
         let primitive_read = Primitive::biff_read(&mut BiffReader::new(writer.get_data()));
         assert_eq!(primitive, primitive_read);
     }
+}
+
+fn read_vertex_index_from_vpx(bytes_per_index: u8, buff: &mut BytesMut) -> i64 {
+    if bytes_per_index == 2 {
+        buff.get_u16_le() as i64
+    } else {
+        buff.get_u32_le() as i64
+    }
+}
+
+// This is how they were compressed using zlib
+//
+// const mz_ulong slen = (mz_ulong)(sizeof(Vertex3dNoTex2)*m_mesh.NumVertices());
+// mz_ulong clen = compressBound(slen);
+// mz_uint8 * c = (mz_uint8 *)malloc(clen);
+// if (compress2(c, &clen, (const unsigned char *)m_mesh.m_vertices.data(), slen, MZ_BEST_COMPRESSION) != Z_OK)
+// ShowError("Could not compress primitive vertex data");
+fn decompress_data(compressed_data: &[u8]) -> io::Result<Vec<u8>> {
+    let mut decoder = ZlibDecoder::new(compressed_data);
+    let mut decompressed_data = Vec::new();
+    decoder.read_to_end(&mut decompressed_data)?;
+    Ok(decompressed_data)
+}
+
+fn read_vertex(buffer: &mut BytesMut) -> ([u8; 32], Vertex3dNoTex2) {
+    let mut bytes = [0; 32];
+    buffer.copy_to_slice(&mut bytes);
+    let mut vertex_buff = BytesMut::from(bytes.as_ref());
+
+    let x = vertex_buff.get_f32_le();
+    let y = vertex_buff.get_f32_le();
+    let z = vertex_buff.get_f32_le();
+    // normals
+    let nx = vertex_buff.get_f32_le();
+    let ny = vertex_buff.get_f32_le();
+    let nz = vertex_buff.get_f32_le();
+    // texture coordinates
+    let tu = vertex_buff.get_f32_le();
+    let tv = vertex_buff.get_f32_le();
+    let v3d = Vertex3dNoTex2 {
+        x,
+        y,
+        z,
+        nx,
+        ny,
+        nz,
+        tu,
+        tv,
+    };
+    (bytes, v3d)
+}
+
+/// Animation frame vertex data
+/// this is combined with the primary mesh face and texture data.
+///
+/// This struct is used for serializing and deserializing in the vpinball C++ code
+#[derive(Debug, Clone, Copy)]
+pub struct VertData {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub nx: f32,
+    pub ny: f32,
+    pub nz: f32,
+}
+impl VertData {
+    pub const SERIALIZED_SIZE: usize = 24;
+}
+
+pub(crate) fn read_vpx_animation_frame(
+    compressed_frame: &[u8],
+    compressed_length: &u32,
+) -> Result<Vec<VertData>, WriteError> {
+    if compressed_frame.len() != *compressed_length as usize {
+        return Err(WriteError::Io(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "Animation frame compressed length does not match: {} != {}",
+                compressed_frame.len(),
+                compressed_length
+            ),
+        )));
+    }
+    let decompressed_frame = decompress_data(compressed_frame)?;
+    let frame_data_len = decompressed_frame.len() / VertData::SERIALIZED_SIZE;
+    let mut buff = BytesMut::from(decompressed_frame.as_slice());
+    let mut vertices: Vec<VertData> = Vec::with_capacity(frame_data_len);
+    for _ in 0..frame_data_len {
+        let vertex = read_animation_vertex_data(&mut buff);
+        vertices.push(vertex);
+    }
+    Ok(vertices)
+}
+
+fn read_animation_vertex_data(buffer: &mut BytesMut) -> VertData {
+    let x = buffer.get_f32_le();
+    let y = buffer.get_f32_le();
+    let z = buffer.get_f32_le();
+    let nx = buffer.get_f32_le();
+    let ny = buffer.get_f32_le();
+    let nz = buffer.get_f32_le();
+    VertData {
+        x,
+        y,
+        z,
+        nx,
+        ny,
+        nz,
+    }
+}
+
+pub(crate) fn write_animation_vertex_data(buff: &mut BytesMut, vertex: &VertData) {
+    buff.put_f32_le(vertex.x);
+    buff.put_f32_le(vertex.y);
+    buff.put_f32_le(vertex.z);
+    buff.put_f32_le(vertex.nx);
+    buff.put_f32_le(vertex.ny);
+    buff.put_f32_le(vertex.nz);
 }

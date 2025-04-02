@@ -1,16 +1,14 @@
-use bytes::{Buf, BufMut, BytesMut};
+use bytes::{BufMut, BytesMut};
 use std::collections::HashSet;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fmt::{Display, Formatter};
 use std::io::{self, BufRead, Read, Seek, Write};
 use std::iter::Zip;
-use std::path::PathBuf;
 use std::slice::Iter;
 use std::{fs::File, path::Path};
 
 use cfb::CompoundFile;
-use flate2::read::ZlibDecoder;
 use image::DynamicImage;
 use serde::de;
 use serde_json::Value;
@@ -27,7 +25,10 @@ use crate::vpx::biff::{BiffRead, BiffReader};
 use crate::vpx::custominfotags::CustomInfoTags;
 use crate::vpx::font::{FontData, FontDataJson};
 use crate::vpx::gameitem::GameItemEnum;
-use crate::vpx::gameitem::primitive::Primitive;
+use crate::vpx::gameitem::primitive::{
+    MAX_VERTICES_FOR_2_BYTE_INDEX, ReadMesh, VertData, read_vpx_animation_frame,
+    write_animation_vertex_data,
+};
 use crate::vpx::image::{ImageData, ImageDataBits, ImageDataJson};
 use crate::vpx::jsonmodel::{collections_json, info_to_json, json_to_collections, json_to_info};
 use crate::vpx::lzw::{from_lzw_blocks, to_lzw_blocks};
@@ -355,7 +356,7 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
 }
 
 fn write_image_bmp(
-    file_path: &PathBuf,
+    file_path: &Path,
     lzw_compressed_data: &[u8],
     width: u32,
     height: u32,
@@ -518,7 +519,7 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
     images
 }
 
-fn read_image_dimensions(file_path: &PathBuf) -> io::Result<Option<(u32, u32)>> {
+fn read_image_dimensions(file_path: &Path) -> io::Result<Option<(u32, u32)>> {
     let decoder = image::ImageReader::open(file_path)?.with_guessed_format()?;
     let dimensions_from_file = match decoder.into_dimensions() {
         Ok(dimensions) => Some(dimensions),
@@ -926,20 +927,6 @@ fn gameitem_filename_stem(file_name_gen: &mut FileNameGen, gameitem: &GameItemEn
     file_name_gen.ensure_unique(file_name)
 }
 
-// This is how they were compressed using zlib
-//
-// const mz_ulong slen = (mz_ulong)(sizeof(Vertex3dNoTex2)*m_mesh.NumVertices());
-// mz_ulong clen = compressBound(slen);
-// mz_uint8 * c = (mz_uint8 *)malloc(clen);
-// if (compress2(c, &clen, (const unsigned char *)m_mesh.m_vertices.data(), slen, MZ_BEST_COMPRESSION) != Z_OK)
-// ShowError("Could not compress primitive vertex data");
-fn decompress_data(compressed_data: &[u8]) -> io::Result<Vec<u8>> {
-    let mut decoder = ZlibDecoder::new(compressed_data);
-    let mut decompressed_data = Vec::new();
-    decoder.read_to_end(&mut decompressed_data)?;
-    Ok(decompressed_data)
-}
-
 fn compress_data(data: &[u8]) -> io::Result<Vec<u8>> {
     // before 10.6.1, compression was always LZW
     // "abuses the VP-Image-LZW compressor"
@@ -948,11 +935,6 @@ fn compress_data(data: &[u8]) -> io::Result<Vec<u8>> {
     encoder.write_all(data)?;
     encoder.finish()
 }
-
-const BYTES_PER_VERTEX: usize = 32;
-
-/// when there are more than 65535 vertices we use 4 bytes per index value
-const MAX_VERTICES_FOR_2_BYTE_INDEX: usize = 65535;
 
 /// for primitives we write fields m3cx, m3ci and m3ay's to separate files with bin extension
 fn write_gameitem_binaries(
@@ -963,45 +945,33 @@ fn write_gameitem_binaries(
     if let GameItemEnum::Primitive(primitive) = gameitem {
         // use wavefront-rs to write the vertices and indices
         // we first have to decompress the data as they are stored compressed
+        if let Some(ReadMesh { vertices, indices }) = &primitive.read_mesh()? {
+            let obj_path = gameitems_dir.join(format!("{}.obj", json_file_name));
+            write_obj(gameitem.name().to_string(), vertices, indices, &obj_path).map_err(|e| {
+                WriteError::Io(io::Error::new(io::ErrorKind::Other, format!("{}", e)))
+            })?;
 
-        if let Some(vertices_data) = &primitive.compressed_vertices_data {
-            if let Some(indices_data) = &primitive.compressed_indices_data {
-                let (vertices, indices) = read_mesh(primitive, vertices_data, indices_data)?;
-                let obj_path = gameitems_dir.join(format!("{}.obj", json_file_name));
-                write_obj(gameitem.name().to_string(), &vertices, &indices, &obj_path).map_err(
-                    |e| WriteError::Io(io::Error::new(io::ErrorKind::Other, format!("{}", e))),
-                )?;
-
-                if let Some(animation_frames) = &primitive.compressed_animation_vertices_data {
-                    if let Some(compressed_lengths) = &primitive.compressed_animation_vertices_len {
-                        // zip frames with the counts
-                        let zipped = animation_frames.iter().zip(compressed_lengths.iter());
-                        write_animation_frames_to_objs(
-                            gameitems_dir,
-                            gameitem,
-                            &json_file_name,
-                            &vertices,
-                            &indices,
-                            zipped,
-                        )?;
-                    } else {
-                        return Err(WriteError::Io(io::Error::new(
-                            io::ErrorKind::NotFound,
-                            format!(
-                                "Animation frames should always come with counts: {}",
-                                json_file_name
-                            ),
-                        )));
-                    }
+            if let Some(animation_frames) = &primitive.compressed_animation_vertices_data {
+                if let Some(compressed_lengths) = &primitive.compressed_animation_vertices_len {
+                    // zip frames with the counts
+                    let zipped = animation_frames.iter().zip(compressed_lengths.iter());
+                    write_animation_frames_to_objs(
+                        gameitems_dir,
+                        gameitem,
+                        &json_file_name,
+                        vertices,
+                        indices,
+                        zipped,
+                    )?;
+                } else {
+                    return Err(WriteError::Io(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        format!(
+                            "Animation frames should always come with counts: {}",
+                            json_file_name
+                        ),
+                    )));
                 }
-            } else {
-                return Err(WriteError::Io(io::Error::new(
-                    io::ErrorKind::NotFound,
-                    format!(
-                        "Vertices should always come with indices: {}",
-                        json_file_name
-                    ),
-                )));
             }
         }
     }
@@ -1058,160 +1028,6 @@ fn replace_vertices(
     Ok(full_vertices)
 }
 
-fn read_vpx_animation_frame(
-    compressed_frame: &[u8],
-    compressed_length: &u32,
-) -> Result<Vec<VertData>, WriteError> {
-    if compressed_frame.len() != *compressed_length as usize {
-        return Err(WriteError::Io(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!(
-                "Animation frame compressed length does not match: {} != {}",
-                compressed_frame.len(),
-                compressed_length
-            ),
-        )));
-    }
-    let decompressed_frame = decompress_data(compressed_frame)?;
-    let frame_data_len = decompressed_frame.len() / VertData::SERIALIZED_SIZE;
-    let mut buff = BytesMut::from(decompressed_frame.as_slice());
-    let mut vertices: Vec<VertData> = Vec::with_capacity(frame_data_len);
-    for _ in 0..frame_data_len {
-        let vertex = read_animation_vertex_data(&mut buff);
-        vertices.push(vertex);
-    }
-    Ok(vertices)
-}
-
-type ReadMesh = (Vec<([u8; 32], Vertex3dNoTex2)>, Vec<i64>);
-
-fn read_mesh(
-    primitive: &Primitive,
-    vertices_data: &[u8],
-    indices_data: &[u8],
-) -> Result<ReadMesh, WriteError> {
-    let raw_vertices = decompress_data(vertices_data)?;
-    let indices = decompress_data(indices_data)?;
-    let calculated_num_vertices = raw_vertices.len() / BYTES_PER_VERTEX;
-    assert_eq!(
-        calculated_num_vertices,
-        primitive.num_vertices.unwrap_or(0) as usize,
-        "Vertices count mismatch"
-    );
-
-    let calculated_num_indices = if calculated_num_vertices > MAX_VERTICES_FOR_2_BYTE_INDEX {
-        indices.len() / 4
-    } else {
-        indices.len() / 2
-    };
-    assert_eq!(
-        calculated_num_indices,
-        primitive.num_indices.unwrap_or(0) as usize,
-        "Indices count mismatch"
-    );
-    let num_vertices = raw_vertices.len() / 32;
-    let bytes_per_index: u8 = if num_vertices > MAX_VERTICES_FOR_2_BYTE_INDEX {
-        4
-    } else {
-        2
-    };
-    let mut vertices: Vec<([u8; 32], Vertex3dNoTex2)> = Vec::with_capacity(num_vertices);
-
-    let mut buff = BytesMut::from(raw_vertices.as_slice());
-    for _ in 0..num_vertices {
-        let mut vertex = read_vertex(&mut buff);
-        // invert the z axis for both position and normal
-        vertex.1.z = -vertex.1.z;
-        vertex.1.nz = -vertex.1.nz;
-        vertices.push(vertex);
-    }
-
-    let mut buff = BytesMut::from(indices.as_slice());
-    let num_indices = indices.len() / bytes_per_index as usize;
-    let mut indices: Vec<i64> = Vec::with_capacity(num_indices);
-    for _ in 0..num_indices / 3 {
-        // Looks like the indices are in reverse order
-        let v1 = read_vertex_index_from_vpx(bytes_per_index, &mut buff);
-        let v2 = read_vertex_index_from_vpx(bytes_per_index, &mut buff);
-        let v3 = read_vertex_index_from_vpx(bytes_per_index, &mut buff);
-        indices.push(v3);
-        indices.push(v2);
-        indices.push(v1);
-    }
-    Ok((vertices, indices))
-}
-
-/// Animation frame vertex data
-/// this is combined with the primary mesh face and texture data.
-///
-/// This struct is used for serializing and deserializing in the vpinball C++ code
-#[derive(Debug, Clone, Copy)]
-struct VertData {
-    x: f32,
-    y: f32,
-    z: f32,
-    nx: f32,
-    ny: f32,
-    nz: f32,
-}
-impl VertData {
-    const SERIALIZED_SIZE: usize = 24;
-}
-
-fn read_animation_vertex_data(buffer: &mut BytesMut) -> VertData {
-    let x = buffer.get_f32_le();
-    let y = buffer.get_f32_le();
-    let z = buffer.get_f32_le();
-    let nx = buffer.get_f32_le();
-    let ny = buffer.get_f32_le();
-    let nz = buffer.get_f32_le();
-    VertData {
-        x,
-        y,
-        z,
-        nx,
-        ny,
-        nz,
-    }
-}
-
-fn write_animation_vertex_data(buff: &mut BytesMut, vertex: &VertData) {
-    buff.put_f32_le(vertex.x);
-    buff.put_f32_le(vertex.y);
-    buff.put_f32_le(vertex.z);
-    buff.put_f32_le(vertex.nx);
-    buff.put_f32_le(vertex.ny);
-    buff.put_f32_le(vertex.nz);
-}
-
-fn read_vertex(buffer: &mut BytesMut) -> ([u8; 32], Vertex3dNoTex2) {
-    let mut bytes = [0; 32];
-    buffer.copy_to_slice(&mut bytes);
-    let mut vertex_buff = BytesMut::from(bytes.as_ref());
-
-    let x = vertex_buff.get_f32_le();
-    let y = vertex_buff.get_f32_le();
-    let z = vertex_buff.get_f32_le();
-    // normals
-    let nx = vertex_buff.get_f32_le();
-    let ny = vertex_buff.get_f32_le();
-    let nz = vertex_buff.get_f32_le();
-    // texture coordinates
-    let tu = vertex_buff.get_f32_le();
-    let tv = vertex_buff.get_f32_le();
-    let v3d = Vertex3dNoTex2 {
-        x,
-        y,
-        z,
-        nx,
-        ny,
-        nz,
-        tu,
-        tv,
-    };
-    (bytes, v3d)
-}
-
 pub trait BytesMutExt {
     fn put_f32_le_nan_as_zero(&mut self, value: f32);
 }
@@ -1255,14 +1071,6 @@ fn write_vertex_index_for_vpx(bytes_per_index: u8, vpx_indices: &mut BytesMut, v
         vpx_indices.put_u16_le(vertex_index as u16);
     } else {
         vpx_indices.put_u32_le(vertex_index as u32);
-    }
-}
-
-fn read_vertex_index_from_vpx(bytes_per_index: u8, buff: &mut BytesMut) -> i64 {
-    if bytes_per_index == 2 {
-        buff.get_u16_le() as i64
-    } else {
-        buff.get_u32_le() as i64
     }
 }
 
@@ -1360,7 +1168,7 @@ fn animation_frame_file_name(gameitem_file_name: &str, index: usize) -> String {
     format!("{}_anim_{}.obj", gameitem_file_name, index)
 }
 
-fn read_obj(obj_path: &PathBuf) -> io::Result<(usize, usize, Vec<u8>, Vec<u8>)> {
+fn read_obj(obj_path: &Path) -> io::Result<(usize, usize, Vec<u8>, Vec<u8>)> {
     let ObjData {
         name: _,
         vertices,
@@ -1431,7 +1239,7 @@ fn read_obj(obj_path: &PathBuf) -> io::Result<(usize, usize, Vec<u8>, Vec<u8>)> 
     ))
 }
 
-fn read_obj_as_frame(obj_path: &PathBuf) -> io::Result<Vec<VertData>> {
+fn read_obj_as_frame(obj_path: &Path) -> io::Result<Vec<VertData>> {
     let ObjData {
         name: _,
         vertices: obj_vertices,
@@ -1715,6 +1523,7 @@ mod test {
     use super::*;
     use crate::vpx::gameitem;
     use crate::vpx::gameitem::GameItemEnum;
+    use crate::vpx::gameitem::primitive::Primitive;
     use crate::vpx::image::ImageDataJpeg;
     use crate::vpx::sound::{OutputTarget, WaveForm};
     use crate::vpx::tableinfo::TableInfo;

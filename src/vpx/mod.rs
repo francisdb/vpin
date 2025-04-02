@@ -72,6 +72,30 @@ pub mod lzw;
 mod obj;
 pub(crate) mod wav;
 
+/// Convert from visual pinball units to millimeters
+#[inline(always)]
+pub fn mm_to_vpu(x: f32) -> f32 {
+    x * (50.0 / (25.4 * 1.0625))
+}
+
+/// Convert from visual pinball units to millimeters
+#[inline(always)]
+pub fn vpu_to_mm(x: f32) -> f32 {
+    x * (25.4 * 1.0625 / 50.0)
+}
+
+/// Convert from meters to visual pinball units
+#[inline(always)]
+pub fn m_to_vpu(x: f32) -> f32 {
+    x * 50.0 / (0.0254 * 1.0625)
+}
+
+/// Convert from visual pinball units to meters
+#[inline(always)]
+pub fn vpu_to_m(x: f32) -> f32 {
+    x * 0.0254 * 1.0625 / 50.0
+}
+
 /// In-memory representation of a VPX file
 ///
 /// *We guarantee an exact copy when reading and writing this. Exact as in the same structure and data, the underlying compound file will be a bit different on the binary level.*
@@ -307,7 +331,7 @@ pub fn open_rw<P: AsRef<Path>>(path: P) -> io::Result<VpxFile<File>> {
 /// see also [`write()`]
 ///
 /// **Note:** This might take up a lot of memory depending on the size of the VPX file.
-pub fn read(path: &PathBuf) -> io::Result<VPX> {
+pub fn read(path: &Path) -> io::Result<VPX> {
     if !path.exists() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
@@ -407,7 +431,7 @@ fn create_game_storage<F: Read + Write + Seek>(comp: &mut CompoundFile<F>) -> io
 /// * `vbs_file_path` Optional path to the script file to write. Defaults to the VPX sidecar script location.
 /// * `overwrite` If true, the script will be extracted even if it already exists
 pub fn extractvbs(
-    vpx_file_path: &PathBuf,
+    vpx_file_path: &Path,
     vbs_file_path: Option<PathBuf>,
     overwrite: bool,
 ) -> io::Result<ExtractResult> {
@@ -434,7 +458,7 @@ pub fn extractvbs(
 /// * `vbs_file_path` Optional path to the script file to import. Defaults to the VPX sidecar script location.
 ///
 /// see also [extractvbs]
-pub fn importvbs(vpx_file_path: &PathBuf, vbs_file_path: Option<PathBuf>) -> io::Result<PathBuf> {
+pub fn importvbs(vpx_file_path: &Path, vbs_file_path: Option<PathBuf>) -> io::Result<PathBuf> {
     let script_path = match vbs_file_path {
         Some(vbs_file_path) => vbs_file_path,
         None => vbs_path_for(vpx_file_path),
@@ -458,7 +482,7 @@ pub fn importvbs(vpx_file_path: &PathBuf, vbs_file_path: Option<PathBuf>) -> io:
 }
 
 /// Verifies the MAC signature of a VPX file
-pub fn verify(vpx_file_path: &PathBuf) -> VerifyResult {
+pub fn verify(vpx_file_path: &Path) -> VerifyResult {
     let result = move || -> io::Result<_> {
         let mut comp = cfb::open(vpx_file_path)?;
         let mac = read_mac(&mut comp)?;
@@ -468,32 +492,32 @@ pub fn verify(vpx_file_path: &PathBuf) -> VerifyResult {
     match result {
         Ok((mac, generated_mac)) => {
             if mac == generated_mac {
-                VerifyResult::Ok(vpx_file_path.clone())
+                VerifyResult::Ok(vpx_file_path.to_path_buf())
             } else {
                 VerifyResult::Failed(
-                    vpx_file_path.clone(),
+                    vpx_file_path.to_path_buf(),
                     format!("MAC mismatch: {:?} != {:?}", mac, generated_mac),
                 )
             }
         }
         Err(e) => VerifyResult::Failed(
-            vpx_file_path.clone(),
+            vpx_file_path.to_path_buf(),
             format!("Failed to read VPX file {}: {}", vpx_file_path.display(), e),
         ),
     }
 }
 
 /// Returns the path to the sidecar script for a given `vpx` file
-pub fn vbs_path_for(vpx_file_path: &PathBuf) -> PathBuf {
+pub fn vbs_path_for(vpx_file_path: &Path) -> PathBuf {
     path_for(vpx_file_path, "vbs")
 }
 
 /// Returns the path to table `ini` file
-pub fn ini_path_for(vpx_file_path: &PathBuf) -> PathBuf {
+pub fn ini_path_for(vpx_file_path: &Path) -> PathBuf {
     path_for(vpx_file_path, "ini")
 }
 
-fn path_for(vpx_file_path: &PathBuf, extension: &str) -> PathBuf {
+fn path_for(vpx_file_path: &Path, extension: &str) -> PathBuf {
     PathBuf::from(vpx_file_path).with_extension(extension)
 }
 
