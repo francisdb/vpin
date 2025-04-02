@@ -211,10 +211,7 @@ impl Primitive {
             } else {
                 Err(WriteError::Io(io::Error::new(
                     io::ErrorKind::NotFound,
-                    format!(
-                        "Primitive {} has vertices but no indices",
-                        self.name
-                    ),
+                    format!("Primitive {} has vertices but no indices", self.name),
                 )))
             }
         } else {
