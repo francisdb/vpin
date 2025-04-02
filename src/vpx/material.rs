@@ -300,7 +300,7 @@ impl SaveMaterial {
     }
 
     pub(crate) fn write(&self, bytes: &mut BytesMut) {
-        write_padded_cstring(self.name.as_str(), bytes, MAX_NAME_BUFFER);
+        write_padded_cstring_truncate(self.name.as_str(), bytes, MAX_NAME_BUFFER);
         bytes.put_u32_le(self.base_color.to_win_color());
         bytes.put_u32_le(self.glossy_color.to_win_color());
         bytes.put_u32_le(self.clearcoat_color.to_win_color());
@@ -405,7 +405,7 @@ impl SavePhysicsMaterial {
 
     pub(crate) fn write(&self, bytes: &mut BytesMut) {
         // write name as cstring with fixed size of MAX_NAME_BUFFER
-        write_padded_cstring(self.name.as_str(), bytes, MAX_NAME_BUFFER);
+        write_padded_cstring_truncate(self.name.as_str(), bytes, MAX_NAME_BUFFER);
         bytes.put_f32_le(self.elasticity);
         bytes.put_f32_le(self.elasticity_falloff);
         bytes.put_f32_le(self.friction);
@@ -416,14 +416,12 @@ impl SavePhysicsMaterial {
 /**
  * Writes a padded cstring to bytes
  * Fills remaining bytes with 0
+ * The string is encoded as latin1
  */
-fn write_padded_cstring(str: &str, bytes: &mut BytesMut, len: usize) {
-    let latin1_bytes = encode_latin1_lossy(str);
+fn write_padded_cstring_truncate(str: &str, bytes: &mut BytesMut, len: usize) {
+    let mut latin1_bytes = encode_latin1_lossy(str).into_owned();
     if latin1_bytes.len() > len - 1 {
-        panic!(
-            "String \"{}\" too long to write as padded cstring for size {}",
-            str, len
-        );
+        latin1_bytes.truncate(len - 1);
     }
     bytes.put_slice(&latin1_bytes);
     // put terminator
@@ -441,7 +439,7 @@ fn read_padded_cstring(bytes: &mut BytesMut, len: usize) -> Result<String, io::E
     let cstr = CStr::from_bytes_until_nul(&cname).map_err(|_e| {
         io::Error::new(
             io::ErrorKind::Other,
-            "Failed to read null-terminated string from bytes",
+            "Failed to read null-padded string from bytes",
         )
     })?;
     let s = decode_latin1(cstr.to_bytes());
@@ -737,9 +735,18 @@ mod tests {
     fn test_padded_cstring() {
         let s = "test";
         let mut bytes = BytesMut::new();
-        write_padded_cstring(s, &mut bytes, 32);
+        write_padded_cstring_truncate(s, &mut bytes, 32);
         let read_s = read_padded_cstring(&mut bytes, 32).unwrap();
         assert_eq!(s, read_s);
+    }
+
+    #[test]
+    fn test_padded_cstring_truncated() {
+        let s = "A too long string that should be truncated";
+        let mut bytes = BytesMut::new();
+        write_padded_cstring_truncate(s, &mut bytes, 8);
+        let read_s = read_padded_cstring(&mut bytes, 8).unwrap();
+        assert_eq!("A too l", read_s);
     }
 
     #[test]
