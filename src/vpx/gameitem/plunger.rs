@@ -1,8 +1,8 @@
+use super::vertex2d::Vertex2D;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
 use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-use super::vertex2d::Vertex2D;
 
 #[derive(Debug, PartialEq, Clone, Dummy)]
 pub enum PlungerType {
@@ -147,6 +147,8 @@ pub struct Plunger {
     pub editor_layer_name: Option<String>,
     // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+    /// Added in 10.8.1
+    pub part_group_name: Option<String>,
 }
 
 impl Default for Plunger {
@@ -189,6 +191,7 @@ impl Default for Plunger {
             editor_layer: 0,
             editor_layer_name: None,
             editor_layer_visibility: None,
+            part_group_name: None,
         }
     }
 }
@@ -227,6 +230,8 @@ struct PlungerJson {
     spring_gauge: f32,
     spring_loops: f32,
     spring_end_loops: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    part_group_name: Option<String>,
 }
 
 impl PlungerJson {
@@ -264,6 +269,7 @@ impl PlungerJson {
             spring_gauge: plunger.spring_gauge,
             spring_loops: plunger.spring_loops,
             spring_end_loops: plunger.spring_end_loops,
+            part_group_name: plunger.part_group_name.clone(),
         }
     }
 
@@ -309,6 +315,7 @@ impl PlungerJson {
             editor_layer_name: None,
             // this is populated from a different file
             editor_layer_visibility: None,
+            part_group_name: self.part_group_name.clone(),
         }
     }
 }
@@ -329,6 +336,24 @@ impl<'de> Deserialize<'de> for Plunger {
     {
         let json = PlungerJson::deserialize(deserializer)?;
         Ok(json.to_plunger())
+    }
+}
+
+impl HasSharedAttributes for Plunger {
+    fn is_locked(&self) -> bool {
+        self.is_locked
+    }
+    fn editor_layer(&self) -> u32 {
+        self.editor_layer
+    }
+    fn editor_layer_name(&self) -> Option<&str> {
+        self.editor_layer_name.as_deref()
+    }
+    fn editor_layer_visibility(&self) -> Option<bool> {
+        self.editor_layer_visibility
+    }
+    fn part_group_name(&self) -> Option<&str> {
+        self.part_group_name.as_deref()
     }
 }
 
@@ -457,6 +482,9 @@ impl BiffRead for Plunger {
                 "LVIS" => {
                     plunger.editor_layer_visibility = Some(reader.get_bool());
                 }
+                "GRUP" => {
+                    plunger.part_group_name = Some(reader.get_string());
+                }
                 _ => {
                     println!(
                         "Unknown tag {} for {}",
@@ -507,15 +535,8 @@ impl BiffWrite for Plunger {
         writer.write_tagged_f32("SPRG", self.spring_gauge);
         writer.write_tagged_f32("SPRL", self.spring_loops);
         writer.write_tagged_f32("SPRE", self.spring_end_loops);
-        // shared
-        writer.write_tagged_bool("LOCK", self.is_locked);
-        writer.write_tagged_u32("LAYR", self.editor_layer);
-        if let Some(editor_layer_name) = &self.editor_layer_name {
-            writer.write_tagged_string("LANR", editor_layer_name);
-        }
-        if let Some(editor_layer_visibility) = self.editor_layer_visibility {
-            writer.write_tagged_bool("LVIS", editor_layer_visibility);
-        }
+
+        self.write_shared_attributes(writer);
 
         writer.close(true);
     }
@@ -569,6 +590,7 @@ mod tests {
             editor_layer: 0,
             editor_layer_name: Some("test layer".to_string()),
             editor_layer_visibility: Some(false),
+            part_group_name: Some("test group".to_string()),
         };
         let mut writer = BiffWriter::new();
         Plunger::biff_write(&plunger, &mut writer);

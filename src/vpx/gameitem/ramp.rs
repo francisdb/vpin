@@ -1,9 +1,10 @@
+use super::dragpoint::DragPoint;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::gameitem::dragpoint;
 use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
+use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
 use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-use super::dragpoint::DragPoint;
 
 #[derive(Debug, PartialEq, Clone, Dummy)]
 pub enum RampType {
@@ -164,6 +165,8 @@ pub struct Ramp {
     pub editor_layer_name: Option<String>,
     // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+    /// Added in 10.8.1
+    pub part_group_name: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -199,6 +202,8 @@ struct RampJson {
     physics_material: Option<String>,
     overwrite_physics: Option<bool>, // true;
     drag_points: Vec<DragPoint>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    part_group_name: Option<String>,
 }
 
 impl RampJson {
@@ -235,6 +240,7 @@ impl RampJson {
             physics_material: ramp.physics_material.clone(),
             overwrite_physics: ramp.overwrite_physics,
             drag_points: ramp.drag_points.clone(),
+            part_group_name: ramp.part_group_name.clone(),
         }
     }
 
@@ -279,6 +285,7 @@ impl RampJson {
             editor_layer_name: None,
             // this is populated from a different file
             editor_layer_visibility: None,
+            part_group_name: self.part_group_name.clone(),
         }
     }
 }
@@ -340,7 +347,30 @@ impl Default for Ramp {
             editor_layer: Default::default(),
             editor_layer_name: None,
             editor_layer_visibility: None,
+            part_group_name: None,
         }
+    }
+}
+
+impl HasSharedAttributes for Ramp {
+    fn is_locked(&self) -> bool {
+        self.is_locked
+    }
+
+    fn editor_layer(&self) -> u32 {
+        self.editor_layer
+    }
+
+    fn editor_layer_name(&self) -> Option<&str> {
+        self.editor_layer_name.as_deref()
+    }
+
+    fn editor_layer_visibility(&self) -> Option<bool> {
+        self.editor_layer_visibility
+    }
+
+    fn part_group_name(&self) -> Option<&str> {
+        self.part_group_name.as_deref()
     }
 }
 
@@ -467,6 +497,9 @@ impl BiffRead for Ramp {
                 "LVIS" => {
                     ramp.editor_layer_visibility = Some(reader.get_bool());
                 }
+                "GRUP" => {
+                    ramp.part_group_name = Some(reader.get_string());
+                }
                 _ => {
                     println!(
                         "Unknown tag {} for {}",
@@ -523,18 +556,15 @@ impl BiffWrite for Ramp {
         if let Some(overwrite_physics) = self.overwrite_physics {
             writer.write_tagged_bool("OVPH", overwrite_physics);
         }
-        // shared
-        writer.write_tagged_bool("LOCK", self.is_locked);
-        writer.write_tagged_u32("LAYR", self.editor_layer);
-        if let Some(editor_layer_name) = &self.editor_layer_name {
-            writer.write_tagged_string("LANR", editor_layer_name);
-        }
-        if let Some(editor_layer_visibility) = self.editor_layer_visibility {
-            writer.write_tagged_bool("LVIS", editor_layer_visibility);
-        }
+
+        self.write_shared_attributes(writer);
+
         writer.write_marker_tag("PNTS");
+        // many of these
         for point in &self.drag_points {
-            writer.write_tagged("DPNT", point)
+            writer.new_tag("DPNT");
+            dragpoint::biff_write(point, writer, self.part_group_name.is_some());
+            writer.end_tag();
         }
 
         writer.close(true);
@@ -590,6 +620,7 @@ mod tests {
             editor_layer: 22,
             editor_layer_name: Some("editor_layer_name".to_string()),
             editor_layer_visibility: Some(true),
+            part_group_name: Some("part_group_name".to_string()),
         };
         let mut writer = BiffWriter::new();
         Ramp::biff_write(&ramp, &mut writer);

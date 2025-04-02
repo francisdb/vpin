@@ -444,6 +444,10 @@ pub struct GameData {
     /// version changes in a table (for example to guarantee untouched table for tournament)
     /// Used to be a boolean for a while in the 10.8 dev cycle but now is a lock counter.
     pub locked: Option<u32>, // TLCK (added in 10.8 for tournament mode?)
+
+    /// Exposure value for the table (EXPO)
+    /// Added in 10.8.1, defaults to 1.0
+    pub exposure: Option<f32>,
     // This is a bit of a hack because we want reproducible builds.
     // 10.8.0 beta 1-4 had EFSS at the old location, but it was moved to the new location in beta 5
     // Some tables were released with these old betas, so we need to support both locations to be 100% reproducing the orignal table
@@ -595,6 +599,8 @@ pub(crate) struct GameDataJson {
     pub protection_data: Option<Vec<u8>>,
     //pub code: StringWithEncoding,
     pub locked: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exposure: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_10_8_0_beta1_to_beta4: Option<bool>,
 }
@@ -771,6 +777,7 @@ impl GameDataJson {
             protection_data: self.protection_data.clone(),
             code: StringWithEncoding::empty(),
             locked: self.locked,
+            exposure: self.exposure,
             is_10_8_0_beta1_to_beta4: self.is_10_8_0_beta1_to_beta4.unwrap_or(false),
         }
     }
@@ -932,6 +939,7 @@ impl GameDataJson {
             protection_data: game_data.protection_data.clone(),
             // code: game_data.code.clone(),
             locked: game_data.locked,
+            exposure: game_data.exposure,
             is_10_8_0_beta1_to_beta4: Some(game_data.is_10_8_0_beta1_to_beta4)
                 .filter(|x| x == &true),
         }
@@ -1065,6 +1073,7 @@ impl Default for GameData {
             use_ao: None,                        //-1,
             use_ssr: None,                       //-1,
             tone_mapper: None,                   // 0 = TM_REINHARD,
+            exposure: None,                      // 1.0
             bloom_strength: 1.8,
             materials_size: 0,
             materials_old: Vec::new(),
@@ -1397,6 +1406,9 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
     if let Some(tmap) = &gamedata.tone_mapper {
         writer.write_tagged_u32("TMAP", tmap.into());
     }
+    if let Some(expo) = gamedata.exposure {
+        writer.write_tagged_f32("EXPO", expo);
+    }
     writer.write_tagged_f32("BLST", gamedata.bloom_strength);
     writer.write_tagged_u32("MASI", gamedata.materials_size);
     let mut bytes = BytesMut::new();
@@ -1614,6 +1626,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             "UAOC" => gamedata.use_ao = Some(reader.get_i32()),
             "USSR" => gamedata.use_ssr = Some(reader.get_i32()),
             "TMAP" => gamedata.tone_mapper = Some(reader.get_u32().into()),
+            "EXPO" => gamedata.exposure = Some(reader.get_f32()),
             "BLST" => gamedata.bloom_strength = reader.get_f32(),
             "MASI" => gamedata.materials_size = reader.get_u32(),
             "MATE" => {
@@ -1675,7 +1688,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             "TLCK" => gamedata.locked = Some(reader.get_u32()),
             other => {
                 let data = reader.get_record_data(false);
-                println!("unhandled tag {} {} bytes", other, data.len());
+                println!("unhandled gamedata tag {} {} bytes", other, data.len());
             }
         };
         previous_tag = tag;
@@ -1831,6 +1844,7 @@ mod tests {
             use_ao: Some(-3),
             use_ssr: Some(-4),
             tone_mapper: Faker.fake(),
+            exposure: Some(0.42),
             bloom_strength: 0.3,
             materials_size: 0,
             gameitems_size: 0,

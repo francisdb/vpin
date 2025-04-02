@@ -1,11 +1,11 @@
+use super::vertex3d::Vertex3D;
+use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
 };
 use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-use super::vertex3d::Vertex3D;
 
 #[derive(Debug, PartialEq, Dummy)]
 pub struct Primitive {
@@ -69,6 +69,8 @@ pub struct Primitive {
     pub editor_layer_name: Option<String>,
     // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+    /// Added in 10.8.1
+    pub part_group_name: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -118,6 +120,8 @@ struct PrimitiveJson {
     reflection_strength: Option<f32>,
     refraction_probe: Option<String>,
     refraction_thickness: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    part_group_name: Option<String>,
 }
 
 impl PrimitiveJson {
@@ -178,6 +182,7 @@ impl PrimitiveJson {
             reflection_strength: primitive.reflection_strength,
             refraction_probe: primitive.refraction_probe.clone(),
             refraction_thickness: primitive.refraction_thickness,
+            part_group_name: primitive.part_group_name.clone(),
         }
     }
     pub fn to_primitive(&self) -> Primitive {
@@ -243,6 +248,7 @@ impl PrimitiveJson {
             editor_layer_name: None,
             // this is populated from a different file
             editor_layer_visibility: None,
+            part_group_name: self.part_group_name.clone(),
         }
     }
 }
@@ -329,6 +335,7 @@ impl BiffRead for Primitive {
         let mut editor_layer: u32 = Default::default();
         let mut editor_layer_name: Option<String> = None;
         let mut editor_layer_visibility: Option<bool> = None;
+        let mut part_group_name: Option<String> = None;
 
         loop {
             reader.next(biff::WARN);
@@ -562,6 +569,9 @@ impl BiffRead for Primitive {
                 "LVIS" => {
                     editor_layer_visibility = Some(reader.get_bool());
                 }
+                "GRUP" => {
+                    part_group_name = Some(reader.get_string());
+                }
                 _ => {
                     println!(
                         "Unknown tag {} for {}",
@@ -630,7 +640,26 @@ impl BiffRead for Primitive {
             editor_layer,
             editor_layer_name,
             editor_layer_visibility,
+            part_group_name,
         }
+    }
+}
+
+impl HasSharedAttributes for Primitive {
+    fn is_locked(&self) -> bool {
+        self.is_locked
+    }
+    fn editor_layer(&self) -> u32 {
+        self.editor_layer
+    }
+    fn editor_layer_name(&self) -> Option<&str> {
+        self.editor_layer_name.as_deref()
+    }
+    fn editor_layer_visibility(&self) -> Option<bool> {
+        self.editor_layer_visibility
+    }
+    fn part_group_name(&self) -> Option<&str> {
+        self.part_group_name.as_deref()
     }
 }
 
@@ -770,15 +799,7 @@ impl BiffWrite for Primitive {
             writer.write_tagged_f32("RTHI", *refraction_thickness);
         }
 
-        // shared
-        writer.write_tagged_bool("LOCK", self.is_locked);
-        writer.write_tagged_u32("LAYR", self.editor_layer);
-        if let Some(editor_layer_name) = &self.editor_layer_name {
-            writer.write_tagged_string("LANR", editor_layer_name);
-        }
-        if let Some(editor_layer_visibility) = self.editor_layer_visibility {
-            writer.write_tagged_bool("LVIS", editor_layer_visibility);
-        }
+        self.write_shared_attributes(writer);
 
         writer.close(true);
     }
@@ -859,6 +880,7 @@ mod tests {
             editor_layer: 17,
             editor_layer_name: Some("editor_layer_name".to_string()),
             editor_layer_visibility: rng.random_option(),
+            part_group_name: Some("part_group_name".to_string()),
         };
         let mut writer = BiffWriter::new();
         Primitive::biff_write(&primitive, &mut writer);

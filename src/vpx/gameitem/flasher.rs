@@ -1,4 +1,7 @@
+use super::dragpoint::DragPoint;
+use crate::vpx::gameitem::dragpoint;
 use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
+use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
@@ -6,8 +9,6 @@ use crate::vpx::{
 use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
-
-use super::dragpoint::DragPoint;
 
 #[derive(Debug, PartialEq, Clone, Dummy, Default)]
 pub enum Filter {
@@ -101,6 +102,97 @@ impl<'de> Deserialize<'de> for Filter {
     }
 }
 
+/// RenderMode
+///
+/// Default in use by vpinball is Flasher
+/// Introduced in 10.8.1
+#[derive(Debug, PartialEq, Clone, Dummy, Default)]
+pub enum RenderMode {
+    /// Custom blended images
+    #[default]
+    Flasher = 0,
+    /// Dot matrix display (Plasma, LED, ...)
+    DMD = 1,
+    /// Screen (CRT, LCD, ...)
+    Display = 2,
+    /// Alphanumeric segment display (VFD, Plasma, LED, ...)
+    AlphaSeg = 3,
+}
+
+impl From<u32> for RenderMode {
+    fn from(value: u32) -> Self {
+        match value {
+            0 => RenderMode::Flasher,
+            1 => RenderMode::DMD,
+            2 => RenderMode::Display,
+            3 => RenderMode::AlphaSeg,
+            _ => panic!("Invalid RenderMode value {}", value),
+        }
+    }
+}
+
+impl From<&RenderMode> for u32 {
+    fn from(value: &RenderMode) -> Self {
+        match value {
+            RenderMode::Flasher => 0,
+            RenderMode::DMD => 1,
+            RenderMode::Display => 2,
+            RenderMode::AlphaSeg => 3,
+        }
+    }
+}
+
+impl Serialize for RenderMode {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let value = match self {
+            RenderMode::Flasher => "flasher",
+            RenderMode::DMD => "dmd",
+            RenderMode::Display => "display",
+            RenderMode::AlphaSeg => "alpha_seg",
+        };
+        serializer.serialize_str(value)
+    }
+}
+
+impl<'de> Deserialize<'de> for RenderMode {
+    fn deserialize<D>(deserializer: D) -> Result<RenderMode, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        match value {
+            Value::String(s) => match s.as_str() {
+                "flasher" => Ok(RenderMode::Flasher),
+                "dmd" => Ok(RenderMode::DMD),
+                "display" => Ok(RenderMode::Display),
+                "alpha_seg" => Ok(RenderMode::AlphaSeg),
+                _ => Err(serde::de::Error::custom(format!(
+                    "Invalid RenderMode value {}, expecting \"flasher\", \"dmd\", \"display\" or \"alpha_seg\"",
+                    s
+                ))),
+            },
+            Value::Number(n) => {
+                let n = n.as_u64().unwrap();
+                match n {
+                    0 => Ok(RenderMode::Flasher),
+                    1 => Ok(RenderMode::DMD),
+                    2 => Ok(RenderMode::Display),
+                    3 => Ok(RenderMode::AlphaSeg),
+                    _ => Err(serde::de::Error::custom(
+                        "Invalid RenderMode value, expecting 0, 1, 2 or 3",
+                    )),
+                }
+            }
+            _ => Err(serde::de::Error::custom(
+                "Invalid RenderMode value, expecting string or number",
+            )),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Dummy)]
 pub struct Flasher {
     pub height: f32,
@@ -119,8 +211,26 @@ pub struct Flasher {
     pub modulate_vs_add: f32,
     pub is_visible: bool,
     pub add_blend: bool,
+    /// IDMD added in 10.2? Since 10.8.1 no longer written and replaced by RDMD
     pub is_dmd: Option<bool>,
-    // IDMD added in 10.2?
+    /// Since 10.8.1
+    pub render_mode: Option<RenderMode>,
+    /// Since 10.8.1
+    pub render_style: Option<u32>,
+    /// Since 10.8.1
+    pub glass_roughness: Option<f32>,
+    /// Since 10.8.1
+    pub glass_ambient: Option<u32>,
+    /// Since 10.8.1
+    pub glass_pad_top: Option<f32>,
+    /// Since 10.8.1
+    pub glass_pad_bottom: Option<f32>,
+    /// Since 10.8.1
+    pub glass_pad_left: Option<f32>,
+    /// Since 10.8.1
+    pub glass_pad_right: Option<f32>,
+    /// Since 10.8.1
+    pub image_src_link: Option<String>,
     pub display_texture: bool,
     pub depth_bias: f32,
     pub image_alignment: RampImageAlignment,
@@ -128,6 +238,8 @@ pub struct Flasher {
     pub filter_amount: u32,
     // FIAM
     pub light_map: Option<String>,
+    // BGLS added in 10.8.1
+    pub backglass: Option<bool>,
     // LMAP added in 10.8
     pub drag_points: Vec<DragPoint>,
 
@@ -137,6 +249,8 @@ pub struct Flasher {
     pub editor_layer_name: Option<String>,
     // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+    /// Added in 10.8.1
+    pub part_group_name: Option<String>,
 }
 
 impl Default for Flasher {
@@ -159,18 +273,29 @@ impl Default for Flasher {
             is_visible: true,
             add_blend: false,
             is_dmd: None,
+            render_mode: None,
+            render_style: None,
+            glass_roughness: None,
+            glass_ambient: None,
+            glass_pad_top: None,
+            glass_pad_bottom: None,
+            glass_pad_left: None,
+            glass_pad_right: None,
+            image_src_link: None,
             display_texture: false,
             depth_bias: 0.0,
             image_alignment: RampImageAlignment::Wrap,
             filter: Filter::Overlay,
             filter_amount: 100,
             light_map: None,
+            backglass: None,
             drag_points: vec![],
 
             is_locked: false,
             editor_layer: 0,
             editor_layer_name: None,
             editor_layer_visibility: None,
+            part_group_name: None,
         }
     }
 }
@@ -194,12 +319,24 @@ pub(crate) struct FlasherJson {
     is_visible: bool,
     add_blend: bool,
     is_dmd: Option<bool>,
+    render_mode: Option<RenderMode>,
+    render_style: Option<u32>,
+    glass_roughness: Option<f32>,
+    glass_ambient: Option<u32>,
+    glass_pad_top: Option<f32>,
+    glass_pad_bottom: Option<f32>,
+    glass_pad_left: Option<f32>,
+    glass_pad_right: Option<f32>,
+    image_src_link: Option<String>,
     display_texture: bool,
     depth_bias: f32,
     image_alignment: RampImageAlignment,
     filter: Filter,
     filter_amount: u32,
     light_map: Option<String>,
+    backglass: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    part_group_name: Option<String>,
     drag_points: Vec<DragPoint>,
 }
 
@@ -223,12 +360,23 @@ impl FlasherJson {
             is_visible: flasher.is_visible,
             add_blend: flasher.add_blend,
             is_dmd: flasher.is_dmd,
+            render_mode: flasher.render_mode.clone(),
+            render_style: flasher.render_style,
+            glass_roughness: flasher.glass_roughness,
+            glass_ambient: flasher.glass_ambient,
+            glass_pad_top: flasher.glass_pad_top,
+            glass_pad_bottom: flasher.glass_pad_bottom,
+            glass_pad_left: flasher.glass_pad_left,
+            glass_pad_right: flasher.glass_pad_right,
+            image_src_link: flasher.image_src_link.clone(),
             display_texture: flasher.display_texture,
             depth_bias: flasher.depth_bias,
             image_alignment: flasher.image_alignment.clone(),
             filter: flasher.filter.clone(),
             filter_amount: flasher.filter_amount,
             light_map: flasher.light_map.clone(),
+            backglass: flasher.backglass,
+            part_group_name: flasher.part_group_name.clone(),
             drag_points: flasher.drag_points.clone(),
         }
     }
@@ -251,12 +399,23 @@ impl FlasherJson {
             is_visible: self.is_visible,
             add_blend: self.add_blend,
             is_dmd: self.is_dmd,
+            render_mode: self.render_mode.clone(),
+            render_style: self.render_style,
+            glass_roughness: self.glass_roughness,
+            glass_ambient: self.glass_ambient,
+            glass_pad_top: self.glass_pad_top,
+            glass_pad_bottom: self.glass_pad_bottom,
+            glass_pad_left: self.glass_pad_left,
+            glass_pad_right: self.glass_pad_right,
+            image_src_link: self.image_src_link.clone(),
             display_texture: self.display_texture,
             depth_bias: self.depth_bias,
             image_alignment: self.image_alignment.clone(),
             filter: self.filter.clone(),
             filter_amount: self.filter_amount,
             light_map: self.light_map.clone(),
+            backglass: self.backglass,
+            part_group_name: self.part_group_name.clone(),
             drag_points: self.drag_points.clone(),
             // this is populated from a different file
             is_locked: false,
@@ -286,6 +445,24 @@ impl<'de> Deserialize<'de> for Flasher {
     {
         let json = FlasherJson::deserialize(deserializer)?;
         Ok(json.to_flasher())
+    }
+}
+
+impl HasSharedAttributes for Flasher {
+    fn is_locked(&self) -> bool {
+        self.is_locked
+    }
+    fn editor_layer(&self) -> u32 {
+        self.editor_layer
+    }
+    fn editor_layer_name(&self) -> Option<&str> {
+        self.editor_layer_name.as_deref()
+    }
+    fn editor_layer_visibility(&self) -> Option<bool> {
+        self.editor_layer_visibility
+    }
+    fn part_group_name(&self) -> Option<&str> {
+        self.part_group_name.as_deref()
     }
 }
 
@@ -355,6 +532,33 @@ impl BiffRead for Flasher {
                 "IDMD" => {
                     flasher.is_dmd = Some(reader.get_bool());
                 }
+                "RDMD" => {
+                    flasher.render_mode = Some(reader.get_u32().into());
+                }
+                "RSTL" => {
+                    flasher.render_style = Some(reader.get_u32());
+                }
+                "GRGH" => {
+                    flasher.glass_roughness = Some(reader.get_f32());
+                }
+                "GAMB" => {
+                    flasher.glass_ambient = Some(reader.get_u32());
+                }
+                "GTOP" => {
+                    flasher.glass_pad_top = Some(reader.get_f32());
+                }
+                "GBOT" => {
+                    flasher.glass_pad_bottom = Some(reader.get_f32());
+                }
+                "GLFT" => {
+                    flasher.glass_pad_left = Some(reader.get_f32());
+                }
+                "GRHT" => {
+                    flasher.glass_pad_right = Some(reader.get_f32());
+                }
+                "LINK" => {
+                    flasher.image_src_link = Some(reader.get_string());
+                }
                 "FLDB" => {
                     flasher.depth_bias = reader.get_f32();
                 }
@@ -370,6 +574,9 @@ impl BiffRead for Flasher {
                 "LMAP" => {
                     flasher.light_map = Some(reader.get_string());
                 }
+                "BGLS" => {
+                    flasher.backglass = Some(reader.get_bool());
+                }
                 // shared
                 "LOCK" => {
                     flasher.is_locked = reader.get_bool();
@@ -382,6 +589,9 @@ impl BiffRead for Flasher {
                 }
                 "LVIS" => {
                     flasher.editor_layer_visibility = Some(reader.get_bool());
+                }
+                "GRUP" => {
+                    flasher.part_group_name = Some(reader.get_string());
                 }
 
                 "DPNT" => {
@@ -424,6 +634,33 @@ impl BiffWrite for Flasher {
         if let Some(is_dmd) = self.is_dmd {
             writer.write_tagged_bool("IDMD", is_dmd);
         }
+        if let Some(render_mode) = &self.render_mode {
+            writer.write_tagged_u32("RDMD", render_mode.into());
+        }
+        if let Some(render_style) = self.render_style {
+            writer.write_tagged_u32("RSTL", render_style);
+        }
+        if let Some(glass_roughness) = self.glass_roughness {
+            writer.write_tagged_f32("GRGH", glass_roughness);
+        }
+        if let Some(glass_ambient) = self.glass_ambient {
+            writer.write_tagged_u32("GAMB", glass_ambient);
+        }
+        if let Some(glass_pad_top) = self.glass_pad_top {
+            writer.write_tagged_f32("GTOP", glass_pad_top);
+        }
+        if let Some(glass_pad_bottom) = self.glass_pad_bottom {
+            writer.write_tagged_f32("GBOT", glass_pad_bottom);
+        }
+        if let Some(glass_pad_left) = self.glass_pad_left {
+            writer.write_tagged_f32("GLFT", glass_pad_left);
+        }
+        if let Some(glass_pad_right) = self.glass_pad_right {
+            writer.write_tagged_f32("GRHT", glass_pad_right);
+        }
+        if let Some(image_src_link) = &self.image_src_link {
+            writer.write_tagged_string("LINK", image_src_link);
+        }
         writer.write_tagged_f32("FLDB", self.depth_bias);
         writer.write_tagged_u32("ALGN", (&self.image_alignment).into());
         writer.write_tagged_u32("FILT", (&self.filter).into());
@@ -431,18 +668,17 @@ impl BiffWrite for Flasher {
         if let Some(light_map) = &self.light_map {
             writer.write_tagged_string("LMAP", light_map);
         }
-        // shared
-        writer.write_tagged_bool("LOCK", self.is_locked);
-        writer.write_tagged_u32("LAYR", self.editor_layer);
-        if let Some(editor_layer_name) = &self.editor_layer_name {
-            writer.write_tagged_string("LANR", editor_layer_name);
-        }
-        if let Some(editor_layer_visibility) = self.editor_layer_visibility {
-            writer.write_tagged_bool("LVIS", editor_layer_visibility);
+        if let Some(backglass) = &self.backglass {
+            writer.write_tagged_bool("BGLS", *backglass);
         }
 
-        for drag_point in &self.drag_points {
-            writer.write_tagged("DPNT", drag_point);
+        self.write_shared_attributes(writer);
+
+        // many of these
+        for point in &self.drag_points {
+            writer.new_tag("DPNT");
+            dragpoint::biff_write(point, writer, self.part_group_name.is_some());
+            writer.end_tag();
         }
 
         writer.close(true);
@@ -481,16 +717,27 @@ mod tests {
             is_visible: rng.random(),
             add_blend: rng.random(),
             is_dmd: rng.random_option(),
+            render_mode: Some(RenderMode::DMD),
+            render_style: rng.random_option(),
+            glass_roughness: rng.random_option(),
+            glass_ambient: rng.random_option(),
+            glass_pad_top: rng.random_option(),
+            glass_pad_bottom: rng.random_option(),
+            glass_pad_left: rng.random_option(),
+            glass_pad_right: rng.random_option(),
+            image_src_link: Some("test image src link".to_string()),
             display_texture: rng.random(),
             depth_bias: rng.random(),
             image_alignment: Faker.fake(),
             filter: Faker.fake(),
             filter_amount: rng.random(),
             light_map: Some("test light map".to_string()),
+            backglass: rng.random_option(),
             is_locked: rng.random(),
             editor_layer: rng.random(),
             editor_layer_name: Some("test layer".to_string()),
             editor_layer_visibility: rng.random_option(),
+            part_group_name: Some("test group".to_string()),
             drag_points: vec![DragPoint::default()],
         };
         let mut writer = BiffWriter::new();

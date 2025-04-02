@@ -1,8 +1,7 @@
-use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use super::GameItem;
+use crate::vpx::biff::{self, BiffRead, BiffReader};
 use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-use super::GameItem;
 
 #[derive(Debug, PartialEq, Clone, Dummy)]
 pub struct DragPoint {
@@ -200,31 +199,50 @@ impl BiffRead for DragPoint {
     }
 }
 
-impl BiffWrite for DragPoint {
-    fn biff_write(&self, writer: &mut biff::BiffWriter) {
-        writer.new_tag("VCEN");
-        writer.write_f32(self.x);
-        writer.write_f32(self.y);
-        writer.end_tag();
-        writer.write_tagged_f32("POSZ", self.z);
-        writer.write_tagged_bool("SMTH", self.smooth);
-        if let Some(is_slingshot) = self.is_slingshot {
-            writer.write_tagged_bool("SLNG", is_slingshot);
-        }
-        writer.write_tagged_bool("ATEX", self.has_auto_texture);
-        writer.write_tagged_f32("TEXC", self.tex_coord);
-        // shared
-        writer.write_tagged_bool("LOCK", self.is_locked);
-        writer.write_tagged_u32("LAYR", self.editor_layer);
-        if let Some(editor_layer_name) = &self.editor_layer_name {
-            writer.write_tagged_string("LANR", editor_layer_name);
-        }
-        if let Some(editor_layer_visibility) = self.editor_layer_visibility {
-            writer.write_tagged_bool("LVIS", editor_layer_visibility);
-        }
-        writer.close(true);
+//impl BiffWrite for DragPoint {
+pub(super) fn biff_write(
+    dp: &DragPoint,
+    writer: &mut biff::BiffWriter,
+    parent_is_using_groupname: bool,
+) {
+    writer.new_tag("VCEN");
+    writer.write_f32(dp.x);
+    writer.write_f32(dp.y);
+    writer.end_tag();
+    writer.write_tagged_f32("POSZ", dp.z);
+    writer.write_tagged_bool("SMTH", dp.smooth);
+    if let Some(is_slingshot) = dp.is_slingshot {
+        writer.write_tagged_bool("SLNG", is_slingshot);
     }
+    writer.write_tagged_bool("ATEX", dp.has_auto_texture);
+    writer.write_tagged_f32("TEXC", dp.tex_coord);
+
+    // this does not use all shared attributes
+    // the ordering depends on if the parent has switched to using groupname
+    writer.write_tagged_bool("LOCK", dp.is_locked);
+    if parent_is_using_groupname {
+        if let Some(visibility) = dp.editor_layer_visibility {
+            writer.write_tagged_bool("LVIS", visibility);
+        }
+        // will be removed in a future version
+        writer.write_tagged_u32("LAYR", dp.editor_layer);
+        // will be removed in a future version
+        if let Some(name) = &dp.editor_layer_name {
+            writer.write_tagged_string("LANR", name);
+        }
+    } else {
+        writer.write_tagged_u32("LAYR", dp.editor_layer);
+        if let Some(name) = &dp.editor_layer_name {
+            writer.write_tagged_string("LANR", name);
+        }
+        if let Some(visibility) = dp.editor_layer_visibility {
+            writer.write_tagged_bool("LVIS", visibility);
+        }
+    }
+
+    writer.close(true);
 }
+//}
 
 #[cfg(test)]
 mod tests {
@@ -250,7 +268,7 @@ mod tests {
             editor_layer_visibility: Some(true),
         };
         let mut writer = BiffWriter::new();
-        DragPoint::biff_write(&dragpoint, &mut writer);
+        biff_write(&dragpoint, &mut writer, false);
         let dragpoint_read = DragPoint::biff_read(&mut BiffReader::new(writer.get_data()));
         assert_eq!(dragpoint, dragpoint_read);
     }

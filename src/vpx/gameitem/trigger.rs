@@ -1,8 +1,8 @@
+use super::{dragpoint, dragpoint::DragPoint, vertex2d::Vertex2D};
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
 use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-use super::{dragpoint::DragPoint, vertex2d::Vertex2D};
 
 #[derive(Debug, PartialEq, Clone, Dummy, Default)]
 pub enum TriggerShape {
@@ -167,6 +167,8 @@ pub struct Trigger {
     pub editor_layer_name: Option<String>,
     // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
+    /// Added in 10.8.1
+    pub part_group_name: Option<String>,
 
     drag_points: Vec<DragPoint>,
 }
@@ -190,6 +192,8 @@ struct TriggerJson {
     shape: TriggerShape,
     anim_speed: f32,
     is_reflection_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    part_group_name: Option<String>,
     drag_points: Vec<DragPoint>,
 }
 
@@ -213,6 +217,7 @@ impl TriggerJson {
             shape: trigger.shape.clone(),
             anim_speed: trigger.anim_speed,
             is_reflection_enabled: trigger.is_reflection_enabled,
+            part_group_name: trigger.part_group_name.clone(),
             drag_points: trigger.drag_points.clone(),
         }
     }
@@ -243,6 +248,7 @@ impl TriggerJson {
             editor_layer_name: None,
             // this is populated from a different file
             editor_layer_visibility: None,
+            part_group_name: self.part_group_name.clone(),
             drag_points: self.drag_points.clone(),
         }
     }
@@ -291,8 +297,27 @@ impl Default for Trigger {
             editor_layer: Default::default(),
             editor_layer_name: None,
             editor_layer_visibility: None,
+            part_group_name: None,
             drag_points: Default::default(),
         }
+    }
+}
+
+impl HasSharedAttributes for Trigger {
+    fn is_locked(&self) -> bool {
+        self.is_locked
+    }
+    fn editor_layer(&self) -> u32 {
+        self.editor_layer
+    }
+    fn editor_layer_name(&self) -> Option<&str> {
+        self.editor_layer_name.as_deref()
+    }
+    fn editor_layer_visibility(&self) -> Option<bool> {
+        self.editor_layer_visibility
+    }
+    fn part_group_name(&self) -> Option<&str> {
+        self.part_group_name.as_deref()
     }
 }
 
@@ -374,6 +399,9 @@ impl BiffRead for Trigger {
                 "LVIS" => {
                     trigger.editor_layer_visibility = Some(reader.get_bool());
                 }
+                "GRUP" => {
+                    trigger.part_group_name = Some(reader.get_string());
+                }
                 "DPNT" => {
                     let point = DragPoint::biff_read(reader);
                     trigger.drag_points.push(point);
@@ -415,18 +443,14 @@ impl BiffWrite for Trigger {
         if let Some(is_reflection_enabled) = self.is_reflection_enabled {
             writer.write_tagged_bool("REEN", is_reflection_enabled);
         }
-        // shared
-        writer.write_tagged_bool("LOCK", self.is_locked);
-        writer.write_tagged_u32("LAYR", self.editor_layer);
-        if let Some(editor_layer_name) = &self.editor_layer_name {
-            writer.write_tagged_string("LANR", editor_layer_name);
-        }
-        if let Some(editor_layer_visibility) = self.editor_layer_visibility {
-            writer.write_tagged_bool("LVIS", editor_layer_visibility);
-        }
 
+        self.write_shared_attributes(writer);
+
+        // many of these
         for point in &self.drag_points {
-            writer.write_tagged("DPNT", point);
+            writer.new_tag("DPNT");
+            dragpoint::biff_write(point, writer, self.part_group_name.is_some());
+            writer.end_tag();
         }
 
         writer.close(true);
@@ -466,6 +490,7 @@ mod tests {
             editor_layer: 11,
             editor_layer_name: Some("test layer name".to_string()),
             editor_layer_visibility: Some(false),
+            part_group_name: Some("test group name".to_string()),
             drag_points: vec![DragPoint::default()],
         };
         let mut writer = BiffWriter::new();
