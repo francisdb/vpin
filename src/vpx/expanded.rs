@@ -277,18 +277,16 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
                 let dimensions_file = read_image_dimensions_from_file_steam(&file_name, cursor)?;
                 match dimensions_file {
                     Some((width_file, height_file)) => {
-                        if image.width != width_file {
+                        if image.width != width_file || image.height != height_file {
                             eprintln!(
-                                "Image width override for {} in vpx ({}) vs in image ({})",
-                                file_name, image.width, width_file
+                                "Image dimension override for {} in vpx {}x{} vs in image {}x{}",
+                                file_name, image.width, image.height, width_file, height_file
                             );
+                        }
+                        if image.width != width_file {
                             json.width = Some(image.width);
                         }
                         if image.height != height_file {
-                            eprintln!(
-                                "Image height override for {} in vpx ({}) vs in image ({})",
-                                file_name, image.height, height_file
-                            );
                             json.height = Some(image.height);
                         }
                     }
@@ -464,11 +462,11 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
 
                         let width = match image_data_json.width {
                             Some(w) => {
-                                if let Some(dimensions) = dimensions_from_file {
-                                    if w != dimensions.0 {
+                                if let Some((image_w,_)) = dimensions_from_file {
+                                    if w != image_w {
                                         eprintln!(
                                             "Image width override for {} in json ({}) vs in image ({})",
-                                            full_file_name, w, dimensions.0
+                                            full_file_name, w, image_w
                                         );
                                     }
                                 }
@@ -483,11 +481,11 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
 
                         let height = match image_data_json.height {
                             Some(h) => {
-                                if let Some(dimensions) = dimensions_from_file {
-                                    if h != dimensions.1 {
+                                if let Some((_,image_h)) = dimensions_from_file {
+                                    if h != image_h {
                                         eprintln!(
                                             "Image height override for {} in json ({}) vs in image ({})",
-                                            full_file_name, h, dimensions.1
+                                            full_file_name, h, image_h
                                         );
                                     }
                                 }

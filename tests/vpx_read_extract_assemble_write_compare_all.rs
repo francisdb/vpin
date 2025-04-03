@@ -30,12 +30,20 @@ mod test {
         // * Future Spa (Bally 1979) v4.3.vpx - NaN in table setup values
         // * InvaderTable_2.260.vpx - Symbol fonts
         // * Guns N Roses (Data East 1994).vpx - contains BMP with non-255 alpha values
+        // * Affected by https://github.com/vpinball/vpinball/pull/2286
+        //    - CAPTAINSPAULDINGv1.0.vpx - contains boolean value that is not 0 or 1
+        //    - RM054.vpx (Rick & Morty Wip)
+        // * TODO something with the M3CX
+        //    - Stranger Things 4 LPE 1.0 (Limited PRO Edition).vpx something with the M3CX
+        //    - Stranger Things 4 Premium.vpx also has problems with the M3CX
         let filtered: Vec<&PathBuf> = paths
             .iter()
-            // .filter(|path| {
-            //     let name = path.file_name().unwrap().to_str().unwrap();
-            //     name.contains("Bob")
-            // })
+            .filter(|path| {
+                let name = path.file_name().unwrap().to_str().unwrap();
+                !name.contains("CAPTAINSPAULDINGv1.0")
+                    && !name.contains("RM054")
+                    && !name.contains("Stranger Things 4")
+            })
             .collect();
 
         // TODO why is par_iter() not faster but just consuming all cpu cores?
