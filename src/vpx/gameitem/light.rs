@@ -1,4 +1,4 @@
-use super::{dragpoint, dragpoint::DragPoint, vertex2d::Vertex2D};
+use super::{dragpoint::DragPoint, vertex2d::Vertex2D};
 use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
 use crate::vpx::json::F32WithNanInf;
 use crate::vpx::{
@@ -615,9 +615,7 @@ impl BiffWrite for Light {
 
         // many of these
         for point in &self.drag_points {
-            writer.new_tag("DPNT");
-            dragpoint::biff_write(point, writer, self.part_group_name.is_some());
-            writer.end_tag();
+            writer.write_tagged("DPNT", point);
         }
         writer.close(true);
     }

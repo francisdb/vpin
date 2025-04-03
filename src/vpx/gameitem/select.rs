@@ -22,30 +22,17 @@ impl<T> WriteSharedAttributes for T
 where
     T: HasSharedAttributes,
 {
-    /// shared, order changed when part_group_name was introduced somewhere in 10.8.1 release cycle
     fn write_shared_attributes(&self, writer: &mut biff::BiffWriter) {
         writer.write_tagged_bool("LOCK", self.is_locked());
-
-        // Different ordering based on part_group_name presence
         if let Some(group_name) = self.part_group_name() {
-            if let Some(visibility) = self.editor_layer_visibility() {
-                writer.write_tagged_bool("LVIS", visibility);
-            }
-            // will be removed in a future version
-            writer.write_tagged_u32("LAYR", self.editor_layer());
-            // will be removed in a future version
-            if let Some(name) = self.editor_layer_name() {
-                writer.write_tagged_string("LANR", name);
-            }
             writer.write_tagged_string("GRUP", group_name);
-        } else {
-            writer.write_tagged_u32("LAYR", self.editor_layer());
-            if let Some(name) = self.editor_layer_name() {
-                writer.write_tagged_string("LANR", name);
-            }
-            if let Some(visibility) = self.editor_layer_visibility() {
-                writer.write_tagged_bool("LVIS", visibility);
-            }
+        }
+        writer.write_tagged_u32("LAYR", self.editor_layer());
+        if let Some(name) = self.editor_layer_name() {
+            writer.write_tagged_string("LANR", name);
+        }
+        if let Some(visibility) = self.editor_layer_visibility() {
+            writer.write_tagged_bool("LVIS", visibility);
         }
     }
 }

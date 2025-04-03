@@ -142,7 +142,7 @@ impl GameItemEnum {
             GameItemEnum::Flasher(flasher) => Some(flasher.editor_layer),
             GameItemEnum::Rubber(rubber) => Some(rubber.editor_layer),
             GameItemEnum::HitTarget(hittarget) => Some(hittarget.editor_layer),
-            GameItemEnum::PartGroup(partgroup) => Some(partgroup.editor_layer),
+            GameItemEnum::PartGroup(_partgroup) => None,
             GameItemEnum::Generic(_item_type, _generic) => None,
         }
     }
@@ -372,11 +372,7 @@ impl GameItemEnum {
                     hittarget.editor_layer = editor_layer;
                 }
             }
-            GameItemEnum::PartGroup(partgroup) => {
-                if let Some(editor_layer) = editor_layer {
-                    partgroup.editor_layer = editor_layer;
-                }
-            }
+            GameItemEnum::PartGroup(_partgroup) => {}
             GameItemEnum::Generic(_item_type, _generic) => {}
         }
     }
