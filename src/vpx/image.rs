@@ -98,7 +98,7 @@ impl ImageData {
 
     pub fn ext(&self) -> String {
         // TODO we might want to also check the jpeg fsPath
-        match self.path.split('.').last() {
+        match self.path.split('.').next_back() {
             Some(ext) => ext.to_string(),
             None => "bin".to_string(),
         }
@@ -227,7 +227,7 @@ impl ImageDataJson {
 
     pub(crate) fn ext(&self) -> String {
         // TODO we might want to also check the jpeg fsPath
-        match self.path.split('.').last() {
+        match self.path.split('.').next_back() {
             Some(ext) => ext.to_string(),
             None => "bin".to_string(),
         }
