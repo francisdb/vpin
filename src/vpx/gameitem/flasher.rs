@@ -1,5 +1,4 @@
 use super::dragpoint::DragPoint;
-use crate::vpx::gameitem::dragpoint;
 use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
 use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
 use crate::vpx::{
@@ -675,10 +674,8 @@ impl BiffWrite for Flasher {
         self.write_shared_attributes(writer);
 
         // many of these
-        for point in &self.drag_points {
-            writer.new_tag("DPNT");
-            dragpoint::biff_write(point, writer, self.part_group_name.is_some());
-            writer.end_tag();
+        for drag_point in &self.drag_points {
+            writer.write_tagged("DPNT", drag_point);
         }
 
         writer.close(true);

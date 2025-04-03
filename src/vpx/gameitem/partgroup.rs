@@ -139,7 +139,6 @@ pub struct PartGroup {
 
     // these are shared between all items
     pub is_locked: bool,
-    pub editor_layer: u32,
     pub editor_layer_name: Option<String>,
     // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
@@ -158,7 +157,6 @@ impl Default for PartGroup {
             visibility_mask: VisibilityMask::Playfield.into(),
             space_reference: SpaceReference::Inherit,
             is_locked: false,
-            editor_layer: 0,
             editor_layer_name: None,
             editor_layer_visibility: None,
         }
@@ -175,7 +173,6 @@ struct PartGroupJson {
     visibility_mask: u32,
     space_reference: SpaceReference,
     is_locked: bool,
-    editor_layer: u32,
     editor_layer_name: Option<String>,
     editor_layer_visibility: Option<bool>,
     // part_group_name: Option<String>,
@@ -192,7 +189,6 @@ impl PartGroupJson {
             visibility_mask: part_group.visibility_mask,
             space_reference: part_group.space_reference.clone(),
             is_locked: part_group.is_locked,
-            editor_layer: part_group.editor_layer,
             editor_layer_name: part_group.editor_layer_name.clone(),
             editor_layer_visibility: part_group.editor_layer_visibility,
         }
@@ -208,7 +204,6 @@ impl PartGroupJson {
             visibility_mask: self.visibility_mask,
             space_reference: self.space_reference.clone(),
             is_locked: self.is_locked,
-            editor_layer: self.editor_layer,
             editor_layer_name: self.editor_layer_name.clone(),
             editor_layer_visibility: self.editor_layer_visibility,
         }
@@ -269,9 +264,6 @@ impl BiffRead for PartGroup {
                 "LOCK" => {
                     part_group.is_locked = reader.get_bool();
                 }
-                "LAYR" => {
-                    part_group.editor_layer = reader.get_u32();
-                }
                 "LANR" => {
                     part_group.editor_layer_name = Some(reader.get_string());
                 }
@@ -311,7 +303,6 @@ impl BiffWrite for PartGroup {
         if let Some(editor_layer_visibility) = self.editor_layer_visibility {
             writer.write_tagged_bool("LVIS", editor_layer_visibility);
         }
-        writer.write_tagged_u32("LAYR", self.editor_layer);
         if let Some(editor_layer_name) = &self.editor_layer_name {
             writer.write_tagged_string("LANR", editor_layer_name);
         }
@@ -339,7 +330,6 @@ mod tests {
             visibility_mask: VisibilityMask::Playfield.into(),
             space_reference: SpaceReference::Cabinet,
             is_locked: true,
-            editor_layer: 1,
             editor_layer_name: Some("Layer 1".to_string()),
             editor_layer_visibility: Some(true),
         };

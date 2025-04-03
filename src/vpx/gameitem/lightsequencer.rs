@@ -208,26 +208,16 @@ impl BiffWrite for LightSequencer {
             writer.write_tagged_bool("LOCK", is_locked);
         }
         if let Some(part_group_name) = &self.part_group_name {
-            if let Some(editor_layer_visibility) = self.editor_layer_visibility {
-                writer.write_tagged_bool("LVIS", editor_layer_visibility);
-            }
-            if let Some(editor_layer) = self.editor_layer {
-                writer.write_tagged_u32("LAYR", editor_layer);
-            }
-            if let Some(editor_layer_name) = &self.editor_layer_name {
-                writer.write_tagged_string("LANR", editor_layer_name);
-            }
             writer.write_tagged_string("GRUP", part_group_name);
-        } else {
-            if let Some(editor_layer) = self.editor_layer {
-                writer.write_tagged_u32("LAYR", editor_layer);
-            }
-            if let Some(editor_layer_name) = &self.editor_layer_name {
-                writer.write_tagged_string("LANR", editor_layer_name);
-            }
-            if let Some(editor_layer_visibility) = self.editor_layer_visibility {
-                writer.write_tagged_bool("LVIS", editor_layer_visibility);
-            }
+        }
+        if let Some(editor_layer) = self.editor_layer {
+            writer.write_tagged_u32("LAYR", editor_layer);
+        }
+        if let Some(editor_layer_name) = &self.editor_layer_name {
+            writer.write_tagged_string("LANR", editor_layer_name);
+        }
+        if let Some(editor_layer_visibility) = self.editor_layer_visibility {
+            writer.write_tagged_bool("LVIS", editor_layer_visibility);
         }
 
         writer.close(true);

@@ -1,6 +1,5 @@
 use super::dragpoint::DragPoint;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite, BiffWriter};
-use crate::vpx::gameitem::dragpoint;
 use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
 use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -522,9 +521,7 @@ impl BiffWrite for Wall {
         writer.write_marker_tag("PNTS");
         // many of these
         for point in &self.drag_points {
-            writer.new_tag("DPNT");
-            dragpoint::biff_write(point, writer, self.part_group_name.is_some());
-            writer.end_tag();
+            writer.write_tagged("DPNT", point)
         }
 
         writer.close(true);
