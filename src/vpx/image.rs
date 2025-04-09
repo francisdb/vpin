@@ -70,7 +70,8 @@ pub struct ImageData {
     pub alpha_test_value: f32, // ALTV
     pub is_opaque: Option<bool>, // OPAQ (added in 10.8)
     pub is_signed: Option<bool>, // SIGN (added in 10.8)
-    // TODO we can probably only have one of these so we can make an enum
+    // TODO we can probably only have one of jpeg or bits so we can make an enum
+    /// This field is named jpeg, but it's actually used for any image this is not a bitmap
     pub jpeg: Option<ImageDataJpeg>,
     pub bits: Option<ImageDataBits>,
 }
