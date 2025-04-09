@@ -438,7 +438,19 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
                     .as_ref()
                     .unwrap_or(&image_data_json.name);
                 let full_file_name = format!("{}.{}", file_name, image_data_json.ext());
-                let file_path = images_dir.join(&full_file_name);
+                let mut file_path = images_dir.join(&full_file_name);
+
+                // We also support webp in case the image is a png, this was requested by a user
+                // https://github.com/francisdb/vpxtool/issues/521
+                let mut new_extension = None;
+                if image_data_json.ext() == "png" && !file_path.exists() {
+                    let file_path_webp = images_dir.join(format!("{}.webp", file_name));
+                    if file_path_webp.exists() {
+                        new_extension = Some("webp");
+                        file_path = file_path_webp;
+                    }
+                }
+
                 if file_path.exists() {
                     let mut image_file = File::open(&file_path)?;
                     let mut image_data = Vec::new();
@@ -462,7 +474,7 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
 
                         let width = match image_data_json.width {
                             Some(w) => {
-                                if let Some((image_w,_)) = dimensions_from_file {
+                                if let Some((image_w, _)) = dimensions_from_file {
                                     if w != image_w {
                                         eprintln!(
                                             "Image width override for {} in json ({}) vs in image ({})",
@@ -481,7 +493,7 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
 
                         let height = match image_data_json.height {
                             Some(h) => {
-                                if let Some((_,image_h)) = dimensions_from_file {
+                                if let Some((_, image_h)) = dimensions_from_file {
                                     if h != image_h {
                                         eprintln!(
                                             "Image height override for {} in json ({}) vs in image ({})",
@@ -501,6 +513,10 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
                         let mut image = image_data_json.to_image_data(width, height, None);
                         if let Some(jpg) = &mut image.jpeg {
                             jpg.data = image_data;
+                        }
+                        if let Some(new_extension) = new_extension {
+                            // we need to change the file extension for the path
+                            image.change_extension(new_extension);
                         }
                         image
                     };
@@ -1638,14 +1654,14 @@ mod test {
         // to a correct value here
         let gamedata: GameData = GameData {
             gameitems_size: 20,
-            images_size: 2,
+            images_size: 3,
             sounds_size: 2,
             fonts_size: 2,
             collections_size: 2,
             ..Default::default()
         };
 
-        let vpx = VPX {
+        let mut vpx = VPX {
             custominfotags: vec!["test prop 2".to_string(), "test prop".to_string()],
             info: TableInfo {
                 table_name: Some("test table name".to_string()),
@@ -1709,6 +1725,25 @@ mod test {
                     jpeg: Some(ImageDataJpeg {
                         path: "test.png jpeg".to_string(),
                         name: "test image jpeg".to_string(),
+                        internal_name: None,
+                        data: vec![0, 1, 2, 3],
+                    }),
+                    bits: None,
+                },
+                // this image will be replaced by a webp by the user
+                ImageData {
+                    name: "test image replaced".to_string(),
+                    internal_name: None,
+                    path: "replace.png".to_string(),
+                    width: 0,
+                    height: 0,
+                    link: None,
+                    alpha_test_value: 0.0,
+                    is_opaque: Some(true),
+                    is_signed: Some(false),
+                    jpeg: Some(ImageDataJpeg {
+                        path: "replace.png jpeg".to_string(),
+                        name: "test image replaced jpeg".to_string(),
                         internal_name: None,
                         data: vec![0, 1, 2, 3],
                     }),
@@ -1793,6 +1828,15 @@ mod test {
         };
 
         write(&vpx, &expanded_path)?;
+
+        // the user has updated one image from png to webp
+        let image_path = expanded_path.join("images").join("test image replaced.png");
+        let new_image_path = image_path.with_extension("webp");
+        std::fs::rename(&image_path, &new_image_path)?;
+
+        // adjust the image path in the vpx
+        vpx.images[1].change_extension("webp");
+
         let read = read(&expanded_path)?;
 
         assert_eq!(&vpx, &read);
