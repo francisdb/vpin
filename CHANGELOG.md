@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0](https://github.com/francisdb/vpin/compare/v0.17.6...v0.18.0) - 2025-04-09
+
+### Added
+
+- allow image with changed extension ([#141](https://github.com/francisdb/vpin/pull/141))
+- primitive mesh handling moved to primitive ([#134](https://github.com/francisdb/vpin/pull/134))
+- introduce part_group_name and extra flasher fields ([#136](https://github.com/francisdb/vpin/pull/136))
+
+### Fixed
+
+- *(vpx)* truncate material name for legacy format ([#138](https://github.com/francisdb/vpin/pull/138))
+
+### Other
+
+- reduce image size warning logs ([#140](https://github.com/francisdb/vpin/pull/140))
+- revert layer fields order change ([#139](https://github.com/francisdb/vpin/pull/139))
+
 ## [0.17.6](https://github.com/francisdb/vpin/compare/v0.17.5...v0.17.6) - 2025-03-10
 
 ### Other
