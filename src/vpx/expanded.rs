@@ -515,7 +515,7 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
                             jpg.data = image_data;
                         }
                         if let Some(new_extension) = new_extension {
-                            // we need to change the file extension for th path
+                            // we need to change the file extension for the path
                             image.change_extension(new_extension);
                         }
                         image
