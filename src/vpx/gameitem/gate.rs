@@ -19,7 +19,7 @@ impl From<u32> for GateType {
             2 => GateType::WireRectangle,
             3 => GateType::Plate,
             4 => GateType::LongPlate,
-            _ => panic!("Unknown GateType: {}", value),
+            _ => panic!("Unknown GateType: {value}"),
         }
     }
 }

@@ -27,7 +27,7 @@ impl From<u32> for Filter {
             2 => Filter::Overlay,
             3 => Filter::Multiply,
             4 => Filter::Screen,
-            _ => panic!("Invalid Filter value {}", value),
+            _ => panic!("Invalid Filter value {value}"),
         }
     }
 }
@@ -77,8 +77,7 @@ impl<'de> Deserialize<'de> for Filter {
                 "multiply" => Ok(Filter::Multiply),
                 "screen" => Ok(Filter::Screen),
                 _ => Err(serde::de::Error::custom(format!(
-                    "Invalid Filter value {}, expecting \"none\", \"additive\", \"overlay\", \"multiply\" or \"screen\"",
-                    s
+                    "Invalid Filter value {s}, expecting \"none\", \"additive\", \"overlay\", \"multiply\" or \"screen\""
                 ))),
             },
             Value::Number(n) => {
@@ -125,7 +124,7 @@ impl From<u32> for RenderMode {
             1 => RenderMode::DMD,
             2 => RenderMode::Display,
             3 => RenderMode::AlphaSeg,
-            _ => panic!("Invalid RenderMode value {}", value),
+            _ => panic!("Invalid RenderMode value {value}"),
         }
     }
 }
@@ -169,8 +168,7 @@ impl<'de> Deserialize<'de> for RenderMode {
                 "display" => Ok(RenderMode::Display),
                 "alpha_seg" => Ok(RenderMode::AlphaSeg),
                 _ => Err(serde::de::Error::custom(format!(
-                    "Invalid RenderMode value {}, expecting \"flasher\", \"dmd\", \"display\" or \"alpha_seg\"",
-                    s
+                    "Invalid RenderMode value {s}, expecting \"flasher\", \"dmd\", \"display\" or \"alpha_seg\""
                 ))),
             },
             Value::Number(n) => {

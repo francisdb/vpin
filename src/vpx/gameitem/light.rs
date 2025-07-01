@@ -19,7 +19,7 @@ impl From<u32> for ShadowMode {
         match value {
             0 => ShadowMode::None,
             1 => ShadowMode::RaytracedBallShadows,
-            _ => panic!("Unknown value for ShadowMode: {}", value),
+            _ => panic!("Unknown value for ShadowMode: {value}"),
         }
     }
 }
@@ -109,7 +109,7 @@ impl From<u32> for Fader {
             0 => Fader::None,
             1 => Fader::Linear,
             2 => Fader::Incandescent,
-            _ => panic!("Unknown value for Fader: {}", value),
+            _ => panic!("Unknown value for Fader: {value}"),
         }
     }
 }

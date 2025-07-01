@@ -31,7 +31,7 @@ impl From<u32> for ViewLayoutMode {
             0 => ViewLayoutMode::Legacy,
             1 => ViewLayoutMode::Camera,
             2 => ViewLayoutMode::Window,
-            _ => panic!("Invalid ViewLayoutMode {}", value),
+            _ => panic!("Invalid ViewLayoutMode {value}"),
         }
     }
 }

@@ -496,7 +496,7 @@ pub fn verify(vpx_file_path: &Path) -> VerifyResult {
             } else {
                 VerifyResult::Failed(
                     vpx_file_path.to_path_buf(),
-                    format!("MAC mismatch: {:?} != {:?}", mac, generated_mac),
+                    format!("MAC mismatch: {mac:?} != {generated_mac:?}"),
                 )
             }
         }
@@ -686,7 +686,7 @@ fn generate_mac<F: Read + Seek>(comp: &mut CompoundFile<F>) -> io::Result<Vec<u8
                 if biff.tag() == "CUST" {
                     let cust_name = biff.get_string();
                     //println!("Hashing custom information block {}", cust_name);
-                    let path = format!("TableInfo/{}", cust_name);
+                    let path = format!("TableInfo/{cust_name}");
                     if comp.exists(&path) {
                         let data = read_bytes_at(&path, comp)?;
                         hasher.update(&data);
@@ -710,8 +710,7 @@ fn read_bytes_at<F: Read + Seek, P: AsRef<Path>>(
     let mut bytes = Vec::new();
     let mut stream = comp.open_stream(&path)?;
     stream.read_to_end(&mut bytes).map_err(|e| {
-        io::Error::new(
-            io::ErrorKind::Other,
+        io::Error::other(
             format!("Failed to read bytes at {:?}, this might be because the file is open in write only mode. {}", path.as_ref(), e),
         )
     })?;
@@ -761,7 +760,7 @@ fn read_gameitems<F: Read + Seek>(
     let gamestg = Path::new(MAIN_SEPARATOR_STR).join("GameStg");
     (0..gamedata.gameitems_size)
         .map(|index| {
-            let path = gamestg.join(format!("GameItem{}", index));
+            let path = gamestg.join(format!("GameItem{index}"));
             let mut input = Vec::new();
             let mut stream = comp.open_stream(&path)?;
             stream.read_to_end(&mut input)?;
@@ -777,7 +776,7 @@ fn write_game_items<F: Read + Write + Seek>(
 ) -> io::Result<()> {
     let gamestg = Path::new(MAIN_SEPARATOR_STR).join("GameStg");
     for (index, gameitem) in gameitems.iter().enumerate() {
-        let path = gamestg.join(format!("GameItem{}", index));
+        let path = gamestg.join(format!("GameItem{index}"));
         let mut stream = comp.create_stream(&path)?;
         let data = gameitem::write(gameitem);
         stream.write_all(&data)?;
@@ -794,7 +793,7 @@ fn read_sounds<F: Read + Seek>(
         .map(|index| {
             let path = Path::new(MAIN_SEPARATOR_STR)
                 .join("GameStg")
-                .join(format!("Sound{}", index));
+                .join(format!("Sound{index}"));
             let mut input = Vec::new();
             let mut stream = comp.open_stream(&path)?;
             stream.read_to_end(&mut input)?;
@@ -813,7 +812,7 @@ fn write_sounds<F: Read + Write + Seek>(
     for (index, sound) in sounds.iter().enumerate() {
         let path = Path::new(MAIN_SEPARATOR_STR)
             .join("GameStg")
-            .join(format!("Sound{}", index));
+            .join(format!("Sound{index}"));
         let mut stream = comp.create_stream(&path)?;
         let mut writer = BiffWriter::new();
         sound::write(file_version, sound, &mut writer);
@@ -830,7 +829,7 @@ fn read_collections<F: Read + Seek>(
         .map(|index| {
             let path = Path::new(MAIN_SEPARATOR_STR)
                 .join("GameStg")
-                .join(format!("Collection{}", index));
+                .join(format!("Collection{index}"));
             let mut input = Vec::new();
             let mut stream = comp.open_stream(&path)?;
             stream.read_to_end(&mut input)?;
@@ -846,7 +845,7 @@ fn write_collections<F: Read + Write + Seek>(
     for (index, collection) in collections.iter().enumerate() {
         let path = Path::new(MAIN_SEPARATOR_STR)
             .join("GameStg")
-            .join(format!("Collection{}", index));
+            .join(format!("Collection{index}"));
         let mut stream = comp.create_stream(&path)?;
         let data = collection::write(collection);
         stream.write_all(&data)?;
@@ -864,7 +863,7 @@ fn read_images<F: Read + Seek>(
 }
 
 fn read_image<F: Read + Seek>(comp: &mut CompoundFile<F>, index: u32) -> Result<ImageData, Error> {
-    let path = format!("GameStg/Image{}", index);
+    let path = format!("GameStg/Image{index}");
     let mut input = Vec::new();
     let mut stream = comp.open_stream(&path)?;
     stream.read_to_end(&mut input)?;
@@ -887,7 +886,7 @@ fn write_image<F: Read + Write + Seek>(
     index: usize,
     image: &ImageData,
 ) -> Result<(), Error> {
-    let path = format!("GameStg/Image{}", index);
+    let path = format!("GameStg/Image{index}");
     let mut stream = comp.create_stream(&path)?;
     let mut writer = BiffWriter::new();
     image.biff_write(&mut writer);
@@ -931,7 +930,7 @@ fn images_to_webp<F: Read + Write + Seek>(
                     // should be lossless according to the docs
                     dynamic_image
                         .write_to(&mut cursor, ImageFormat::WebP)
-                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+                        .map_err(|e| io::Error::other(e.to_string()))?;
                     jpeg.data = webp;
                     write_image(comp, index as usize, &image_data)?;
                     conversions.push(ImageToWebpConversion {
@@ -959,7 +958,7 @@ fn images_to_webp<F: Read + Write + Seek>(
                     // should be lossless according to the docs
                     dynamic_image
                         .write_to(&mut cursor, ImageFormat::WebP)
-                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+                        .map_err(|e| io::Error::other(e.to_string()))?;
                     let jpg = ImageDataJpeg {
                         path: image_data.path.clone(),
                         name: image_data.name.clone(),
@@ -988,7 +987,7 @@ fn read_fonts<F: Read + Seek>(
 ) -> io::Result<Vec<FontData>> {
     (0..gamedata.fonts_size)
         .map(|index| {
-            let path = format!("GameStg/Font{}", index);
+            let path = format!("GameStg/Font{index}");
             let mut input = Vec::new();
             let mut stream = comp.open_stream(&path)?;
             stream.read_to_end(&mut input)?;
@@ -1004,7 +1003,7 @@ fn write_fonts<F: Read + Write + Seek>(
     fonts: &[FontData],
 ) -> io::Result<()> {
     for (index, font) in fonts.iter().enumerate() {
-        let path = format!("GameStg/Font{}", index);
+        let path = format!("GameStg/Font{index}");
         let mut stream = comp.create_stream(&path)?;
         let data = font::write(font);
         stream.write_all(&data)?;
@@ -1251,12 +1250,10 @@ mod tests {
                 },
             )
         );
-        println!("Initial size: {}, Final size: {}", initial_size, final_size);
+        println!("Initial size: {initial_size}, Final size: {final_size}");
         assert!(
             final_size < initial_size,
-            "Final size: {} >= Initial size: {}!",
-            final_size,
-            initial_size
+            "Final size: {final_size} >= Initial size: {initial_size}!"
         );
 
         Ok(())

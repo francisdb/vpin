@@ -25,7 +25,7 @@ impl From<i32> for MaterialType {
             -1 => MaterialType::Unknown,
             0 => MaterialType::Basic,
             1 => MaterialType::Metal,
-            _ => panic!("Invalid MaterialType {}", value),
+            _ => panic!("Invalid MaterialType {value}"),
         }
     }
 }
@@ -436,12 +436,8 @@ fn write_padded_cstring_truncate(str: &str, bytes: &mut BytesMut, len: usize) {
  */
 fn read_padded_cstring(bytes: &mut BytesMut, len: usize) -> Result<String, io::Error> {
     let cname = bytes.copy_to_bytes(len);
-    let cstr = CStr::from_bytes_until_nul(&cname).map_err(|_e| {
-        io::Error::new(
-            io::ErrorKind::Other,
-            "Failed to read null-padded string from bytes",
-        )
-    })?;
+    let cstr = CStr::from_bytes_until_nul(&cname)
+        .map_err(|_e| io::Error::other("Failed to read null-padded string from bytes"))?;
     let s = decode_latin1(cstr.to_bytes());
     Ok(s.to_string())
 }

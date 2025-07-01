@@ -27,7 +27,7 @@ impl From<u32> for VisibilityMask {
             0x0020 => VisibilityMask::ApronRight,
             0x0040 => VisibilityMask::MixedReality,
             0x0080 => VisibilityMask::VirtualReality,
-            _ => panic!("Unknown visibility mask value: {}", value),
+            _ => panic!("Unknown visibility mask value: {value}"),
         }
     }
 }
@@ -69,7 +69,7 @@ impl From<u32> for SpaceReference {
             2 => SpaceReference::CabinetFeet,
             3 => SpaceReference::Cabinet,
             4 => SpaceReference::Playfield,
-            _ => panic!("Unknown space reference value: {}", value),
+            _ => panic!("Unknown space reference value: {value}"),
         }
     }
 }
@@ -115,8 +115,7 @@ impl<'de> Deserialize<'de> for SpaceReference {
             "cabinet" => Ok(SpaceReference::Cabinet),
             "playfield" => Ok(SpaceReference::Playfield),
             _ => Err(serde::de::Error::custom(format!(
-                "Unknown space reference value: {}",
-                value
+                "Unknown space reference value: {value}"
             ))),
         }
     }

@@ -5,7 +5,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::fmt::Write;
 use std::hash::{Hash, Hasher};
 use std::io;
-use std::io::{Error, ErrorKind, Read};
+use std::io::{Error, Read};
 use std::path::Path;
 use testresult::TestResult;
 use vpin::directb2s;
@@ -19,7 +19,7 @@ fn read_all() -> TestResult {
     let home = dirs::home_dir().expect("no home dir");
     let folder = home.join("vpinball").join("tables");
     if !folder.exists() {
-        panic!("folder does not exist: {:?}", folder);
+        panic!("folder does not exist: {folder:?}");
     }
     let paths = common::find_files(&folder, "directb2s")?;
 
@@ -34,7 +34,7 @@ fn read_all() -> TestResult {
         .collect::<Vec<_>>();
 
     paths.par_iter().panic_fuse().try_for_each(|path| {
-        println!("testing: {:?}", path);
+        println!("testing: {path:?}");
 
         // read file to data
         let loaded = read_directb2s(path)?;
@@ -116,7 +116,7 @@ fn doc_to_tag_tree<W: Write>(
         }
     }
     node.children()
-        .try_for_each(|child| doc_to_tag_tree(&child, format!("{}  ", indent), writer))
+        .try_for_each(|child| doc_to_tag_tree(&child, format!("{indent}  "), writer))
 }
 
 fn write_node<W: Write>(
@@ -161,7 +161,7 @@ fn read_directb2s(path: &Path) -> Result<DirectB2SData, Error> {
     let reader = std::io::BufReader::new(file);
     directb2s::read(reader).map_err(|e| {
         let msg = format!("Error for {}: {}", path.display(), e);
-        io::Error::new(ErrorKind::Other, msg)
+        io::Error::other(msg)
     })
 }
 

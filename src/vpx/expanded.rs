@@ -62,8 +62,8 @@ impl Error for WriteError {
 impl Display for WriteError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            WriteError::Io(error) => write!(f, "IO error: {}", error),
-            WriteError::Json(error) => write!(f, "JSON error: {}", error),
+            WriteError::Io(error) => write!(f, "IO error: {error}"),
+            WriteError::Json(error) => write!(f, "JSON error: {error}"),
         }
     }
 }
@@ -235,10 +235,11 @@ where
     }
     let mut game_data_file = File::open(&game_data_path)?;
     serde_json::from_reader(&mut game_data_file).map_err(|e| {
-        io::Error::new(
-            io::ErrorKind::Other,
-            format!("Failed to parse/read json {}: {}", path.display(), e),
-        )
+        io::Error::other(format!(
+            "Failed to parse/read json {}: {}",
+            path.display(),
+            e
+        ))
     })
 }
 
@@ -370,19 +371,15 @@ fn write_image_bmp(
             .map(OsStr::to_string_lossy)
             .unwrap_or_default();
         eprintln!(
-            "Image {} has non-opaque pixels, writing as RGBA BMP that might not be supported by all applications",
-            file_name
+            "Image {file_name} has non-opaque pixels, writing as RGBA BMP that might not be supported by all applications"
         );
     }
     image_to_save.save(file_path).map_err(|image_error| {
-        io::Error::new(
-            io::ErrorKind::Other,
-            format!(
-                "Failed to write bitmap to {}: {}",
-                file_path.display(),
-                image_error
-            ),
-        )
+        io::Error::other(format!(
+            "Failed to write bitmap to {}: {}",
+            file_path.display(),
+            image_error
+        ))
     })
 }
 
@@ -444,7 +441,7 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
                 // https://github.com/francisdb/vpxtool/issues/521
                 let mut new_extension = None;
                 if image_data_json.ext() == "png" && !file_path.exists() {
-                    let file_path_webp = images_dir.join(format!("{}.webp", file_name));
+                    let file_path_webp = images_dir.join(format!("{file_name}.webp"));
                     if file_path_webp.exists() {
                         new_extension = Some("webp");
                         file_path = file_path_webp;
@@ -477,8 +474,7 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
                                 if let Some((image_w, _)) = dimensions_from_file {
                                     if w != image_w {
                                         eprintln!(
-                                            "Image width override for {} in json ({}) vs in image ({})",
-                                            full_file_name, w, image_w
+                                            "Image width override for {full_file_name} in json ({w}) vs in image ({image_w})"
                                         );
                                     }
                                 }
@@ -496,8 +492,7 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
                                 if let Some((_, image_h)) = dimensions_from_file {
                                     if h != image_h {
                                         eprintln!(
-                                            "Image height override for {} in json ({}) vs in image ({})",
-                                            full_file_name, h, image_h
+                                            "Image height override for {full_file_name} in json ({h}) vs in image ({image_h})"
                                         );
                                     }
                                 }
@@ -562,7 +557,7 @@ fn read_image_dimensions_from_file_steam<R: BufRead + Seek>(
                     "Detected image format {} for [{}] where the extension suggests {:?}",
                     decoder
                         .format()
-                        .map_or("unknown".to_string(), |f| format!("{:?}", f)),
+                        .map_or("unknown".to_string(), |f| format!("{f:?}")),
                     file_name,
                     format,
                 );
@@ -570,16 +565,13 @@ fn read_image_dimensions_from_file_steam<R: BufRead + Seek>(
             match decoder.into_dimensions() {
                 Ok(dimensions) => Some(dimensions),
                 Err(image_error) => {
-                    eprintln!(
-                        "Failed to read image dimensions for {}: {}",
-                        file_name, image_error
-                    );
+                    eprintln!("Failed to read image dimensions for {file_name}: {image_error}");
                     None
                 }
             }
         }
         Err(e) => {
-            eprintln!("Failed to determine image format for {}: {}", file_name, e);
+            eprintln!("Failed to determine image format for {file_name}: {e}");
             None
         }
     };
@@ -597,7 +589,7 @@ fn read_image_bmp(data: &[u8]) -> io::Result<ImageBmp> {
         |image_error| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("Failed to read BMP image: {}", image_error),
+                format!("Failed to read BMP image: {image_error}"),
             )
         },
     )?;
@@ -608,7 +600,7 @@ fn read_image_bmp(data: &[u8]) -> io::Result<ImageBmp> {
         other => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("BMP image uses {:?}, expecting Rgb8 or Rgba8 format", other),
+                format!("BMP image uses {other:?}, expecting Rgb8 or Rgba8 format"),
             ));
         }
     };
@@ -883,7 +875,7 @@ impl FileNameGen {
         loop {
             // There is a chance that the name we give is already used in one of the next files.
             // Therefore, we use double underscores to increase the chance it is unique.
-            unique_name = format!("{}__{}", file_name, counter);
+            unique_name = format!("{file_name}__{counter}");
             let unique_name_lower = unique_name.to_lowercase();
             if !self.used_names_lowercase.contains(&unique_name_lower) {
                 self.used_names_lowercase.insert(unique_name_lower);
@@ -960,10 +952,9 @@ fn write_gameitem_binaries(
         // use wavefront-rs to write the vertices and indices
         // we first have to decompress the data as they are stored compressed
         if let Some(ReadMesh { vertices, indices }) = &primitive.read_mesh()? {
-            let obj_path = gameitems_dir.join(format!("{}.obj", json_file_name));
-            write_obj(gameitem.name().to_string(), vertices, indices, &obj_path).map_err(|e| {
-                WriteError::Io(io::Error::new(io::ErrorKind::Other, format!("{}", e)))
-            })?;
+            let obj_path = gameitems_dir.join(format!("{json_file_name}.obj"));
+            write_obj(gameitem.name().to_string(), vertices, indices, &obj_path)
+                .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
 
             if let Some(animation_frames) = &primitive.compressed_animation_vertices_data {
                 if let Some(compressed_lengths) = &primitive.compressed_animation_vertices_len {
@@ -981,8 +972,7 @@ fn write_gameitem_binaries(
                     return Err(WriteError::Io(io::Error::new(
                         io::ErrorKind::NotFound,
                         format!(
-                            "Animation frames should always come with counts: {}",
-                            json_file_name
+                            "Animation frames should always come with counts: {json_file_name}"
                         ),
                     )));
                 }
@@ -1014,7 +1004,7 @@ fn write_animation_frames_to_objs(
             indices,
             &obj_path,
         )
-        .map_err(|e| WriteError::Io(io::Error::new(io::ErrorKind::Other, format!("{}", e))))?;
+        .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
     }
     Ok(())
 }
@@ -1127,7 +1117,7 @@ fn read_gameitem_binaries(
 ) -> io::Result<GameItemEnum> {
     if let GameItemEnum::Primitive(primitive) = &mut item {
         let gameitem_file_name = gameitem_file_name.trim_end_matches(".json");
-        let obj_path = gameitems_dir.join(format!("{}.obj", gameitem_file_name));
+        let obj_path = gameitems_dir.join(format!("{gameitem_file_name}.obj"));
         if obj_path.exists() {
             let (vertices_len, indices_len, compressed_vertices, compressed_indices) =
                 read_obj(&obj_path)?;
@@ -1179,7 +1169,7 @@ fn read_gameitem_binaries(
 }
 
 fn animation_frame_file_name(gameitem_file_name: &str, index: usize) -> String {
-    format!("{}_anim_{}.obj", gameitem_file_name, index)
+    format!("{gameitem_file_name}_anim_{index}.obj")
 }
 
 fn read_obj(obj_path: &Path) -> io::Result<(usize, usize, Vec<u8>, Vec<u8>)> {
@@ -1190,10 +1180,7 @@ fn read_obj(obj_path: &Path) -> io::Result<(usize, usize, Vec<u8>, Vec<u8>)> {
         normals,
         indices,
     } = read_obj_file(obj_path).map_err(|e| {
-        io::Error::new(
-            io::ErrorKind::Other,
-            format!("Error reading obj {}: {}", obj_path.display(), e),
-        )
+        io::Error::other(format!("Error reading obj {}: {}", obj_path.display(), e))
     })?;
 
     // zip the vertices, texture coordinates and normals into a single buffer
@@ -1261,10 +1248,7 @@ fn read_obj_as_frame(obj_path: &Path) -> io::Result<Vec<VertData>> {
         normals,
         indices: _,
     } = read_obj_file(obj_path).map_err(|e| {
-        io::Error::new(
-            io::ErrorKind::Other,
-            format!("Error reading obj {}: {}", obj_path.display(), e),
-        )
+        io::Error::other(format!("Error reading obj {}: {}", obj_path.display(), e))
     })?;
     let mut vertices: Vec<VertData> = Vec::with_capacity(obj_vertices.len());
     for (v, vn) in obj_vertices.iter().zip(normals.iter()) {
@@ -1361,7 +1345,7 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
     let images_path = root_dir_path.join("images");
     let images_size = gamedata.images_size;
     for index in 0..images_size {
-        let path = format!("GameStg/Image{}", index);
+        let path = format!("GameStg/Image{index}");
         let mut input = Vec::new();
         comp.open_stream(&path)
             .unwrap()
@@ -1389,7 +1373,7 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
     let sounds_size = gamedata.sounds_size;
     let sounds_path = root_dir_path.join("sounds");
     for index in 0..sounds_size {
-        let path = format!("GameStg/Sound{}", index);
+        let path = format!("GameStg/Sound{index}");
         let mut input = Vec::new();
         comp.open_stream(&path)
             .unwrap()
@@ -1416,7 +1400,7 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
     let fonts_size = gamedata.fonts_size;
     let fonts_path = root_dir_path.join("fonts");
     for index in 0..fonts_size {
-        let path = format!("GameStg/Font{}", index);
+        let path = format!("GameStg/Font{index}");
         let mut input = Vec::new();
         comp.open_stream(&path)
             .unwrap()
@@ -1446,7 +1430,7 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
     let gameitems_size = gamedata.gameitems_size;
     let mut file_name_gen = FileNameGen::default();
     for index in 0..gameitems_size {
-        let path = format!("GameStg/GameItem{}", index);
+        let path = format!("GameStg/GameItem{index}");
         let mut input = Vec::new();
         comp.open_stream(&path)
             .unwrap()
@@ -1455,7 +1439,7 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
         let gameitem = gameitem::read(&input);
         let mut gameitem_path = gameitems_path.clone();
         let file_name_stem = gameitem_filename_stem(&mut file_name_gen, &gameitem);
-        gameitem_path.push(format!("{}.json", file_name_stem));
+        gameitem_path.push(format!("{file_name_stem}.json"));
         files.push(gameitem_path.to_string_lossy().to_string());
     }
 

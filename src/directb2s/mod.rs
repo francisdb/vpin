@@ -658,7 +658,7 @@ impl std::fmt::Display for DMDType {
             DMDType::B2SAlwaysOnThirdMonitor => "B2SAlwaysOnThirdMonitor",
             DMDType::B2SOnSecondOrThirdMonitor => "B2SOnSecondOrThirdMonitor",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 

@@ -47,7 +47,7 @@ impl Version {
 impl Display for Version {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let version_float = self.version_float();
-        write!(f, "{}", version_float)
+        write!(f, "{version_float}")
     }
 }
 impl From<Version> for u32 {

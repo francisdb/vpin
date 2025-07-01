@@ -31,7 +31,7 @@ mod test {
         let home = dirs::home_dir().expect("no home dir");
         let folder = home.join("vpinball").join("tables");
         if !folder.exists() {
-            panic!("folder does not exist: {:?}", folder);
+            panic!("folder does not exist: {folder:?}");
         }
         let paths = find_files(&folder, "vpx")?;
         // testdir can not be used in non-main threads
@@ -47,7 +47,7 @@ mod test {
             //         .contains("diehard")
             // })
             .try_for_each(|vpx_path| {
-                println!("testing: {:?}", vpx_path);
+                println!("testing: {vpx_path:?}");
                 let test_vpx_path = read_and_write_vpx(&dir, vpx_path)?;
                 assert_equal_vpx(vpx_path, test_vpx_path.clone());
                 // if all is good we remove the test file

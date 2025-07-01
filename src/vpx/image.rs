@@ -331,7 +331,7 @@ fn read(reader: &mut BiffReader) -> ImageData {
                 image_data.link = Some(reader.get_u32());
             }
             _ => {
-                println!("Skipping image tag: {}", tag);
+                println!("Skipping image tag: {tag}");
                 reader.skip_tag();
             }
         }
@@ -398,7 +398,7 @@ fn read_jpeg(reader: &mut BiffReader) -> ImageDataJpeg {
             "INME" => internal_name = Some(reader.get_string()),
             _ => {
                 // skip this record
-                println!("skipping tag inside JPEG {}", tag);
+                println!("skipping tag inside JPEG {tag}");
                 reader.skip_tag();
             }
         }

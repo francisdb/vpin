@@ -44,7 +44,7 @@ pub fn read(input: &[u8]) -> Collection {
                 group_elements = reader.get_bool();
             }
             other => {
-                println!("Unknown tag: {}", other);
+                println!("Unknown tag: {other}");
                 reader.skip_tag();
             }
         }

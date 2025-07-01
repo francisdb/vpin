@@ -24,7 +24,7 @@ impl From<u32> for RampType {
             3 => RampType::ThreeWireLeft,
             4 => RampType::ThreeWireRight,
             5 => RampType::OneWire,
-            _ => panic!("Invalid RampType {}", value),
+            _ => panic!("Invalid RampType {value}"),
         }
     }
 }
