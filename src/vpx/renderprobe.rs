@@ -14,7 +14,7 @@ impl From<u32> for RenderProbeType {
         match i {
             0 => RenderProbeType::PlaneReflection,
             1 => RenderProbeType::ScreenSpaceTransparency,
-            _ => panic!("Unknown MaterialType {}", i),
+            _ => panic!("Unknown MaterialType {i}"),
         }
     }
 }
@@ -117,7 +117,7 @@ impl From<u32> for ReflectionMode {
             4 => ReflectionMode::StaticNDynamic,
             5 => ReflectionMode::Dynamic,
             6 => ReflectionMode::Unknown,
-            _ => panic!("Unknown ReflectionMode {}", i),
+            _ => panic!("Unknown ReflectionMode {i}"),
         }
     }
 }

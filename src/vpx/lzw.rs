@@ -110,8 +110,7 @@ mod tests {
                 if current_code_width == code_width {
                     if current_code == clear_code {
                         println!(
-                            "lzw_to_codes - clear code, reset code size to {}",
-                            start_code_width
+                            "lzw_to_codes - clear code, reset code size to {start_code_width}"
                         );
                         code_width = start_code_width;
                     } else {

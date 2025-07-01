@@ -21,7 +21,7 @@ impl From<u32> for PlungerType {
             1 => PlungerType::Modern,
             2 => PlungerType::Flat,
             3 => PlungerType::Custom,
-            _ => panic!("Invalid PlungerType value {}", value),
+            _ => panic!("Invalid PlungerType value {value}"),
         }
     }
 }

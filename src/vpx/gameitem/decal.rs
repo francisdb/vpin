@@ -35,7 +35,7 @@ impl From<u32> for DecalType {
         match value {
             0 => DecalType::Text,
             1 => DecalType::Image,
-            _ => panic!("Invalid value for DecalType: {}, we expect 0, 1", value),
+            _ => panic!("Invalid value for DecalType: {value}, we expect 0, 1"),
         }
     }
 }
@@ -67,8 +67,7 @@ impl<'de> Deserialize<'de> for DecalType {
                 "text" => Ok(DecalType::Text),
                 "image" => Ok(DecalType::Image),
                 _ => Err(serde::de::Error::custom(format!(
-                    "Invalid value for DecalType: {}, we expect \"text\", \"image\"",
-                    value
+                    "Invalid value for DecalType: {value}, we expect \"text\", \"image\""
                 ))),
             },
             Ok(Value::Number(value)) => {
@@ -77,14 +76,12 @@ impl<'de> Deserialize<'de> for DecalType {
                     0 => Ok(DecalType::Text),
                     1 => Ok(DecalType::Image),
                     _ => Err(serde::de::Error::custom(format!(
-                        "Invalid value for DecalType: {}, we expect 0, 1",
-                        value
+                        "Invalid value for DecalType: {value}, we expect 0, 1"
                     ))),
                 }
             }
             _ => Err(serde::de::Error::custom(format!(
-                "Invalid value for DecalType: {:?}, we expect a string or a number",
-                value
+                "Invalid value for DecalType: {value:?}, we expect a string or a number"
             ))),
         }
     }
@@ -106,7 +103,7 @@ impl From<u32> for SizingType {
             0 => SizingType::AutoSize,
             1 => SizingType::AutoWidth,
             2 => SizingType::ManualSize,
-            _ => panic!("Invalid value for SizingType: {}, we expect 0, 1, 2", value),
+            _ => panic!("Invalid value for SizingType: {value}, we expect 0, 1, 2"),
         }
     }
 }
@@ -140,8 +137,7 @@ impl<'de> Deserialize<'de> for SizingType {
                 "auto_width" => Ok(SizingType::AutoWidth),
                 "manual_size" => Ok(SizingType::ManualSize),
                 _ => Err(serde::de::Error::custom(format!(
-                    "Invalid value for SizingType: {}, we expect \"auto_size\", \"auto_width\", \"manual_size\"",
-                    value
+                    "Invalid value for SizingType: {value}, we expect \"auto_size\", \"auto_width\", \"manual_size\""
                 ))),
             },
             Ok(Value::Number(value)) => {
@@ -151,14 +147,12 @@ impl<'de> Deserialize<'de> for SizingType {
                     1 => Ok(SizingType::AutoWidth),
                     2 => Ok(SizingType::ManualSize),
                     _ => Err(serde::de::Error::custom(format!(
-                        "Invalid value for SizingType: {}, we expect 0, 1, 2",
-                        value
+                        "Invalid value for SizingType: {value}, we expect 0, 1, 2"
                     ))),
                 }
             }
             _ => Err(serde::de::Error::custom(format!(
-                "Invalid value for SizingType: {:?}, we expect a string or a number",
-                value
+                "Invalid value for SizingType: {value:?}, we expect a string or a number"
             ))),
         }
     }

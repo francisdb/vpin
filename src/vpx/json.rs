@@ -78,8 +78,7 @@ where
                     Ok(f)
                 } else {
                     Err(serde::de::Error::custom(format!(
-                        r#"expected "NaN|########", "Inf" or "-Inf", found {}"#,
-                        other
+                        r#"expected "NaN|########", "Inf" or "-Inf", found {other}"#
                     )))
                 }
             }
@@ -89,8 +88,7 @@ where
             .ok_or_else(|| serde::de::Error::custom("expected f64"))
             .map(|f| f as f32),
         other => Err(serde::de::Error::custom(format!(
-            r#"expected number, "NaN", "Inf" or "-Inf", found {}"#,
-            other
+            r#"expected number, "NaN", "Inf" or "-Inf", found {other}"#
         ))),
     }
 }

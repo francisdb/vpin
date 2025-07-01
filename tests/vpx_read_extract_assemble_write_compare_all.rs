@@ -16,7 +16,7 @@ mod test {
         let home = dirs::home_dir().expect("no home dir");
         let folder = home.join("vpinball").join("tables");
         if !folder.exists() {
-            panic!("folder does not exist: {:?}", folder);
+            panic!("folder does not exist: {folder:?}");
         }
         let paths = find_files(&folder, "vpx")?;
         // testdir can not be used in non-main threads
@@ -72,10 +72,8 @@ mod test {
         let extract_dir = dir.join("extracted");
         // make dir
         std::fs::create_dir_all(&extract_dir)?;
-        vpin::vpx::expanded::write(&original, &extract_dir)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-        let expanded_read = vpin::vpx::expanded::read(&extract_dir)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        vpin::vpx::expanded::write(&original, &extract_dir).map_err(io::Error::other)?;
+        let expanded_read = vpin::vpx::expanded::read(&extract_dir).map_err(io::Error::other)?;
         // special case for comparing code
         assert_eq!(original.gamedata.code, expanded_read.gamedata.code);
         let file_name = path.file_name().unwrap();

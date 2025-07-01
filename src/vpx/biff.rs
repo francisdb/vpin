@@ -97,7 +97,7 @@ impl<'a> BiffReader<'a> {
         let all = &self.data[self.pos..self.pos + 4];
         // Any other value is suspicious as it is not a boolean
         if all != [0, 0, 0, 0] && all != [1, 0, 0, 0] {
-            panic!("Unexpected bytes for bool: {:?}", all);
+            panic!("Unexpected bytes for bool: {all:?}");
         }
         let b = self.data[self.pos] != 0;
         self.pos += 4;
@@ -494,7 +494,7 @@ impl<'a> BiffReader<'a> {
             pos += 1;
         }
         if !found {
-            panic!("Tag {:?} not found", tag);
+            panic!("Tag {tag:?} not found");
         }
         // go back one u32 to the tag size
         pos -= 4;

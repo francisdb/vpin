@@ -25,7 +25,7 @@ impl From<u32> for KickerType {
             4 => KickerType::Williams,
             5 => KickerType::Gottlieb,
             6 => KickerType::Cup2,
-            _ => panic!("Invalid KickerType value {}", value),
+            _ => panic!("Invalid KickerType value {value}"),
         }
     }
 }

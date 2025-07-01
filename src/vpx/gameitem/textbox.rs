@@ -23,7 +23,7 @@ impl From<u32> for TextAlignment {
             0 => TextAlignment::Left,
             1 => TextAlignment::Center,
             2 => TextAlignment::Right,
-            _ => panic!("Invalid value for TextAlignment: {}", value),
+            _ => panic!("Invalid value for TextAlignment: {value}"),
         }
     }
 }

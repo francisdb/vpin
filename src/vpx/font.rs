@@ -88,7 +88,7 @@ pub fn read(input: &[u8]) -> FontData {
                 }
             },
             _ => {
-                println!("Skipping font tag: {}", tag_str);
+                println!("Skipping font tag: {tag_str}");
                 reader.skip_tag();
             }
         }

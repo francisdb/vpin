@@ -31,7 +31,7 @@ impl From<u8> for OutputTarget {
         match value {
             0 => OutputTarget::Table,
             1 => OutputTarget::Backglass,
-            _ => panic!("Invalid value for OutputTarget: {}, we expect 0, 1", value),
+            _ => panic!("Invalid value for OutputTarget: {value}, we expect 0, 1"),
         }
     }
 }
@@ -63,8 +63,7 @@ impl<'de> Deserialize<'de> for OutputTarget {
                 "table" => Ok(OutputTarget::Table),
                 "backglass" => Ok(OutputTarget::Backglass),
                 _ => Err(serde::de::Error::custom(format!(
-                    "Invalid value for OutputTarget: {}, we expect \"table\", \"backglass\"",
-                    value
+                    "Invalid value for OutputTarget: {value}, we expect \"table\", \"backglass\""
                 ))),
             },
             Ok(Value::Number(value)) => {
@@ -73,14 +72,12 @@ impl<'de> Deserialize<'de> for OutputTarget {
                     0 => Ok(OutputTarget::Table),
                     1 => Ok(OutputTarget::Backglass),
                     _ => Err(serde::de::Error::custom(format!(
-                        "Invalid value for OutputTarget: {}, we expect 0, 1",
-                        value
+                        "Invalid value for OutputTarget: {value}, we expect 0, 1"
                     ))),
                 }
             }
             _ => Err(serde::de::Error::custom(format!(
-                "Invalid value for OutputTarget: {:?}, we expect a string or a number",
-                value
+                "Invalid value for OutputTarget: {value:?}, we expect a string or a number"
             ))),
         }
     }
@@ -367,7 +364,7 @@ pub(crate) fn read(file_version: &Version, reader: &mut BiffReader) -> SoundData
                 volume = reader.get_u32_no_remaining_update();
             }
             unexpected => {
-                panic!("unexpected value {}", unexpected);
+                panic!("unexpected value {unexpected}");
             }
         }
     }
@@ -433,14 +430,14 @@ fn read_wave_form(reader: &mut BiffReader<'_>) -> WaveForm {
         cb_size,
     };
     if wave_form.format_tag != 1 {
-        println!("read wave_form: {:?}", wave_form);
+        println!("read wave_form: {wave_form:?}");
     }
     wave_form
 }
 
 fn write_wave_form(writer: &mut BiffWriter, wave_form: &WaveForm) {
     if wave_form.format_tag != 1 {
-        println!("write wave_form: {:?}", wave_form);
+        println!("write wave_form: {wave_form:?}");
     }
     writer.write_u16(wave_form.format_tag);
     writer.write_u16(wave_form.channels);

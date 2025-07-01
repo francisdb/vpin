@@ -16,7 +16,7 @@ impl From<u32> for RampImageAlignment {
             0 => RampImageAlignment::World,
             1 => RampImageAlignment::Wrap,
             2 => RampImageAlignment::Unknown,
-            _ => panic!("Invalid RampImageAlignment {}", value),
+            _ => panic!("Invalid RampImageAlignment {value}"),
         }
     }
 }

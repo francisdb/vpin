@@ -291,8 +291,7 @@ fn read_stream_string<F: Read + Write + Seek>(
 
     match WStr::from_utf16le(&buffer) {
         Ok(str) => Ok(str.to_utf8()),
-        Err(e) => Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
+        Err(e) => Err(std::io::Error::other(
             "Error reading stream as utf16le for path: ".to_owned()
                 + path.to_str().unwrap_or("[not unicode]")
                 + " "

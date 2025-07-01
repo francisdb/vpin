@@ -108,7 +108,7 @@ pub(crate) fn read_wav_header(reader: &mut BytesMut) -> WavHeader {
             (Some(extension_size), extra_fields)
         }
         _ => {
-            panic!("unsupported format_tag: {}", format_tag);
+            panic!("unsupported format_tag: {format_tag}");
             // let extension_size = reader.get_u16_le();
             // let extra_fields = reader.read_bytes_vec(extension_size as usize);
             // (Some(extension_size), extra_fields)

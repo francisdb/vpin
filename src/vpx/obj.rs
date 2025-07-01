@@ -19,10 +19,10 @@ fn obj_vpx_comment(bytes: &VpxNormalBytes) -> String {
     // a comment with the full normal bytes as hex string
     let hex = bytes
         .iter()
-        .map(|b| format!("{:02x}", b))
+        .map(|b| format!("{b:02x}"))
         .collect::<Vec<String>>()
         .join(" ");
-    format!("vpx {}", hex)
+    format!("vpx {hex}")
 }
 
 fn obj_parse_vpx_comment(comment: &str) -> Option<VpxNormalBytes> {
@@ -112,7 +112,7 @@ pub(crate) fn write_obj(
     for (bytes, vertex) in vertices {
         // if one of the values is NaN we write a special comment with the bytes
         if vertex.nx.is_nan() || vertex.ny.is_nan() || vertex.nz.is_nan() {
-            println!("NaN found in vertex normal: {:?}", vertex);
+            println!("NaN found in vertex normal: {vertex:?}");
             let data = bytes[12..24].try_into().unwrap();
             let content = obj_vpx_comment(&data);
             let comment = Entity::Comment { content };
@@ -219,8 +219,7 @@ pub(crate) fn read_obj<R: BufRead>(mut reader: &mut R) -> Result<ObjData, Box<dy
     })?;
     assert_eq!(
         object_count, 1,
-        "Only a single object is supported, found {}",
-        object_count
+        "Only a single object is supported, found {object_count}"
     );
 
     Ok(ObjData {

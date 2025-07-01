@@ -507,7 +507,7 @@ impl GameItemEnum {
             GameItemEnum::Rubber(_) => "Rubber".to_string(),
             GameItemEnum::HitTarget(_) => "HitTarget".to_string(),
             GameItemEnum::PartGroup(_) => "PartGroup".to_string(),
-            GameItemEnum::Generic(item_type, _) => format!("Generic_{}", item_type),
+            GameItemEnum::Generic(item_type, _) => format!("Generic_{item_type}"),
         }
     }
 

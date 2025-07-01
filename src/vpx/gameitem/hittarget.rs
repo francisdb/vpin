@@ -29,7 +29,7 @@ impl From<u32> for TargetType {
             7 => TargetType::DropTargetFlatSimple,
             8 => TargetType::HitFatTargetSlim,
             9 => TargetType::HitTargetSlim,
-            _ => panic!("Invalid TargetType value {}", value),
+            _ => panic!("Invalid TargetType value {value}"),
         }
     }
 }
