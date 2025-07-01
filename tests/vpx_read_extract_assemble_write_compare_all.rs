@@ -72,9 +72,8 @@ mod test {
         let extract_dir = dir.join("extracted");
         // make dir
         std::fs::create_dir_all(&extract_dir)?;
-        vpin::vpx::expanded::write(&original, &extract_dir).map_err(|e| io::Error::other(e))?;
-        let expanded_read =
-            vpin::vpx::expanded::read(&extract_dir).map_err(|e| io::Error::other(e))?;
+        vpin::vpx::expanded::write(&original, &extract_dir).map_err(io::Error::other)?;
+        let expanded_read = vpin::vpx::expanded::read(&extract_dir).map_err(io::Error::other)?;
         // special case for comparing code
         assert_eq!(original.gamedata.code, expanded_read.gamedata.code);
         let file_name = path.file_name().unwrap();
