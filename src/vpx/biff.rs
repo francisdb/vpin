@@ -460,7 +460,7 @@ impl<'a> BiffReader<'a> {
         }
     }
 
-    pub fn child_reader(&mut self) -> BiffReader {
+    pub fn child_reader(&mut self) -> BiffReader<'_> {
         BiffReader {
             data: &self.data[self.pos..],
             pos: 0,

@@ -1137,10 +1137,11 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
         writer.write_tagged_u32("CLMO", clmo);
     }
 
-    if version.u32() >= 1080 && !gamedata.is_10_8_0_beta1_to_beta4 {
-        if let Some(efss) = gamedata.bg_enable_fss {
-            writer.write_tagged_bool("EFSS", efss);
-        }
+    if version.u32() >= 1080
+        && !gamedata.is_10_8_0_beta1_to_beta4
+        && let Some(efss) = gamedata.bg_enable_fss
+    {
+        writer.write_tagged_bool("EFSS", efss);
     }
     if let Some(vsm0) = &gamedata.bg_view_mode_desktop {
         writer.write_tagged_u32("VSM0", vsm0.into());
@@ -1185,10 +1186,10 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
         writer.write_tagged_u32("VSM1", vsm1.into());
     }
 
-    if version.u32() < 1080 || gamedata.is_10_8_0_beta1_to_beta4 {
-        if let Some(efss) = gamedata.bg_enable_fss {
-            writer.write_tagged_bool("EFSS", efss);
-        }
+    if (version.u32() < 1080 || gamedata.is_10_8_0_beta1_to_beta4)
+        && let Some(efss) = gamedata.bg_enable_fss
+    {
+        writer.write_tagged_bool("EFSS", efss);
     }
     writer.write_tagged_f32("ROTF", gamedata.bg_rotation_fullscreen);
     writer.write_tagged_f32("INCF", gamedata.bg_inclination_fullscreen);
