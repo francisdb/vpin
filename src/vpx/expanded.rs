@@ -42,6 +42,44 @@ use crate::vpx::obj::{ObjData, read_obj_file, write_obj};
 use crate::vpx::renderprobe::{RenderProbeJson, RenderProbeWithGarbage};
 use crate::vpx::tableinfo::TableInfo;
 
+/// Sanitize a filename by replacing characters that are invalid on Windows/filesystem
+/// This includes: / \ : * ? " < > |
+/// Also handles reserved names and ensures the name isn't too long
+fn sanitize_filename(name: &str) -> String {
+    // Replace invalid characters
+    let sanitized = name.chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => c,
+        })
+        .collect::<String>();
+    
+    // Handle Windows reserved names (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
+    let sanitized = if matches!(sanitized.to_uppercase().as_str(), 
+        "CON" | "PRN" | "AUX" | "NUL" | 
+        "COM1" | "COM2" | "COM3" | "COM4" | "COM5" | "COM6" | "COM7" | "COM8" | "COM9" |
+        "LPT1" | "LPT2" | "LPT3" | "LPT4" | "LPT5" | "LPT6" | "LPT7" | "LPT8" | "LPT9") {
+        format!("_{}", sanitized)
+    } else {
+        sanitized
+    };
+    
+    // Trim whitespace and dots from the end (Windows requirement)
+    let sanitized = sanitized.trim_end_matches(|c: char| c.is_whitespace() || c == '.').to_string();
+    
+    // Ensure we have at least one character
+    if sanitized.is_empty() {
+        "unnamed".to_string()
+    } else {
+        // Limit length to avoid path length issues (leaving room for extension)
+        if sanitized.len() > 200 {
+            sanitized[..200].to_string()
+        } else {
+            sanitized
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum WriteError {
     Io(io::Error),
@@ -81,39 +119,75 @@ impl From<serde_json::Error> for WriteError {
 }
 
 pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
+    eprintln!("=== Starting VPX extraction process ===");
+    eprintln!("Target directory: {}", expanded_dir.as_ref().display());
+    
     // write the version as utf8 to version.txt
     let version_path = expanded_dir.as_ref().join("version.txt");
     let mut version_file = File::create(version_path)?;
     let version_string = vpx.version.to_u32_string();
     version_file.write_all(version_string.as_bytes())?;
+    eprintln!("✓ Version file written");
 
     // write the screenshot as a png
     if let Some(screenshot) = &vpx.info.screenshot {
         let screenshot_path = expanded_dir.as_ref().join("screenshot.png");
         let mut screenshot_file = File::create(screenshot_path)?;
         screenshot_file.write_all(screenshot)?;
+        eprintln!("✓ Screenshot written");
+    } else {
+        eprintln!("✓ No screenshot to write");
     }
 
     // write table metadata as json
+    eprintln!("Writing table info...");
     write_info(&vpx, expanded_dir)?;
+    eprintln!("✓ Table info written");
 
     // collections
+    eprintln!("Writing collections...");
     let collections_json_path = expanded_dir.as_ref().join("collections.json");
     let mut collections_json_file = File::create(collections_json_path)?;
     let json_collections = collections_json(&vpx.collections);
     serde_json::to_writer_pretty(&mut collections_json_file, &json_collections)?;
+    eprintln!("✓ Collections written");
+    
+    eprintln!("Writing game items...");
     write_gameitems(vpx, expanded_dir)?;
+    eprintln!("✓ Game items written");
+    
+    eprintln!("=== STARTING IMAGE PROCESSING ===");
     write_images(vpx, expanded_dir)?;
+    eprintln!("=== IMAGE PROCESSING COMPLETED ===");
+    
+    eprintln!("Writing sounds...");
     write_sounds(vpx, expanded_dir)?;
+    eprintln!("✓ Sounds written");
+    
+    eprintln!("Writing fonts...");
     write_fonts(vpx, expanded_dir)?;
+    eprintln!("✓ Fonts written");
+    
+    eprintln!("Writing game data...");
     write_game_data(vpx, expanded_dir)?;
+    eprintln!("✓ Game data written");
+    
     if vpx.gamedata.materials.is_some() {
+        eprintln!("Writing materials...");
         write_materials(vpx, expanded_dir)?;
+        eprintln!("✓ Materials written");
     } else {
+        eprintln!("Writing legacy materials...");
         write_old_materials(vpx, expanded_dir)?;
         write_old_materials_physics(vpx, expanded_dir)?;
+        eprintln!("✓ Legacy materials written");
     }
+    
+    eprintln!("Writing render probes...");
     write_renderprobes(vpx, expanded_dir)?;
+    eprintln!("✓ Render probes written");
+    
+    eprintln!("=== VPX extraction process completed successfully ===");
     Ok(())
 }
 
@@ -244,6 +318,8 @@ where
 }
 
 fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
+    eprintln!("Starting image processing - total images: {}", vpx.images.len());
+    
     // create an image index
     let images_index_path = expanded_dir.as_ref().join("images.json");
     let mut images_index_file = File::create(images_index_path)?;
@@ -254,7 +330,10 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
     let images: io::Result<Vec<(String, &ImageData)>> = vpx
         .images
         .iter()
-        .map(|image| {
+        .enumerate()
+        .map(|(image_index, image)| {
+            eprintln!("Processing image {}/{}: name='{}', size={}x{}", 
+                     image_index + 1, vpx.images.len(), image.name, image.width, image.height);
             let mut json = ImageDataJson::from_image_data(image);
             let lower_name = image.name.to_lowercase();
             if image_names_lower.contains(&lower_name) {
@@ -269,7 +348,9 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
             image_names_lower.insert(lower_name);
 
             let actual_name = json.name_dedup.as_ref().unwrap_or(&image.name);
-            let file_name = format!("{}.{}", actual_name, image.ext());
+            // Sanitize the filename to remove invalid characters for Windows/filesystem
+            let sanitized_name = sanitize_filename(actual_name);
+            let file_name = format!("{}.{}", sanitized_name, image.ext());
 
             if let Some(jpeg) = &image.jpeg {
                 // Only if the actual image dimensions are different from
@@ -305,6 +386,8 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
             // for bits images we don't store the dimensions in the json as they always match
 
             json_images.push(json);
+            eprintln!("Successfully processed image {}/{}: '{}'", 
+                     image_index + 1, vpx.images.len(), image.name);
             Ok((file_name, image))
         })
         .collect();
@@ -313,15 +396,31 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
 
     let images_dir = expanded_dir.as_ref().join("images");
     std::fs::create_dir_all(&images_dir)?;
-    images.iter().try_for_each(|(image_file_name, image)| {
+    eprintln!("Created images directory: {}", images_dir.display());
+    eprintln!("Starting to write {} image files to disk", images.len());
+    
+    images.iter().enumerate().try_for_each(|(file_index, (image_file_name, image))| {
+        eprintln!("Writing image file {}/{}: '{}'", 
+                 file_index + 1, images.len(), image_file_name);
         let file_path = images_dir.join(image_file_name);
+        eprintln!("Full file path: {}", file_path.display());
+        
         if !file_path.exists() {
-            let mut file = File::create(&file_path)?;
+            let mut file = File::create(&file_path).map_err(|e| {
+                eprintln!("ERROR: Failed to create file '{}': {}", file_path.display(), e);
+                e
+            })?;
             if image.is_link() {
+                eprintln!("Image is a link, no data to write");
                 Ok(())
             } else if let Some(jpeg) = &image.jpeg {
-                file.write_all(&jpeg.data)
+                eprintln!("Writing JPEG data ({} bytes)", jpeg.data.len());
+                file.write_all(&jpeg.data).map_err(|e| {
+                    eprintln!("ERROR: Failed to write JPEG data for '{}': {}", file_path.display(), e);
+                    e
+                })
             } else if let Some(bits) = &image.bits {
+                eprintln!("Writing BMP data (compressed size: {} bytes)", bits.lzw_compressed_data.len());
                 // the extension should be .bmp
                 assert_eq!(
                     image.ext().to_ascii_lowercase(),
@@ -334,23 +433,31 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
                     &bits.lzw_compressed_data,
                     image.width,
                     image.height,
-                )
+                ).map_err(|e| {
+                    eprintln!("ERROR: Failed to write BMP image '{}': {}", file_path.display(), e);
+                    e
+                })
             } else {
-                Err(io::Error::new(
+                let err = io::Error::new(
                     io::ErrorKind::InvalidData,
                     format!("Image has no data: {}", file_path.display()),
-                ))
+                );
+                eprintln!("ERROR: {}", err);
+                Err(err)
             }
         } else {
-            Err(io::Error::new(
+            let err = io::Error::new(
                 io::ErrorKind::AlreadyExists,
                 format!(
                     "Two images with the same name detected, should not happen: {}",
                     file_path.display()
                 ),
-            ))
+            );
+            eprintln!("ERROR: {}", err);
+            Err(err)
         }
     })?;
+    eprintln!("Successfully completed writing all {} images", images.len());
     Ok(())
 }
 
@@ -640,7 +747,8 @@ fn write_sounds<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
             sound_names_lower.insert(lower_name);
 
             let actual_name = json.name_dedup.as_ref().unwrap_or(&sound.name);
-            let file_name = format!("{}.{}", actual_name, sound.ext());
+            let sanitized_name = sanitize_filename(actual_name);
+            let file_name = format!("{}.{}", sanitized_name, sound.ext());
             json_sounds.push(json);
             (file_name, sound)
         })
@@ -710,7 +818,8 @@ fn write_fonts<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteE
     let fonts_dir = expanded_dir.as_ref().join("fonts");
     std::fs::create_dir_all(&fonts_dir)?;
     vpx.fonts.iter().try_for_each(|font| {
-        let file_name = format!("{}.{}", font.name, font.ext());
+        let sanitized_name = sanitize_filename(&font.name);
+        let file_name = format!("{}.{}", sanitized_name, font.ext());
         let font_path = fonts_dir.join(file_name);
         let mut file = File::create(font_path)?;
         file.write_all(&font.data)
@@ -734,7 +843,8 @@ fn read_fonts<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<FontData>> {
     let fonts: io::Result<Vec<FontData>> = fonts_index
         .into_iter()
         .map(|mut font| {
-            let file_name = format!("{}.{}", font.name, font.ext());
+            let sanitized_name = sanitize_filename(&font.name);
+            let file_name = format!("{}.{}", sanitized_name, font.ext());
             let font_path = fonts_dir.join(file_name);
             if font_path.exists() {
                 let mut font_file = File::open(&font_path)?;
