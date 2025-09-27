@@ -86,73 +86,76 @@ impl From<serde_json::Error> for WriteError {
     }
 }
 
-#[macro_export]
-macro_rules! verbose_info {
-    ($verbose:expr, $($arg:tt)*) => {
-        if $verbose {
-            log::info!($($arg)*);
-        }
-    };
-}
-
-pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P, verbose: bool) -> Result<(), WriteError> {
-    verbose_info!(verbose, "=== Starting VPX extraction process ===");
-    verbose_info!(verbose, "Target directory: {}", expanded_dir.as_ref().display());
+pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
+    log::info!("=== Starting VPX extraction process ===");
+    log::info!("Target directory: {}", expanded_dir.as_ref().display());
+    
     // write the version as utf8 to version.txt
     let version_path = expanded_dir.as_ref().join("version.txt");
     let mut version_file = File::create(version_path)?;
     let version_string = vpx.version.to_u32_string();
     version_file.write_all(version_string.as_bytes())?;
-    verbose_info!(verbose, "✓ Version file written");
+    log::info!("✓ Version file written");
+
     // write the screenshot as a png
     if let Some(screenshot) = &vpx.info.screenshot {
         let screenshot_path = expanded_dir.as_ref().join("screenshot.png");
         let mut screenshot_file = File::create(screenshot_path)?;
         screenshot_file.write_all(screenshot)?;
-        verbose_info!(verbose, "✓ Screenshot written");
+        log::info!("✓ Screenshot written");
     } else {
-        verbose_info!(verbose, "✓ No screenshot to write");
+        log::info!("✓ No screenshot to write");
     }
+
     // write table metadata as json
-    verbose_info!(verbose, "Writing table info...");
+    log::info!("Writing table info...");
     write_info(&vpx, expanded_dir)?;
-    verbose_info!(verbose, "✓ Table info written");
+    log::info!("✓ Table info written");
+
     // collections
-    verbose_info!(verbose, "Writing collections...");
+    log::info!("Writing collections...");
     let collections_json_path = expanded_dir.as_ref().join("collections.json");
     let mut collections_json_file = File::create(collections_json_path)?;
     let json_collections = collections_json(&vpx.collections);
     serde_json::to_writer_pretty(&mut collections_json_file, &json_collections)?;
-    verbose_info!(verbose, "✓ Collections written");
-    verbose_info!(verbose, "Writing game items...");
+    log::info!("✓ Collections written");
+    
+    log::info!("Writing game items...");
     write_gameitems(vpx, expanded_dir)?;
-    verbose_info!(verbose, "✓ Game items written");
-    verbose_info!(verbose, "=== STARTING IMAGE PROCESSING ===");
+    log::info!("✓ Game items written");
+    
+    log::info!("=== STARTING IMAGE PROCESSING ===");
     write_images(vpx, expanded_dir)?;
-    verbose_info!(verbose, "=== IMAGE PROCESSING COMPLETED ===");
-    verbose_info!(verbose, "Writing sounds...");
+    log::info!("=== IMAGE PROCESSING COMPLETED ===");
+    
+    log::info!("Writing sounds...");
     write_sounds(vpx, expanded_dir)?;
-    verbose_info!(verbose, "✓ Sounds written");
-    verbose_info!(verbose, "Writing fonts...");
+    log::info!("✓ Sounds written");
+    
+    log::info!("Writing fonts...");
     write_fonts(vpx, expanded_dir)?;
-    verbose_info!(verbose, "✓ Fonts written");
-    verbose_info!(verbose, "Writing game data...");
+    log::info!("✓ Fonts written");
+    
+    log::info!("Writing game data...");
     write_game_data(vpx, expanded_dir)?;
-    verbose_info!(verbose, "✓ Game data written");
+    log::info!("✓ Game data written");
+    
     if vpx.gamedata.materials.is_some() {
-        verbose_info!(verbose, "Writing materials...");
+        log::info!("Writing materials...");
         write_materials(vpx, expanded_dir)?;
-        verbose_info!(verbose, "✓ Materials written");
+        log::info!("✓ Materials written");
     } else {
-        verbose_info!(verbose, "Writing legacy materials...");
+        log::info!("Writing legacy materials...");
         write_old_materials(vpx, expanded_dir)?;
         write_old_materials_physics(vpx, expanded_dir)?;
-        verbose_info!(verbose, "✓ Legacy materials written");
+        log::info!("✓ Legacy materials written");
     }
-    verbose_info!(verbose, "Writing render probes...");
+    
+    log::info!("Writing render probes...");
     write_renderprobes(vpx, expanded_dir)?;
-    verbose_info!(verbose, "✓ Render probes written");
-    verbose_info!(verbose, "=== VPX extraction process completed successfully ===");
+    log::info!("✓ Render probes written");
+    
+    log::info!("=== VPX extraction process completed successfully ===");
     Ok(())
 }
 
@@ -1884,7 +1887,7 @@ mod test {
             ],
         };
 
-        write(&vpx, &expanded_path, true)?;
+        write(&vpx, &expanded_path)?;
 
         // the user has updated one image from png to webp
         let image_path = expanded_path.join("images").join("test image replaced.png");
