@@ -1,4 +1,5 @@
 use bytes::{BufMut, BytesMut};
+use log;
 use std::collections::HashSet;
 use std::error::Error;
 use std::ffi::OsStr;
@@ -42,42 +43,9 @@ use crate::vpx::obj::{ObjData, read_obj_file, write_obj};
 use crate::vpx::renderprobe::{RenderProbeJson, RenderProbeWithGarbage};
 use crate::vpx::tableinfo::TableInfo;
 
-/// Sanitize a filename by replacing characters that are invalid on Windows/filesystem
-/// This includes: / \ : * ? " < > |
-/// Also handles reserved names and ensures the name isn't too long
+/// Sanitize a filename using the sanitize-filename crate
 fn sanitize_filename(name: &str) -> String {
-    // Replace invalid characters
-    let sanitized = name.chars()
-        .map(|c| match c {
-            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-            _ => c,
-        })
-        .collect::<String>();
-    
-    // Handle Windows reserved names (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
-    let sanitized = if matches!(sanitized.to_uppercase().as_str(), 
-        "CON" | "PRN" | "AUX" | "NUL" | 
-        "COM1" | "COM2" | "COM3" | "COM4" | "COM5" | "COM6" | "COM7" | "COM8" | "COM9" |
-        "LPT1" | "LPT2" | "LPT3" | "LPT4" | "LPT5" | "LPT6" | "LPT7" | "LPT8" | "LPT9") {
-        format!("_{}", sanitized)
-    } else {
-        sanitized
-    };
-    
-    // Trim whitespace and dots from the end (Windows requirement)
-    let sanitized = sanitized.trim_end_matches(|c: char| c.is_whitespace() || c == '.').to_string();
-    
-    // Ensure we have at least one character
-    if sanitized.is_empty() {
-        "unnamed".to_string()
-    } else {
-        // Limit length to avoid path length issues (leaving room for extension)
-        if sanitized.len() > 200 {
-            sanitized[..200].to_string()
-        } else {
-            sanitized
-        }
-    }
+    sanitize_filename::sanitize(name)
 }
 
 #[derive(Debug)]
@@ -119,75 +87,75 @@ impl From<serde_json::Error> for WriteError {
 }
 
 pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
-    eprintln!("=== Starting VPX extraction process ===");
-    eprintln!("Target directory: {}", expanded_dir.as_ref().display());
+    log::info!("=== Starting VPX extraction process ===");
+    log::info!("Target directory: {}", expanded_dir.as_ref().display());
     
     // write the version as utf8 to version.txt
     let version_path = expanded_dir.as_ref().join("version.txt");
     let mut version_file = File::create(version_path)?;
     let version_string = vpx.version.to_u32_string();
     version_file.write_all(version_string.as_bytes())?;
-    eprintln!("✓ Version file written");
+    log::info!("✓ Version file written");
 
     // write the screenshot as a png
     if let Some(screenshot) = &vpx.info.screenshot {
         let screenshot_path = expanded_dir.as_ref().join("screenshot.png");
         let mut screenshot_file = File::create(screenshot_path)?;
         screenshot_file.write_all(screenshot)?;
-        eprintln!("✓ Screenshot written");
+        log::info!("✓ Screenshot written");
     } else {
-        eprintln!("✓ No screenshot to write");
+        log::info!("✓ No screenshot to write");
     }
 
     // write table metadata as json
-    eprintln!("Writing table info...");
+    log::info!("Writing table info...");
     write_info(&vpx, expanded_dir)?;
-    eprintln!("✓ Table info written");
+    log::info!("✓ Table info written");
 
     // collections
-    eprintln!("Writing collections...");
+    log::info!("Writing collections...");
     let collections_json_path = expanded_dir.as_ref().join("collections.json");
     let mut collections_json_file = File::create(collections_json_path)?;
     let json_collections = collections_json(&vpx.collections);
     serde_json::to_writer_pretty(&mut collections_json_file, &json_collections)?;
-    eprintln!("✓ Collections written");
+    log::info!("✓ Collections written");
     
-    eprintln!("Writing game items...");
+    log::info!("Writing game items...");
     write_gameitems(vpx, expanded_dir)?;
-    eprintln!("✓ Game items written");
+    log::info!("✓ Game items written");
     
-    eprintln!("=== STARTING IMAGE PROCESSING ===");
+    log::info!("=== STARTING IMAGE PROCESSING ===");
     write_images(vpx, expanded_dir)?;
-    eprintln!("=== IMAGE PROCESSING COMPLETED ===");
+    log::info!("=== IMAGE PROCESSING COMPLETED ===");
     
-    eprintln!("Writing sounds...");
+    log::info!("Writing sounds...");
     write_sounds(vpx, expanded_dir)?;
-    eprintln!("✓ Sounds written");
+    log::info!("✓ Sounds written");
     
-    eprintln!("Writing fonts...");
+    log::info!("Writing fonts...");
     write_fonts(vpx, expanded_dir)?;
-    eprintln!("✓ Fonts written");
+    log::info!("✓ Fonts written");
     
-    eprintln!("Writing game data...");
+    log::info!("Writing game data...");
     write_game_data(vpx, expanded_dir)?;
-    eprintln!("✓ Game data written");
+    log::info!("✓ Game data written");
     
     if vpx.gamedata.materials.is_some() {
-        eprintln!("Writing materials...");
+        log::info!("Writing materials...");
         write_materials(vpx, expanded_dir)?;
-        eprintln!("✓ Materials written");
+        log::info!("✓ Materials written");
     } else {
-        eprintln!("Writing legacy materials...");
+        log::info!("Writing legacy materials...");
         write_old_materials(vpx, expanded_dir)?;
         write_old_materials_physics(vpx, expanded_dir)?;
-        eprintln!("✓ Legacy materials written");
+        log::info!("✓ Legacy materials written");
     }
     
-    eprintln!("Writing render probes...");
+    log::info!("Writing render probes...");
     write_renderprobes(vpx, expanded_dir)?;
-    eprintln!("✓ Render probes written");
+    log::info!("✓ Render probes written");
     
-    eprintln!("=== VPX extraction process completed successfully ===");
+    log::info!("=== VPX extraction process completed successfully ===");
     Ok(())
 }
 
