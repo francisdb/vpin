@@ -50,7 +50,7 @@ pub struct Wall {
     pub editor_layer_visibility: Option<bool>,
     pub part_group_name: Option<String>,
 
-    drag_points: Vec<DragPoint>,
+    pub drag_points: Vec<DragPoint>,
 }
 
 #[derive(Serialize, Deserialize)]
