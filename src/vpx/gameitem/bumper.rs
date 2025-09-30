@@ -3,6 +3,7 @@ use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
 use crate::vpx::json::F32WithNanInf;
 use fake::Dummy;
+use log::warn;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Dummy, PartialEq)]
@@ -331,7 +332,7 @@ impl BiffRead for Bumper {
                     bumper.part_group_name = Some(reader.get_string());
                 }
                 _ => {
-                    println!(
+                    warn!(
                         "Unknown tag {} for {}",
                         tag_str,
                         std::any::type_name::<Self>()

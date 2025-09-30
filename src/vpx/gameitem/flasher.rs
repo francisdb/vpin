@@ -6,6 +6,7 @@ use crate::vpx::{
     color::Color,
 };
 use fake::Dummy;
+use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
@@ -596,7 +597,7 @@ impl BiffRead for Flasher {
                     flasher.drag_points.push(point);
                 }
                 _ => {
-                    println!(
+                    warn!(
                         "Unknown tag {} for {}",
                         tag_str,
                         std::any::type_name::<Self>()
