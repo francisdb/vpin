@@ -89,7 +89,7 @@ impl From<serde_json::Error> for WriteError {
 pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
     log::info!("=== Starting VPX extraction process ===");
     log::info!("Target directory: {}", expanded_dir.as_ref().display());
-    
+
     // write the version as utf8 to version.txt
     let version_path = expanded_dir.as_ref().join("version.txt");
     let mut version_file = File::create(version_path)?;
@@ -119,27 +119,27 @@ pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteErr
     let json_collections = collections_json(&vpx.collections);
     serde_json::to_writer_pretty(&mut collections_json_file, &json_collections)?;
     log::info!("✓ Collections written");
-    
+
     log::info!("Writing game items...");
     write_gameitems(vpx, expanded_dir)?;
     log::info!("✓ Game items written");
-    
+
     log::info!("=== STARTING IMAGE PROCESSING ===");
     write_images(vpx, expanded_dir)?;
     log::info!("=== IMAGE PROCESSING COMPLETED ===");
-    
+
     log::info!("Writing sounds...");
     write_sounds(vpx, expanded_dir)?;
     log::info!("✓ Sounds written");
-    
+
     log::info!("Writing fonts...");
     write_fonts(vpx, expanded_dir)?;
     log::info!("✓ Fonts written");
-    
+
     log::info!("Writing game data...");
     write_game_data(vpx, expanded_dir)?;
     log::info!("✓ Game data written");
-    
+
     if vpx.gamedata.materials.is_some() {
         log::info!("Writing materials...");
         write_materials(vpx, expanded_dir)?;
@@ -150,11 +150,11 @@ pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteErr
         write_old_materials_physics(vpx, expanded_dir)?;
         log::info!("✓ Legacy materials written");
     }
-    
+
     log::info!("Writing render probes...");
     write_renderprobes(vpx, expanded_dir)?;
     log::info!("✓ Render probes written");
-    
+
     log::info!("=== VPX extraction process completed successfully ===");
     Ok(())
 }
@@ -286,8 +286,11 @@ where
 }
 
 fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
-    eprintln!("Starting image processing - total images: {}", vpx.images.len());
-    
+    eprintln!(
+        "Starting image processing - total images: {}",
+        vpx.images.len()
+    );
+
     // create an image index
     let images_index_path = expanded_dir.as_ref().join("images.json");
     let mut images_index_file = File::create(images_index_path)?;
@@ -300,8 +303,14 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
         .iter()
         .enumerate()
         .map(|(image_index, image)| {
-            eprintln!("Processing image {}/{}: name='{}', size={}x{}", 
-                     image_index + 1, vpx.images.len(), image.name, image.width, image.height);
+            eprintln!(
+                "Processing image {}/{}: name='{}', size={}x{}",
+                image_index + 1,
+                vpx.images.len(),
+                image.name,
+                image.width,
+                image.height
+            );
             let mut json = ImageDataJson::from_image_data(image);
             let lower_name = image.name.to_lowercase();
             if image_names_lower.contains(&lower_name) {
@@ -354,8 +363,12 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
             // for bits images we don't store the dimensions in the json as they always match
 
             json_images.push(json);
-            eprintln!("Successfully processed image {}/{}: '{}'", 
-                     image_index + 1, vpx.images.len(), image.name);
+            eprintln!(
+                "Successfully processed image {}/{}: '{}'",
+                image_index + 1,
+                vpx.images.len(),
+                image.name
+            );
             Ok((file_name, image))
         })
         .collect();
@@ -366,65 +379,88 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
     std::fs::create_dir_all(&images_dir)?;
     eprintln!("Created images directory: {}", images_dir.display());
     eprintln!("Starting to write {} image files to disk", images.len());
-    
-    images.iter().enumerate().try_for_each(|(file_index, (image_file_name, image))| {
-        eprintln!("Writing image file {}/{}: '{}'", 
-                 file_index + 1, images.len(), image_file_name);
-        let file_path = images_dir.join(image_file_name);
-        eprintln!("Full file path: {}", file_path.display());
-        
-        if !file_path.exists() {
-            let mut file = File::create(&file_path).map_err(|e| {
-                eprintln!("ERROR: Failed to create file '{}': {}", file_path.display(), e);
-                e
-            })?;
-            if image.is_link() {
-                eprintln!("Image is a link, no data to write");
-                Ok(())
-            } else if let Some(jpeg) = &image.jpeg {
-                eprintln!("Writing JPEG data ({} bytes)", jpeg.data.len());
-                file.write_all(&jpeg.data).map_err(|e| {
-                    eprintln!("ERROR: Failed to write JPEG data for '{}': {}", file_path.display(), e);
-                    e
-                })
-            } else if let Some(bits) = &image.bits {
-                eprintln!("Writing BMP data (compressed size: {} bytes)", bits.lzw_compressed_data.len());
-                // the extension should be .bmp
-                assert_eq!(
-                    image.ext().to_ascii_lowercase(),
-                    "bmp",
-                    "Images stored as bits should have the extension .bmp"
-                );
 
-                write_image_bmp(
-                    &file_path,
-                    &bits.lzw_compressed_data,
-                    image.width,
-                    image.height,
-                ).map_err(|e| {
-                    eprintln!("ERROR: Failed to write BMP image '{}': {}", file_path.display(), e);
+    images
+        .iter()
+        .enumerate()
+        .try_for_each(|(file_index, (image_file_name, image))| {
+            eprintln!(
+                "Writing image file {}/{}: '{}'",
+                file_index + 1,
+                images.len(),
+                image_file_name
+            );
+            let file_path = images_dir.join(image_file_name);
+            eprintln!("Full file path: {}", file_path.display());
+
+            if !file_path.exists() {
+                let mut file = File::create(&file_path).map_err(|e| {
+                    eprintln!(
+                        "ERROR: Failed to create file '{}': {}",
+                        file_path.display(),
+                        e
+                    );
                     e
-                })
+                })?;
+                if image.is_link() {
+                    eprintln!("Image is a link, no data to write");
+                    Ok(())
+                } else if let Some(jpeg) = &image.jpeg {
+                    eprintln!("Writing JPEG data ({} bytes)", jpeg.data.len());
+                    file.write_all(&jpeg.data).map_err(|e| {
+                        eprintln!(
+                            "ERROR: Failed to write JPEG data for '{}': {}",
+                            file_path.display(),
+                            e
+                        );
+                        e
+                    })
+                } else if let Some(bits) = &image.bits {
+                    eprintln!(
+                        "Writing BMP data (compressed size: {} bytes)",
+                        bits.lzw_compressed_data.len()
+                    );
+                    // the extension should be .bmp
+                    assert_eq!(
+                        image.ext().to_ascii_lowercase(),
+                        "bmp",
+                        "Images stored as bits should have the extension .bmp"
+                    );
+
+                    write_image_bmp(
+                        &file_path,
+                        &bits.lzw_compressed_data,
+                        image.width,
+                        image.height,
+                    )
+                    .map_err(|e| {
+                        eprintln!(
+                            "ERROR: Failed to write BMP image '{}': {}",
+                            file_path.display(),
+                            e
+                        );
+                        e
+                    })
+                } else {
+                    let err = io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("Image has no data: {}", file_path.display()),
+                    );
+                    eprintln!("ERROR: {}", err);
+                    Err(err)
+                }
             } else {
                 let err = io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("Image has no data: {}", file_path.display()),
+                    io::ErrorKind::AlreadyExists,
+                    format!(
+                        "Two images with the same name detected, should not happen: {}",
+                        file_path.display()
+                    ),
                 );
                 eprintln!("ERROR: {}", err);
                 Err(err)
             }
-        } else {
-            let err = io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                format!(
-                    "Two images with the same name detected, should not happen: {}",
-                    file_path.display()
-                ),
-            );
-            eprintln!("ERROR: {}", err);
-            Err(err)
-        }
-    })?;
+        })?;
     eprintln!("Successfully completed writing all {} images", images.len());
     Ok(())
 }
