@@ -5,8 +5,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, PartialEq, Clone, Dummy)]
 pub struct DragPoint {
-    x: f32,
-    y: f32,
+    pub x: f32,
+    pub y: f32,
     z: f32,
     smooth: bool,
     is_slingshot: Option<bool>,

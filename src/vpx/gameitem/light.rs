@@ -196,10 +196,13 @@ pub struct Light {
     pub height: Option<f32>, // HGHT added in 10.8
     pub falloff_radius: f32, // RADI
     pub falloff_power: f32,  // FAPO
-    /// STAT deprecated, planned or removal in to 10.9+
+    /// 0 = off, 1 = on, 2 = blinking
     /// m_d.m_state == 0.f ? 0 : (m_d.m_state == 2.f ? 2 : 1);
+    /// STAT deprecated, planned or removal in to 10.9+
     pub state_u32: u32,
-    pub state: Option<f32>,                 // STTF added in 10.8
+    /// 0..1 is modulated from off to on, 2 is blinking
+    /// STTF added in 10.8
+    pub state: Option<f32>,
     pub color: Color,                       // COLR
     pub color2: Color,                      // COL2
     pub is_timer_enabled: bool,             // TMON
