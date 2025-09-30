@@ -13,6 +13,7 @@ use crate::vpx::math::{dequantize_u8, quantize_u8};
 use crate::vpx::renderprobe::RenderProbeWithGarbage;
 use bytes::{Buf, BufMut, BytesMut};
 use fake::Dummy;
+use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, PartialEq, Dummy, Clone, Copy)]
@@ -1689,7 +1690,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             "TLCK" => gamedata.locked = Some(reader.get_u32()),
             other => {
                 let data = reader.get_record_data(false);
-                println!("unhandled gamedata tag {} {} bytes", other, data.len());
+                warn!("unhandled gamedata tag {} {} bytes", other, data.len());
             }
         };
         previous_tag = tag;

@@ -2,6 +2,7 @@ use super::vertex3d::Vertex3D;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
 use fake::Dummy;
+use log::warn;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Clone, Dummy)]
@@ -552,7 +553,7 @@ impl BiffRead for HitTarget {
                     part_group_name = Some(reader.get_string());
                 }
                 _ => {
-                    println!(
+                    warn!(
                         "Unknown tag {} for {}",
                         tag_str,
                         std::any::type_name::<Self>()

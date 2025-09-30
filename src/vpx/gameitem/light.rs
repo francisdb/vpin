@@ -6,6 +6,7 @@ use crate::vpx::{
     color::Color,
 };
 use fake::Dummy;
+use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, PartialEq, Clone, Dummy)]
@@ -551,7 +552,7 @@ impl BiffRead for Light {
                     light.drag_points.push(point);
                 }
                 other => {
-                    println!(
+                    warn!(
                         "Unknown tag {} for {}",
                         other,
                         std::any::type_name::<Self>()
