@@ -6,6 +6,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.1](https://github.com/francisdb/vpin/compare/v0.18.0...v0.18.1) - 2025-10-01
+
+### Added
+
+- more logging ([#153](https://github.com/francisdb/vpin/pull/153))
+
+### Other
+
+- add clippy workflow permissions ([#152](https://github.com/francisdb/vpin/pull/152))
+- leftover changes ([#150](https://github.com/francisdb/vpin/pull/150))
+- set up rust workflow permissions ([#151](https://github.com/francisdb/vpin/pull/151))
+- Update Clippy workflow to include pull requests
+- reformat
+- adds filename sanitation and logging ([#148](https://github.com/francisdb/vpin/pull/148))
+- *(deps)* bump actions/checkout from 4 to 5 ([#146](https://github.com/francisdb/vpin/pull/146))
+- new clippy rules ([#147](https://github.com/francisdb/vpin/pull/147))
+- *(deps)* update cfb requirement from 0.10.0 to 0.11.0 ([#145](https://github.com/francisdb/vpin/pull/145))
+- *(deps)* update quick-xml requirement from 0.37.0 to 0.38.0 ([#142](https://github.com/francisdb/vpin/pull/142))
+- new clippy rules ([#143](https://github.com/francisdb/vpin/pull/143))
+
 ## [0.18.0](https://github.com/francisdb/vpin/compare/v0.17.6...v0.18.0) - 2025-04-09
 
 ### Added
