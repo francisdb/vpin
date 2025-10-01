@@ -1,4 +1,5 @@
 use encoding_rs::mem::{decode_latin1, encode_latin1_lossy};
+use log::warn;
 use nom::ToUsize;
 use nom::number::complete::{le_f32, le_f64, le_i16, le_i32, le_i64, le_u16, le_u32, le_u64};
 use utf16string::WStr;
@@ -160,7 +161,7 @@ impl<'a> BiffReader<'a> {
 
         let res = i.unwrap().1;
         if res.is_nan() {
-            eprintln!("NaN value found in f32 for tag {}: {:?}", self.tag, data);
+            warn!("NaN value found in f32 for tag {}: {:?}", self.tag, data);
         }
         res
     }
@@ -429,7 +430,7 @@ impl<'a> BiffReader<'a> {
     pub fn next(&mut self, warn: bool) -> Option<String> {
         if self.bytes_in_record_remaining > 0 {
             if warn {
-                println!(
+                warn!(
                     "{} : {} unread octets",
                     self.tag, self.bytes_in_record_remaining
                 );

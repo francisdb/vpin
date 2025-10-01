@@ -7,6 +7,7 @@ use crate::vpx::{
     gameitem::font::Font,
 };
 use fake::Dummy;
+use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, PartialEq, Clone, Dummy, Default)]
@@ -329,7 +330,7 @@ impl BiffRead for TextBox {
                     textbox.part_group_name = Some(reader.get_string());
                 }
                 _ => {
-                    println!(
+                    warn!(
                         "Unknown tag {} for {}",
                         tag_str,
                         std::any::type_name::<Self>()

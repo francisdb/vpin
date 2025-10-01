@@ -1,4 +1,5 @@
 use super::biff::{self, BiffReader, BiffWriter};
+use log::warn;
 
 pub type CustomInfoTags = Vec<String>;
 
@@ -23,7 +24,7 @@ pub fn read_custominfotags(tags_data: &[u8]) -> CustomInfoTags {
             }
             other => {
                 let data = reader.get_record_data(false);
-                println!("unhandled tag {} {} bytes", other, data.len());
+                warn!("unhandled tag {} {} bytes", other, data.len());
             }
         }
     }

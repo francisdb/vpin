@@ -1,6 +1,7 @@
 use super::GameItem;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
 use fake::Dummy;
+use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, PartialEq, Clone, Dummy)]
@@ -185,7 +186,7 @@ impl BiffRead for DragPoint {
                     dragpoint.editor_layer_visibility = Some(sub_data.get_bool());
                 }
                 other => {
-                    println!(
+                    warn!(
                         "Unknown tag {} for {}",
                         other,
                         std::any::type_name::<Self>()

@@ -2,6 +2,7 @@ use super::dragpoint::DragPoint;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
 use fake::Dummy;
+use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, PartialEq, Dummy)]
@@ -362,7 +363,7 @@ impl BiffRead for Rubber {
                     rubber.drag_points.push(point);
                 }
                 _ => {
-                    println!(
+                    warn!(
                         "Unknown tag {} for {}",
                         tag_str,
                         std::any::type_name::<Self>()

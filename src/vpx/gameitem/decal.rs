@@ -5,6 +5,7 @@ use crate::vpx::{
     color::Color,
 };
 use fake::Dummy;
+use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
@@ -409,7 +410,7 @@ impl BiffRead for Decal {
                     decal.part_group_name = Some(reader.get_string());
                 }
                 _ => {
-                    println!(
+                    warn!(
                         "Unknown tag {} for {}",
                         tag_str,
                         std::any::type_name::<Self>()

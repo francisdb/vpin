@@ -6,6 +6,7 @@ use crate::vpx::math::quantize_u8;
 use bytes::{Buf, BufMut, BytesMut};
 use encoding_rs::mem::{decode_latin1, encode_latin1_lossy};
 use fake::Dummy;
+use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::ffi::CStr;
 use std::io;
@@ -651,7 +652,7 @@ impl BiffRead for Material {
                 "FRIC" => material.friction = reader.get_f32(),
                 "SCAT" => material.scatter_angle = reader.get_f32(),
                 _ => {
-                    println!(
+                    warn!(
                         "Unknown tag {} for {}",
                         tag_str,
                         std::any::type_name::<Self>()

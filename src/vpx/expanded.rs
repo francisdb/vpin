@@ -11,6 +11,7 @@ use std::{fs::File, path::Path};
 
 use cfb::CompoundFile;
 use image::DynamicImage;
+use log::{debug, info, warn};
 use serde::de;
 use serde_json::Value;
 
@@ -87,75 +88,75 @@ impl From<serde_json::Error> for WriteError {
 }
 
 pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
-    log::info!("=== Starting VPX extraction process ===");
-    log::info!("Target directory: {}", expanded_dir.as_ref().display());
+    info!("=== Starting VPX extraction process ===");
+    info!("Target directory: {}", expanded_dir.as_ref().display());
 
     // write the version as utf8 to version.txt
     let version_path = expanded_dir.as_ref().join("version.txt");
     let mut version_file = File::create(version_path)?;
     let version_string = vpx.version.to_u32_string();
     version_file.write_all(version_string.as_bytes())?;
-    log::info!("✓ Version file written");
+    info!("✓ Version file written");
 
     // write the screenshot as a png
     if let Some(screenshot) = &vpx.info.screenshot {
         let screenshot_path = expanded_dir.as_ref().join("screenshot.png");
         let mut screenshot_file = File::create(screenshot_path)?;
         screenshot_file.write_all(screenshot)?;
-        log::info!("✓ Screenshot written");
+        info!("✓ Screenshot written");
     } else {
-        log::info!("✓ No screenshot to write");
+        info!("✓ No screenshot to write");
     }
 
     // write table metadata as json
-    log::info!("Writing table info...");
+    info!("Writing table info...");
     write_info(&vpx, expanded_dir)?;
-    log::info!("✓ Table info written");
+    info!("✓ Table info written");
 
     // collections
-    log::info!("Writing collections...");
+    info!("Writing collections...");
     let collections_json_path = expanded_dir.as_ref().join("collections.json");
     let mut collections_json_file = File::create(collections_json_path)?;
     let json_collections = collections_json(&vpx.collections);
     serde_json::to_writer_pretty(&mut collections_json_file, &json_collections)?;
-    log::info!("✓ Collections written");
+    info!("✓ Collections written");
 
-    log::info!("Writing game items...");
+    info!("Writing game items...");
     write_gameitems(vpx, expanded_dir)?;
-    log::info!("✓ Game items written");
+    info!("✓ Game items written");
 
-    log::info!("=== STARTING IMAGE PROCESSING ===");
+    info!("Writing images...");
     write_images(vpx, expanded_dir)?;
-    log::info!("=== IMAGE PROCESSING COMPLETED ===");
+    info!("✓ Images written");
 
-    log::info!("Writing sounds...");
+    info!("Writing sounds...");
     write_sounds(vpx, expanded_dir)?;
-    log::info!("✓ Sounds written");
+    info!("✓ Sounds written");
 
-    log::info!("Writing fonts...");
+    info!("Writing fonts...");
     write_fonts(vpx, expanded_dir)?;
-    log::info!("✓ Fonts written");
+    info!("✓ Fonts written");
 
-    log::info!("Writing game data...");
+    info!("Writing game data...");
     write_game_data(vpx, expanded_dir)?;
-    log::info!("✓ Game data written");
+    info!("✓ Game data written");
 
     if vpx.gamedata.materials.is_some() {
-        log::info!("Writing materials...");
+        info!("Writing materials...");
         write_materials(vpx, expanded_dir)?;
-        log::info!("✓ Materials written");
+        info!("✓ Materials written");
     } else {
-        log::info!("Writing legacy materials...");
+        info!("Writing legacy materials...");
         write_old_materials(vpx, expanded_dir)?;
         write_old_materials_physics(vpx, expanded_dir)?;
-        log::info!("✓ Legacy materials written");
+        info!("✓ Legacy materials written");
     }
 
-    log::info!("Writing render probes...");
+    info!("Writing render probes...");
     write_renderprobes(vpx, expanded_dir)?;
-    log::info!("✓ Render probes written");
+    info!("✓ Render probes written");
 
-    log::info!("=== VPX extraction process completed successfully ===");
+    info!("=== VPX extraction process completed successfully ===");
     Ok(())
 }
 
@@ -286,7 +287,7 @@ where
 }
 
 fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
-    eprintln!(
+    info!(
         "Starting image processing - total images: {}",
         vpx.images.len()
     );
@@ -303,7 +304,7 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
         .iter()
         .enumerate()
         .map(|(image_index, image)| {
-            eprintln!(
+            debug!(
                 "Processing image {}/{}: name='{}', size={}x{}",
                 image_index + 1,
                 vpx.images.len(),
@@ -316,7 +317,7 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
             if image_names_lower.contains(&lower_name) {
                 image_names_dupe_counter += 1;
                 let name_dedup = format!("{}_dedup{}", image.name, image_names_dupe_counter);
-                eprintln!(
+                info!(
                     "Image name {} is not unique, renaming file to {}",
                     image.name, &name_dedup
                 );
@@ -337,7 +338,7 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
                 match dimensions_file {
                     Some((width_file, height_file)) => {
                         if image.width != width_file || image.height != height_file {
-                            eprintln!(
+                            info!(
                                 "Image dimension override for {} in vpx {}x{} vs in image {}x{}",
                                 file_name, image.width, image.height, width_file, height_file
                             );
@@ -363,7 +364,7 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
             // for bits images we don't store the dimensions in the json as they always match
 
             json_images.push(json);
-            eprintln!(
+            debug!(
                 "Successfully processed image {}/{}: '{}'",
                 image_index + 1,
                 vpx.images.len(),
@@ -377,25 +378,25 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
 
     let images_dir = expanded_dir.as_ref().join("images");
     std::fs::create_dir_all(&images_dir)?;
-    eprintln!("Created images directory: {}", images_dir.display());
-    eprintln!("Starting to write {} image files to disk", images.len());
+    debug!("Created images directory: {}", images_dir.display());
+    info!("Starting to write {} image files to disk", images.len());
 
     images
         .iter()
         .enumerate()
         .try_for_each(|(file_index, (image_file_name, image))| {
-            eprintln!(
+            debug!(
                 "Writing image file {}/{}: '{}'",
                 file_index + 1,
                 images.len(),
                 image_file_name
             );
             let file_path = images_dir.join(image_file_name);
-            eprintln!("Full file path: {}", file_path.display());
+            debug!("Full file path: {}", file_path.display());
 
             if !file_path.exists() {
                 let mut file = File::create(&file_path).map_err(|e| {
-                    eprintln!(
+                    warn!(
                         "ERROR: Failed to create file '{}': {}",
                         file_path.display(),
                         e
@@ -403,12 +404,12 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
                     e
                 })?;
                 if image.is_link() {
-                    eprintln!("Image is a link, no data to write");
+                    info!("Image is a link, no data to write");
                     Ok(())
                 } else if let Some(jpeg) = &image.jpeg {
-                    eprintln!("Writing JPEG data ({} bytes)", jpeg.data.len());
+                    debug!("Writing JPEG data ({} bytes)", jpeg.data.len());
                     file.write_all(&jpeg.data).map_err(|e| {
-                        eprintln!(
+                        warn!(
                             "ERROR: Failed to write JPEG data for '{}': {}",
                             file_path.display(),
                             e
@@ -416,7 +417,7 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
                         e
                     })
                 } else if let Some(bits) = &image.bits {
-                    eprintln!(
+                    debug!(
                         "Writing BMP data (compressed size: {} bytes)",
                         bits.lzw_compressed_data.len()
                     );
@@ -434,7 +435,7 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
                         image.height,
                     )
                     .map_err(|e| {
-                        eprintln!(
+                        warn!(
                             "ERROR: Failed to write BMP image '{}': {}",
                             file_path.display(),
                             e
@@ -446,7 +447,7 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
                         io::ErrorKind::InvalidData,
                         format!("Image has no data: {}", file_path.display()),
                     );
-                    eprintln!("ERROR: {}", err);
+                    warn!("ERROR: {}", err);
                     Err(err)
                 }
             } else {
@@ -457,11 +458,11 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
                         file_path.display()
                     ),
                 );
-                eprintln!("ERROR: {}", err);
+                warn!("ERROR: {}", err);
                 Err(err)
             }
         })?;
-    eprintln!("Successfully completed writing all {} images", images.len());
+    info!("Successfully completed writing all {} images", images.len());
     Ok(())
 }
 
@@ -481,7 +482,7 @@ fn write_image_bmp(
             .file_name()
             .map(OsStr::to_string_lossy)
             .unwrap_or_default();
-        eprintln!(
+        warn!(
             "Image {file_name} has non-opaque pixels, writing as RGBA BMP that might not be supported by all applications"
         );
     }
@@ -584,7 +585,7 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
                             Some(w) => {
                                 if let Some((image_w, _)) = dimensions_from_file
                                     && w != image_w {
-                                        eprintln!(
+                                        warn!(
                                             "Image width override for {full_file_name} in json ({w}) vs in image ({image_w})"
                                         );
                                     }
@@ -601,7 +602,7 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
                             Some(h) => {
                                 if let Some((_, image_h)) = dimensions_from_file
                                     && h != image_h {
-                                        eprintln!(
+                                        warn!(
                                             "Image height override for {full_file_name} in json ({h}) vs in image ({image_h})"
                                         );
                                     }
@@ -643,7 +644,7 @@ fn read_image_dimensions(file_path: &Path) -> io::Result<Option<(u32, u32)>> {
         Ok(dimensions) => Some(dimensions),
         Err(image_error) => {
             // one issue we encountered is https://github.com/image-rs/image/issues/2231
-            eprintln!(
+            warn!(
                 "Failed to read image dimensions for {}: {}",
                 file_path.display(),
                 image_error
@@ -662,7 +663,7 @@ fn read_image_dimensions_from_file_steam<R: BufRead + Seek>(
         Ok(format) => {
             let decoder = image::ImageReader::with_format(reader, format).with_guessed_format()?;
             if Some(format) != decoder.format() {
-                eprintln!(
+                warn!(
                     "Detected image format {} for [{}] where the extension suggests {:?}",
                     decoder
                         .format()
@@ -674,13 +675,13 @@ fn read_image_dimensions_from_file_steam<R: BufRead + Seek>(
             match decoder.into_dimensions() {
                 Ok(dimensions) => Some(dimensions),
                 Err(image_error) => {
-                    eprintln!("Failed to read image dimensions for {file_name}: {image_error}");
+                    warn!("Failed to read image dimensions for {file_name}: {image_error}");
                     None
                 }
             }
         }
         Err(e) => {
-            eprintln!("Failed to determine image format for {file_name}: {e}");
+            warn!("Failed to determine image format for {file_name}: {e}");
             None
         }
     };
@@ -742,7 +743,7 @@ fn write_sounds<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
             if sound_names_lower.contains(&lower_name) {
                 sound_names_dupe_counter += 1;
                 let name_dedup = format!("{}_dedup{}", sound.name, sound_names_dupe_counter);
-                eprintln!(
+                info!(
                     "Sound name {} is not unique, renaming file to {}",
                     sound.name, &name_dedup
                 );
@@ -782,7 +783,7 @@ fn write_sounds<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
 fn read_sounds<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<SoundData>> {
     let sounds_json_path = expanded_dir.as_ref().join("sounds.json");
     if !sounds_json_path.exists() {
-        println!("No sounds.json found");
+        info!("No sounds.json found");
         return Ok(vec![]);
     }
     let sounds_json: Vec<SoundDataJson> = read_json(&sounds_json_path)?;
@@ -834,7 +835,7 @@ fn write_fonts<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteE
 fn read_fonts<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<FontData>> {
     let fonts_index_path = expanded_dir.as_ref().join("fonts.json");
     if !fonts_index_path.exists() {
-        println!("No fonts.json found");
+        info!("No fonts.json found");
         return Ok(vec![]);
     }
     let fonts_json: Vec<FontDataJson> = read_json(fonts_index_path)?;
@@ -1193,7 +1194,7 @@ fn write_vertex_index_for_vpx(bytes_per_index: u8, vpx_indices: &mut BytesMut, v
 fn read_gameitems<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<GameItemEnum>> {
     let gameitems_index_path = expanded_dir.as_ref().join("gameitems.json");
     if !gameitems_index_path.exists() {
-        println!("No gameitems.json found");
+        info!("No gameitems.json found");
         return Ok(vec![]);
     }
     let gameitems_index: Vec<GameItemInfoJson> = read_json(gameitems_index_path)?;
@@ -1407,7 +1408,7 @@ fn read_info<P: AsRef<Path>>(
 fn read_collections<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<Collection>> {
     let collections_path = expanded_dir.as_ref().join("collections.json");
     if !collections_path.exists() {
-        println!("No collections.json found");
+        info!("No collections.json found");
         return Ok(vec![]);
     }
     let value = read_json(collections_path)?;
@@ -1979,7 +1980,7 @@ mod test {
 
     #[test]
     fn test_read_image_dimensions_fail_invalid_unknown() {
-        let cursor = std::io::Cursor::new(vec![0; 10]);
+        let cursor = io::Cursor::new(vec![0; 10]);
         let reader = BufReader::new(cursor);
         let dimensions = read_image_dimensions_from_file_steam("test.zero", reader).unwrap();
 
@@ -1988,7 +1989,7 @@ mod test {
 
     #[test]
     fn test_read_image_dimensions_fail_invalid_png() {
-        let cursor = std::io::Cursor::new(vec![0; 10]);
+        let cursor = io::Cursor::new(vec![0; 10]);
         let reader = BufReader::new(cursor);
         let dimensions = read_image_dimensions_from_file_steam("test.png", reader).unwrap();
 

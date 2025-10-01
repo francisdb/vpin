@@ -11,6 +11,7 @@ use crate::vpx::{
 use bytes::{Buf, BufMut, BytesMut};
 use fake::Dummy;
 use flate2::read::ZlibDecoder;
+use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::io::{self, Read};
 
@@ -669,7 +670,7 @@ impl BiffRead for Primitive {
                     part_group_name = Some(reader.get_string());
                 }
                 _ => {
-                    println!(
+                    warn!(
                         "Unknown tag {} for {}",
                         tag_str,
                         std::any::type_name::<Self>()

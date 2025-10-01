@@ -1,7 +1,7 @@
+use super::biff::{self, BiffReader, BiffWriter};
+use log::warn;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-
-use super::biff::{self, BiffReader, BiffWriter};
 
 // TODO comment here a vpx file that contains font data
 
@@ -88,7 +88,7 @@ pub fn read(input: &[u8]) -> FontData {
                 }
             },
             _ => {
-                println!("Skipping font tag: {tag_str}");
+                warn!("Skipping font tag: {tag_str}");
                 reader.skip_tag();
             }
         }
