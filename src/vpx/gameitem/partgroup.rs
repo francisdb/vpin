@@ -2,6 +2,7 @@ use crate::vpx::biff;
 use crate::vpx::biff::{BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::vertex2d::Vertex2D;
 use fake::Dummy;
+use log::warn;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Dummy, Clone, PartialEq)]
@@ -274,7 +275,7 @@ impl BiffRead for PartGroup {
                 //     part_group.part_group_name = Some(reader.get_string());
                 // }
                 _ => {
-                    println!(
+                    warn!(
                         "Unknown tag {} for {}",
                         tag_str,
                         std::any::type_name::<Self>()

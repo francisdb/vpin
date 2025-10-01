@@ -430,7 +430,7 @@ impl<'a> BiffReader<'a> {
     pub fn next(&mut self, warn: bool) -> Option<String> {
         if self.bytes_in_record_remaining > 0 {
             if warn {
-                println!(
+                warn!(
                     "{} : {} unread octets",
                     self.tag, self.bytes_in_record_remaining
                 );

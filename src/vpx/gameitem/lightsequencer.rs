@@ -1,6 +1,7 @@
 use super::vertex2d::Vertex2D;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
 use fake::Dummy;
+use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, PartialEq, Dummy)]
@@ -177,7 +178,7 @@ impl BiffRead for LightSequencer {
                     light_sequencer.part_group_name = Some(reader.get_string());
                 }
                 _ => {
-                    println!(
+                    warn!(
                         "Unknown tag {} for {}",
                         tag_str,
                         std::any::type_name::<Self>()

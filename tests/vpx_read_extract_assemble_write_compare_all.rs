@@ -6,13 +6,22 @@ mod test {
     use pretty_assertions::assert_eq;
     // use rayon::prelude::*;
     use crate::common::{assert_equal_vpx, find_files};
+    use log::info;
     use std::io;
     use std::path::{Path, PathBuf};
     use testdir::testdir;
 
+    fn init() {
+        let _ = env_logger::builder()
+            .is_test(true)
+            .filter_level(log::LevelFilter::Info)
+            .try_init();
+    }
+
     #[test]
     #[ignore = "slow integration test that only runs on correctly set up machines"]
     fn read_extract_assemble_and_write_all() -> io::Result<()> {
+        init();
         let home = dirs::home_dir().expect("no home dir");
         let folder = home.join("vpinball").join("tables");
         if !folder.exists() {
@@ -48,7 +57,7 @@ mod test {
 
         // TODO why is par_iter() not faster but just consuming all cpu cores?
         filtered.iter().enumerate().try_for_each(|(n, path)| {
-            println!("testing {}/{}: {:?}", n + 1, filtered.len(), path);
+            info!("testing {}/{}: {:?}", n + 1, filtered.len(), path);
             let ReadAndWriteResult {
                 extracted,
                 test_vpx,

@@ -24,7 +24,7 @@ use std::{
 };
 
 use cfb::CompoundFile;
-
+use log::warn;
 use md2::{Digest, Md2};
 
 use crate::vpx::biff::BiffReader;
@@ -919,7 +919,7 @@ fn images_to_webp<F: Read + Write + Seek>(
                             Ok(image) => image,
                             Err(e) => {
                                 // see https://github.com/image-rs/image/issues/2260
-                                println!("Skipping image {}: {}", image_data.name, e);
+                                warn!("Skipping image {}: {}", image_data.name, e);
                                 continue;
                             }
                         };

@@ -1,6 +1,7 @@
 //! Wavefront OBJ file reader and writer
 
 use crate::vpx::model::Vertex3dNoTex2;
+use log::warn;
 use std::error::Error;
 use std::fs::File;
 use std::io::BufRead;
@@ -112,7 +113,7 @@ pub(crate) fn write_obj(
     for (bytes, vertex) in vertices {
         // if one of the values is NaN we write a special comment with the bytes
         if vertex.nx.is_nan() || vertex.ny.is_nan() || vertex.nz.is_nan() {
-            println!("NaN found in vertex normal: {vertex:?}");
+            warn!("NaN found in vertex normal: {vertex:?}");
             let data = bytes[12..24].try_into().unwrap();
             let content = obj_vpx_comment(&data);
             let comment = Entity::Comment { content };
@@ -209,7 +210,7 @@ pub(crate) fn read_obj<R: BufRead>(mut reader: &mut R) -> Result<ObjData, Box<dy
                 name = n;
             }
             other => {
-                println!(
+                warn!(
                     "Warning, skipping OBJ file entity of type: {:?}",
                     other.token()
                 );

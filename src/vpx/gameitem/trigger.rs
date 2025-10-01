@@ -2,6 +2,7 @@ use super::{dragpoint::DragPoint, vertex2d::Vertex2D};
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
 use fake::Dummy;
+use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, PartialEq, Clone, Dummy, Default)]
@@ -407,7 +408,7 @@ impl BiffRead for Trigger {
                     trigger.drag_points.push(point);
                 }
                 _ => {
-                    println!(
+                    warn!(
                         "Unknown tag {} for {}",
                         tag_str,
                         std::any::type_name::<Self>()

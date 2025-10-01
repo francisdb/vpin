@@ -1,6 +1,7 @@
 use crate::vpx::biff::{BiffRead, BiffWrite, BiffWriter};
 use crate::vpx::gameitem::vertex4d::Vertex4D;
 use fake::Dummy;
+use log::warn;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Dummy)]
@@ -331,7 +332,7 @@ impl BiffRead for RenderProbe {
                 "RMOD" => render_probe.reflection_mode = reader.get_u32().into(),
                 "RLMP" => render_probe.disable_light_reflection = Some(reader.get_bool()),
                 _ => {
-                    println!(
+                    warn!(
                         "Unknown tag {} for {}",
                         tag_str,
                         std::any::type_name::<Self>()

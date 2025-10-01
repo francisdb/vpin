@@ -3,6 +3,7 @@ use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
 use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
 use fake::Dummy;
+use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, PartialEq, Clone, Dummy)]
@@ -500,7 +501,7 @@ impl BiffRead for Ramp {
                     ramp.part_group_name = Some(reader.get_string());
                 }
                 _ => {
-                    println!(
+                    warn!(
                         "Unknown tag {} for {}",
                         tag_str,
                         std::any::type_name::<Self>()

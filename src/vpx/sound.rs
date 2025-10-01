@@ -3,6 +3,7 @@ use std::fmt;
 use crate::vpx::wav::{WavHeader, read_wav_header, write_wav_header};
 use bytes::{BufMut, BytesMut};
 use fake::Dummy;
+use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
@@ -218,7 +219,7 @@ impl From<WavHeader> for WaveForm {
 pub fn write_sound(sound_data: &SoundData) -> Vec<u8> {
     if is_wav(&sound_data.path) {
         if sound_data.wave_form.format_tag != 1 {
-            println!(
+            warn!(
                 "write_sound: {} {:?}",
                 sound_data.path, sound_data.wave_form
             );
@@ -430,14 +431,14 @@ fn read_wave_form(reader: &mut BiffReader<'_>) -> WaveForm {
         cb_size,
     };
     if wave_form.format_tag != 1 {
-        println!("read wave_form: {wave_form:?}");
+        warn!("read wave_form: {wave_form:?}");
     }
     wave_form
 }
 
 fn write_wave_form(writer: &mut BiffWriter, wave_form: &WaveForm) {
     if wave_form.format_tag != 1 {
-        println!("write wave_form: {wave_form:?}");
+        warn!("write wave_form: {wave_form:?}");
     }
     writer.write_u16(wave_form.format_tag);
     writer.write_u16(wave_form.channels);
