@@ -45,7 +45,7 @@ rand = "0.9.0"
 rayon = "1.10.0"
 testdir = "0.9.1"
 walkdir = "2.5.0"
-roxmltree = "0.20.0"
+roxmltree = "0.21.0"
 testresult = "0.4.1"
 
 [profile.test]
