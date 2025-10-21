@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.2](https://github.com/francisdb/vpin/compare/v0.18.1...v0.18.2) - 2025-10-21
+
+### Other
+
+- *(deps)* update cfb requirement from 0.11.0 to 0.12.0 ([#157](https://github.com/francisdb/vpin/pull/157))
+- *(deps)* update roxmltree requirement from 0.20.0 to 0.21.0 ([#154](https://github.com/francisdb/vpin/pull/154))
+- *(deps)* update sanitize-filename requirement from 0.5 to 0.6 ([#155](https://github.com/francisdb/vpin/pull/155))
+
 ## [0.18.1](https://github.com/francisdb/vpin/compare/v0.18.0...v0.18.1) - 2025-10-01
 
 ### Added
