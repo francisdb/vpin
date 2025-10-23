@@ -343,6 +343,16 @@ pub fn read(path: &Path) -> io::Result<VPX> {
     read_vpx(&mut comp)
 }
 
+/// Reads a VPX file from bytes to memory
+///
+/// see also [`write()`]
+///
+/// **Note:** This might take up a lot of memory depending on the size of the VPX file.
+pub fn from_bytes(slice: &[u8]) -> io::Result<VPX> {
+    let mut comp = CompoundFile::open_strict(std::io::Cursor::new(slice))?;
+    read_vpx(&mut comp)
+}
+
 /// Writes a VPX file from memory to disk
 ///
 /// see also [`read()`]
@@ -357,7 +367,7 @@ pub fn write<P: AsRef<Path>>(path: P, vpx: &VPX) -> io::Result<()> {
     write_vpx(&mut comp, vpx)
 }
 
-fn read_vpx<F: Read + Write + Seek>(comp: &mut CompoundFile<F>) -> io::Result<VPX> {
+fn read_vpx<F: Read + Seek>(comp: &mut CompoundFile<F>) -> io::Result<VPX> {
     let custominfotags = read_custominfotags(comp)?;
     let info = read_tableinfo(comp)?;
     let version = read_version(comp)?;
@@ -1011,9 +1021,7 @@ fn write_fonts<F: Read + Write + Seek>(
     Ok(())
 }
 
-fn read_custominfotags<F: Read + Write + Seek>(
-    comp: &mut CompoundFile<F>,
-) -> io::Result<CustomInfoTags> {
+fn read_custominfotags<F: Read + Seek>(comp: &mut CompoundFile<F>) -> io::Result<CustomInfoTags> {
     let path = Path::new(MAIN_SEPARATOR_STR)
         .join("GameStg")
         .join("CustomInfoTags");
