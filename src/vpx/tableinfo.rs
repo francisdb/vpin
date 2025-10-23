@@ -206,7 +206,7 @@ pub(crate) fn write_tableinfo<F: Read + Write + Seek>(
     Ok(())
 }
 
-pub(crate) fn read_tableinfo<F: Read + Write + Seek>(
+pub(crate) fn read_tableinfo<F: Read + Seek>(
     comp: &mut CompoundFile<F>,
 ) -> std::io::Result<TableInfo> {
     // create path to table info using path separator
@@ -281,7 +281,7 @@ pub(crate) fn read_tableinfo<F: Read + Write + Seek>(
     result.map(|_| table_info)
 }
 
-fn read_stream_string<F: Read + Write + Seek>(
+fn read_stream_string<F: Read + Seek>(
     comp: &mut CompoundFile<F>,
     path: &Path,
 ) -> Result<String, std::io::Error> {
