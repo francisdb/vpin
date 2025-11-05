@@ -1,5 +1,5 @@
 use super::{GameItem, font::Font, font::FontJson, vertex2d::Vertex2D};
-use crate::vpx::gameitem::select::{HasSharedAttributes, TimerDataRoot, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
