@@ -317,7 +317,6 @@ impl HasSharedAttributes for Decal {
     fn name(&self) -> &str {
         &self.name
     }
-
     fn is_locked(&self) -> bool {
         self.is_locked
     }
