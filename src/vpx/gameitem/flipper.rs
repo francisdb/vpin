@@ -290,7 +290,6 @@ impl TimerDataRoot for Flipper {
     fn is_timer_enabled(&self) -> bool {
         self.is_timer_enabled
     }
-
     fn timer_interval(&self) -> i32 {
         self.timer_interval
     }
