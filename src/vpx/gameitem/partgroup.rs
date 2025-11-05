@@ -1,5 +1,6 @@
 use crate::vpx::biff;
 use crate::vpx::biff::{BiffRead, BiffReader, BiffWrite};
+use crate::vpx::gameitem::select::TimerDataRoot;
 use crate::vpx::gameitem::vertex2d::Vertex2D;
 use fake::Dummy;
 use log::warn;
@@ -129,10 +130,8 @@ pub struct PartGroup {
     pub name: String,
     /// In vpinball this is just v, but I wanted to unify the naming.
     pub center: Vertex2D,
-    /// In vpinball this is part of TimerDataRoot
-    pub is_timer_enabled: bool,
-    /// In vpinball this is part of TimerDataRoot
-    pub timer_interval: i32,
+    is_timer_enabled: bool,
+    timer_interval: i32,
     pub backglass: bool,
     pub visibility_mask: u32,
     pub space_reference: SpaceReference,
@@ -227,6 +226,16 @@ impl<'de> serde::Deserialize<'de> for PartGroup {
     {
         let part_group_json = PartGroupJson::deserialize(deserializer)?;
         Ok(part_group_json.to_part_group())
+    }
+}
+
+impl TimerDataRoot for PartGroup {
+    fn is_timer_enabled(&self) -> bool {
+        self.is_timer_enabled
+    }
+
+    fn timer_interval(&self) -> i32 {
+        self.timer_interval
     }
 }
 

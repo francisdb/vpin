@@ -1,6 +1,6 @@
 use super::{dragpoint::DragPoint, vertex2d::Vertex2D};
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
-use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{HasSharedAttributes, TimerDataRoot, WriteSharedAttributes};
 use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -142,8 +142,8 @@ pub struct Trigger {
     pub wire_thickness: Option<f32>, // WITI (was missing in 10.01)
     pub scale_x: f32,
     pub scale_y: f32,
-    pub is_timer_enabled: bool,
-    pub timer_interval: i32,
+    is_timer_enabled: bool,
+    timer_interval: i32,
     pub material: String,
     pub surface: String,
     pub is_visible: bool,
@@ -171,7 +171,7 @@ pub struct Trigger {
     /// Added in 10.8.1
     pub part_group_name: Option<String>,
 
-    drag_points: Vec<DragPoint>,
+    pub drag_points: Vec<DragPoint>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -305,6 +305,9 @@ impl Default for Trigger {
 }
 
 impl HasSharedAttributes for Trigger {
+    fn name(&self) -> &str {
+        &self.name
+    }
     fn is_locked(&self) -> bool {
         self.is_locked
     }
@@ -319,6 +322,15 @@ impl HasSharedAttributes for Trigger {
     }
     fn part_group_name(&self) -> Option<&str> {
         self.part_group_name.as_deref()
+    }
+}
+
+impl TimerDataRoot for Trigger {
+    fn is_timer_enabled(&self) -> bool {
+        self.is_timer_enabled
+    }
+    fn timer_interval(&self) -> i32 {
+        self.timer_interval
     }
 }
 

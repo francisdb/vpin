@@ -743,6 +743,9 @@ impl BiffRead for Primitive {
 }
 
 impl HasSharedAttributes for Primitive {
+    fn name(&self) -> &str {
+        &self.name
+    }
     fn is_locked(&self) -> bool {
         self.is_locked
     }

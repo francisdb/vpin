@@ -1,7 +1,7 @@
 use super::dragpoint::DragPoint;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
-use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{HasSharedAttributes, TimerDataRoot, WriteSharedAttributes};
 use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -131,8 +131,8 @@ pub struct Ramp {
     pub width_bottom: f32,                   // 3
     pub width_top: f32,                      // 4
     pub material: String,                    // 5
-    pub is_timer_enabled: bool,              // 6
-    pub timer_interval: i32,                 // 7
+    is_timer_enabled: bool,                  // 6
+    timer_interval: i32,                     // 7
     pub ramp_type: RampType,                 // TYPE 8
     pub name: String,                        // 9
     pub image: String,                       // 10
@@ -353,6 +353,9 @@ impl Default for Ramp {
 }
 
 impl HasSharedAttributes for Ramp {
+    fn name(&self) -> &str {
+        &self.name
+    }
     fn is_locked(&self) -> bool {
         self.is_locked
     }
@@ -371,6 +374,16 @@ impl HasSharedAttributes for Ramp {
 
     fn part_group_name(&self) -> Option<&str> {
         self.part_group_name.as_deref()
+    }
+}
+
+impl TimerDataRoot for Ramp {
+    fn is_timer_enabled(&self) -> bool {
+        self.is_timer_enabled
+    }
+
+    fn timer_interval(&self) -> i32 {
+        self.timer_interval
     }
 }
 

@@ -1,6 +1,6 @@
 use super::{GameItem, vertex2d::Vertex2D};
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
-use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{HasSharedAttributes, TimerDataRoot, WriteSharedAttributes};
 use crate::vpx::json::F32WithNanInf;
 use fake::Dummy;
 use log::warn;
@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 pub struct Bumper {
     pub center: Vertex2D,
     pub radius: f32,
-    pub is_timer_enabled: bool,
-    pub timer_interval: i32,
+    is_timer_enabled: bool,
+    timer_interval: i32,
     pub threshold: f32,
     pub force: f32,
     pub scatter: Option<f32>,
@@ -209,6 +209,10 @@ impl GameItem for Bumper {
 }
 
 impl HasSharedAttributes for Bumper {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
     fn is_locked(&self) -> bool {
         self.is_locked
     }
@@ -227,6 +231,16 @@ impl HasSharedAttributes for Bumper {
 
     fn part_group_name(&self) -> Option<&str> {
         self.part_group_name.as_deref()
+    }
+}
+
+impl TimerDataRoot for Bumper {
+    fn is_timer_enabled(&self) -> bool {
+        self.is_timer_enabled
+    }
+
+    fn timer_interval(&self) -> i32 {
+        self.timer_interval
     }
 }
 

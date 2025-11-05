@@ -1,6 +1,6 @@
 use super::vertex2d::Vertex2D;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
-use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{HasSharedAttributes, TimerDataRoot, WriteSharedAttributes};
 use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -133,21 +133,21 @@ impl<'de> Deserialize<'de> for KickerType {
 
 #[derive(Debug, PartialEq, Dummy)]
 pub struct Kicker {
-    center: Vertex2D,
-    radius: f32,
+    pub center: Vertex2D,
+    pub radius: f32,
     is_timer_enabled: bool,
     timer_interval: i32,
-    material: String,
-    surface: String,
-    is_enabled: bool,
+    pub material: String,
+    pub surface: String,
+    pub is_enabled: bool,
     pub name: String,
-    kicker_type: KickerType,
-    scatter: f32,
-    hit_accuracy: f32,
-    hit_height: Option<f32>, // KHHI (was missing in 10.01)
-    orientation: f32,
-    fall_through: bool,
-    legacy_mode: bool,
+    pub kicker_type: KickerType,
+    pub scatter: f32,
+    pub hit_accuracy: f32,
+    pub hit_height: Option<f32>, // KHHI (was missing in 10.01)
+    pub orientation: f32,
+    pub fall_through: bool,
+    pub legacy_mode: bool,
 
     // these are shared between all items
     pub is_locked: bool,
@@ -279,6 +279,9 @@ impl Default for Kicker {
 }
 
 impl HasSharedAttributes for Kicker {
+    fn name(&self) -> &str {
+        &self.name
+    }
     fn is_locked(&self) -> bool {
         self.is_locked
     }
@@ -297,6 +300,16 @@ impl HasSharedAttributes for Kicker {
 
     fn part_group_name(&self) -> Option<&str> {
         self.part_group_name.as_deref()
+    }
+}
+
+impl TimerDataRoot for Kicker {
+    fn is_timer_enabled(&self) -> bool {
+        self.is_timer_enabled
+    }
+
+    fn timer_interval(&self) -> i32 {
+        self.timer_interval
     }
 }
 

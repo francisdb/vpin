@@ -1,6 +1,6 @@
 use super::dragpoint::DragPoint;
 use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
-use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{HasSharedAttributes, TimerDataRoot, WriteSharedAttributes};
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
@@ -200,8 +200,8 @@ pub struct Flasher {
     pub rot_y: f32,
     pub rot_z: f32,
     pub color: Color,
-    pub is_timer_enabled: bool,
-    pub timer_interval: i32,
+    is_timer_enabled: bool,
+    timer_interval: i32,
     pub name: String,
     pub image_a: String,
     pub image_b: String,
@@ -447,6 +447,9 @@ impl<'de> Deserialize<'de> for Flasher {
 }
 
 impl HasSharedAttributes for Flasher {
+    fn name(&self) -> &str {
+        &self.name
+    }
     fn is_locked(&self) -> bool {
         self.is_locked
     }
@@ -461,6 +464,15 @@ impl HasSharedAttributes for Flasher {
     }
     fn part_group_name(&self) -> Option<&str> {
         self.part_group_name.as_deref()
+    }
+}
+
+impl TimerDataRoot for Flasher {
+    fn is_timer_enabled(&self) -> bool {
+        self.is_timer_enabled
+    }
+    fn timer_interval(&self) -> i32 {
+        self.timer_interval
     }
 }
 

@@ -1,6 +1,6 @@
 use super::vertex2d::Vertex2D;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
-use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{HasSharedAttributes, TimerDataRoot, WriteSharedAttributes};
 use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -77,10 +77,10 @@ pub struct Gate {
     pub height: f32,                         // 3 HGTH
     pub rotation: f32,                       // 4 ROTA
     pub material: String,                    // 5 MATR
-    pub is_timer_enabled: bool,              // 6 TMON
+    is_timer_enabled: bool,                  // 6 TMON
     pub show_bracket: bool,                  // 7 GSUP
     pub is_collidable: bool,                 // 8 GCOL
-    pub timer_interval: i32,                 // 9 TMIN
+    timer_interval: i32,                     // 9 TMIN
     pub imgf: Option<String>,                // IMGF (was in use in 10.01)
     pub imgb: Option<String>,                // IMGB (was in use in 10.01)
     pub surface: String,                     // 10 SURF
@@ -257,6 +257,9 @@ impl<'de> Deserialize<'de> for Gate {
 }
 
 impl HasSharedAttributes for Gate {
+    fn name(&self) -> &str {
+        &self.name
+    }
     fn is_locked(&self) -> bool {
         self.is_locked
     }
@@ -271,6 +274,15 @@ impl HasSharedAttributes for Gate {
     }
     fn part_group_name(&self) -> Option<&str> {
         self.part_group_name.as_deref()
+    }
+}
+
+impl TimerDataRoot for Gate {
+    fn is_timer_enabled(&self) -> bool {
+        self.is_timer_enabled
+    }
+    fn timer_interval(&self) -> i32 {
+        self.timer_interval
     }
 }
 

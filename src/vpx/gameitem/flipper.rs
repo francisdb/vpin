@@ -1,6 +1,6 @@
 use super::{GameItem, vertex2d::Vertex2D};
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
-use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{HasSharedAttributes, TimerDataRoot, WriteSharedAttributes};
 use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -58,43 +58,43 @@ pub struct Flipper {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct FlipperJson {
-    center: Vertex2D,
-    base_radius: f32,
-    end_radius: f32,
-    flipper_radius_max: f32,
-    return_: f32,
-    start_angle: f32,
-    end_angle: f32,
-    override_physics: u32,
-    mass: f32,
+    pub center: Vertex2D,
+    pub base_radius: f32,
+    pub end_radius: f32,
+    pub flipper_radius_max: f32,
+    pub return_: f32,
+    pub start_angle: f32,
+    pub end_angle: f32,
+    pub override_physics: u32,
+    pub mass: f32,
     is_timer_enabled: bool,
     timer_interval: i32,
-    surface: String,
-    material: String,
-    name: String,
-    rubber_material: String,
-    rubber_thickness_int: u32,
-    rubber_thickness: Option<f32>,
-    rubber_height_int: u32,
-    rubber_height: Option<f32>,
-    rubber_width_int: u32,
-    rubber_width: Option<f32>,
-    strength: f32,
-    elasticity: f32,
-    elasticity_falloff: f32,
-    friction: f32,
-    ramp_up: f32,
-    scatter: Option<f32>,
-    torque_damping: Option<f32>,
-    torque_damping_angle: Option<f32>,
-    flipper_radius_min: f32,
-    is_visible: bool,
-    is_enabled: bool,
-    height: f32,
-    image: Option<String>,
-    is_reflection_enabled: Option<bool>,
+    pub surface: String,
+    pub material: String,
+    pub name: String,
+    pub rubber_material: String,
+    pub rubber_thickness_int: u32,
+    pub rubber_thickness: Option<f32>,
+    pub rubber_height_int: u32,
+    pub rubber_height: Option<f32>,
+    pub rubber_width_int: u32,
+    pub rubber_width: Option<f32>,
+    pub strength: f32,
+    pub elasticity: f32,
+    pub elasticity_falloff: f32,
+    pub friction: f32,
+    pub ramp_up: f32,
+    pub scatter: Option<f32>,
+    pub torque_damping: Option<f32>,
+    pub torque_damping_angle: Option<f32>,
+    pub flipper_radius_min: f32,
+    pub is_visible: bool,
+    pub is_enabled: bool,
+    pub height: f32,
+    pub image: Option<String>,
+    pub is_reflection_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    part_group_name: Option<String>,
+    pub part_group_name: Option<String>,
 }
 
 impl FlipperJson {
@@ -262,6 +262,9 @@ impl Default for Flipper {
 }
 
 impl HasSharedAttributes for Flipper {
+    fn name(&self) -> &str {
+        &self.name
+    }
     fn is_locked(&self) -> bool {
         self.is_locked
     }
@@ -280,6 +283,16 @@ impl HasSharedAttributes for Flipper {
 
     fn part_group_name(&self) -> Option<&str> {
         self.part_group_name.as_deref()
+    }
+}
+
+impl TimerDataRoot for Flipper {
+    fn is_timer_enabled(&self) -> bool {
+        self.is_timer_enabled
+    }
+
+    fn timer_interval(&self) -> i32 {
+        self.timer_interval
     }
 }
 

@@ -1,6 +1,6 @@
 use super::vertex2d::Vertex2D;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
-use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{HasSharedAttributes, TimerDataRoot, WriteSharedAttributes};
 use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -110,37 +110,37 @@ impl<'de> Deserialize<'de> for PlungerType {
 #[derive(Debug, PartialEq, Dummy)]
 pub struct Plunger {
     pub center: Vertex2D,
-    width: f32,
-    height: f32,
-    z_adjust: f32,
-    stroke: f32,
-    speed_pull: f32,
-    speed_fire: f32,
-    plunger_type: PlungerType,
-    anim_frames: u32,
-    material: String,
-    image: String,
-    mech_strength: f32,
-    is_mech_plunger: bool,
-    auto_plunger: bool,
-    park_position: f32,
-    scatter_velocity: f32,
-    momentum_xfer: f32,
+    pub width: f32,
+    pub height: f32,
+    pub z_adjust: f32,
+    pub stroke: f32,
+    pub speed_pull: f32,
+    pub speed_fire: f32,
+    pub plunger_type: PlungerType,
+    pub anim_frames: u32,
+    pub material: String,
+    pub image: String,
+    pub mech_strength: f32,
+    pub is_mech_plunger: bool,
+    pub auto_plunger: bool,
+    pub park_position: f32,
+    pub scatter_velocity: f32,
+    pub momentum_xfer: f32,
     is_timer_enabled: bool,
     timer_interval: i32,
-    is_visible: bool,
-    is_reflection_enabled: Option<bool>, // REEN (was missing in 10.01)
-    surface: String,
+    pub is_visible: bool,
+    pub is_reflection_enabled: Option<bool>, // REEN (was missing in 10.01)
+    pub surface: String,
     pub name: String,
-    tip_shape: String,
-    rod_diam: f32,
-    ring_gap: f32,
-    ring_diam: f32,
-    ring_width: f32,
-    spring_diam: f32,
-    spring_gauge: f32,
-    spring_loops: f32,
-    spring_end_loops: f32,
+    pub tip_shape: String,
+    pub rod_diam: f32,
+    pub ring_gap: f32,
+    pub ring_diam: f32,
+    pub ring_width: f32,
+    pub spring_diam: f32,
+    pub spring_gauge: f32,
+    pub spring_loops: f32,
+    pub spring_end_loops: f32,
 
     // these are shared between all items
     pub is_locked: bool,
@@ -341,6 +341,9 @@ impl<'de> Deserialize<'de> for Plunger {
 }
 
 impl HasSharedAttributes for Plunger {
+    fn name(&self) -> &str {
+        &self.name
+    }
     fn is_locked(&self) -> bool {
         self.is_locked
     }
@@ -355,6 +358,15 @@ impl HasSharedAttributes for Plunger {
     }
     fn part_group_name(&self) -> Option<&str> {
         self.part_group_name.as_deref()
+    }
+}
+
+impl TimerDataRoot for Plunger {
+    fn is_timer_enabled(&self) -> bool {
+        self.is_timer_enabled
+    }
+    fn timer_interval(&self) -> i32 {
+        self.timer_interval
     }
 }
 

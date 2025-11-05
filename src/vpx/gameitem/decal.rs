@@ -1,5 +1,5 @@
 use super::{GameItem, font::Font, font::FontJson, vertex2d::Vertex2D};
-use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{HasSharedAttributes, TimerDataRoot, WriteSharedAttributes};
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
@@ -176,7 +176,7 @@ pub struct Decal {
     pub vertical_text: bool,
     pub backglass: bool,
 
-    font: Font,
+    pub font: Font,
 
     // these are shared between all items
     pub is_locked: bool,
@@ -314,6 +314,10 @@ impl GameItem for Decal {
 }
 
 impl HasSharedAttributes for Decal {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
     fn is_locked(&self) -> bool {
         self.is_locked
     }
@@ -332,6 +336,16 @@ impl HasSharedAttributes for Decal {
 
     fn part_group_name(&self) -> Option<&str> {
         self.part_group_name.as_deref()
+    }
+}
+
+impl TimerDataRoot for Decal {
+    fn is_timer_enabled(&self) -> bool {
+        false
+    }
+
+    fn timer_interval(&self) -> i32 {
+        0
     }
 }
 
