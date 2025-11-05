@@ -1,5 +1,5 @@
 use super::{dragpoint::DragPoint, vertex2d::Vertex2D};
-use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{HasSharedAttributes, TimerDataRoot, WriteSharedAttributes};
 use crate::vpx::json::F32WithNanInf;
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
@@ -206,8 +206,8 @@ pub struct Light {
     pub state: Option<f32>,
     pub color: Color,                       // COLR
     pub color2: Color,                      // COL2
-    pub is_timer_enabled: bool,             // TMON
-    pub timer_interval: i32,                // TMIN
+    is_timer_enabled: bool,                 // TMON
+    timer_interval: i32,                    // TMIN
     pub blink_pattern: String,              // BPAT
     pub off_image: String,                  // IMG1
     pub blink_interval: u32,                // BINT
@@ -477,6 +477,9 @@ impl Default for Light {
 }
 
 impl HasSharedAttributes for Light {
+    fn name(&self) -> &str {
+        &self.name
+    }
     fn is_locked(&self) -> bool {
         self.is_locked
     }
@@ -491,6 +494,15 @@ impl HasSharedAttributes for Light {
     }
     fn part_group_name(&self) -> Option<&str> {
         self.part_group_name.as_deref()
+    }
+}
+
+impl TimerDataRoot for Light {
+    fn is_timer_enabled(&self) -> bool {
+        self.is_timer_enabled
+    }
+    fn timer_interval(&self) -> i32 {
+        self.timer_interval
     }
 }
 

@@ -17,7 +17,7 @@ pub mod ramp;
 pub mod ramp_image_alignment;
 pub mod reel;
 pub mod rubber;
-mod select;
+pub mod select;
 pub mod spinner;
 pub mod textbox;
 pub mod timer;

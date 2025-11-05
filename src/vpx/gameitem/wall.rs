@@ -1,6 +1,6 @@
 use super::dragpoint::DragPoint;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite, BiffWriter};
-use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{HasSharedAttributes, TimerDataRoot, WriteSharedAttributes};
 use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -15,8 +15,8 @@ pub struct Wall {
     pub is_flipbook: bool,
     pub is_bottom_solid: bool,
     pub is_collidable: bool,
-    pub is_timer_enabled: bool,
-    pub timer_interval: i32,
+    is_timer_enabled: bool,
+    timer_interval: i32,
     pub threshold: f32,
     pub image: String,
     pub side_image: String,
@@ -246,6 +246,9 @@ impl Default for Wall {
 }
 
 impl HasSharedAttributes for Wall {
+    fn name(&self) -> &str {
+        &self.name
+    }
     fn is_locked(&self) -> bool {
         self.is_locked
     }
@@ -260,6 +263,15 @@ impl HasSharedAttributes for Wall {
     }
     fn part_group_name(&self) -> Option<&str> {
         self.part_group_name.as_deref()
+    }
+}
+
+impl TimerDataRoot for Wall {
+    fn is_timer_enabled(&self) -> bool {
+        self.is_timer_enabled
+    }
+    fn timer_interval(&self) -> i32 {
+        self.timer_interval
     }
 }
 

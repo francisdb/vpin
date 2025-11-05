@@ -176,7 +176,7 @@ pub struct Decal {
     pub vertical_text: bool,
     pub backglass: bool,
 
-    font: Font,
+    pub font: Font,
 
     // these are shared between all items
     pub is_locked: bool,
@@ -314,6 +314,9 @@ impl GameItem for Decal {
 }
 
 impl HasSharedAttributes for Decal {
+    fn name(&self) -> &str {
+        &self.name
+    }
     fn is_locked(&self) -> bool {
         self.is_locked
     }

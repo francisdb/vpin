@@ -1,5 +1,5 @@
 use super::vertex2d::Vertex2D;
-use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{HasSharedAttributes, TimerDataRoot, WriteSharedAttributes};
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
@@ -10,25 +10,25 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, PartialEq, Dummy)]
 pub struct Reel {
-    ver1: Vertex2D,    // position on map (top right corner)
-    ver2: Vertex2D,    // position on map (top right corner)
-    back_color: Color, // colour of the background
+    pub ver1: Vertex2D,    // position on map (top right corner)
+    pub ver2: Vertex2D,    // position on map (top right corner)
+    pub back_color: Color, // colour of the background
     is_timer_enabled: bool,
     timer_interval: i32,
-    is_transparent: bool, // is the background transparent
-    image: String,
-    sound: String, // sound to play for each turn of a digit
+    pub is_transparent: bool, // is the background transparent
+    pub image: String,
+    pub sound: String, // sound to play for each turn of a digit
     pub name: String,
-    width: f32,        // size of each reel
-    height: f32,       // size of each reel
-    reel_count: u32,   // number of individual reel in the set
-    reel_spacing: f32, // spacing between each reel and the boarders
-    motor_steps: u32,  // steps (or frames) to move each reel each frame
-    digit_range: u32,  // max number of digits per reel (usually 9)
-    update_interval: u32,
-    use_image_grid: bool,
-    is_visible: bool,
-    images_per_grid_row: u32,
+    pub width: f32,        // size of each reel
+    pub height: f32,       // size of each reel
+    pub reel_count: u32,   // number of individual reel in the set
+    pub reel_spacing: f32, // spacing between each reel and the boarders
+    pub motor_steps: u32,  // steps (or frames) to move each reel each frame
+    pub digit_range: u32,  // max number of digits per reel (usually 9)
+    pub update_interval: u32,
+    pub use_image_grid: bool,
+    pub is_visible: bool,
+    pub images_per_grid_row: u32,
 
     // these are shared between all items
     pub is_locked: bool,
@@ -176,6 +176,9 @@ impl<'de> Deserialize<'de> for Reel {
 }
 
 impl HasSharedAttributes for Reel {
+    fn name(&self) -> &str {
+        &self.name
+    }
     fn is_locked(&self) -> bool {
         self.is_locked
     }
@@ -190,6 +193,15 @@ impl HasSharedAttributes for Reel {
     }
     fn part_group_name(&self) -> Option<&str> {
         self.part_group_name.as_deref()
+    }
+}
+
+impl TimerDataRoot for Reel {
+    fn is_timer_enabled(&self) -> bool {
+        self.is_timer_enabled
+    }
+    fn timer_interval(&self) -> i32 {
+        self.timer_interval
     }
 }
 

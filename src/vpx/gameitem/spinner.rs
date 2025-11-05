@@ -1,27 +1,27 @@
 use super::vertex2d::Vertex2D;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
-use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{HasSharedAttributes, TimerDataRoot, WriteSharedAttributes};
 use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, PartialEq, Dummy)]
 pub struct Spinner {
-    center: Vertex2D,
-    rotation: f32,
+    pub center: Vertex2D,
+    pub rotation: f32,
     is_timer_enabled: bool,
     timer_interval: i32,
-    height: f32,
-    length: f32,
-    damping: f32,
-    angle_max: f32,
-    angle_min: f32,
-    elasticity: f32,
-    is_visible: bool,
-    show_bracket: bool,
-    material: String,
-    image: String,
-    surface: String,
+    pub height: f32,
+    pub length: f32,
+    pub damping: f32,
+    pub angle_max: f32,
+    pub angle_min: f32,
+    pub elasticity: f32,
+    pub is_visible: bool,
+    pub show_bracket: bool,
+    pub material: String,
+    pub image: String,
+    pub surface: String,
     pub name: String,
     pub is_reflection_enabled: Option<bool>, // added in ?
 
@@ -163,6 +163,9 @@ impl<'de> Deserialize<'de> for Spinner {
 }
 
 impl HasSharedAttributes for Spinner {
+    fn name(&self) -> &str {
+        &self.name
+    }
     fn is_locked(&self) -> bool {
         self.is_locked
     }
@@ -177,6 +180,15 @@ impl HasSharedAttributes for Spinner {
     }
     fn part_group_name(&self) -> Option<&str> {
         self.part_group_name.as_deref()
+    }
+}
+
+impl TimerDataRoot for Spinner {
+    fn is_timer_enabled(&self) -> bool {
+        self.is_timer_enabled
+    }
+    fn timer_interval(&self) -> i32 {
+        self.timer_interval
     }
 }
 

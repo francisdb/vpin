@@ -1,20 +1,21 @@
 use super::vertex2d::Vertex2D;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::gameitem::select::TimerDataRoot;
 use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, PartialEq, Dummy)]
 pub struct LightSequencer {
-    center: Vertex2D,
-    collection: String,
-    pos_x: f32,
-    pos_y: f32,
-    update_interval: u32,
+    pub center: Vertex2D,
+    pub collection: String,
+    pub pos_x: f32,
+    pub pos_y: f32,
+    pub update_interval: u32,
     is_timer_enabled: bool,
     timer_interval: i32,
     pub name: String,
-    backglass: bool,
+    pub backglass: bool,
 
     // these are shared between all items
     pub is_locked: Option<bool>,
@@ -119,6 +120,15 @@ impl Default for LightSequencer {
             editor_layer_visibility: None,
             part_group_name: None,
         }
+    }
+}
+
+impl TimerDataRoot for LightSequencer {
+    fn is_timer_enabled(&self) -> bool {
+        self.is_timer_enabled
+    }
+    fn timer_interval(&self) -> i32 {
+        self.timer_interval
     }
 }
 

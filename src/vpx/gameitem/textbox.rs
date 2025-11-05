@@ -1,6 +1,6 @@
 use super::vertex2d::Vertex2D;
 use crate::vpx::gameitem::font::FontJson;
-use crate::vpx::gameitem::select::{HasSharedAttributes, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{HasSharedAttributes, TimerDataRoot, WriteSharedAttributes};
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
@@ -11,7 +11,7 @@ use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, PartialEq, Clone, Dummy, Default)]
-enum TextAlignment {
+pub enum TextAlignment {
     #[default]
     Left = 0,
     Center = 1,
@@ -106,19 +106,19 @@ impl<'de> Deserialize<'de> for TextAlignment {
 
 #[derive(Debug, PartialEq, Dummy)]
 pub struct TextBox {
-    ver1: Vertex2D,         // VER1
-    ver2: Vertex2D,         // VER2
-    back_color: Color,      // CLRB
-    font_color: Color,      // CLRF
-    intensity_scale: f32,   // INSC
-    text: String,           // TEXT
-    is_timer_enabled: bool, // TMON
-    timer_interval: i32,    // TMIN
-    pub name: String,       // NAME
-    align: TextAlignment,   // ALGN
-    is_transparent: bool,   // TRNS
-    is_dmd: Option<bool>,   // IDMD added in 10.2?
-    font: Font,             // FONT
+    pub ver1: Vertex2D,       // VER1
+    pub ver2: Vertex2D,       // VER2
+    pub back_color: Color,    // CLRB
+    pub font_color: Color,    // CLRF
+    pub intensity_scale: f32, // INSC
+    pub text: String,         // TEXT
+    is_timer_enabled: bool,   // TMON
+    timer_interval: i32,      // TMIN
+    pub name: String,         // NAME
+    pub align: TextAlignment, // ALGN
+    pub is_transparent: bool, // TRNS
+    pub is_dmd: Option<bool>, // IDMD added in 10.2?
+    pub font: Font,           // FONT
 
     // these are shared between all items
     pub is_locked: bool,
@@ -244,6 +244,9 @@ impl Default for TextBox {
 }
 
 impl HasSharedAttributes for TextBox {
+    fn name(&self) -> &str {
+        &self.name
+    }
     fn is_locked(&self) -> bool {
         self.is_locked
     }
@@ -258,6 +261,15 @@ impl HasSharedAttributes for TextBox {
     }
     fn part_group_name(&self) -> Option<&str> {
         self.part_group_name.as_deref()
+    }
+}
+
+impl TimerDataRoot for TextBox {
+    fn is_timer_enabled(&self) -> bool {
+        self.is_timer_enabled
+    }
+    fn timer_interval(&self) -> i32 {
+        self.timer_interval
     }
 }
 

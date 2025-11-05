@@ -8,11 +8,11 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 pub struct DragPoint {
     pub x: f32,
     pub y: f32,
-    z: f32,
-    smooth: bool,
-    is_slingshot: Option<bool>,
-    has_auto_texture: bool,
-    tex_coord: f32,
+    pub z: f32,
+    pub smooth: bool,
+    pub is_slingshot: Option<bool>,
+    pub has_auto_texture: bool,
+    pub tex_coord: f32,
 
     // Somehow below items don't belong here?
     // these are shared between all items
