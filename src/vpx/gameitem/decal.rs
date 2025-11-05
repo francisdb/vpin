@@ -339,16 +339,6 @@ impl HasSharedAttributes for Decal {
     }
 }
 
-impl TimerDataRoot for Decal {
-    fn is_timer_enabled(&self) -> bool {
-        false
-    }
-
-    fn timer_interval(&self) -> i32 {
-        0
-    }
-}
-
 impl BiffRead for Decal {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
         let mut decal = Decal::default();
