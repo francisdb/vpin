@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.4](https://github.com/francisdb/vpin/compare/v0.18.3...v0.18.4) - 2025-11-05
+
+### Added
+
+- make fields public ([#160](https://github.com/francisdb/vpin/pull/160))
+
 ## [0.18.3](https://github.com/francisdb/vpin/compare/v0.18.2...v0.18.3) - 2025-10-23
 
 ### Added
