@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.5](https://github.com/francisdb/vpin/compare/v0.18.4...v0.18.5) - 2025-11-05
+
+### Fixed
+
+- correct flipper exposed fields ([#162](https://github.com/francisdb/vpin/pull/162))
+
 ## [0.18.4](https://github.com/francisdb/vpin/compare/v0.18.3...v0.18.4) - 2025-11-05
 
 ### Added
