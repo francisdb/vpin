@@ -294,22 +294,16 @@ impl Default for WaveForm {
 
 impl SoundData {
     pub(crate) fn ext(&self) -> String {
-        let mut it = self.path.split('.');
-        match it.next_back() {
-            Some(ext) => {
-                if it.next_back().is_some() {
-                    ext.to_string()
-                } else {
-                    // the file has no extension, we assume wav
-                    warn!(
-                        "Sound path '{}' has no extension, assuming 'wav'",
-                        self.path
-                    );
-                    "wav".to_string()
-                }
+        match self.path.rfind('.') {
+            Some(pos) if pos > 0 && pos < self.path.len() - 1 => {
+                self.path[(pos + 1)..].to_string()
             }
-            None => {
-                unreachable!("we should at least have one element from split");
+            _ => {
+                warn!(
+                    "Sound path '{}' has no extension, assuming 'wav'",
+                    self.path
+                );
+                "wav".to_string()
             }
         }
     }
