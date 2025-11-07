@@ -119,23 +119,23 @@ pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteErr
     let mut collections_json_file = File::create(collections_json_path)?;
     let json_collections = collections_json(&vpx.collections);
     serde_json::to_writer_pretty(&mut collections_json_file, &json_collections)?;
-    info!("✓ Collections written");
+    info!("✓ {} Collections written", vpx.collections.len());
 
     info!("Writing game items...");
     write_gameitems(vpx, expanded_dir)?;
-    info!("✓ Game items written");
+    info!("✓ {} Game items written", vpx.gameitems.len());
 
     info!("Writing images...");
     write_images(vpx, expanded_dir)?;
-    info!("✓ Images written");
+    info!("✓ {} Images written", vpx.images.len());
 
     info!("Writing sounds...");
     write_sounds(vpx, expanded_dir)?;
-    info!("✓ Sounds written");
+    info!("✓ {} Sounds written", vpx.sounds.len());
 
     info!("Writing fonts...");
     write_fonts(vpx, expanded_dir)?;
-    info!("✓ Fonts written");
+    info!("✓ {} Fonts written", vpx.fonts.len());
 
     info!("Writing game data...");
     write_game_data(vpx, expanded_dir)?;
@@ -161,6 +161,7 @@ pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteErr
 }
 
 pub fn read<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<VPX> {
+    info!("=== Starting VPX assembly process ===");
     // read the version
     let version_path = expanded_dir.as_ref().join("version.txt");
     if !version_path.exists() {
@@ -189,12 +190,31 @@ pub fn read<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<VPX> {
         None
     };
 
+    info!("Reading table info...");
     let (info, custominfotags) = read_info(expanded_dir, screenshot)?;
+    info!("✓ Table info read");
+
+    info!("Reading collections...");
     let collections = read_collections(expanded_dir)?;
+    info!("✓ {} Collections read", collections.len());
+
+    info!("Reading game items...");
     let gameitems = read_gameitems(expanded_dir)?;
+    info!("✓ {} Game items read", gameitems.len());
+
+    info!("Reading images...");
     let images = read_images(expanded_dir)?;
+    info!("✓ {} Images read", images.len());
+
+    info!("Reading sounds...");
     let sounds = read_sounds(expanded_dir)?;
+    info!("✓ {} Sounds read", sounds.len());
+
+    info!("Reading fonts...");
     let fonts = read_fonts(expanded_dir)?;
+    info!("✓ {} Fonts read", fonts.len());
+
+    info!("Reading game data...");
     let mut gamedata = read_game_data(expanded_dir)?;
     gamedata.collections_size = collections.len() as u32;
     gamedata.gameitems_size = gameitems.len() as u32;
@@ -218,6 +238,7 @@ pub fn read<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<VPX> {
         }
     }
     gamedata.render_probes = read_renderprobes(expanded_dir)?;
+    info!("✓ Game data read");
 
     let vpx = VPX {
         custominfotags,
@@ -230,6 +251,7 @@ pub fn read<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<VPX> {
         fonts,
         collections,
     };
+    info!("=== VPX assembly process completed successfully ===");
     Ok(vpx)
 }
 
