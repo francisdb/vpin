@@ -599,7 +599,7 @@ mod test {
         assert_eq!(str_path_ext("test"), None);
         assert_eq!(str_path_ext("test."), None);
         assert_eq!(str_path_ext(".test"), None);
-        assert_eq!(str_path_ext("c:\\foo.bar\\test.wav"), Some("wav"));
+        assert_eq!(str_path_ext(r"c:\foo.bar\test.wav"), Some("wav"));
         assert_eq!(str_path_ext("/foo.bar/.test"), None);
     }
 }
