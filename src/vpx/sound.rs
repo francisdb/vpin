@@ -1,16 +1,15 @@
-use std::fmt;
-
+use super::{
+    Version,
+    biff::{BiffReader, BiffWriter},
+};
 use crate::vpx::wav::{WavHeader, read_wav_header, write_wav_header};
 use bytes::{BufMut, BytesMut};
 use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
-
-use super::{
-    Version,
-    biff::{BiffReader, BiffWriter},
-};
+use std::fmt;
+use std::path::Path;
 
 #[derive(Debug, PartialEq, Dummy, Clone)]
 pub enum OutputTarget {
@@ -294,10 +293,15 @@ impl Default for WaveForm {
 
 impl SoundData {
     pub(crate) fn ext(&self) -> String {
-        // TODO we might want to also check the jpeg fsPath
-        match self.path.split('.').next_back() {
+        match str_path_ext(&self.path) {
             Some(ext) => ext.to_string(),
-            None => "bin".to_string(),
+            None => {
+                warn!(
+                    "Sound path '{}' has no extension, assuming 'wav'",
+                    self.path
+                );
+                "wav".to_string()
+            }
         }
     }
 }
@@ -383,11 +387,18 @@ pub(crate) fn read(file_version: &Version, reader: &mut BiffReader) -> SoundData
     }
 }
 
+fn str_path_ext(path: &str) -> Option<&str> {
+    Path::new(path)
+        .extension()
+        .and_then(|os| os.to_str())
+        .filter(|s| !s.is_empty())
+}
+
 /// Check if the path is a wav file.
 /// If the path does not have an extension, it is also considered a wav file!
 fn is_wav(path: &str) -> bool {
-    match path.rfind('.') {
-        Some(pos) => path[(pos + 1)..].eq_ignore_ascii_case("wav"),
+    match str_path_ext(path) {
+        Some(ext) => ext.eq_ignore_ascii_case("wav"),
         None => true,
     }
 }
@@ -535,5 +546,60 @@ mod test {
         };
         read_sound(&sound_data, &mut sound_read);
         assert_eq!(sound, sound_read);
+    }
+
+    /// We found a vpx file with sound that had a path "* Backglass Output *"
+    /// https://github.com/francisdb/vpin/issues/164
+    #[test]
+    fn test_ext_issue_no_ext() {
+        let sound = SoundData {
+            name: "test".to_string(),
+            path: "* Backglass Output *".to_string(),
+            wave_form: Default::default(),
+            data: vec![],
+            internal_name: "test".to_string(),
+            fade: 0,
+            volume: 0,
+            balance: 0,
+            output_target: OutputTarget::Table,
+        };
+        assert_eq!(sound.ext(), "wav".to_string());
+        assert!(is_wav(&sound.path));
+    }
+
+    #[test]
+    fn test_ext_variations() {
+        let mut sound = SoundData {
+            name: "test".to_string(),
+            path: r"c:\foo\test.wav".to_string(),
+            wave_form: Default::default(),
+            data: vec![],
+            internal_name: "test".to_string(),
+            fade: 0,
+            volume: 0,
+            balance: 0,
+            output_target: OutputTarget::Table,
+        };
+        assert_eq!(sound.ext(), "wav".to_string());
+        assert!(is_wav(&sound.path));
+
+        sound.path = "test.WAV".to_string();
+        assert_eq!(sound.ext(), "WAV".to_string());
+        assert!(is_wav(&sound.path));
+
+        sound.path = "test.mp3".to_string();
+        assert_eq!(sound.ext(), "mp3".to_string());
+        assert!(!is_wav(&sound.path));
+    }
+
+    #[test]
+    fn test_str_path_ext() {
+        assert_eq!(str_path_ext(r"c:\foo\bar\test.wav"), Some("wav"));
+        assert_eq!(str_path_ext("test.mp3"), Some("mp3"));
+        assert_eq!(str_path_ext("test"), None);
+        assert_eq!(str_path_ext("test."), None);
+        assert_eq!(str_path_ext(".test"), None);
+        assert_eq!(str_path_ext(r"c:\foo.bar\test.wav"), Some("wav"));
+        assert_eq!(str_path_ext("/foo.bar/.test"), None);
     }
 }
