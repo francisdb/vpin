@@ -294,10 +294,23 @@ impl Default for WaveForm {
 
 impl SoundData {
     pub(crate) fn ext(&self) -> String {
-        // TODO we might want to also check the jpeg fsPath
-        match self.path.split('.').next_back() {
-            Some(ext) => ext.to_string(),
-            None => "bin".to_string(),
+        let mut it = self.path.split('.');
+        match it.next_back() {
+            Some(ext) => {
+                if it.next_back().is_some() {
+                    ext.to_string()
+                } else {
+                    // the file has no extension, we assume wav
+                    warn!(
+                        "Sound path '{}' has no extension, assuming 'wav'",
+                        self.path
+                    );
+                    "wav".to_string()
+                }
+            }
+            None => {
+                unreachable!("we should at least have one element from split");
+            }
         }
     }
 }
@@ -535,5 +548,41 @@ mod test {
         };
         read_sound(&sound_data, &mut sound_read);
         assert_eq!(sound, sound_read);
+    }
+
+    /// We found a vpx file with sound that had a path "* Backglass Output *"
+    /// https://github.com/francisdb/vpin/issues/164
+    #[test]
+    fn test_ext_issue_no_ext() {
+        let sound = SoundData {
+            name: "test".to_string(),
+            path: "* Backglass Output *".to_string(),
+            wave_form: Default::default(),
+            data: vec![],
+            internal_name: "test".to_string(),
+            fade: 0,
+            volume: 0,
+            balance: 0,
+            output_target: OutputTarget::Table,
+        };
+        assert_eq!(sound.ext(), "wav".to_string());
+        assert!(is_wav(&sound.path));
+    }
+
+    #[test]
+    fn test_ext_empty() {
+        let sound = SoundData {
+            name: "test".to_string(),
+            path: "".to_string(),
+            wave_form: Default::default(),
+            data: vec![],
+            internal_name: "test".to_string(),
+            fade: 0,
+            volume: 0,
+            balance: 0,
+            output_target: OutputTarget::Table,
+        };
+        assert_eq!(sound.ext(), "wav".to_string());
+        assert!(is_wav(&sound.path));
     }
 }
