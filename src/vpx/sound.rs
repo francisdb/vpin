@@ -1,16 +1,15 @@
-use std::fmt;
-
+use super::{
+    Version,
+    biff::{BiffReader, BiffWriter},
+};
 use crate::vpx::wav::{WavHeader, read_wav_header, write_wav_header};
 use bytes::{BufMut, BytesMut};
 use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
-
-use super::{
-    Version,
-    biff::{BiffReader, BiffWriter},
-};
+use std::fmt;
+use std::path::Path;
 
 #[derive(Debug, PartialEq, Dummy, Clone)]
 pub enum OutputTarget {
@@ -294,11 +293,9 @@ impl Default for WaveForm {
 
 impl SoundData {
     pub(crate) fn ext(&self) -> String {
-        match self.path.rfind('.') {
-            Some(pos) if pos > 0 && pos < self.path.len() - 1 => {
-                self.path[(pos + 1)..].to_string()
-            }
-            _ => {
+        match str_path_ext(&self.path) {
+            Some(ext) => ext.to_string(),
+            None => {
                 warn!(
                     "Sound path '{}' has no extension, assuming 'wav'",
                     self.path
@@ -390,11 +387,18 @@ pub(crate) fn read(file_version: &Version, reader: &mut BiffReader) -> SoundData
     }
 }
 
+fn str_path_ext(path: &str) -> Option<&str> {
+    Path::new(path)
+        .extension()
+        .and_then(|os| os.to_str())
+        .filter(|s| !s.is_empty())
+}
+
 /// Check if the path is a wav file.
 /// If the path does not have an extension, it is also considered a wav file!
 fn is_wav(path: &str) -> bool {
-    match path.rfind('.') {
-        Some(pos) => path[(pos + 1)..].eq_ignore_ascii_case("wav"),
+    match str_path_ext(path) {
+        Some(ext) => ext.eq_ignore_ascii_case("wav"),
         None => true,
     }
 }
@@ -564,10 +568,10 @@ mod test {
     }
 
     #[test]
-    fn test_ext_empty() {
-        let sound = SoundData {
+    fn test_ext_variations() {
+        let mut sound = SoundData {
             name: "test".to_string(),
-            path: "".to_string(),
+            path: "c:\\\\foo\\test.wav".to_string(),
             wave_form: Default::default(),
             data: vec![],
             internal_name: "test".to_string(),
@@ -578,5 +582,24 @@ mod test {
         };
         assert_eq!(sound.ext(), "wav".to_string());
         assert!(is_wav(&sound.path));
+
+        sound.path = "test.WAV".to_string();
+        assert_eq!(sound.ext(), "WAV".to_string());
+        assert!(is_wav(&sound.path));
+
+        sound.path = "test.mp3".to_string();
+        assert_eq!(sound.ext(), "mp3".to_string());
+        assert!(!is_wav(&sound.path));
+    }
+
+    #[test]
+    fn test_str_path_ext() {
+        assert_eq!(str_path_ext("c:\\foo\\bar\\test.wav"), Some("wav"));
+        assert_eq!(str_path_ext("test.mp3"), Some("mp3"));
+        assert_eq!(str_path_ext("test"), None);
+        assert_eq!(str_path_ext("test."), None);
+        assert_eq!(str_path_ext(".test"), None);
+        assert_eq!(str_path_ext("c:\\foo.bar\\test.wav"), Some("wav"));
+        assert_eq!(str_path_ext("/foo.bar/.test"), None);
     }
 }
