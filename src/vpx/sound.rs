@@ -594,7 +594,7 @@ mod test {
 
     #[test]
     fn test_str_path_ext() {
-        assert_eq!(str_path_ext("c:\\foo\\bar\\test.wav"), Some("wav"));
+        assert_eq!(str_path_ext(r"c:\foo\bar\test.wav"), Some("wav"));
         assert_eq!(str_path_ext("test.mp3"), Some("mp3"));
         assert_eq!(str_path_ext("test"), None);
         assert_eq!(str_path_ext("test."), None);
