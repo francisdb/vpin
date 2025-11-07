@@ -818,7 +818,8 @@ fn read_sounds<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<SoundData>> {
         .map(|sound_data_json| {
             let mut sound = sound_data_json.to_sound_data();
             let file_name = sound_data_json.name_dedup.as_ref().unwrap_or(&sound.name);
-            let full_file_name = format!("{}.{}", file_name, sound.ext());
+            let sanitized_name = sanitize_filename(file_name);
+            let full_file_name = format!("{}.{}", sanitized_name, sound.ext());
             let file_path = sounds_dir.join(full_file_name);
             if file_path.exists() {
                 let mut sound_file = File::open(&file_path)?;
