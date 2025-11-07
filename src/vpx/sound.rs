@@ -571,7 +571,7 @@ mod test {
     fn test_ext_variations() {
         let mut sound = SoundData {
             name: "test".to_string(),
-            path: "c:\\\\foo\\test.wav".to_string(),
+            path: r"c:\foo\test.wav".to_string(),
             wave_form: Default::default(),
             data: vec![],
             internal_name: "test".to_string(),
