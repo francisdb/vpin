@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.6](https://github.com/francisdb/vpin/compare/v0.18.5...v0.18.6) - 2025-11-07
+
+### Added
+
+- logging during assembly ([#167](https://github.com/francisdb/vpin/pull/167))
+
+### Fixed
+
+- sound file name sanitation was only applied for write ([#169](https://github.com/francisdb/vpin/pull/169))
+- image file name sanitation was only applied for write ([#168](https://github.com/francisdb/vpin/pull/168))
+- sounds without extension handling ([#165](https://github.com/francisdb/vpin/pull/165))
+
 ## [0.18.5](https://github.com/francisdb/vpin/compare/v0.18.4...v0.18.5) - 2025-11-05
 
 ### Fixed
