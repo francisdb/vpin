@@ -568,14 +568,16 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
                     .name_dedup
                     .as_ref()
                     .unwrap_or(&image_data_json.name);
-                let full_file_name = format!("{}.{}", file_name, image_data_json.ext());
+                // Sanitize the filename to remove invalid characters for Windows/filesystem
+                let sanitized_name = sanitize_filename(file_name);
+                let full_file_name = format!("{}.{}", sanitized_name, image_data_json.ext());
                 let mut file_path = images_dir.join(&full_file_name);
 
                 // We also support webp in case the image is a png, this was requested by a user
                 // https://github.com/francisdb/vpxtool/issues/521
                 let mut new_extension = None;
                 if image_data_json.ext() == "png" && !file_path.exists() {
-                    let file_path_webp = images_dir.join(format!("{file_name}.webp"));
+                    let file_path_webp = images_dir.join(format!("{sanitized_name}.webp"));
                     if file_path_webp.exists() {
                         new_extension = Some("webp");
                         file_path = file_path_webp;
