@@ -21,10 +21,10 @@ pub struct Reel {
     pub name: String,
     pub width: f32,        // size of each reel
     pub height: f32,       // size of each reel
-    pub reel_count: u32,   // number of individual reel in the set
+    pub reel_count: f32,   // number of individual reel in the set
     pub reel_spacing: f32, // spacing between each reel and the boarders
-    pub motor_steps: u32,  // steps (or frames) to move each reel each frame
-    pub digit_range: u32,  // max number of digits per reel (usually 9)
+    pub motor_steps: f32,  // steps (or frames) to move each reel each frame
+    pub digit_range: f32,  // max number of digits per reel (usually 9)
     pub update_interval: u32,
     pub use_image_grid: bool,
     pub is_visible: bool,
@@ -54,10 +54,10 @@ struct ReelJson {
     name: String,
     width: f32,
     height: f32,
-    reel_count: u32,
+    reel_count: f32,
     reel_spacing: f32,
-    motor_steps: u32,
-    digit_range: u32,
+    motor_steps: f32,
+    digit_range: f32,
     update_interval: u32,
     use_image_grid: bool,
     is_visible: bool,
@@ -139,10 +139,10 @@ impl Default for Reel {
             name: Default::default(),
             width: 30.0,
             height: 40.0,
-            reel_count: 5,
+            reel_count: 5.0,
             reel_spacing: 4.0,
-            motor_steps: 2,
-            digit_range: 9,
+            motor_steps: 2.0,
+            digit_range: 9.0,
             update_interval: 50,
             use_image_grid: false,
             is_visible: true,
@@ -251,16 +251,16 @@ impl BiffRead for Reel {
                     reel.height = reader.get_f32();
                 }
                 "RCNT" => {
-                    reel.reel_count = reader.get_u32();
+                    reel.reel_count = reader.get_f32();
                 }
                 "RSPC" => {
                     reel.reel_spacing = reader.get_f32();
                 }
                 "MSTP" => {
-                    reel.motor_steps = reader.get_u32();
+                    reel.motor_steps = reader.get_f32();
                 }
                 "RANG" => {
-                    reel.digit_range = reader.get_u32();
+                    reel.digit_range = reader.get_f32();
                 }
                 "UPTM" => {
                     reel.update_interval = reader.get_u32();
@@ -318,10 +318,10 @@ impl BiffWrite for Reel {
         writer.write_tagged_wide_string("NAME", &self.name);
         writer.write_tagged_f32("WDTH", self.width);
         writer.write_tagged_f32("HIGH", self.height);
-        writer.write_tagged_u32("RCNT", self.reel_count);
+        writer.write_tagged_f32("RCNT", self.reel_count);
         writer.write_tagged_f32("RSPC", self.reel_spacing);
-        writer.write_tagged_u32("MSTP", self.motor_steps);
-        writer.write_tagged_u32("RANG", self.digit_range);
+        writer.write_tagged_f32("MSTP", self.motor_steps);
+        writer.write_tagged_f32("RANG", self.digit_range);
         writer.write_tagged_u32("UPTM", self.update_interval);
         writer.write_tagged_bool("UGRD", self.use_image_grid);
         writer.write_tagged_bool("VISI", self.is_visible);
