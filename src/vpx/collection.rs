@@ -78,8 +78,6 @@ mod test {
 
     #[test]
     fn write_read() {
-        use pretty_assertions::assert_eq;
-
         let collection = Collection {
             name: "Test Collection".to_string(),
             items: vec!["Item 1".to_string(), "Item 2".to_string()],
