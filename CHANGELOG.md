@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.7](https://github.com/francisdb/vpin/compare/v0.18.6...v0.18.7) - 2025-12-11
+
+### Other
+
+- update read/write of reel_count, motor_steps, digit_range as floats ([#173](https://github.com/francisdb/vpin/pull/173))
+- remove duplicate import
+- *(deps)* bump actions/checkout from 5 to 6 ([#171](https://github.com/francisdb/vpin/pull/171))
+
 ## [0.18.6](https://github.com/francisdb/vpin/compare/v0.18.5...v0.18.6) - 2025-11-07
 
 ### Added
