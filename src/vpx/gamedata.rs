@@ -399,6 +399,7 @@ pub struct GameData {
     pub global_emission_scale: f32,                   // GLES 81
     pub ao_scale: f32,                                // AOSC 82
     pub ssr_scale: Option<f32>,                       // SSSC 83 (added in 10.?)
+    pub ground_to_lockbar_height: Option<f32>,        // CLBH (added in 10.8.x)
     pub table_sound_volume: f32,                      // SVOL 84
     pub table_music_volume: f32,                      // MVOL 85
     pub table_adaptive_vsync: Option<i32>,            // AVSY 86 (became optional in 10.8)
@@ -573,6 +574,7 @@ pub(crate) struct GameDataJson {
     pub global_emission_scale: f32,
     pub ao_scale: f32,
     pub ssr_scale: Option<f32>,
+    pub ground_to_lockbar_height: Option<f32>,
     pub table_sound_volume: f32,
     pub table_music_volume: f32,
     pub table_adaptive_vsync: Option<i32>,
@@ -731,6 +733,7 @@ impl GameDataJson {
             global_emission_scale: self.global_emission_scale,
             ao_scale: self.ao_scale,
             ssr_scale: self.ssr_scale,
+            ground_to_lockbar_height: self.ground_to_lockbar_height,
             table_sound_volume: self.table_sound_volume,
             table_music_volume: self.table_music_volume,
             table_adaptive_vsync: self.table_adaptive_vsync,
@@ -913,6 +916,7 @@ impl GameDataJson {
             global_emission_scale: game_data.global_emission_scale,
             ao_scale: game_data.ao_scale,
             ssr_scale: game_data.ssr_scale,
+            ground_to_lockbar_height: game_data.ground_to_lockbar_height,
             table_sound_volume: game_data.table_sound_volume,
             table_music_volume: game_data.table_music_volume,
             table_adaptive_vsync: game_data.table_adaptive_vsync,
@@ -1053,6 +1057,7 @@ impl Default for GameData {
             global_emission_scale: 0.52,
             ao_scale: 1.75,
             ssr_scale: None, //1.0,
+            ground_to_lockbar_height: None,
             table_sound_volume: 1.0,
             table_music_volume: 1.0,
             table_adaptive_vsync: None,     //-1,
@@ -1355,6 +1360,9 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
     if let Some(sssc) = gamedata.ssr_scale {
         writer.write_tagged_f32("SSSC", sssc);
     }
+    if let Some(clbh) = gamedata.ground_to_lockbar_height {
+        writer.write_tagged_f32("CLBH", clbh);
+    }
     writer.write_tagged_f32("SVOL", gamedata.table_sound_volume);
     writer.write_tagged_f32("MVOL", gamedata.table_music_volume);
     if let Some(avsy) = gamedata.table_adaptive_vsync {
@@ -1604,6 +1612,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             "GLES" => gamedata.global_emission_scale = reader.get_f32(),
             "AOSC" => gamedata.ao_scale = reader.get_f32(),
             "SSSC" => gamedata.ssr_scale = Some(reader.get_f32()),
+            "CLBH" => gamedata.ground_to_lockbar_height = Some(reader.get_f32()),
             "SVOL" => gamedata.table_sound_volume = reader.get_f32(),
             "MVOL" => gamedata.table_music_volume = reader.get_f32(),
             "AVSY" => gamedata.table_adaptive_vsync = Some(reader.get_i32()),
@@ -1825,6 +1834,7 @@ mod tests {
             global_emission_scale: 0.111,
             ao_scale: 0.9,
             ssr_scale: Some(0.5),
+            ground_to_lockbar_height: Some(42.0),
             table_sound_volume: 0.6,
             table_music_volume: 0.5,
             table_adaptive_vsync: Some(1),
