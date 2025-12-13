@@ -30,12 +30,12 @@ where
 {
     fn write_shared_attributes(&self, writer: &mut biff::BiffWriter) {
         writer.write_tagged_bool("LOCK", self.is_locked());
-        if let Some(group_name) = self.part_group_name() {
-            writer.write_tagged_string("GRUP", group_name);
-        }
         writer.write_tagged_u32("LAYR", self.editor_layer());
         if let Some(name) = self.editor_layer_name() {
             writer.write_tagged_string("LANR", name);
+        }
+        if let Some(group_name) = self.part_group_name() {
+            writer.write_tagged_string("GRUP", group_name);
         }
         if let Some(visibility) = self.editor_layer_visibility() {
             writer.write_tagged_bool("LVIS", visibility);
