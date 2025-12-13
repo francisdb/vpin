@@ -17,18 +17,13 @@ use walkdir::WalkDir;
 /// otherwise use ~/vpinball/tables
 pub(crate) fn tables_dir() -> PathBuf {
     let folder = if let Ok(tables_dir) = std::env::var("TABLES_DIR") {
-        let folder = PathBuf::from(tables_dir);
-        if folder.exists() {
-            folder
-        } else {
-            panic!("TABLES_DIR does not exist: {:?}", folder);
-        }
+        PathBuf::from(tables_dir)
     } else {
         let home = dirs::home_dir().expect("no home dir");
         home.join("vpinball").join("tables")
     };
     if !folder.exists() {
-        panic!("folder does not exist: {folder:?}");
+        panic!("Tables folder does not exist: {folder:?}");
     }
     folder
 }
