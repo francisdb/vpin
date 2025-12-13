@@ -1,0 +1,41 @@
+name: Integration Tests
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # Runs weekly on Sunday at 00:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Install minimal stable
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+      - name: Check out vpinball repository inside the project folder
+        uses: actions/checkout@v6
+        with:
+          repository: vpinball/vpinball
+          path: vpinball
+      - name: Run the integration tests
+        run: TABLES_DIR="vpinball" cargo test --release -- --ignored --nocapture

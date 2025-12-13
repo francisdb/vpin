@@ -13,6 +13,34 @@ use vpin::vpx::biff::BiffReader;
 use vpin::vpx::lzw::from_lzw_blocks;
 use walkdir::WalkDir;
 
+/// if TABLES_DIR is set use that
+/// otherwise use ~/vpinball/tables
+pub(crate) fn tables_dir() -> PathBuf {
+    let (folder, used_env) = if let Ok(tables_dir) = std::env::var("TABLES_DIR") {
+        (PathBuf::from(tables_dir), true)
+    } else {
+        let home = dirs::home_dir().expect("no home dir");
+        (home.join("vpinball").join("tables"), false)
+    };
+    if !folder.exists() {
+        if used_env {
+            panic!(
+                "Tables folder does not exist: {folder:?}\n\
+                The path was determined from the TABLES_DIR environment variable.\n\
+                Please check that TABLES_DIR is set correctly and the directory exists."
+            );
+        } else {
+            panic!(
+                "Tables folder does not exist: {folder:?}\n\
+                The path was determined from the default location ($HOME/vpinball/tables).\n\
+                You can set the TABLES_DIR environment variable to override this location:\n\
+                export TABLES_DIR=/path/to/your/tables"
+            );
+        }
+    }
+    folder
+}
+
 pub(crate) fn find_files<P: AsRef<Path>>(
     tables_path: P,
     extension: &str,
