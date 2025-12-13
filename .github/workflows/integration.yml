@@ -1,5 +1,4 @@
 name: Integration Tests
-description: Run integration tests against the vpinball repository to ensure compatibility.
 
 on:
   schedule:
