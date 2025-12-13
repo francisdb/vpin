@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.8](https://github.com/francisdb/vpin/compare/v0.18.7...v0.18.8) - 2025-12-13
+
+### Other
+
+- replace actions/cache with Swatinem/rust-cache
+- update toolchain action to dtolnay/rust-toolchain
+- weekly integration test build ([#175](https://github.com/francisdb/vpin/pull/175))
+
 ## [0.18.7](https://github.com/francisdb/vpin/compare/v0.18.6...v0.18.7) - 2025-12-11
 
 ### Other
