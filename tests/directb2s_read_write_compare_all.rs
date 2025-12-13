@@ -1,3 +1,4 @@
+use crate::common::tables_dir;
 use pretty_assertions::assert_eq;
 use rayon::prelude::*;
 use roxmltree::{Document, Node, NodeType};
@@ -16,11 +17,7 @@ mod common;
 #[test]
 #[ignore = "slow integration test that only runs on correctly set up machines"]
 fn read_all() -> TestResult {
-    let home = dirs::home_dir().expect("no home dir");
-    let folder = home.join("vpinball").join("tables");
-    if !folder.exists() {
-        panic!("folder does not exist: {folder:?}");
-    }
+    let folder = tables_dir();
     let paths = common::find_files(&folder, "directb2s")?;
 
     let filtered_file_names = [

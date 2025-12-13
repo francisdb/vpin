@@ -5,7 +5,7 @@ mod test {
 
     // use pretty_assertions::assert_eq;
     // use rayon::prelude::*;
-    use crate::common::{assert_equal_vpx, find_files};
+    use crate::common::{assert_equal_vpx, find_files, tables_dir};
     use std::io;
     use std::path::{Path, PathBuf};
     use testdir::testdir;
@@ -28,11 +28,7 @@ mod test {
     #[test]
     #[ignore = "slow integration test that only runs on correctly set up machines"]
     fn read_and_write_all() -> io::Result<()> {
-        let home = dirs::home_dir().expect("no home dir");
-        let folder = home.join("vpinball").join("tables");
-        if !folder.exists() {
-            panic!("folder does not exist: {folder:?}");
-        }
+        let folder = tables_dir();
         let paths = find_files(&folder, "vpx")?;
         // testdir can not be used in non-main threads
         let dir: PathBuf = testdir!();

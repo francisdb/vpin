@@ -13,6 +13,26 @@ use vpin::vpx::biff::BiffReader;
 use vpin::vpx::lzw::from_lzw_blocks;
 use walkdir::WalkDir;
 
+/// if TABLES_DIR is set use that
+/// otherwise use ~/vpinball/tables
+pub(crate) fn tables_dir() -> PathBuf {
+    let folder = if let Ok(tables_dir) = std::env::var("TABLES_DIR") {
+        let folder = PathBuf::from(tables_dir);
+        if folder.exists() {
+            folder
+        } else {
+            panic!("TABLES_DIR does not exist: {:?}", folder);
+        }
+    } else {
+        let home = dirs::home_dir().expect("no home dir");
+        home.join("vpinball").join("tables")
+    };
+    if !folder.exists() {
+        panic!("folder does not exist: {folder:?}");
+    }
+    folder
+}
+
 pub(crate) fn find_files<P: AsRef<Path>>(
     tables_path: P,
     extension: &str,
