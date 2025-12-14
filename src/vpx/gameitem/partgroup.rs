@@ -133,7 +133,7 @@ pub struct PartGroup {
     is_timer_enabled: bool,
     timer_interval: i32,
     pub backglass: bool,
-    pub visibility_mask: u32,
+    pub visibility_mask: Option<u32>,
     pub space_reference: SpaceReference,
     pub player_mode_visibility_mask: Option<u32>,
 
@@ -154,7 +154,7 @@ impl Default for PartGroup {
             is_timer_enabled: false,
             timer_interval: 0,
             backglass: false,
-            visibility_mask: VisibilityMask::Playfield.into(),
+            visibility_mask: None,
             space_reference: SpaceReference::Inherit,
             player_mode_visibility_mask: None,
             is_locked: false,
@@ -171,8 +171,10 @@ struct PartGroupJson {
     is_timer_enabled: bool,
     timer_interval: i32,
     backglass: bool,
-    visibility_mask: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    visibility_mask: Option<u32>,
     space_reference: SpaceReference,
+    #[serde(skip_serializing_if = "Option::is_none")]
     player_mode_visibility_mask: Option<u32>,
     is_locked: bool,
     editor_layer_name: Option<String>,
@@ -267,7 +269,7 @@ impl BiffRead for PartGroup {
                     part_group.backglass = reader.get_bool();
                 }
                 "VMSK" => {
-                    part_group.visibility_mask = reader.get_u32();
+                    part_group.visibility_mask = Some(reader.get_u32());
                 }
                 "SPRF" => {
                     part_group.space_reference = reader.get_u32().into();
@@ -311,11 +313,13 @@ impl BiffWrite for PartGroup {
         writer.write_tagged_bool("TMON", self.is_timer_enabled);
         writer.write_tagged_i32("TMIN", self.timer_interval);
         writer.write_tagged_bool("BGLS", self.backglass);
-        writer.write_tagged_u32("VMSK", self.visibility_mask);
-        writer.write_tagged_u32("SPRF", (&self.space_reference).into());
+        if let Some(vmsk) = self.visibility_mask {
+            writer.write_tagged_u32("VMSK", vmsk);
+        }
         if let Some(pmsk) = self.player_mode_visibility_mask {
             writer.write_tagged_u32("PMSK", pmsk);
         }
+        writer.write_tagged_u32("SPRF", (&self.space_reference).into());
 
         // shared attributes, not using the trait as this one does not have a part_group_name
         writer.write_tagged_bool("LOCK", self.is_locked);
@@ -346,7 +350,7 @@ mod tests {
             is_timer_enabled: true,
             timer_interval: 1000,
             backglass: true,
-            visibility_mask: VisibilityMask::Playfield.into(),
+            visibility_mask: Some(VisibilityMask::Playfield.into()),
             space_reference: SpaceReference::Cabinet,
             player_mode_visibility_mask: Some(0x00FF),
             is_locked: true,

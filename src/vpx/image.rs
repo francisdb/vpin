@@ -380,14 +380,14 @@ fn write(data: &ImageData, writer: &mut BiffWriter) {
         writer.write_tagged_data_without_size("JPEG", &bits);
     }
     writer.write_tagged_f32("ALTV", data.alpha_test_value);
+    if let Some(md5_hash) = &data.md5_hash {
+        writer.write_tagged_data("MD5H", md5_hash);
+    }
     if let Some(is_opaque) = data.is_opaque {
         writer.write_tagged_bool("OPAQ", is_opaque);
     }
     if let Some(is_signed) = data.is_signed {
         writer.write_tagged_bool("SIGN", is_signed);
-    }
-    if let Some(md5_hash) = &data.md5_hash {
-        writer.write_tagged_data("MD5H", md5_hash);
     }
     writer.close(true);
 }
