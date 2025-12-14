@@ -74,6 +74,7 @@ pub struct ImageData {
     /// This field is named jpeg, but it's actually used for any image that is not a bitmap
     pub jpeg: Option<ImageDataJpeg>,
     pub bits: Option<ImageDataBits>,
+    pub md5_hash: Option<[u8; 16]>,
 }
 
 impl ImageData {
@@ -136,6 +137,8 @@ pub(crate) struct ImageDataJson {
     // in case we have a duplicate name
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) name_dedup: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    md5_hash: Option<String>,
 }
 
 impl ImageDataJson {
@@ -180,6 +183,7 @@ impl ImageDataJson {
             jpeg_internal_name,
             jpeg_path,
             name_dedup: None,
+            md5_hash: image_data.md5_hash.map(hex::encode),
         }
     }
 
@@ -207,6 +211,16 @@ impl ImageDataJson {
         let alpha_test_value = self
             .alpha_test_value
             .unwrap_or(ImageData::ALPHA_TEST_VALUE_DEFAULT);
+        let md5_hash = self.md5_hash.as_ref().and_then(|h| {
+            let bytes = hex::decode(h).ok()?;
+            if bytes.len() == 16 {
+                let mut arr = [0u8; 16];
+                arr.copy_from_slice(&bytes);
+                Some(arr)
+            } else {
+                None
+            }
+        });
         ImageData {
             name: self.name.clone(),
             internal_name: self.internal_name.clone(),
@@ -219,6 +233,7 @@ impl ImageDataJson {
             is_signed: self.is_signed,
             jpeg,
             bits,
+            md5_hash,
         }
     }
 
@@ -265,6 +280,7 @@ impl Default for ImageData {
             is_signed: None,
             jpeg: None,
             bits: None,
+            md5_hash: None,
         }
     }
 }
@@ -330,6 +346,12 @@ fn read(reader: &mut BiffReader) -> ImageData {
                 // https://github.com/vpinball/vpinball/blob/1a70aa35eb57ec7b5fbbb9727f6735e8ef3183e0/Texture.cpp#L588
                 image_data.link = Some(reader.get_u32());
             }
+            "MD5H" => {
+                let data = reader.get_data(16);
+                let mut hash = [0u8; 16];
+                hash.copy_from_slice(data);
+                image_data.md5_hash = Some(hash);
+            }
             _ => {
                 warn!("Skipping image tag: {tag}");
                 reader.skip_tag();
@@ -358,6 +380,9 @@ fn write(data: &ImageData, writer: &mut BiffWriter) {
         writer.write_tagged_data_without_size("JPEG", &bits);
     }
     writer.write_tagged_f32("ALTV", data.alpha_test_value);
+    if let Some(md5_hash) = &data.md5_hash {
+        writer.write_tagged_data("MD5H", md5_hash);
+    }
     if let Some(is_opaque) = data.is_opaque {
         writer.write_tagged_bool("OPAQ", is_opaque);
     }
@@ -470,6 +495,7 @@ mod test {
                 data: vec![1, 2, 3],
             }),
             bits: None,
+            md5_hash: None,
         };
 
         let mut writer = BiffWriter::new();
@@ -506,6 +532,7 @@ mod test {
                 data: vec![1, 2, 3],
             }),
             bits: None,
+            md5_hash: Some([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]),
         };
         let mut writer = BiffWriter::new();
         ImageData::biff_write(&image, &mut writer);
@@ -533,6 +560,7 @@ mod test {
                 data: vec![1, 2, 3],
             }),
             bits: None,
+            md5_hash: Some([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]),
         };
         let image_json = ImageDataJson::from_image_data(&image);
         let mut image_read = image_json.to_image_data(1, 2, None);

@@ -1851,6 +1851,7 @@ mod test {
                         data: vec![0, 1, 2, 3],
                     }),
                     bits: None,
+                    md5_hash: None,
                 },
                 // this image will be replaced by a webp by the user
                 ImageData {
@@ -1870,6 +1871,7 @@ mod test {
                         data: vec![0, 1, 2, 3],
                     }),
                     bits: None,
+                    md5_hash: None,
                 },
                 ImageData {
                     name: "test image 2".to_string(),
@@ -1885,6 +1887,7 @@ mod test {
                     bits: Some(ImageDataBits {
                         lzw_compressed_data: LZW_COMPRESSED_DATA.to_vec(),
                     }),
+                    md5_hash: None,
                 },
             ],
             sounds: vec![

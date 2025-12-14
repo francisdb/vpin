@@ -66,11 +66,11 @@ pub enum SpaceReference {
 impl From<u32> for SpaceReference {
     fn from(value: u32) -> Self {
         match value {
-            0 => SpaceReference::Inherit,
-            1 => SpaceReference::Room,
+            0 => SpaceReference::Playfield,
+            1 => SpaceReference::Cabinet,
             2 => SpaceReference::CabinetFeet,
-            3 => SpaceReference::Cabinet,
-            4 => SpaceReference::Playfield,
+            3 => SpaceReference::Room,
+            4 => SpaceReference::Inherit,
             _ => panic!("Unknown space reference value: {value}"),
         }
     }
@@ -79,11 +79,11 @@ impl From<u32> for SpaceReference {
 impl From<&SpaceReference> for u32 {
     fn from(value: &SpaceReference) -> Self {
         match value {
-            SpaceReference::Inherit => 0,
-            SpaceReference::Room => 1,
+            SpaceReference::Playfield => 0,
+            SpaceReference::Cabinet => 1,
             SpaceReference::CabinetFeet => 2,
-            SpaceReference::Cabinet => 3,
-            SpaceReference::Playfield => 4,
+            SpaceReference::Room => 3,
+            SpaceReference::Inherit => 4,
         }
     }
 }
@@ -133,8 +133,9 @@ pub struct PartGroup {
     is_timer_enabled: bool,
     timer_interval: i32,
     pub backglass: bool,
-    pub visibility_mask: u32,
+    pub visibility_mask: Option<u32>,
     pub space_reference: SpaceReference,
+    pub player_mode_visibility_mask: Option<u32>,
 
     // these are shared between all items
     pub is_locked: bool,
@@ -153,8 +154,9 @@ impl Default for PartGroup {
             is_timer_enabled: false,
             timer_interval: 0,
             backglass: false,
-            visibility_mask: VisibilityMask::Playfield.into(),
+            visibility_mask: None,
             space_reference: SpaceReference::Inherit,
+            player_mode_visibility_mask: None,
             is_locked: false,
             editor_layer_name: None,
             editor_layer_visibility: None,
@@ -169,8 +171,11 @@ struct PartGroupJson {
     is_timer_enabled: bool,
     timer_interval: i32,
     backglass: bool,
-    visibility_mask: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    visibility_mask: Option<u32>,
     space_reference: SpaceReference,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    player_mode_visibility_mask: Option<u32>,
     is_locked: bool,
     editor_layer_name: Option<String>,
     editor_layer_visibility: Option<bool>,
@@ -187,6 +192,7 @@ impl PartGroupJson {
             backglass: part_group.backglass,
             visibility_mask: part_group.visibility_mask,
             space_reference: part_group.space_reference.clone(),
+            player_mode_visibility_mask: part_group.player_mode_visibility_mask,
             is_locked: part_group.is_locked,
             editor_layer_name: part_group.editor_layer_name.clone(),
             editor_layer_visibility: part_group.editor_layer_visibility,
@@ -202,6 +208,7 @@ impl PartGroupJson {
             backglass: self.backglass,
             visibility_mask: self.visibility_mask,
             space_reference: self.space_reference.clone(),
+            player_mode_visibility_mask: self.player_mode_visibility_mask,
             is_locked: self.is_locked,
             editor_layer_name: self.editor_layer_name.clone(),
             editor_layer_visibility: self.editor_layer_visibility,
@@ -262,10 +269,13 @@ impl BiffRead for PartGroup {
                     part_group.backglass = reader.get_bool();
                 }
                 "VMSK" => {
-                    part_group.visibility_mask = reader.get_u32();
+                    part_group.visibility_mask = Some(reader.get_u32());
                 }
                 "SPRF" => {
                     part_group.space_reference = reader.get_u32().into();
+                }
+                "PMSK" => {
+                    part_group.player_mode_visibility_mask = Some(reader.get_u32());
                 }
 
                 // shared
@@ -303,7 +313,12 @@ impl BiffWrite for PartGroup {
         writer.write_tagged_bool("TMON", self.is_timer_enabled);
         writer.write_tagged_i32("TMIN", self.timer_interval);
         writer.write_tagged_bool("BGLS", self.backglass);
-        writer.write_tagged_u32("VMSK", self.visibility_mask);
+        if let Some(vmsk) = self.visibility_mask {
+            writer.write_tagged_u32("VMSK", vmsk);
+        }
+        if let Some(pmsk) = self.player_mode_visibility_mask {
+            writer.write_tagged_u32("PMSK", pmsk);
+        }
         writer.write_tagged_u32("SPRF", (&self.space_reference).into());
 
         // shared attributes, not using the trait as this one does not have a part_group_name
@@ -335,8 +350,9 @@ mod tests {
             is_timer_enabled: true,
             timer_interval: 1000,
             backglass: true,
-            visibility_mask: VisibilityMask::Playfield.into(),
+            visibility_mask: Some(VisibilityMask::Playfield.into()),
             space_reference: SpaceReference::Cabinet,
+            player_mode_visibility_mask: Some(0x00FF),
             is_locked: true,
             editor_layer_name: Some("Layer 1".to_string()),
             editor_layer_visibility: Some(true),
