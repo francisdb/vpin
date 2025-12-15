@@ -45,7 +45,11 @@ use crate::vpx::renderprobe::{RenderProbeJson, RenderProbeWithGarbage};
 use crate::vpx::tableinfo::TableInfo;
 
 /// Sanitize a filename using the sanitize-filename crate
-fn sanitize_filename(name: &str) -> String {
+// TODO the whole sanitize_filename effort is not cross-platform compatible
+//   Eg a vpx extracted on linux could fail to be opened on Windows if the sound name
+//   contains such characters.
+//   This should probably be improved in the future
+fn sanitize_filename<S: AsRef<str>>(name: S) -> String {
     sanitize_filename::sanitize(name)
 }
 
@@ -335,22 +339,28 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
                 image.height
             );
             let mut json = ImageDataJson::from_image_data(image);
-            let lower_name = image.name.to_lowercase();
+            let name_sanitized = sanitize_filename(&image.name);
+            if name_sanitized != image.name {
+                info!(
+                    "Image name {} contained invalid characters, sanitized to {}",
+                    image.name, &name_sanitized
+                );
+                json.name_dedup = Some(name_sanitized.clone());
+            }
+            let lower_name = name_sanitized.to_lowercase();
             if image_names_lower.contains(&lower_name) {
                 image_names_dupe_counter += 1;
                 let name_dedup = format!("{}_dedup{}", image.name, image_names_dupe_counter);
                 info!(
                     "Image name {} is not unique, renaming file to {}",
-                    image.name, &name_dedup
+                    name_sanitized, &name_dedup
                 );
                 json.name_dedup = Some(name_dedup);
             }
             image_names_lower.insert(lower_name);
 
             let actual_name = json.name_dedup.as_ref().unwrap_or(&image.name);
-            // Sanitize the filename to remove invalid characters for Windows/filesystem
-            let sanitized_name = sanitize_filename(actual_name);
-            let file_name = format!("{}.{}", sanitized_name, image.ext());
+            let file_name = format!("{}.{}", actual_name, image.ext());
 
             if let Some(jpeg) = &image.jpeg {
                 // Only if the actual image dimensions are different from
@@ -569,15 +579,14 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
                     .as_ref()
                     .unwrap_or(&image_data_json.name);
                 // Sanitize the filename to remove invalid characters for Windows/filesystem
-                let sanitized_name = sanitize_filename(file_name);
-                let full_file_name = format!("{}.{}", sanitized_name, image_data_json.ext());
+                let full_file_name = format!("{}.{}", file_name, image_data_json.ext());
                 let mut file_path = images_dir.join(&full_file_name);
 
                 // We also support webp in case the image is a png, this was requested by a user
                 // https://github.com/francisdb/vpxtool/issues/521
                 let mut new_extension = None;
                 if image_data_json.ext() == "png" && !file_path.exists() {
-                    let file_path_webp = images_dir.join(format!("{sanitized_name}.webp"));
+                    let file_path_webp = images_dir.join(format!("{file_name}.webp"));
                     if file_path_webp.exists() {
                         new_extension = Some("webp");
                         file_path = file_path_webp;
@@ -763,21 +772,28 @@ fn write_sounds<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
         .iter()
         .map(|sound| {
             let mut json = SoundDataJson::from_sound_data(sound);
-            let lower_name = sound.name.to_lowercase();
+            let name_sanitized = sanitize_filename(&sound.name);
+            if name_sanitized != sound.name {
+                info!(
+                    "Sound name {} contained invalid characters, sanitized to {}",
+                    sound.name, &name_sanitized
+                );
+                json.name_dedup = Some(name_sanitized.clone());
+            }
+            let lower_name = name_sanitized.to_lowercase();
             if sound_names_lower.contains(&lower_name) {
                 sound_names_dupe_counter += 1;
                 let name_dedup = format!("{}_dedup{}", sound.name, sound_names_dupe_counter);
                 info!(
                     "Sound name {} is not unique, renaming file to {}",
-                    sound.name, &name_dedup
+                    name_sanitized, &name_dedup
                 );
                 json.name_dedup = Some(name_dedup);
             }
             sound_names_lower.insert(lower_name);
 
-            let actual_name = json.name_dedup.as_ref().unwrap_or(&sound.name);
-            let sanitized_name = sanitize_filename(actual_name);
-            let file_name = format!("{}.{}", sanitized_name, sound.ext());
+            let actual_name = json.name_dedup.as_ref().unwrap_or(&name_sanitized);
+            let file_name = format!("{}.{}", actual_name, sound.ext());
             json_sounds.push(json);
             (file_name, sound)
         })
@@ -818,8 +834,7 @@ fn read_sounds<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<SoundData>> {
         .map(|sound_data_json| {
             let mut sound = sound_data_json.to_sound_data();
             let file_name = sound_data_json.name_dedup.as_ref().unwrap_or(&sound.name);
-            let sanitized_name = sanitize_filename(file_name);
-            let full_file_name = format!("{}.{}", sanitized_name, sound.ext());
+            let full_file_name = format!("{}.{}", file_name, sound.ext());
             let file_path = sounds_dir.join(full_file_name);
             if file_path.exists() {
                 let mut sound_file = File::open(&file_path)?;
