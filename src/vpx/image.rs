@@ -134,7 +134,8 @@ pub(crate) struct ImageDataJson {
     #[serde(skip_serializing_if = "Option::is_none")]
     jpeg_path: Option<String>,
 
-    // in case we have a duplicate name
+    /// In case we have a duplicate name or the file name is not simply derived from the name
+    /// because of special characters etc.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) name_dedup: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
