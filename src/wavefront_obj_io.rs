@@ -527,6 +527,7 @@ f 1/1/1 2/2/2 3/3/3
 
     #[test]
     fn test_obj_read_write_compare() {
+        // git might change line endings as they are text files, so normalize to \n
         let obj_data = include_str!("../testdata/screw.obj").replace("\r\n", "\n");
         let cursor = Cursor::new(&obj_data);
         let writer = IoObjWriter::new(Vec::new());
