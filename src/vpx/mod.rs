@@ -24,7 +24,7 @@ use std::{
 };
 
 use cfb::CompoundFile;
-use log::warn;
+use log::{debug, info, warn};
 use md2::{Digest, Md2};
 
 use crate::vpx::biff::BiffReader;
@@ -362,9 +362,14 @@ pub fn write<P: AsRef<Path>>(path: P, vpx: &VPX) -> io::Result<()> {
         .write(true)
         .create(true)
         .truncate(true)
-        .open(path)?;
+        .open(&path)?;
     let mut comp = CompoundFile::create(file)?;
-    write_vpx(&mut comp, vpx)
+    let result = write_vpx(&mut comp, vpx);
+    info!(
+        "Wrote {}",
+        path.as_ref().file_name().unwrap().to_string_lossy()
+    );
+    result
 }
 
 fn read_vpx<F: Read + Seek>(comp: &mut CompoundFile<F>) -> io::Result<VPX> {
@@ -377,6 +382,7 @@ fn read_vpx<F: Read + Seek>(comp: &mut CompoundFile<F>) -> io::Result<VPX> {
     let sounds = read_sounds(comp, &gamedata, &version)?;
     let fonts = read_fonts(comp, &gamedata)?;
     let collections = read_collections(comp, &gamedata)?;
+    info!("Loaded VPX");
     Ok(VPX {
         custominfotags,
         info,
@@ -396,11 +402,17 @@ fn write_vpx<F: Read + Write + Seek>(comp: &mut CompoundFile<F>, vpx: &VPX) -> i
     write_tableinfo(comp, &vpx.info)?;
     write_version(comp, &vpx.version)?;
     write_game_data(comp, &vpx.gamedata, &vpx.version)?;
+    debug!("Wrote gamedata");
     write_game_items(comp, &vpx.gameitems)?;
+    debug!("Wrote {} gameitems", vpx.gameitems.len());
     write_images(comp, &vpx.images)?;
+    debug!("Wrote {} images", vpx.images.len());
     write_sounds(comp, &vpx.sounds, &vpx.version)?;
+    debug!("Wrote {} sounds", vpx.sounds.len());
     write_fonts(comp, &vpx.fonts)?;
+    debug!("Wrote {} fonts", vpx.fonts.len());
     write_collections(comp, &vpx.collections)?;
+    debug!("Wrote {} collections", vpx.collections.len());
     let mac = generate_mac(comp)?;
     write_mac(comp, &mac)
 }
