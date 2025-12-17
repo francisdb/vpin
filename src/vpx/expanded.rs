@@ -12,6 +12,7 @@ use std::{fs::File, path::Path};
 use cfb::CompoundFile;
 use image::DynamicImage;
 use log::{debug, info, warn};
+use rayon::prelude::*;
 use serde::de;
 use serde_json::Value;
 
@@ -1045,7 +1046,10 @@ fn write_gameitems<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Wr
     std::fs::create_dir_all(&gameitems_dir)?;
     let mut file_name_gen = FileNameGen::default();
     let mut files: Vec<GameItemInfoJson> = Vec::new();
-    for gameitem in &vpx.gameitems {
+    let mut files_to_write: Vec<(String, usize)> = Vec::new();
+
+    // Reserve names and build index serially
+    for (idx, gameitem) in vpx.gameitems.iter().enumerate() {
         let file_name = gameitem_filename_stem(&mut file_name_gen, gameitem);
         let file_name_json = format!("{}.json", &file_name);
         let gameitem_info = GameItemInfoJson {
@@ -1056,22 +1060,48 @@ fn write_gameitems<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Wr
             editor_layer_visibility: gameitem.editor_layer_visibility(),
         };
         files.push(gameitem_info);
-        let gameitem_path = gameitems_dir.join(file_name_json);
-        // should not happen but we keep the check
+
+        let gameitem_path = gameitems_dir.join(&file_name_json);
         if gameitem_path.exists() {
             return Err(WriteError::Io(io::Error::new(
                 io::ErrorKind::AlreadyExists,
                 format!("GameItem file already exists: {}", gameitem_path.display()),
             )));
         }
-        let gameitem_file = File::create(&gameitem_path)?;
-        serde_json::to_writer_pretty(&gameitem_file, &gameitem)?;
-        write_gameitem_binaries(&gameitems_dir, gameitem, file_name)?;
+
+        files_to_write.push((file_name, idx));
     }
-    // write the gameitems index as array with names being the type and the name
+
+    // Write index serially
     let gameitems_index_path = expanded_dir.as_ref().join("gameitems.json");
     let mut gameitems_index_file = File::create(gameitems_index_path)?;
     serde_json::to_writer_pretty(&mut gameitems_index_file, &files)?;
+
+    let gameitems_ref = &vpx.gameitems;
+    let gameitems_dir_clone = gameitems_dir.clone();
+
+    let results: Vec<Result<(), WriteError>> = files_to_write
+        .par_iter()
+        .map(|(file_name, idx)| {
+            let file_name_json = format!("{}.json", file_name);
+            let path = gameitems_dir_clone.join(&file_name_json);
+            let gameitem = &gameitems_ref[*idx];
+
+            let gameitem_file = File::create(&path).map_err(WriteError::Io)?;
+            serde_json::to_writer_pretty(&gameitem_file, gameitem).map_err(WriteError::Json)?;
+
+            // write_gameitem_binaries must be thread\-safe (writes distinct files)
+            write_gameitem_binaries(&gameitems_dir_clone, gameitem, file_name)?;
+
+            Ok(())
+        })
+        .collect();
+
+    // Propagate the first error if any
+    for r in results {
+        r?;
+    }
+
     Ok(())
 }
 
@@ -1095,11 +1125,10 @@ fn compress_data(data: &[u8]) -> io::Result<Vec<u8>> {
     encoder.finish()
 }
 
-/// for primitives we write fields m3cx, m3ci and m3ay's to separate files with bin extension
 fn write_gameitem_binaries(
     gameitems_dir: &Path,
     gameitem: &GameItemEnum,
-    json_file_name: String,
+    json_file_name: &str,
 ) -> Result<(), WriteError> {
     if let GameItemEnum::Primitive(primitive) = gameitem {
         // use wavefront-rs to write the vertices and indices
@@ -1116,7 +1145,7 @@ fn write_gameitem_binaries(
                     write_animation_frames_to_objs(
                         gameitems_dir,
                         gameitem,
-                        &json_file_name,
+                        json_file_name,
                         vertices,
                         indices,
                         zipped,
@@ -1238,28 +1267,41 @@ fn read_gameitems<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<GameItemEn
         return Ok(vec![]);
     }
     let gameitems_index: Vec<GameItemInfoJson> = read_json(gameitems_index_path)?;
-    // for each item in the index read the items
     let gameitems_dir = expanded_dir.as_ref().join("gameitems");
-    let gameitems: io::Result<Vec<GameItemEnum>> = gameitems_index
-        .into_iter()
+
+    // Parallel per-item reads (order preserved)
+    let results: Vec<io::Result<GameItemEnum>> = gameitems_index
+        .into_par_iter()
         .map(|gameitem_info| {
-            let gameitem_path = gameitems_dir.join(&gameitem_info.file_name);
-            if gameitem_path.exists() {
-                let mut item: GameItemEnum = read_json(&gameitem_path)?;
-                item.set_locked(gameitem_info.is_locked);
-                item.set_editor_layer(gameitem_info.editor_layer);
-                item.set_editor_layer_name(gameitem_info.editor_layer_name);
-                item.set_editor_layer_visibility(gameitem_info.editor_layer_visibility);
-                read_gameitem_binaries(&gameitems_dir, gameitem_info.file_name, item)
-            } else {
-                Err(io::Error::new(
+            // take ownership of the file name for later binary reads
+            let file_name = gameitem_info.file_name;
+            let gameitem_path = gameitems_dir.join(&file_name);
+
+            if !gameitem_path.exists() {
+                return Err(io::Error::new(
                     io::ErrorKind::NotFound,
                     format!("GameItem file not found: {}", gameitem_path.display()),
-                ))
+                ));
             }
+
+            // read json and restore index-only metadata
+            let mut item: GameItemEnum = read_json(&gameitem_path)?;
+            item.set_locked(gameitem_info.is_locked);
+            item.set_editor_layer(gameitem_info.editor_layer);
+            item.set_editor_layer_name(gameitem_info.editor_layer_name);
+            item.set_editor_layer_visibility(gameitem_info.editor_layer_visibility);
+
+            // read associated binaries (must be thread-safe; they operate on distinct files)
+            read_gameitem_binaries(&gameitems_dir, file_name, item)
         })
         .collect();
-    gameitems
+
+    // Propagate first error or return collected items in original order
+    let mut out = Vec::with_capacity(results.len());
+    for r in results {
+        out.push(r?);
+    }
+    Ok(out)
 }
 
 /// for primitives we read fields m3cx, m3ci and m3ay's from separate files with bin extension

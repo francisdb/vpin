@@ -8,3 +8,4 @@
 pub mod directb2s;
 
 pub mod vpx;
+pub(crate) mod wavefront_obj_io;

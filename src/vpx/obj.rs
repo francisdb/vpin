@@ -1,14 +1,14 @@
 //! Wavefront OBJ file reader and writer
 
 use crate::vpx::model::Vertex3dNoTex2;
+use crate::wavefront_obj_io;
+use crate::wavefront_obj_io::{ObjReader, ObjWriter};
 use log::warn;
 use std::error::Error;
 use std::fs::File;
+use std::io;
 use std::io::BufRead;
 use std::path::Path;
-use wavefront_rs::obj::entity::{Entity, FaceVertex};
-use wavefront_rs::obj::parser::Parser;
-use wavefront_rs::obj::writer::Writer;
 
 // We have some issues where the data in the vpx file contains NaN values for normals.
 // Therefore, we came up with an elaborate way to store the vpx normals data as a comment in the obj file.
@@ -57,13 +57,7 @@ pub(crate) fn write_obj(
 ) -> Result<(), Box<dyn Error>> {
     let mut obj_file = File::create(obj_file_path)?;
     let mut writer = std::io::BufWriter::new(&mut obj_file);
-    let obj_writer = Writer { auto_newline: true };
-
-    let comment = Entity::Comment {
-        content: "VPXTOOL table OBJ file".to_string(),
-    };
-
-    obj_writer.write(&mut writer, &comment)?;
+    let mut obj_writer = wavefront_obj_io::IoObjWriter::new(&mut writer);
 
     // // material library
     // let mtl_file_path = obj_file_path.with_extension("mtl");
@@ -77,159 +71,144 @@ pub(crate) fn write_obj(
     // };
     // obj_writer.write(&mut writer, &mtllib)?;
 
-    let comment = Entity::Comment {
-        content: "VPXTOOL OBJ file".to_string(),
-    };
-    obj_writer.write(&mut writer, &comment)?;
-    let comment = Entity::Comment {
-        content: format!("numVerts: {} numFaces: {}", vertices.len(), indices.len()),
-    };
-    obj_writer.write(&mut writer, &comment)?;
+    obj_writer.write_comment("VPXTOOL table OBJ file")?;
+    obj_writer.write_comment("VPXTOOL OBJ file")?;
+    obj_writer.write_comment(format!(
+        "numVerts: {} numFaces: {}",
+        vertices.len(),
+        indices.len()
+    ))?;
+    obj_writer.write_object_name(&name)?;
 
-    // object name
-    let object = Entity::Object { name };
-    obj_writer.write(&mut writer, &object)?;
-
-    // write all vertices to the wavefront obj file
     for (_, vertex) in vertices {
-        let vertex = Entity::Vertex {
-            x: vertex.x as f64,
-            y: vertex.y as f64,
-            z: vertex.z as f64,
-            w: None,
-        };
-        obj_writer.write(&mut writer, &vertex)?;
+        obj_writer.write_vertex(vertex.x as f64, vertex.y as f64, vertex.z as f64, None)?;
     }
-    // write all vertex texture coordinates to the wavefront obj file
     for (_, vertex) in vertices {
-        let vertex = Entity::VertexTexture {
-            u: vertex.tu as f64,
-            v: Some(vertex.tv as f64),
-            w: None,
-        };
-        obj_writer.write(&mut writer, &vertex)?;
+        obj_writer.write_texture_coordinate(vertex.tu as f64, Some(vertex.tv as f64), None)?;
     }
-    // write all vertex normals to the wavefront obj file
     for (bytes, vertex) in vertices {
         // if one of the values is NaN we write a special comment with the bytes
         if vertex.nx.is_nan() || vertex.ny.is_nan() || vertex.nz.is_nan() {
             warn!("NaN found in vertex normal: {vertex:?}");
-            let data = bytes[12..24].try_into().unwrap();
+            let data = bytes[12..24].try_into()?;
             let content = obj_vpx_comment(&data);
-            let comment = Entity::Comment { content };
-            obj_writer.write(&mut writer, &comment)?;
+            obj_writer.write_comment(content)?;
         }
-        let vertex = Entity::VertexNormal {
-            x: if vertex.nx.is_nan() {
-                0.0
-            } else {
-                vertex.nx as f64
-            },
-            y: if vertex.ny.is_nan() {
-                0.0
-            } else {
-                vertex.ny as f64
-            },
-            z: if vertex.nz.is_nan() {
-                0.0
-            } else {
-                vertex.nz as f64
-            },
-        };
-        obj_writer.write(&mut writer, &vertex)?;
+        let x = if vertex.nx.is_nan() { 0.0 } else { vertex.nx };
+        let y = if vertex.ny.is_nan() { 0.0 } else { vertex.ny };
+        let z = if vertex.nz.is_nan() { 0.0 } else { vertex.nz };
+        obj_writer.write_normal(x as f64, y as f64, z as f64)?;
     }
-
-    // write all faces to the wavefront obj file
-
-    // write in groups of 3
+    // write all faces in groups of 3
     for chunk in indices.chunks(3) {
         // obj indices are 1 based
         // since the z axis is inverted we have to reverse the order of the vertices
         let v1 = chunk[0] + 1;
         let v2 = chunk[1] + 1;
         let v3 = chunk[2] + 1;
-        let face = Entity::Face {
-            vertices: vec![
-                FaceVertex::new_vtn(v1, Some(v1), Some(v1)),
-                FaceVertex::new_vtn(v2, Some(v2), Some(v2)),
-                FaceVertex::new_vtn(v3, Some(v3), Some(v3)),
-            ],
-        };
-        obj_writer.write(&mut writer, &face)?;
+        obj_writer.write_face(&[
+            (v1 as usize, Some(v1 as usize), Some(v1 as usize)),
+            (v2 as usize, Some(v2 as usize), Some(v2 as usize)),
+            (v3 as usize, Some(v3 as usize), Some(v3 as usize)),
+        ])?;
     }
     Ok(())
 }
 
-pub(crate) fn read_obj_file(obj_file_path: &Path) -> Result<ObjData, Box<dyn Error>> {
+pub(crate) fn read_obj_file(obj_file_path: &Path) -> io::Result<ObjData> {
     let obj_file = File::open(obj_file_path)?;
-    let mut reader = std::io::BufReader::new(obj_file);
+    let mut reader = io::BufReader::new(obj_file);
     read_obj(&mut reader)
 }
 
-pub(crate) fn read_obj<R: BufRead>(mut reader: &mut R) -> Result<ObjData, Box<dyn Error>> {
-    let mut indices: Vec<i64> = Vec::new();
-    let mut vertices: Vec<(f64, f64, f64, Option<f64>)> = Vec::new();
-    let mut texture_coordinates: Vec<(f64, Option<f64>, Option<f64>)> = Vec::new();
-    let mut normals: Vec<ObjNormal> = Vec::new();
-    let mut object_count = 0;
-    let mut previous_comment: Option<String> = None;
-    let mut name = String::new();
-    Parser::read_to_end(&mut reader, |entity| {
-        let mut comment: Option<String> = None;
-        match entity {
-            Entity::Vertex { x, y, z, w } => {
-                vertices.push((x, y, z, w));
-            }
-            Entity::VertexTexture { u, v, w } => {
-                texture_coordinates.push((u, v, w));
-            }
-            Entity::VertexNormal { x, y, z } => {
-                if let Some(comment) = &previous_comment {
-                    // parse the comment as hex string
-                    if let Some(bytes) = obj_parse_vpx_comment(comment) {
-                        // use the bytes as the normal
-                        normals.push(((x, y, z), Some(bytes)));
-                    } else {
-                        normals.push(((x, y, z), None));
-                    }
-                } else {
-                    normals.push(((x, y, z), None));
-                }
-            }
-            Entity::Face { vertices } => {
-                indices.push(vertices[0].vertex - 1);
-                indices.push(vertices[1].vertex - 1);
-                indices.push(vertices[2].vertex - 1);
-            }
-            Entity::Comment { content } => {
-                // ignored
-                comment = Some(content);
-            }
-            Entity::Object { name: n } => {
-                object_count += 1;
-                name = n;
-            }
-            other => {
-                warn!(
-                    "Warning, skipping OBJ file entity of type: {:?}",
-                    other.token()
-                );
-            }
-        }
-        previous_comment = comment;
-    })?;
-    assert_eq!(
-        object_count, 1,
-        "Only a single object is supported, found {object_count}"
-    );
+#[derive(Default)]
+struct VpxObjReader {
+    indices: Vec<i64>,
+    vertices: Vec<(f64, f64, f64, Option<f64>)>,
+    texture_coordinates: Vec<(f64, Option<f64>, Option<f64>)>,
+    normals: Vec<ObjNormal>,
+    object_count: usize,
+    /// keeps the previous comment to be associated with the next normal
+    previous_comment: Option<String>,
+    name: String,
+}
 
-    Ok(ObjData {
-        name,
-        vertices,
-        texture_coordinates,
-        normals,
-        indices,
-    })
+impl VpxObjReader {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    /// Reads the stream and returns the ObjData consuming the reader
+    fn read<R: io::Read>(mut self, reader: &mut R) -> io::Result<ObjData> {
+        wavefront_obj_io::read_obj_file(reader, &mut self)?;
+        if self.object_count != 1 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "Only a single object is supported for vpx, found {}",
+                    self.object_count
+                ),
+            ));
+        }
+        Ok(ObjData {
+            name: self.name,
+            vertices: self.vertices,
+            texture_coordinates: self.texture_coordinates,
+            normals: self.normals,
+            indices: self.indices,
+        })
+    }
+}
+
+impl ObjReader for VpxObjReader {
+    fn read_comment(&mut self, comment: &str) {
+        self.previous_comment = Some(comment.to_string());
+    }
+
+    fn read_object_name(&mut self, name: &str) {
+        self.object_count += 1;
+        self.name = name.to_string();
+        self.previous_comment = None;
+    }
+
+    fn read_vertex(&mut self, x: f64, y: f64, z: f64, w: Option<f64>) {
+        self.vertices.push((x, y, z, w));
+        self.previous_comment = None;
+    }
+
+    fn read_texture_coordinate(&mut self, u: f64, v: Option<f64>, w: Option<f64>) {
+        self.texture_coordinates.push((u, v, w));
+        self.previous_comment = None;
+    }
+
+    fn read_normal(&mut self, nx: f64, ny: f64, nz: f64) {
+        // If on the write side there was a NaN value that will be stored in a comment
+        // This way we stay symmetric
+        if let Some(comment) = &self.previous_comment {
+            // parse the comment as hex string
+            if let Some(bytes) = obj_parse_vpx_comment(comment) {
+                // use the bytes as the normal
+                self.normals.push(((nx, ny, nz), Some(bytes)));
+            } else {
+                self.normals.push(((nx, ny, nz), None));
+            }
+        } else {
+            self.normals.push(((nx, ny, nz), None));
+        }
+        self.previous_comment = None;
+    }
+
+    fn read_face(&mut self, vertex_indices: &[(usize, Option<usize>, Option<usize>)]) {
+        self.indices.push(vertex_indices[0].0 as i64 - 1);
+        self.indices.push(vertex_indices[1].0 as i64 - 1);
+        self.indices.push(vertex_indices[2].0 as i64 - 1);
+        self.previous_comment = None;
+    }
+}
+
+pub(crate) fn read_obj<R: BufRead>(mut reader: &mut R) -> std::io::Result<ObjData> {
+    let vpx_reader = VpxObjReader::new();
+    vpx_reader.read(&mut reader)
 }
 
 pub type ObjNormal = ((f64, f64, f64), Option<VpxNormalBytes>);
@@ -284,6 +263,7 @@ v 1.0 2.0 3.0
 vt 2.0 4.0
 # vpx 01 02 03 04 05 06 07 08 09 0a 0b 0c
 vn NaN 1.0 0.0
+vn 1.0 2.0 3.0
 f 1/1/1 1/1/1 1/1/1
         "#;
         let mut reader = BufReader::new(obj_contents.as_bytes());
@@ -292,22 +272,41 @@ f 1/1/1 1/1/1 1/1/1
             name: "with_nan".to_string(),
             vertices: vec![(1.0, 2.0, 3.0, None)],
             texture_coordinates: vec![(2.0, Some(4.0), None)],
-            normals: vec![(
-                (f64::NAN, 1.0, 0.0),
-                Some([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
-            )],
+            normals: vec![
+                (
+                    (f64::NAN, 1.0, 0.0),
+                    Some([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
+                ),
+                ((1.0, 2.0, 3.0), None),
+            ],
             indices: vec![0, 0, 0],
         };
         // we can't compare a structure with NaN values
         assert_eq!(read_data.name, expected.name);
         assert_eq!(read_data.vertices, expected.vertices);
         assert_eq!(read_data.texture_coordinates, expected.texture_coordinates);
+        assert_eq!(read_data.normals.len(), expected.normals.len());
         assert_eq!(
             read_data.normals.first().unwrap().1,
             expected.normals.first().unwrap().1
         );
+        assert_eq!(read_data.normals[1].1, expected.normals[1].1);
         assert_eq!(read_data.indices, expected.indices);
         Ok(())
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidDigit")]
+    fn test_read_obj_with_nan_invalid() {
+        let obj_contents = r#"o with_nan
+v 1.0 2.0 3.0
+vt 2.0 4.0
+# vpx 01 02 03 04 05 06 07 08 09 0a 0b 0c compouter says no
+vn NaN 1.0 0.0
+f 1/1/1 1/1/1 1/1/1
+        "#;
+        let mut reader = BufReader::new(obj_contents.as_bytes());
+        read_obj(&mut reader).unwrap();
     }
 
     #[test]
