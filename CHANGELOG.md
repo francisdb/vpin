@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.1](https://github.com/francisdb/vpin/compare/v0.19.0...v0.19.1) - 2025-12-17
+
+### Added
+
+- multithreaded obj writing ([#180](https://github.com/francisdb/vpin/pull/180))
+
+### Fixed
+
+- sanitize not symmetric ([#178](https://github.com/francisdb/vpin/pull/178))
+
 ## [0.19.0](https://github.com/francisdb/vpin/compare/v0.18.7...v0.19.0) - 2025-12-14
 
 ### Other
