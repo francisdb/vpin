@@ -69,7 +69,7 @@ pub fn read_obj_file<R: io::Read, T: ObjReader>(reader: R, obj_reader: &mut T) -
                     format!("line {}: invalid {} index: {}", lineno, kind, s),
                 )
             })?;
-            if index <= 0 {
+            if index == 0 {
                 return Err(Error::new(
                     ErrorKind::InvalidData,
                     format!("line {}: {} index must be positive: {}", lineno, kind, s),
@@ -381,6 +381,8 @@ mod tests {
     use pretty_assertions::assert_eq;
     use std::io::Cursor;
 
+    type Face = Vec<(usize, Option<usize>, Option<usize>)>;
+
     #[derive(Default)]
     struct TestObjReader {
         comments: Vec<String>,
@@ -388,7 +390,7 @@ mod tests {
         vertices: Vec<(f64, f64, f64, Option<f64>)>,
         texture_coordinates: Vec<(f64, Option<f64>, Option<f64>)>,
         normals: Vec<(f64, f64, f64)>,
-        faces: Vec<Vec<(usize, Option<usize>, Option<usize>)>>,
+        faces: Vec<Face>,
     }
 
     impl ObjReader for TestObjReader {

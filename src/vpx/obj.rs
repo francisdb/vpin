@@ -3,7 +3,7 @@
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::wavefront_obj_io;
 use crate::wavefront_obj_io::{ObjReader, ObjWriter};
-use log::{error, warn};
+use log::warn;
 use std::error::Error;
 use std::fs::File;
 use std::io;
@@ -118,10 +118,7 @@ pub(crate) fn write_obj(
 pub(crate) fn read_obj_file(obj_file_path: &Path) -> io::Result<ObjData> {
     let obj_file = File::open(obj_file_path)?;
     let mut reader = io::BufReader::new(obj_file);
-    read_obj(&mut reader).map_err(|e| {
-        error!("Error reading obj file: {e}");
-        io::Error::new(io::ErrorKind::Other, "e")
-    })
+    read_obj(&mut reader)
 }
 
 #[derive(Default)]
@@ -164,27 +161,27 @@ impl VpxObjReader {
 }
 
 impl ObjReader for VpxObjReader {
-    fn read_comment(&mut self, comment: &str) -> () {
+    fn read_comment(&mut self, comment: &str) {
         self.previous_comment = Some(comment.to_string());
     }
 
-    fn read_object_name(&mut self, name: &str) -> () {
+    fn read_object_name(&mut self, name: &str) {
         self.object_count += 1;
         self.name = name.to_string();
         self.previous_comment = None;
     }
 
-    fn read_vertex(&mut self, x: f64, y: f64, z: f64, w: Option<f64>) -> () {
+    fn read_vertex(&mut self, x: f64, y: f64, z: f64, w: Option<f64>) {
         self.vertices.push((x, y, z, w));
         self.previous_comment = None;
     }
 
-    fn read_texture_coordinate(&mut self, u: f64, v: Option<f64>, w: Option<f64>) -> () {
+    fn read_texture_coordinate(&mut self, u: f64, v: Option<f64>, w: Option<f64>) {
         self.texture_coordinates.push((u, v, w));
         self.previous_comment = None;
     }
 
-    fn read_normal(&mut self, nx: f64, ny: f64, nz: f64) -> () {
+    fn read_normal(&mut self, nx: f64, ny: f64, nz: f64) {
         // If on the write side there was a NaN value that will be stored in a comment
         // This way we stay symmetric
         if let Some(comment) = &self.previous_comment {
@@ -201,7 +198,7 @@ impl ObjReader for VpxObjReader {
         self.previous_comment = None;
     }
 
-    fn read_face(&mut self, vertex_indices: &[(usize, Option<usize>, Option<usize>)]) -> () {
+    fn read_face(&mut self, vertex_indices: &[(usize, Option<usize>, Option<usize>)]) {
         self.indices.push(vertex_indices[0].0 as i64 - 1);
         self.indices.push(vertex_indices[1].0 as i64 - 1);
         self.indices.push(vertex_indices[2].0 as i64 - 1);
@@ -300,7 +297,7 @@ f 1/1/1 1/1/1 1/1/1
 
     #[test]
     #[should_panic(expected = "InvalidDigit")]
-    fn test_read_obj_with_nan_invalid() -> () {
+    fn test_read_obj_with_nan_invalid() {
         let obj_contents = r#"o with_nan
 v 1.0 2.0 3.0
 vt 2.0 4.0

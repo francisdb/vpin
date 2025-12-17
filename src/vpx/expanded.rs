@@ -1128,7 +1128,7 @@ fn compress_data(data: &[u8]) -> io::Result<Vec<u8>> {
 fn write_gameitem_binaries(
     gameitems_dir: &Path,
     gameitem: &GameItemEnum,
-    json_file_name: &String,
+    json_file_name: &str,
 ) -> Result<(), WriteError> {
     if let GameItemEnum::Primitive(primitive) = gameitem {
         // use wavefront-rs to write the vertices and indices
@@ -1145,7 +1145,7 @@ fn write_gameitem_binaries(
                     write_animation_frames_to_objs(
                         gameitems_dir,
                         gameitem,
-                        &json_file_name,
+                        json_file_name,
                         vertices,
                         indices,
                         zipped,
