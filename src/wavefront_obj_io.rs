@@ -527,8 +527,8 @@ f 1/1/1 2/2/2 3/3/3
 
     #[test]
     fn test_obj_read_write_compare() {
-        let obj_data = include_str!("../testdata/screw.obj");
-        let cursor = Cursor::new(obj_data);
+        let obj_data = include_str!("../testdata/screw.obj").replace("\r\n", "\n");
+        let cursor = Cursor::new(&obj_data);
         let writer = IoObjWriter::new(Vec::new());
         let mut reader = WritingReader { writer };
         read_obj_file(cursor, &mut reader).unwrap();
