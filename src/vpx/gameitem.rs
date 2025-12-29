@@ -467,9 +467,7 @@ impl GameItemEnum {
             GameItemEnum::HitTarget(hittarget) => {
                 hittarget.editor_layer_visibility = editor_layer_visibility
             }
-            GameItemEnum::Ball(ball) => {
-                ball.editor_layer_visibility = editor_layer_visibility
-            }
+            GameItemEnum::Ball(ball) => ball.editor_layer_visibility = editor_layer_visibility,
             GameItemEnum::PartGroup(partgroup) => {
                 partgroup.editor_layer_visibility = editor_layer_visibility
             }
