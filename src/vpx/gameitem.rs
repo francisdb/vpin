@@ -1,3 +1,4 @@
+pub mod ball;
 pub mod bumper;
 pub mod decal;
 pub mod dragpoint;
@@ -62,6 +63,7 @@ pub enum GameItemEnum {
     Flasher(flasher::Flasher),
     Rubber(rubber::Rubber),
     HitTarget(hittarget::HitTarget),
+    Ball(ball::Ball),
     PartGroup(partgroup::PartGroup),
     Generic(u32, generic::Generic),
 }
@@ -90,6 +92,7 @@ impl GameItemEnum {
             GameItemEnum::Flasher(flasher) => flasher.editor_layer_visibility,
             GameItemEnum::Rubber(rubber) => rubber.editor_layer_visibility,
             GameItemEnum::HitTarget(hittarget) => hittarget.editor_layer_visibility,
+            GameItemEnum::Ball(ball) => ball.editor_layer_visibility,
             GameItemEnum::PartGroup(partgroup) => partgroup.editor_layer_visibility,
             GameItemEnum::Generic(_item_type, _generic) => None,
         }
@@ -116,6 +119,7 @@ impl GameItemEnum {
             GameItemEnum::Flasher(flasher) => &flasher.editor_layer_name,
             GameItemEnum::Rubber(rubber) => &rubber.editor_layer_name,
             GameItemEnum::HitTarget(hittarget) => &hittarget.editor_layer_name,
+            GameItemEnum::Ball(ball) => &ball.editor_layer_name,
             GameItemEnum::PartGroup(partgroup) => &partgroup.editor_layer_name,
             GameItemEnum::Generic(_item_type, _generic) => &None,
         }
@@ -142,6 +146,7 @@ impl GameItemEnum {
             GameItemEnum::Flasher(flasher) => Some(flasher.editor_layer),
             GameItemEnum::Rubber(rubber) => Some(rubber.editor_layer),
             GameItemEnum::HitTarget(hittarget) => Some(hittarget.editor_layer),
+            GameItemEnum::Ball(ball) => Some(ball.editor_layer),
             GameItemEnum::PartGroup(_partgroup) => None,
             GameItemEnum::Generic(_item_type, _generic) => None,
         }
@@ -168,6 +173,7 @@ impl GameItemEnum {
             GameItemEnum::Flasher(flasher) => Some(flasher.is_locked),
             GameItemEnum::Rubber(rubber) => Some(rubber.is_locked),
             GameItemEnum::HitTarget(hittarget) => Some(hittarget.is_locked),
+            GameItemEnum::Ball(ball) => Some(ball.is_locked),
             GameItemEnum::PartGroup(partgroup) => Some(partgroup.is_locked),
             GameItemEnum::Generic(_item_type, _generic) => None,
         }
@@ -266,6 +272,11 @@ impl GameItemEnum {
             GameItemEnum::HitTarget(hittarget) => {
                 if let Some(locked) = locked {
                     hittarget.is_locked = locked;
+                }
+            }
+            GameItemEnum::Ball(ball) => {
+                if let Some(locked) = locked {
+                    ball.is_locked = locked;
                 }
             }
             GameItemEnum::PartGroup(partgroup) => {
@@ -372,6 +383,11 @@ impl GameItemEnum {
                     hittarget.editor_layer = editor_layer;
                 }
             }
+            GameItemEnum::Ball(ball) => {
+                if let Some(editor_layer) = editor_layer {
+                    ball.editor_layer = editor_layer;
+                }
+            }
             GameItemEnum::PartGroup(_partgroup) => {}
             GameItemEnum::Generic(_item_type, _generic) => {}
         }
@@ -400,6 +416,7 @@ impl GameItemEnum {
             GameItemEnum::Flasher(flasher) => flasher.editor_layer_name = editor_layer_name,
             GameItemEnum::Rubber(rubber) => rubber.editor_layer_name = editor_layer_name,
             GameItemEnum::HitTarget(hittarget) => hittarget.editor_layer_name = editor_layer_name,
+            GameItemEnum::Ball(ball) => ball.editor_layer_name = editor_layer_name,
             GameItemEnum::PartGroup(partgroup) => partgroup.editor_layer_name = editor_layer_name,
             GameItemEnum::Generic(_item_type, _generic) => {}
         }
@@ -450,6 +467,7 @@ impl GameItemEnum {
             GameItemEnum::HitTarget(hittarget) => {
                 hittarget.editor_layer_visibility = editor_layer_visibility
             }
+            GameItemEnum::Ball(ball) => ball.editor_layer_visibility = editor_layer_visibility,
             GameItemEnum::PartGroup(partgroup) => {
                 partgroup.editor_layer_visibility = editor_layer_visibility
             }
@@ -480,6 +498,7 @@ impl GameItemEnum {
             GameItemEnum::Flasher(flasher) => &flasher.name,
             GameItemEnum::Rubber(rubber) => &rubber.name,
             GameItemEnum::HitTarget(hittarget) => &hittarget.name,
+            GameItemEnum::Ball(ball) => &ball.name,
             GameItemEnum::PartGroup(partgroup) => &partgroup.name,
             GameItemEnum::Generic(_item_type, generic) => generic.name(),
         }
@@ -506,6 +525,7 @@ impl GameItemEnum {
             GameItemEnum::Flasher(_) => "Flasher".to_string(),
             GameItemEnum::Rubber(_) => "Rubber".to_string(),
             GameItemEnum::HitTarget(_) => "HitTarget".to_string(),
+            GameItemEnum::Ball(_) => "Ball".to_string(),
             GameItemEnum::PartGroup(_) => "PartGroup".to_string(),
             GameItemEnum::Generic(item_type, _) => format!("Generic_{item_type}"),
         }
@@ -569,7 +589,7 @@ impl GameItemEnum {
 // 20: Flasher
 // 21: Rubber
 // 22: Hit Target
-// 23: Ball (not stored in the vpx file)
+// 23: Ball (added in 10.8.1)
 // 24: Part Group
 // 25: Type Count (not used?)
 // 0xffffffff: Invalid // Force enum to be 32 bits
@@ -597,7 +617,7 @@ const ITEM_TYPE_PRIMITIVE: u32 = 19;
 const ITEM_TYPE_FLASHER: u32 = 20;
 const ITEM_TYPE_RUBBER: u32 = 21;
 const ITEM_TYPE_HIT_TARGET: u32 = 22;
-/// Not stored in the vpx file, but used in the editor
+/// Added in 10.8.1
 const ITEM_TYPE_BALL: u32 = 23;
 /// Added in 10.8.1
 const ITEM_TYPE_PART_GROUP: u32 = 24;
@@ -664,6 +684,7 @@ pub fn read(input: &[u8]) -> GameItemEnum {
         ITEM_TYPE_HIT_TARGET => {
             GameItemEnum::HitTarget(hittarget::HitTarget::biff_read(&mut reader))
         }
+        ITEM_TYPE_BALL => GameItemEnum::Ball(ball::Ball::biff_read(&mut reader)),
         ITEM_TYPE_PART_GROUP => {
             GameItemEnum::PartGroup(partgroup::PartGroup::biff_read(&mut reader))
         }
@@ -696,6 +717,7 @@ pub(crate) fn write(gameitem: &GameItemEnum) -> Vec<u8> {
         GameItemEnum::Flasher(flasher) => write_with_type(ITEM_TYPE_FLASHER, flasher),
         GameItemEnum::Rubber(rubber) => write_with_type(ITEM_TYPE_RUBBER, rubber),
         GameItemEnum::HitTarget(hittarget) => write_with_type(ITEM_TYPE_HIT_TARGET, hittarget),
+        GameItemEnum::Ball(ball) => write_with_type(ITEM_TYPE_BALL, ball),
         GameItemEnum::PartGroup(partgroup) => write_with_type(ITEM_TYPE_PART_GROUP, partgroup),
         // GameItemEnum::Generic(item_type, generic) => write_with_type(*item_type, generic),
         _ => {
