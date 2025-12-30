@@ -28,10 +28,10 @@ pub mod vertex3d;
 pub mod vertex4d;
 pub mod wall;
 
-use crate::vpx::biff::BiffRead;
-use serde::{Deserialize, Serialize};
-
 use super::biff::{BiffReader, BiffWrite, BiffWriter};
+use crate::vpx::biff::BiffRead;
+use crate::vpx::gameitem::select::HasSharedAttributes;
+use serde::{Deserialize, Serialize};
 
 // TODO we might come up with a macro that generates the biff reading from the struct annotations
 //   like VPE
@@ -127,26 +127,26 @@ impl GameItemEnum {
 
     pub(crate) fn editor_layer(&self) -> Option<u32> {
         match self {
-            GameItemEnum::Wall(wall) => Some(wall.editor_layer),
-            GameItemEnum::Flipper(flipper) => Some(flipper.editor_layer),
-            GameItemEnum::Timer(timer) => Some(timer.editor_layer),
-            GameItemEnum::Plunger(plunger) => Some(plunger.editor_layer),
-            GameItemEnum::TextBox(textbox) => Some(textbox.editor_layer),
-            GameItemEnum::Bumper(bumper) => Some(bumper.editor_layer),
-            GameItemEnum::Trigger(trigger) => Some(trigger.editor_layer),
-            GameItemEnum::Light(light) => Some(light.editor_layer),
-            GameItemEnum::Kicker(kicker) => Some(kicker.editor_layer),
-            GameItemEnum::Decal(decal) => Some(decal.editor_layer),
-            GameItemEnum::Gate(gate) => Some(gate.editor_layer),
-            GameItemEnum::Spinner(spinner) => Some(spinner.editor_layer),
-            GameItemEnum::Ramp(ramp) => Some(ramp.editor_layer),
-            GameItemEnum::Reel(reel) => Some(reel.editor_layer),
+            GameItemEnum::Wall(wall) => wall.editor_layer(),
+            GameItemEnum::Flipper(flipper) => flipper.editor_layer(),
+            GameItemEnum::Timer(timer) => timer.editor_layer(),
+            GameItemEnum::Plunger(plunger) => plunger.editor_layer(),
+            GameItemEnum::TextBox(textbox) => textbox.editor_layer(),
+            GameItemEnum::Bumper(bumper) => bumper.editor_layer(),
+            GameItemEnum::Trigger(trigger) => trigger.editor_layer(),
+            GameItemEnum::Light(light) => light.editor_layer(),
+            GameItemEnum::Kicker(kicker) => kicker.editor_layer(),
+            GameItemEnum::Decal(decal) => decal.editor_layer(),
+            GameItemEnum::Gate(gate) => gate.editor_layer(),
+            GameItemEnum::Spinner(spinner) => spinner.editor_layer(),
+            GameItemEnum::Ramp(ramp) => ramp.editor_layer(),
+            GameItemEnum::Reel(reel) => reel.editor_layer(),
             GameItemEnum::LightSequencer(lightsequencer) => lightsequencer.editor_layer,
-            GameItemEnum::Primitive(primitive) => Some(primitive.editor_layer),
-            GameItemEnum::Flasher(flasher) => Some(flasher.editor_layer),
-            GameItemEnum::Rubber(rubber) => Some(rubber.editor_layer),
-            GameItemEnum::HitTarget(hittarget) => Some(hittarget.editor_layer),
-            GameItemEnum::Ball(ball) => Some(ball.editor_layer),
+            GameItemEnum::Primitive(primitive) => primitive.editor_layer(),
+            GameItemEnum::Flasher(flasher) => flasher.editor_layer(),
+            GameItemEnum::Rubber(rubber) => rubber.editor_layer(),
+            GameItemEnum::HitTarget(hittarget) => hittarget.editor_layer(),
+            GameItemEnum::Ball(ball) => ball.editor_layer(),
             GameItemEnum::PartGroup(_partgroup) => None,
             GameItemEnum::Generic(_item_type, _generic) => None,
         }
@@ -154,7 +154,7 @@ impl GameItemEnum {
 
     pub(crate) fn is_locked(&self) -> Option<bool> {
         match self {
-            GameItemEnum::Wall(wall) => Some(wall.is_locked),
+            GameItemEnum::Wall(wall) => Some(wall.is_locked()),
             GameItemEnum::Flipper(flipper) => Some(flipper.is_locked),
             GameItemEnum::Timer(timer) => Some(timer.is_locked),
             GameItemEnum::Plunger(plunger) => Some(plunger.is_locked),
@@ -291,102 +291,64 @@ impl GameItemEnum {
     pub(crate) fn set_editor_layer(&mut self, editor_layer: Option<u32>) {
         match self {
             GameItemEnum::Wall(wall) => {
-                if let Some(editor_layer) = editor_layer {
-                    wall.editor_layer = editor_layer;
-                }
+                wall.editor_layer = editor_layer;
             }
             GameItemEnum::Flipper(flipper) => {
-                if let Some(editor_layer) = editor_layer {
-                    flipper.editor_layer = editor_layer;
-                }
+                flipper.editor_layer = editor_layer;
             }
             GameItemEnum::Timer(timer) => {
-                if let Some(editor_layer) = editor_layer {
-                    timer.editor_layer = editor_layer;
-                }
+                timer.editor_layer = editor_layer;
             }
             GameItemEnum::Plunger(plunger) => {
-                if let Some(editor_layer) = editor_layer {
-                    plunger.editor_layer = editor_layer;
-                }
+                plunger.editor_layer = editor_layer;
             }
             GameItemEnum::TextBox(textbox) => {
-                if let Some(editor_layer) = editor_layer {
-                    textbox.editor_layer = editor_layer;
-                }
+                textbox.editor_layer = editor_layer;
             }
             GameItemEnum::Bumper(bumper) => {
-                if let Some(editor_layer) = editor_layer {
-                    bumper.editor_layer = editor_layer;
-                }
+                bumper.editor_layer = editor_layer;
             }
             GameItemEnum::Trigger(trigger) => {
-                if let Some(editor_layer) = editor_layer {
-                    trigger.editor_layer = editor_layer;
-                }
+                trigger.editor_layer = editor_layer;
             }
             GameItemEnum::Light(light) => {
-                if let Some(editor_layer) = editor_layer {
-                    light.editor_layer = editor_layer;
-                }
+                light.editor_layer = editor_layer;
             }
             GameItemEnum::Kicker(kicker) => {
-                if let Some(editor_layer) = editor_layer {
-                    kicker.editor_layer = editor_layer;
-                }
+                kicker.editor_layer = editor_layer;
             }
             GameItemEnum::Decal(decal) => {
-                if let Some(editor_layer) = editor_layer {
-                    decal.editor_layer = editor_layer;
-                }
+                decal.editor_layer = editor_layer;
             }
             GameItemEnum::Gate(gate) => {
-                if let Some(editor_layer) = editor_layer {
-                    gate.editor_layer = editor_layer;
-                }
+                gate.editor_layer = editor_layer;
             }
             GameItemEnum::Spinner(spinner) => {
-                if let Some(editor_layer) = editor_layer {
-                    spinner.editor_layer = editor_layer;
-                }
+                spinner.editor_layer = editor_layer;
             }
             GameItemEnum::Ramp(ramp) => {
-                if let Some(editor_layer) = editor_layer {
-                    ramp.editor_layer = editor_layer;
-                }
+                ramp.editor_layer = editor_layer;
             }
             GameItemEnum::Reel(reel) => {
-                if let Some(editor_layer) = editor_layer {
-                    reel.editor_layer = editor_layer;
-                }
+                reel.editor_layer = editor_layer;
             }
             GameItemEnum::LightSequencer(lightsequencer) => {
                 lightsequencer.editor_layer = editor_layer;
             }
             GameItemEnum::Primitive(primitive) => {
-                if let Some(editor_layer) = editor_layer {
-                    primitive.editor_layer = editor_layer;
-                }
+                primitive.editor_layer = editor_layer;
             }
             GameItemEnum::Flasher(flasher) => {
-                if let Some(editor_layer) = editor_layer {
-                    flasher.editor_layer = editor_layer;
-                }
+                flasher.editor_layer = editor_layer;
             }
             GameItemEnum::Rubber(rubber) => {
-                if let Some(editor_layer) = editor_layer {
-                    rubber.editor_layer = editor_layer;
-                }
+                rubber.editor_layer = editor_layer;
             }
             GameItemEnum::HitTarget(hittarget) => {
-                if let Some(editor_layer) = editor_layer {
-                    hittarget.editor_layer = editor_layer;
-                }
+                hittarget.editor_layer = editor_layer;
             }
             GameItemEnum::Ball(ball) => {
-                if let Some(editor_layer) = editor_layer {
-                    ball.editor_layer = editor_layer;
-                }
+                ball.editor_layer = editor_layer;
             }
             GameItemEnum::PartGroup(_partgroup) => {}
             GameItemEnum::Generic(_item_type, _generic) => {}
@@ -480,11 +442,11 @@ impl GameItemEnum {
     pub fn name(&self) -> &str {
         match self {
             GameItemEnum::Wall(wall) => &wall.name,
-            GameItemEnum::Flipper(flipper) => flipper.name(),
+            GameItemEnum::Flipper(flipper) => &flipper.name,
             GameItemEnum::Timer(timer) => &timer.name,
             GameItemEnum::Plunger(plunger) => &plunger.name,
             GameItemEnum::TextBox(textbox) => &textbox.name,
-            GameItemEnum::Bumper(bumper) => bumper.name(),
+            GameItemEnum::Bumper(bumper) => &bumper.name,
             GameItemEnum::Trigger(trigger) => &trigger.name,
             GameItemEnum::Light(light) => &light.name,
             GameItemEnum::Kicker(kicker) => &kicker.name,

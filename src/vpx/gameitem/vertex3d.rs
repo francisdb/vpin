@@ -13,6 +13,34 @@ impl Vertex3D {
     pub fn new(x: f32, y: f32, z: f32) -> Self {
         Self { x, y, z }
     }
+
+    pub fn write_unpadded(&self, writer: &mut BiffWriter) {
+        writer.write_f32(self.x);
+        writer.write_f32(self.y);
+        writer.write_f32(self.z);
+    }
+
+    pub fn read_unpadded(reader: &mut BiffReader<'_>) -> Self {
+        let x = reader.get_f32();
+        let y = reader.get_f32();
+        let z = reader.get_f32();
+        Vertex3D { x, y, z }
+    }
+
+    pub fn write_padded(&self, writer: &mut BiffWriter) {
+        writer.write_f32(self.x);
+        writer.write_f32(self.y);
+        writer.write_f32(self.z);
+        writer.write_f32(0.0); // padding
+    }
+
+    pub fn read_padded(reader: &mut BiffReader<'_>) -> Self {
+        let x = reader.get_f32();
+        let y = reader.get_f32();
+        let z = reader.get_f32();
+        let _padding = reader.get_f32(); // read and ignore padding
+        Vertex3D { x, y, z }
+    }
 }
 
 impl std::fmt::Display for Vertex3D {
@@ -31,22 +59,17 @@ impl Default for Vertex3D {
     }
 }
 
+/// For we default to 16 bytes with padding
 impl BiffRead for Vertex3D {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
-        let x = reader.get_f32();
-        let y = reader.get_f32();
-        let z = reader.get_f32();
-        let _padding = reader.get_f32();
-        Vertex3D { x, y, z }
+        Vertex3D::read_padded(reader)
     }
 }
 
+/// For we default to 16 bytes with padding
 impl BiffWrite for Vertex3D {
     fn biff_write(&self, writer: &mut BiffWriter) {
-        writer.write_f32(self.x);
-        writer.write_f32(self.y);
-        writer.write_f32(self.z);
-        writer.write_f32(0.0);
+        Vertex3D::write_padded(self, writer)
     }
 }
 

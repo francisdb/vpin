@@ -181,7 +181,7 @@ pub struct HitTarget {
 
     // these are shared between all items
     pub is_locked: bool,
-    pub editor_layer: u32,
+    pub editor_layer: Option<u32>,
     pub editor_layer_name: Option<String>,
     // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
@@ -222,7 +222,7 @@ impl Default for HitTarget {
 
         // these are shared between all items
         let is_locked: bool = false;
-        let editor_layer: u32 = Default::default();
+        let editor_layer: Option<u32> = None;
         let editor_layer_name: Option<String> = None;
         let editor_layer_visibility: Option<bool> = None;
         let part_group_name: Option<String> = None;
@@ -367,7 +367,7 @@ impl HitTargetJson {
             // this is populated from a different file
             is_locked: false,
             // this is populated from a different file
-            editor_layer: 0,
+            editor_layer: None,
             // this is populated from a different file
             editor_layer_name: None,
             // this is populated from a different file
@@ -402,7 +402,7 @@ impl HasSharedAttributes for HitTarget {
     fn is_locked(&self) -> bool {
         self.is_locked
     }
-    fn editor_layer(&self) -> u32 {
+    fn editor_layer(&self) -> Option<u32> {
         self.editor_layer
     }
     fn editor_layer_name(&self) -> Option<&str> {
@@ -413,6 +413,26 @@ impl HasSharedAttributes for HitTarget {
     }
     fn part_group_name(&self) -> Option<&str> {
         self.part_group_name.as_deref()
+    }
+
+    fn set_is_locked(&mut self, locked: bool) {
+        self.is_locked = locked;
+    }
+
+    fn set_editor_layer(&mut self, layer: Option<u32>) {
+        self.editor_layer = layer;
+    }
+
+    fn set_editor_layer_name(&mut self, name: Option<String>) {
+        self.editor_layer_name = name;
+    }
+
+    fn set_editor_layer_visibility(&mut self, visibility: Option<bool>) {
+        self.editor_layer_visibility = visibility;
+    }
+
+    fn set_part_group_name(&mut self, name: Option<String>) {
+        self.part_group_name = name;
     }
 }
 
@@ -427,41 +447,7 @@ impl TimerDataRoot for HitTarget {
 
 impl BiffRead for HitTarget {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
-        let mut position: Vertex3D = Default::default();
-        let mut size = Vertex3D::new(32.0, 32.0, 32.0);
-        let mut rot_z: f32 = 0.0;
-        let mut image: String = Default::default();
-        let mut target_type: TargetType = TargetType::DropTargetSimple;
-        let mut name: String = Default::default();
-        let mut material: String = Default::default();
-        let mut is_visible: bool = true;
-        let mut is_legacy: bool = false;
-        let mut use_hit_event: bool = true;
-        let mut threshold: f32 = 2.0;
-        let mut elasticity: f32 = 0.0;
-        let mut elasticity_falloff: f32 = 0.0;
-        let mut friction: f32 = 0.0;
-        let mut scatter: f32 = 0.0;
-        let mut is_collidable: bool = true;
-        let mut disable_lighting_top_old: Option<f32> = None; //0.0;
-        let mut disable_lighting_top: Option<f32> = None; //0.0;
-        let mut disable_lighting_below: Option<f32> = None; //0.0;
-        let mut depth_bias: f32 = 0.0;
-        let mut is_reflection_enabled: bool = true;
-        let mut is_dropped: bool = false;
-        let mut drop_speed: f32 = 0.5;
-        let mut is_timer_enabled: bool = false;
-        let mut timer_interval: i32 = 0;
-        let mut raise_delay: Option<u32> = None; //100;
-        let mut physics_material: Option<String> = None;
-        let mut overwrite_physics: Option<bool> = None; //false;
-
-        // these are shared between all items
-        let mut is_locked: bool = false;
-        let mut editor_layer: u32 = Default::default();
-        let mut editor_layer_name: Option<String> = None;
-        let mut editor_layer_visibility: Option<bool> = None;
-        let mut part_group_name: Option<String> = None;
+        let mut hit_target = HitTarget::default();
 
         loop {
             reader.next(biff::WARN);
@@ -472,143 +458,94 @@ impl BiffRead for HitTarget {
             let tag_str = tag.as_str();
             match tag_str {
                 "VPOS" => {
-                    position = Vertex3D::biff_read(reader);
+                    hit_target.position = Vertex3D::biff_read(reader);
                 }
                 "VSIZ" => {
-                    size = Vertex3D::biff_read(reader);
+                    hit_target.size = Vertex3D::biff_read(reader);
                 }
                 "ROTZ" => {
-                    rot_z = reader.get_f32();
+                    hit_target.rot_z = reader.get_f32();
                 }
                 "IMAG" => {
-                    image = reader.get_string();
+                    hit_target.image = reader.get_string();
                 }
                 "TRTY" => {
-                    target_type = reader.get_u32().into();
+                    hit_target.target_type = reader.get_u32().into();
                 }
                 "NAME" => {
-                    name = reader.get_wide_string();
+                    hit_target.name = reader.get_wide_string();
                 }
                 "MATR" => {
-                    material = reader.get_string();
+                    hit_target.material = reader.get_string();
                 }
                 "TVIS" => {
-                    is_visible = reader.get_bool();
+                    hit_target.is_visible = reader.get_bool();
                 }
                 "LEMO" => {
-                    is_legacy = reader.get_bool();
+                    hit_target.is_legacy = reader.get_bool();
                 }
                 "HTEV" => {
-                    use_hit_event = reader.get_bool();
+                    hit_target.use_hit_event = reader.get_bool();
                 }
                 "THRS" => {
-                    threshold = reader.get_f32();
+                    hit_target.threshold = reader.get_f32();
                 }
                 "ELAS" => {
-                    elasticity = reader.get_f32();
+                    hit_target.elasticity = reader.get_f32();
                 }
                 "ELFO" => {
-                    elasticity_falloff = reader.get_f32();
+                    hit_target.elasticity_falloff = reader.get_f32();
                 }
                 "RFCT" => {
-                    friction = reader.get_f32();
+                    hit_target.friction = reader.get_f32();
                 }
                 "RSCT" => {
-                    scatter = reader.get_f32();
+                    hit_target.scatter = reader.get_f32();
                 }
                 "CLDR" => {
-                    is_collidable = reader.get_bool();
+                    hit_target.is_collidable = reader.get_bool();
                 }
                 "DILI" => {
-                    disable_lighting_top_old = Some(reader.get_f32());
+                    hit_target.disable_lighting_top_old = Some(reader.get_f32());
                 }
                 "DILT" => {
-                    disable_lighting_top = Some(reader.get_f32());
+                    hit_target.disable_lighting_top = Some(reader.get_f32());
                 }
                 "DILB" => {
-                    disable_lighting_below = Some(reader.get_f32());
+                    hit_target.disable_lighting_below = Some(reader.get_f32());
                 }
                 "REEN" => {
-                    is_reflection_enabled = reader.get_bool();
+                    hit_target.is_reflection_enabled = reader.get_bool();
                 }
                 "PIDB" => {
-                    depth_bias = reader.get_f32();
+                    hit_target.depth_bias = reader.get_f32();
                 }
                 "ISDR" => {
-                    is_dropped = reader.get_bool();
+                    hit_target.is_dropped = reader.get_bool();
                 }
                 "DRSP" => {
-                    drop_speed = reader.get_f32();
+                    hit_target.drop_speed = reader.get_f32();
                 }
                 "TMON" => {
-                    is_timer_enabled = reader.get_bool();
+                    hit_target.is_timer_enabled = reader.get_bool();
                 }
-                "TMIN" => timer_interval = reader.get_i32(),
-                "RADE" => raise_delay = Some(reader.get_u32()),
-                "MAPH" => physics_material = Some(reader.get_string()),
-                "OVPH" => overwrite_physics = Some(reader.get_bool()),
-
-                // shared
-                "LOCK" => {
-                    is_locked = reader.get_bool();
-                }
-                "LAYR" => {
-                    editor_layer = reader.get_u32();
-                }
-                "LANR" => {
-                    editor_layer_name = Some(reader.get_string());
-                }
-                "LVIS" => {
-                    editor_layer_visibility = Some(reader.get_bool());
-                }
-                "GRUP" => {
-                    part_group_name = Some(reader.get_string());
-                }
+                "TMIN" => hit_target.timer_interval = reader.get_i32(),
+                "RADE" => hit_target.raise_delay = Some(reader.get_u32()),
+                "MAPH" => hit_target.physics_material = Some(reader.get_string()),
+                "OVPH" => hit_target.overwrite_physics = Some(reader.get_bool()),
                 _ => {
-                    warn!(
-                        "Unknown tag {} for {}",
-                        tag_str,
-                        std::any::type_name::<Self>()
-                    );
-                    reader.skip_tag();
+                    if !hit_target.read_shared_attribute(tag_str, reader) {
+                        warn!(
+                            "Unknown tag {} for {}",
+                            tag_str,
+                            std::any::type_name::<Self>()
+                        );
+                        reader.skip_tag();
+                    }
                 }
             }
         }
-        Self {
-            position,
-            size,
-            rot_z,
-            image,
-            target_type,
-            name,
-            material,
-            is_visible,
-            is_legacy,
-            use_hit_event,
-            threshold,
-            elasticity,
-            elasticity_falloff,
-            friction,
-            scatter,
-            is_collidable,
-            disable_lighting_top_old,
-            disable_lighting_top,
-            disable_lighting_below,
-            is_reflection_enabled,
-            depth_bias,
-            is_dropped,
-            drop_speed,
-            is_timer_enabled,
-            timer_interval,
-            raise_delay,
-            physics_material,
-            overwrite_physics,
-            is_locked,
-            editor_layer,
-            editor_layer_name,
-            editor_layer_visibility,
-            part_group_name,
-        }
+        hit_target
     }
 }
 
@@ -704,7 +641,7 @@ mod tests {
             physics_material: Some("test physics material".to_string()),
             overwrite_physics: rng.random_option(),
             is_locked: rng.random(),
-            editor_layer: rng.random(),
+            editor_layer: Some(rng.random()),
             editor_layer_name: Some("test layer name".to_string()),
             editor_layer_visibility: rng.random_option(),
             part_group_name: Some("test group name".to_string()),
