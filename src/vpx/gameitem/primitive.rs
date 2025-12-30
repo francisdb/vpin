@@ -89,12 +89,77 @@ pub struct Primitive {
 
     // these are shared between all items
     pub is_locked: bool,
-    pub editor_layer: u32,
+    pub editor_layer: Option<u32>,
     pub editor_layer_name: Option<String>,
     // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
     pub part_group_name: Option<String>,
+}
+
+impl Default for Primitive {
+    fn default() -> Self {
+        Self {
+            position: Default::default(),
+            size: Vertex3D::new(100.0, 100.0, 100.0),
+            rot_and_tra: [0.0; 9],
+            image: Default::default(),
+            normal_map: None,
+            sides: 4,
+            name: Default::default(),
+            material: Default::default(),
+            side_color: Color::BLACK,
+            is_visible: true,
+            draw_textures_inside: false,
+            hit_event: true,
+            threshold: 2.0,
+            elasticity: 0.3,
+            elasticity_falloff: 0.5,
+            friction: 0.3,
+            scatter: 0.0,
+            edge_factor_ui: 0.25,
+            collision_reduction_factor: None,
+            is_collidable: true,
+            is_toy: false,
+            use_3d_mesh: false,
+            static_rendering: false,
+            disable_lighting_top_old: None,
+            disable_lighting_top: None,
+            disable_lighting_below: None,
+            is_reflection_enabled: None,
+            backfaces_enabled: None,
+            physics_material: None,
+            overwrite_physics: None,
+            display_texture: None,
+            object_space_normal_map: None,
+            min_aa_bound: None,
+            max_aa_bound: None,
+            mesh_file_name: None,
+            num_vertices: None,
+            compressed_vertices_len: None,
+            compressed_vertices_data: None,
+            num_indices: None,
+            compressed_indices_len: None,
+            compressed_indices_data: None,
+            compressed_animation_vertices_len: None,
+            compressed_animation_vertices_data: None,
+            depth_bias: 0.0,
+            add_blend: None,
+            use_depth_mask: None,
+            alpha: None,
+            color: None,
+            light_map: None,
+            reflection_probe: None,
+            reflection_strength: None,
+            refraction_probe: None,
+            refraction_thickness: None,
+            is_locked: false,
+            editor_layer: None,
+            editor_layer_name: None,
+            editor_layer_visibility: None,
+            part_group_name: None,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -340,7 +405,7 @@ impl PrimitiveJson {
             // this is populated from a different file
             is_locked: false,
             // this is populated from a different file
-            editor_layer: 0,
+            editor_layer: None,
             // this is populated from a different file
             editor_layer_name: None,
             // this is populated from a different file
@@ -371,68 +436,9 @@ impl<'de> Deserialize<'de> for Primitive {
 
 impl BiffRead for Primitive {
     fn biff_read(reader: &mut BiffReader<'_>) -> Primitive {
-        let mut position = Default::default();
-        let mut size = Vertex3D::new(100.0, 100.0, 100.0);
-        let mut rot_and_tra: [f32; 9] = [0.0; 9];
-        let mut image = Default::default();
-        let mut normal_map: Option<String> = None;
-        let mut sides: u32 = 4;
-        let mut name = Default::default();
-        let mut material = Default::default();
-        let mut side_color = Color::BLACK;
-        let mut is_visible: bool = true;
-        let mut draw_textures_inside: bool = false;
-        let mut hit_event: bool = true;
-        let mut threshold: f32 = 2.0;
-        let mut elasticity: f32 = 0.3;
-        let mut elasticity_falloff: f32 = 0.5;
-        let mut friction: f32 = 0.3;
-        let mut scatter: f32 = 0.0;
-        let mut edge_factor_ui: f32 = 0.25;
-        let mut collision_reduction_factor: Option<f32> = None; //0.0;
-        let mut is_collidable: bool = true;
-        let mut is_toy: bool = false;
-        let mut use_3d_mesh: bool = false;
-        let mut static_rendering: bool = false;
-        let mut disable_lighting_top_old: Option<f32> = None; //0.0;
-        let mut disable_lighting_top: Option<f32> = None; //0.0;
-        let mut disable_lighting_below: Option<f32> = None; //0.0;
-        let mut is_reflection_enabled: Option<bool> = None; //true;
-        let mut backfaces_enabled: Option<bool> = None; //false;
-        let mut physics_material: Option<String> = None;
-        let mut overwrite_physics: Option<bool> = None; //true;
-        let mut display_texture: Option<bool> = None; //true;
-        let mut object_space_normal_map: Option<bool> = None; //false;
-        let mut min_aa_bound: Option<Vec<u8>> = None;
-        let mut max_aa_bound: Option<Vec<u8>> = None;
-
-        let mut mesh_file_name: Option<String> = None;
-        let mut num_vertices: Option<u32> = None;
-        let mut compressed_vertices: Option<u32> = None;
-        let mut m3cx: Option<Vec<u8>> = None;
-        let mut num_indices: Option<u32> = None;
-        let mut compressed_indices: Option<u32> = None;
-        let mut compressed_indices_data: Option<Vec<u8>> = None;
         let mut compressed_animation_vertices: Option<Vec<u32>> = None;
         let mut m3ax: Option<Vec<Vec<u8>>> = None;
-
-        let mut depth_bias: f32 = 0.0;
-        let mut add_blend: Option<bool> = None; // false;
-        let mut use_depth_mask: Option<bool> = None; // false;
-        let mut alpha: Option<f32> = None; //1.0;
-        let mut color: Option<Color> = None; //Color::new_bgr(0x0);
-        let mut light_map: Option<String> = None;
-        let mut reflection_probe: Option<String> = None;
-        let mut reflection_strength: Option<f32> = None;
-        let mut refraction_probe: Option<String> = None;
-        let mut refraction_thickness: Option<f32> = None;
-
-        // these are shared between all items
-        let mut is_locked: bool = false;
-        let mut editor_layer: u32 = Default::default();
-        let mut editor_layer_name: Option<String> = None;
-        let mut editor_layer_visibility: Option<bool> = None;
-        let mut part_group_name: Option<String> = None;
+        let mut primitive = Primitive::default();
 
         loop {
             reader.next(biff::WARN);
@@ -449,141 +455,141 @@ impl BiffRead for Primitive {
                 // Unknown tag M3AY for vpxtool::vpx::gameitem::primitive::Primitive
                 // Unknown tag M3AY for vpxtool::vpx::gameitem::primitive::Primitive
                 "VPOS" => {
-                    position = Vertex3D::biff_read(reader);
+                    primitive.position = Vertex3D::biff_read(reader);
                 }
                 "VSIZ" => {
-                    size = Vertex3D::biff_read(reader);
+                    primitive.size = Vertex3D::biff_read(reader);
                 }
                 "RTV0" => {
-                    rot_and_tra[0] = reader.get_f32();
+                    primitive.rot_and_tra[0] = reader.get_f32();
                 }
                 "RTV1" => {
-                    rot_and_tra[1] = reader.get_f32();
+                    primitive.rot_and_tra[1] = reader.get_f32();
                 }
                 "RTV2" => {
-                    rot_and_tra[2] = reader.get_f32();
+                    primitive.rot_and_tra[2] = reader.get_f32();
                 }
                 "RTV3" => {
-                    rot_and_tra[3] = reader.get_f32();
+                    primitive.rot_and_tra[3] = reader.get_f32();
                 }
                 "RTV4" => {
-                    rot_and_tra[4] = reader.get_f32();
+                    primitive.rot_and_tra[4] = reader.get_f32();
                 }
                 "RTV5" => {
-                    rot_and_tra[5] = reader.get_f32();
+                    primitive.rot_and_tra[5] = reader.get_f32();
                 }
                 "RTV6" => {
-                    rot_and_tra[6] = reader.get_f32();
+                    primitive.rot_and_tra[6] = reader.get_f32();
                 }
                 "RTV7" => {
-                    rot_and_tra[7] = reader.get_f32();
+                    primitive.rot_and_tra[7] = reader.get_f32();
                 }
                 "RTV8" => {
-                    rot_and_tra[8] = reader.get_f32();
+                    primitive.rot_and_tra[8] = reader.get_f32();
                 }
                 "IMAG" => {
-                    image = reader.get_string();
+                    primitive.image = reader.get_string();
                 }
                 "NRMA" => {
-                    normal_map = Some(reader.get_string());
+                    primitive.normal_map = Some(reader.get_string());
                 }
                 "SIDS" => {
-                    sides = reader.get_u32();
+                    primitive.sides = reader.get_u32();
                 }
                 "NAME" => {
-                    name = reader.get_wide_string();
+                    primitive.name = reader.get_wide_string();
                 }
                 "MATR" => {
-                    material = reader.get_string();
+                    primitive.material = reader.get_string();
                 }
                 "SCOL" => {
-                    side_color = Color::biff_read(reader);
+                    primitive.side_color = Color::biff_read(reader);
                 }
                 "TVIS" => {
-                    is_visible = reader.get_bool();
+                    primitive.is_visible = reader.get_bool();
                 }
                 "DTXI" => {
-                    draw_textures_inside = reader.get_bool();
+                    primitive.draw_textures_inside = reader.get_bool();
                 }
                 "HTEV" => {
-                    hit_event = reader.get_bool();
+                    primitive.hit_event = reader.get_bool();
                 }
                 "THRS" => {
-                    threshold = reader.get_f32();
+                    primitive.threshold = reader.get_f32();
                 }
                 "ELAS" => {
-                    elasticity = reader.get_f32();
+                    primitive.elasticity = reader.get_f32();
                 }
                 "ELFO" => {
-                    elasticity_falloff = reader.get_f32();
+                    primitive.elasticity_falloff = reader.get_f32();
                 }
                 "RFCT" => {
-                    friction = reader.get_f32();
+                    primitive.friction = reader.get_f32();
                 }
                 "RSCT" => {
-                    scatter = reader.get_f32();
+                    primitive.scatter = reader.get_f32();
                 }
                 "EFUI" => {
-                    edge_factor_ui = reader.get_f32();
+                    primitive.edge_factor_ui = reader.get_f32();
                 }
                 "CORF" => {
-                    collision_reduction_factor = Some(reader.get_f32());
+                    primitive.collision_reduction_factor = Some(reader.get_f32());
                 }
                 "CLDR" => {
-                    is_collidable = reader.get_bool();
+                    primitive.is_collidable = reader.get_bool();
                 }
                 "ISTO" => {
-                    is_toy = reader.get_bool();
+                    primitive.is_toy = reader.get_bool();
                 }
                 "U3DM" => {
-                    use_3d_mesh = reader.get_bool();
+                    primitive.use_3d_mesh = reader.get_bool();
                 }
                 "STRE" => {
-                    static_rendering = reader.get_bool();
+                    primitive.static_rendering = reader.get_bool();
                 }
                 //[BiffFloat("DILI", QuantizedUnsignedBits = 8, Pos = 32)]
                 //public float DisableLightingTop; // m_d.m_fDisableLightingTop = (tmp == 1) ? 1.f : dequantizeUnsigned<8>(tmp); // backwards compatible hacky loading!
                 "DILI" => {
-                    disable_lighting_top_old = Some(reader.get_f32());
+                    primitive.disable_lighting_top_old = Some(reader.get_f32());
                 }
                 "DILT" => {
-                    disable_lighting_top = Some(reader.get_f32());
+                    primitive.disable_lighting_top = Some(reader.get_f32());
                 }
                 "DILB" => {
-                    disable_lighting_below = Some(reader.get_f32());
+                    primitive.disable_lighting_below = Some(reader.get_f32());
                 }
                 "REEN" => {
-                    is_reflection_enabled = Some(reader.get_bool());
+                    primitive.is_reflection_enabled = Some(reader.get_bool());
                 }
                 "EBFC" => {
-                    backfaces_enabled = Some(reader.get_bool());
+                    primitive.backfaces_enabled = Some(reader.get_bool());
                 }
                 "MAPH" => {
-                    physics_material = Some(reader.get_string());
+                    primitive.physics_material = Some(reader.get_string());
                 }
                 "OVPH" => {
-                    overwrite_physics = Some(reader.get_bool());
+                    primitive.overwrite_physics = Some(reader.get_bool());
                 }
                 "DIPT" => {
-                    display_texture = Some(reader.get_bool());
+                    primitive.display_texture = Some(reader.get_bool());
                 }
                 "OSNM" => {
-                    object_space_normal_map = Some(reader.get_bool());
+                    primitive.object_space_normal_map = Some(reader.get_bool());
                 }
                 "BMIN" => {
-                    min_aa_bound = Some(reader.get_record_data(false));
+                    primitive.min_aa_bound = Some(reader.get_record_data(false));
                 }
                 "BMAX" => {
-                    max_aa_bound = Some(reader.get_record_data(false));
+                    primitive.max_aa_bound = Some(reader.get_record_data(false));
                 }
                 "M3DN" => {
-                    mesh_file_name = Some(reader.get_string());
+                    primitive.mesh_file_name = Some(reader.get_string());
                 }
                 "M3VN" => {
-                    num_vertices = Some(reader.get_u32());
+                    primitive.num_vertices = Some(reader.get_u32());
                 }
                 "M3CY" => {
-                    compressed_vertices = Some(reader.get_u32());
+                    primitive.compressed_vertices_len = Some(reader.get_u32());
                 }
 
                 // [BiffVertices("M3DX", SkipWrite = true)]
@@ -593,16 +599,16 @@ impl BiffRead for Primitive {
                 // [BiffAnimation("M3AX", IsCompressed = true, Pos = 47 )]
                 // public Mesh Mesh = new Mesh();
                 "M3CX" => {
-                    m3cx = Some(reader.get_record_data(false));
+                    primitive.compressed_vertices_data = Some(reader.get_record_data(false));
                 }
                 "M3FN" => {
-                    num_indices = Some(reader.get_u32());
+                    primitive.num_indices = Some(reader.get_u32());
                 }
                 "M3CJ" => {
-                    compressed_indices = Some(reader.get_u32());
+                    primitive.compressed_indices_len = Some(reader.get_u32());
                 }
                 "M3CI" => {
-                    compressed_indices_data = Some(reader.get_record_data(false));
+                    primitive.compressed_indices_data = Some(reader.get_record_data(false));
                 }
                 "M3AY" => {
                     match compressed_animation_vertices {
@@ -623,122 +629,51 @@ impl BiffRead for Primitive {
                     };
                 }
                 "PIDB" => {
-                    depth_bias = reader.get_f32();
+                    primitive.depth_bias = reader.get_f32();
                 }
                 "ADDB" => {
-                    add_blend = Some(reader.get_bool());
+                    primitive.add_blend = Some(reader.get_bool());
                 }
                 "ZMSK" => {
-                    use_depth_mask = Some(reader.get_bool());
+                    primitive.use_depth_mask = Some(reader.get_bool());
                 }
                 "FALP" => {
-                    alpha = Some(reader.get_f32());
+                    primitive.alpha = Some(reader.get_f32());
                 }
                 "COLR" => {
-                    color = Some(Color::biff_read(reader));
+                    primitive.color = Some(Color::biff_read(reader));
                 }
                 "LMAP" => {
-                    light_map = Some(reader.get_string());
+                    primitive.light_map = Some(reader.get_string());
                 }
                 "REFL" => {
-                    reflection_probe = Some(reader.get_string());
+                    primitive.reflection_probe = Some(reader.get_string());
                 }
                 "RSTR" => {
-                    reflection_strength = Some(reader.get_f32());
+                    primitive.reflection_strength = Some(reader.get_f32());
                 }
                 "REFR" => {
-                    refraction_probe = Some(reader.get_string());
+                    primitive.refraction_probe = Some(reader.get_string());
                 }
                 "RTHI" => {
-                    refraction_thickness = Some(reader.get_f32());
-                }
-
-                // shared
-                "LOCK" => {
-                    is_locked = reader.get_bool();
-                }
-                "LAYR" => {
-                    editor_layer = reader.get_u32();
-                }
-                "LANR" => {
-                    editor_layer_name = Some(reader.get_string());
-                }
-                "LVIS" => {
-                    editor_layer_visibility = Some(reader.get_bool());
-                }
-                "GRUP" => {
-                    part_group_name = Some(reader.get_string());
+                    primitive.refraction_thickness = Some(reader.get_f32());
                 }
                 _ => {
-                    warn!(
-                        "Unknown tag {} for {}",
-                        tag_str,
-                        std::any::type_name::<Self>()
-                    );
-                    reader.skip_tag();
+                    if !primitive.read_shared_attribute(tag_str, reader) {
+                        warn!(
+                            "Unknown tag {} for {}",
+                            tag_str,
+                            std::any::type_name::<Self>()
+                        );
+                        reader.skip_tag();
+                    }
                 }
             }
         }
-        Primitive {
-            position,
-            size,
-            rot_and_tra,
-            image,
-            normal_map,
-            sides,
-            name,
-            material,
-            side_color,
-            is_visible,
-            draw_textures_inside,
-            hit_event,
-            threshold,
-            elasticity,
-            elasticity_falloff,
-            friction,
-            scatter,
-            edge_factor_ui,
-            collision_reduction_factor,
-            is_collidable,
-            is_toy,
-            use_3d_mesh,
-            static_rendering,
-            disable_lighting_top_old,
-            disable_lighting_top,
-            disable_lighting_below,
-            is_reflection_enabled,
-            backfaces_enabled,
-            physics_material,
-            overwrite_physics,
-            display_texture,
-            object_space_normal_map,
-            min_aa_bound,
-            max_aa_bound,
-            mesh_file_name,
-            num_vertices,
-            compressed_vertices_len: compressed_vertices,
-            compressed_vertices_data: m3cx,
-            num_indices,
-            compressed_indices_len: compressed_indices,
-            compressed_indices_data,
-            compressed_animation_vertices_len: compressed_animation_vertices,
-            compressed_animation_vertices_data: m3ax,
-            depth_bias,
-            add_blend,
-            use_depth_mask,
-            alpha,
-            color,
-            light_map,
-            reflection_probe,
-            reflection_strength,
-            refraction_probe,
-            refraction_thickness,
-            is_locked,
-            editor_layer,
-            editor_layer_name,
-            editor_layer_visibility,
-            part_group_name,
-        }
+
+        primitive.compressed_animation_vertices_len = compressed_animation_vertices;
+        primitive.compressed_animation_vertices_data = m3ax;
+        primitive
     }
 }
 
@@ -749,7 +684,7 @@ impl HasSharedAttributes for Primitive {
     fn is_locked(&self) -> bool {
         self.is_locked
     }
-    fn editor_layer(&self) -> u32 {
+    fn editor_layer(&self) -> Option<u32> {
         self.editor_layer
     }
     fn editor_layer_name(&self) -> Option<&str> {
@@ -760,6 +695,26 @@ impl HasSharedAttributes for Primitive {
     }
     fn part_group_name(&self) -> Option<&str> {
         self.part_group_name.as_deref()
+    }
+
+    fn set_is_locked(&mut self, locked: bool) {
+        self.is_locked = locked;
+    }
+
+    fn set_editor_layer(&mut self, layer: Option<u32>) {
+        self.editor_layer = layer;
+    }
+
+    fn set_editor_layer_name(&mut self, name: Option<String>) {
+        self.editor_layer_name = name;
+    }
+
+    fn set_editor_layer_visibility(&mut self, visibility: Option<bool>) {
+        self.editor_layer_visibility = visibility;
+    }
+
+    fn set_part_group_name(&mut self, name: Option<String>) {
+        self.part_group_name = name;
     }
 }
 
@@ -977,7 +932,7 @@ mod tests {
             refraction_probe: Some("refraction_probe".to_string()),
             refraction_thickness: Some(15.0),
             is_locked: rng.random(),
-            editor_layer: 17,
+            editor_layer: Some(17),
             editor_layer_name: Some("editor_layer_name".to_string()),
             editor_layer_visibility: rng.random_option(),
             part_group_name: Some("part_group_name".to_string()),

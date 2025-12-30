@@ -180,7 +180,7 @@ pub struct Decal {
 
     // these are shared between all items
     pub is_locked: bool,
-    pub editor_layer: u32,
+    pub editor_layer: Option<u32>,
     pub editor_layer_name: Option<String>,
     // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
@@ -251,7 +251,7 @@ impl DecalJson {
             // this is populated from a different file
             is_locked: false,
             // this is populated from a different file
-            editor_layer: 0,
+            editor_layer: None,
             // this is populated from a different file
             editor_layer_name: None,
             // this is populated from a different file
@@ -321,7 +321,7 @@ impl HasSharedAttributes for Decal {
         self.is_locked
     }
 
-    fn editor_layer(&self) -> u32 {
+    fn editor_layer(&self) -> Option<u32> {
         self.editor_layer
     }
 
@@ -335,6 +335,26 @@ impl HasSharedAttributes for Decal {
 
     fn part_group_name(&self) -> Option<&str> {
         self.part_group_name.as_deref()
+    }
+
+    fn set_is_locked(&mut self, locked: bool) {
+        self.is_locked = locked;
+    }
+
+    fn set_editor_layer(&mut self, layer: Option<u32>) {
+        self.editor_layer = layer;
+    }
+
+    fn set_editor_layer_name(&mut self, name: Option<String>) {
+        self.editor_layer_name = name;
+    }
+
+    fn set_editor_layer_visibility(&mut self, visibility: Option<bool>) {
+        self.editor_layer_visibility = visibility;
+    }
+
+    fn set_part_group_name(&mut self, name: Option<String>) {
+        self.part_group_name = name;
     }
 }
 
@@ -395,30 +415,15 @@ impl BiffRead for Decal {
                 "FONT" => {
                     decal.font = Font::biff_read(reader);
                 }
-
-                // shared
-                "LOCK" => {
-                    decal.is_locked = reader.get_bool();
-                }
-                "LAYR" => {
-                    decal.editor_layer = reader.get_u32();
-                }
-                "LANR" => {
-                    decal.editor_layer_name = Some(reader.get_string());
-                }
-                "LVIS" => {
-                    decal.editor_layer_visibility = Some(reader.get_bool());
-                }
-                "GRUP" => {
-                    decal.part_group_name = Some(reader.get_string());
-                }
                 _ => {
-                    warn!(
-                        "Unknown tag {} for {}",
-                        tag_str,
-                        std::any::type_name::<Self>()
-                    );
-                    reader.skip_tag();
+                    if !decal.read_shared_attribute(tag_str, reader) {
+                        warn!(
+                            "Unknown tag {} for {}",
+                            tag_str,
+                            std::any::type_name::<Self>()
+                        );
+                        reader.skip_tag();
+                    }
                 }
             }
         }
@@ -480,7 +485,7 @@ mod tests {
             backglass: true,
             font: Font::default(),
             is_locked: true,
-            editor_layer: 3,
+            editor_layer: Some(3),
             editor_layer_name: Some("editor_layer_name".to_owned()),
             editor_layer_visibility: Some(false),
             part_group_name: Some("part_group_name".to_owned()),

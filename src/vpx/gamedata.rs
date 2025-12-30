@@ -355,8 +355,8 @@ pub struct GameData {
     pub scatter: f32,                                 // PFSC 42
     pub default_scatter: f32,                         // SCAT 43
     pub nudge_time: f32,                              // NDGT 44
-    pub plunger_normalize: u32,                       // MPGC 45
-    pub plunger_filter: bool,                         // MPDF 46
+    pub plunger_normalize: Option<u32>,               // MPGC 45
+    pub plunger_filter: Option<bool>,                 // MPDF 46
     pub physics_max_loops: u32,                       // PHML 47
     pub render_em_reels: bool,                        // REEL 48
     pub render_decals: bool,                          // DECL 49
@@ -365,10 +365,10 @@ pub struct GameData {
     pub zoom: f32,                                    // ZOOM 52
     pub angle_tilt_max: f32,                          // SLPX 53
     pub angle_tilt_min: f32,                          // SLOP 54
-    pub stereo_max_separation: f32,                   // MAXS 55
-    pub stereo_zero_parallax_displacement: f32,       // ZPD 56
+    pub stereo_max_separation: Option<f32>,           // MAXS 55
+    pub stereo_zero_parallax_displacement: Option<f32>, // ZPD 56
     pub stereo_offset: Option<f32>,                   // STO 57 (was missing in  10.01)
-    pub overwrite_global_stereo3d: bool,              // OGST 58
+    pub overwrite_global_stereo3d: Option<bool>,      // OGST 58
     pub image: String,                                // IMAG 59
     pub backglass_image_full_desktop: String,         // BIMG 60
     pub backglass_image_full_fullscreen: String,      // BIMF 61
@@ -532,8 +532,8 @@ pub(crate) struct GameDataJson {
     pub scatter: f32,
     pub default_scatter: f32,
     pub nudge_time: f32,
-    pub plunger_normalize: u32,
-    pub plunger_filter: bool,
+    pub plunger_normalize: Option<u32>,
+    pub plunger_filter: Option<bool>,
     pub physics_max_loops: u32,
     pub render_em_reels: bool,
     pub render_decals: bool,
@@ -542,10 +542,10 @@ pub(crate) struct GameDataJson {
     pub zoom: f32,
     pub angle_tilt_max: f32,
     pub angle_tilt_min: f32,
-    pub stereo_max_separation: f32,
-    pub stereo_zero_parallax_displacement: f32,
+    pub stereo_max_separation: Option<f32>,
+    pub stereo_zero_parallax_displacement: Option<f32>,
     pub stereo_offset: Option<f32>,
-    pub overwrite_global_stereo3d: bool,
+    pub overwrite_global_stereo3d: Option<bool>,
     pub image: String,
     pub backglass_image_full_desktop: String,
     pub backglass_image_full_fullscreen: String,
@@ -1015,8 +1015,8 @@ impl Default for GameData {
             scatter: 0.0,
             default_scatter: 0.0,
             nudge_time: 5.0,
-            plunger_normalize: 100,
-            plunger_filter: false,
+            plunger_normalize: None, // 100
+            plunger_filter: None,    // false
             physics_max_loops: 0,
             render_em_reels: false,
             render_decals: false,
@@ -1025,10 +1025,10 @@ impl Default for GameData {
             zoom: 0.5,
             angle_tilt_max: 6.0,
             angle_tilt_min: 6.0,
-            stereo_max_separation: 0.015,
-            stereo_zero_parallax_displacement: 0.1,
+            stereo_max_separation: None,             // 0.015,
+            stereo_zero_parallax_displacement: None, // 0.1,
             stereo_offset: None,
-            overwrite_global_stereo3d: false,
+            overwrite_global_stereo3d: None, // false,
             image: String::new(),
             backglass_image_full_desktop: String::new(),
             backglass_image_full_fullscreen: String::new(),
@@ -1301,8 +1301,12 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
     writer.write_tagged_f32("PFSC", gamedata.scatter);
     writer.write_tagged_f32("SCAT", gamedata.default_scatter);
     writer.write_tagged_f32("NDGT", gamedata.nudge_time);
-    writer.write_tagged_u32("MPGC", gamedata.plunger_normalize);
-    writer.write_tagged_bool("MPDF", gamedata.plunger_filter);
+    if let Some(mpgc) = gamedata.plunger_normalize {
+        writer.write_tagged_u32("MPGC", mpgc);
+    }
+    if let Some(mpdf) = gamedata.plunger_filter {
+        writer.write_tagged_bool("MPDF", mpdf);
+    }
     writer.write_tagged_u32("PHML", gamedata.physics_max_loops);
     writer.write_tagged_bool("REEL", gamedata.render_em_reels);
     writer.write_tagged_bool("DECL", gamedata.render_decals);
@@ -1311,12 +1315,18 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
     writer.write_tagged_f32("ZOOM", gamedata.zoom);
     writer.write_tagged_f32("SLPX", gamedata.angle_tilt_max);
     writer.write_tagged_f32("SLOP", gamedata.angle_tilt_min);
-    writer.write_tagged_f32("MAXS", gamedata.stereo_max_separation);
-    writer.write_tagged_f32("ZPD", gamedata.stereo_zero_parallax_displacement);
+    if let Some(maxs) = gamedata.stereo_max_separation {
+        writer.write_tagged_f32("MAXS", maxs);
+    }
+    if let Some(zpd) = gamedata.stereo_zero_parallax_displacement {
+        writer.write_tagged_f32("ZPD", zpd);
+    }
     if let Some(sto) = gamedata.stereo_offset {
         writer.write_tagged_f32("STO", sto);
     }
-    writer.write_tagged_bool("OGST", gamedata.overwrite_global_stereo3d);
+    if let Some(ogst) = gamedata.overwrite_global_stereo3d {
+        writer.write_tagged_bool("OGST", ogst);
+    }
     writer.write_tagged_string("IMAG", &gamedata.image);
     writer.write_tagged_string("BIMG", &gamedata.backglass_image_full_desktop);
     writer.write_tagged_string("BIMF", &gamedata.backglass_image_full_fullscreen);
@@ -1570,8 +1580,8 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             "PFSC" => gamedata.scatter = reader.get_f32(),
             "SCAT" => gamedata.default_scatter = reader.get_f32(),
             "NDGT" => gamedata.nudge_time = reader.get_f32(),
-            "MPGC" => gamedata.plunger_normalize = reader.get_u32(),
-            "MPDF" => gamedata.plunger_filter = reader.get_bool(),
+            "MPGC" => gamedata.plunger_normalize = Some(reader.get_u32()),
+            "MPDF" => gamedata.plunger_filter = Some(reader.get_bool()),
             "PHML" => gamedata.physics_max_loops = reader.get_u32(),
             "REEL" => gamedata.render_em_reels = reader.get_bool(),
             "DECL" => gamedata.render_decals = reader.get_bool(),
@@ -1580,10 +1590,10 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             "ZOOM" => gamedata.zoom = reader.get_f32(),
             "SLPX" => gamedata.angle_tilt_max = reader.get_f32(),
             "SLOP" => gamedata.angle_tilt_min = reader.get_f32(),
-            "MAXS" => gamedata.stereo_max_separation = reader.get_f32(),
-            "ZPD" => gamedata.stereo_zero_parallax_displacement = reader.get_f32(),
+            "MAXS" => gamedata.stereo_max_separation = Some(reader.get_f32()),
+            "ZPD" => gamedata.stereo_zero_parallax_displacement = Some(reader.get_f32()),
             "STO" => gamedata.stereo_offset = Some(reader.get_f32()),
-            "OGST" => gamedata.overwrite_global_stereo3d = reader.get_bool(),
+            "OGST" => gamedata.overwrite_global_stereo3d = Some(reader.get_bool()),
             "IMAG" => gamedata.image = reader.get_string(),
             "BIMG" => gamedata.backglass_image_full_desktop = reader.get_string(),
             "BIMF" => gamedata.backglass_image_full_fullscreen = reader.get_string(),
@@ -1792,8 +1802,8 @@ mod tests {
             scatter: 0.2,
             default_scatter: 0.1,
             nudge_time: 3.0,
-            plunger_normalize: 105,
-            plunger_filter: true,
+            plunger_normalize: Some(105),
+            plunger_filter: Some(true),
             physics_max_loops: 30,
             render_em_reels: true,
             render_decals: true,
@@ -1802,10 +1812,10 @@ mod tests {
             zoom: 0.2,
             angle_tilt_max: 4.0,
             angle_tilt_min: 3.0,
-            stereo_max_separation: 0.03,
-            stereo_zero_parallax_displacement: 0.2,
+            stereo_max_separation: Some(0.03),
+            stereo_zero_parallax_displacement: Some(0.2),
             stereo_offset: Some(0.5),
-            overwrite_global_stereo3d: true,
+            overwrite_global_stereo3d: Some(true),
             image: String::from("test image"),
             backglass_image_full_desktop: String::from("test desktop"),
             backglass_image_full_fullscreen: String::from("test fullscreen"),

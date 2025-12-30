@@ -233,7 +233,7 @@ pub struct Light {
 
     // these are shared between all items
     pub is_locked: bool,
-    pub editor_layer: u32,
+    pub editor_layer: Option<u32>,
     pub editor_layer_name: Option<String>,
     // default "Layer_{editor_layer + 1}"
     pub editor_layer_visibility: Option<bool>,
@@ -360,7 +360,7 @@ impl LightJson {
             // this is populated from a different file
             is_locked: false,
             // this is populated from a different file
-            editor_layer: 0,
+            editor_layer: None,
             // this is populated from a different file
             editor_layer_name: None,
             // this is populated from a different file
@@ -429,7 +429,7 @@ impl Default for Light {
 
         // these are shared between all items
         let is_locked: bool = false;
-        let editor_layer: u32 = Default::default();
+        let editor_layer: Option<u32> = None;
         let editor_layer_name: Option<String> = None;
         let editor_layer_visibility: Option<bool> = None;
         let part_group_name: Option<String> = None;
@@ -483,7 +483,7 @@ impl HasSharedAttributes for Light {
     fn is_locked(&self) -> bool {
         self.is_locked
     }
-    fn editor_layer(&self) -> u32 {
+    fn editor_layer(&self) -> Option<u32> {
         self.editor_layer
     }
     fn editor_layer_name(&self) -> Option<&str> {
@@ -494,6 +494,26 @@ impl HasSharedAttributes for Light {
     }
     fn part_group_name(&self) -> Option<&str> {
         self.part_group_name.as_deref()
+    }
+
+    fn set_is_locked(&mut self, locked: bool) {
+        self.is_locked = locked;
+    }
+
+    fn set_editor_layer(&mut self, layer: Option<u32>) {
+        self.editor_layer = layer;
+    }
+
+    fn set_editor_layer_name(&mut self, name: Option<String>) {
+        self.editor_layer_name = name;
+    }
+
+    fn set_editor_layer_visibility(&mut self, visibility: Option<bool>) {
+        self.editor_layer_visibility = visibility;
+    }
+
+    fn set_part_group_name(&mut self, name: Option<String>) {
+        self.part_group_name = name;
     }
 }
 
@@ -534,11 +554,6 @@ impl BiffRead for Light {
                 "TRMS" => light.transmission_scale = reader.get_f32(),
                 "SURF" => light.surface = reader.get_string(),
                 "NAME" => light.name = reader.get_wide_string(),
-                // shared
-                "LOCK" => light.is_locked = reader.get_bool(),
-                "LAYR" => light.editor_layer = reader.get_u32(),
-                "LANR" => light.editor_layer_name = Some(reader.get_string()),
-                "LVIS" => light.editor_layer_visibility = Some(reader.get_bool()),
 
                 "BGLS" => light.is_backglass = reader.get_bool(),
                 "LIDB" => light.depth_bias = reader.get_f32(),
@@ -555,21 +570,21 @@ impl BiffRead for Light {
                 "SHDW" => light.shadows = Some(reader.get_u32().into()),
                 "FADE" => light.fader = Some(reader.get_u32().into()),
                 "VSBL" => light.visible = Some(reader.get_bool()),
-                "GRUP" => {
-                    light.part_group_name = Some(reader.get_string());
-                }
+
                 // many of these
                 "DPNT" => {
                     let point = DragPoint::biff_read(reader);
                     light.drag_points.push(point);
                 }
                 other => {
-                    warn!(
-                        "Unknown tag {} for {}",
-                        other,
-                        std::any::type_name::<Self>()
-                    );
-                    reader.skip_tag();
+                    if !light.read_shared_attribute(other, reader) {
+                        warn!(
+                            "Unknown tag {} for {}",
+                            other,
+                            std::any::type_name::<Self>()
+                        );
+                        reader.skip_tag();
+                    }
                 }
             }
         }
@@ -682,7 +697,7 @@ mod tests {
             fader: Faker.fake(),
             visible: Some(true),
             is_locked: false,
-            editor_layer: 17,
+            editor_layer: Some(17),
             editor_layer_name: Some("test layer".to_string()),
             editor_layer_visibility: Some(true),
             part_group_name: Some("test group".to_string()),
