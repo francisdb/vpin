@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0](https://github.com/francisdb/vpin/compare/v0.19.1...v0.20.0) - 2025-12-30
+
+### Other
+
+- optional editor_layer, unpadded vertex3d, optional gamedata fields ([#183](https://github.com/francisdb/vpin/pull/183))
+- add support for ball element in 10.8.1 ([#181](https://github.com/francisdb/vpin/pull/181))
+
 ## [0.19.1](https://github.com/francisdb/vpin/compare/v0.19.0...v0.19.1) - 2025-12-17
 
 ### Added
