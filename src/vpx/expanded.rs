@@ -372,7 +372,7 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
                     Some((width_file, height_file)) => {
                         if image.width != width_file || image.height != height_file {
                             info!(
-                                "Stale image dimension for {} in vpx {}x{} vs in image {}x{}",
+                                "Stale image dimensions for {} in vpx {}x{} vs in image {}x{}",
                                 file_name, image.width, image.height, width_file, height_file
                             );
                         }
