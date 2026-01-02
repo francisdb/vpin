@@ -1,6 +1,7 @@
 use super::vertex2d::Vertex2D;
+use crate::impl_shared_attributes;
 use crate::vpx::gameitem::font::FontJson;
-use crate::vpx::gameitem::select::{HasSharedAttributes, TimerDataRoot, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
@@ -131,6 +132,7 @@ pub struct TextBox {
     /// Added in 10.8.1
     pub part_group_name: Option<String>,
 }
+impl_shared_attributes!(TextBox);
 
 #[derive(Serialize, Deserialize)]
 struct TextBoxJson {
@@ -240,47 +242,6 @@ impl Default for TextBox {
             editor_layer_visibility: None,
             part_group_name: None,
         }
-    }
-}
-
-impl HasSharedAttributes for TextBox {
-    fn name(&self) -> &str {
-        &self.name
-    }
-    fn is_locked(&self) -> bool {
-        self.is_locked
-    }
-    fn editor_layer(&self) -> Option<u32> {
-        self.editor_layer
-    }
-    fn editor_layer_name(&self) -> Option<&str> {
-        self.editor_layer_name.as_deref()
-    }
-    fn editor_layer_visibility(&self) -> Option<bool> {
-        self.editor_layer_visibility
-    }
-    fn part_group_name(&self) -> Option<&str> {
-        self.part_group_name.as_deref()
-    }
-
-    fn set_is_locked(&mut self, locked: bool) {
-        self.is_locked = locked;
-    }
-
-    fn set_editor_layer(&mut self, layer: Option<u32>) {
-        self.editor_layer = layer;
-    }
-
-    fn set_editor_layer_name(&mut self, name: Option<String>) {
-        self.editor_layer_name = name;
-    }
-
-    fn set_editor_layer_visibility(&mut self, visibility: Option<bool>) {
-        self.editor_layer_visibility = visibility;
-    }
-
-    fn set_part_group_name(&mut self, name: Option<String>) {
-        self.part_group_name = name;
     }
 }
 

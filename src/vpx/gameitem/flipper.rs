@@ -1,6 +1,7 @@
 use super::{GameItem, vertex2d::Vertex2D};
+use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
-use crate::vpx::gameitem::select::{HasSharedAttributes, TimerDataRoot, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
 use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -55,6 +56,7 @@ pub struct Flipper {
     /// Added in 10.8.1
     pub part_group_name: Option<String>,
 }
+impl_shared_attributes!(Flipper);
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct FlipperJson {
@@ -258,51 +260,6 @@ impl Default for Flipper {
             editor_layer_visibility: None,
             part_group_name: None,
         }
-    }
-}
-
-impl HasSharedAttributes for Flipper {
-    fn name(&self) -> &str {
-        &self.name
-    }
-    fn is_locked(&self) -> bool {
-        self.is_locked
-    }
-
-    fn editor_layer(&self) -> Option<u32> {
-        self.editor_layer
-    }
-
-    fn editor_layer_name(&self) -> Option<&str> {
-        self.editor_layer_name.as_deref()
-    }
-
-    fn editor_layer_visibility(&self) -> Option<bool> {
-        self.editor_layer_visibility
-    }
-
-    fn part_group_name(&self) -> Option<&str> {
-        self.part_group_name.as_deref()
-    }
-
-    fn set_is_locked(&mut self, locked: bool) {
-        self.is_locked = locked;
-    }
-
-    fn set_editor_layer(&mut self, layer: Option<u32>) {
-        self.editor_layer = layer;
-    }
-
-    fn set_editor_layer_name(&mut self, name: Option<String>) {
-        self.editor_layer_name = name;
-    }
-
-    fn set_editor_layer_visibility(&mut self, visibility: Option<bool>) {
-        self.editor_layer_visibility = visibility;
-    }
-
-    fn set_part_group_name(&mut self, name: Option<String>) {
-        self.part_group_name = name;
     }
 }
 
