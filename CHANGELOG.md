@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1](https://github.com/francisdb/vpin/compare/v0.20.0...v0.20.1) - 2026-01-02
+
+### Other
+
+- macro for implementing shared attributes ([#186](https://github.com/francisdb/vpin/pull/186))
+- improve image dimensions warning ([#184](https://github.com/francisdb/vpin/pull/184))
+
 ## [0.20.0](https://github.com/francisdb/vpin/compare/v0.19.1...v0.20.0) - 2025-12-30
 
 ### Other
