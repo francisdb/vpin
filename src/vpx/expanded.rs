@@ -640,7 +640,6 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
                             );
                         }
 
-
                         let mut image = image_data_json.to_image_data(width, height, None);
                         if let Some(jpg) = &mut image.jpeg {
                             jpg.data = image_data;
