@@ -9,8 +9,7 @@ pub trait WriteSharedAttributes {
 
 /// Required trait for any type that has shared attributes
 ///
-/// TODO we could create a macro to implement this trait for all types that have shared attributes.
-/// TODO we could ise a shared struct to implement this trait for all types that have shared attributes. (composition)
+/// TODO we could use a shared struct to implement this trait for all types that have shared attributes. (composition)
 pub trait HasSharedAttributes {
     fn name(&self) -> &str;
     fn is_locked(&self) -> bool;
