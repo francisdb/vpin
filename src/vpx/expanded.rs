@@ -634,7 +634,7 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
                         };
 
                         if let Some((image_w, image_h)) = dimensions_from_file && (width != image_w || height != image_h) {
-                            info!(
+                            warn!(
                                 "Stale image dimensions for {full_file_name} in json {}x{} vs in image {}x{}",
                                 width, height, image_w, image_h
                             );
