@@ -372,7 +372,7 @@ fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Write
                     Some((width_file, height_file)) => {
                         if image.width != width_file || image.height != height_file {
                             info!(
-                                "Image dimension override for {} in vpx {}x{} vs in image {}x{}",
+                                "Stale image dimensions for {} in vpx {}x{} vs in image {}x{}",
                                 file_name, image.width, image.height, width_file, height_file
                             );
                         }
@@ -616,15 +616,7 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
                         let dimensions_from_file = read_image_dimensions(&file_path)?;
 
                         let width = match image_data_json.width {
-                            Some(w) => {
-                                if let Some((image_w, _)) = dimensions_from_file
-                                    && w != image_w {
-                                        warn!(
-                                            "Image width override for {full_file_name} in json ({w}) vs in image ({image_w})"
-                                        );
-                                    }
-                                w
-                            }
+                            Some(w) => w,
                             None =>
                                 match dimensions_from_file {
                                     Some((width_file, _)) => width_file,
@@ -633,21 +625,20 @@ fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
                         };
 
                         let height = match image_data_json.height {
-                            Some(h) => {
-                                if let Some((_, image_h)) = dimensions_from_file
-                                    && h != image_h {
-                                        warn!(
-                                            "Image height override for {full_file_name} in json ({h}) vs in image ({image_h})"
-                                        );
-                                    }
-                                h
-                            }
+                            Some(h) => h,
                             None =>
                                 match dimensions_from_file {
                                     Some((_, height_file)) => height_file,
                                     None => return Err(io::Error::new(io::ErrorKind::InvalidData, "Image height not provided and could not be read from file")),
                                 }
                         };
+
+                        if let Some((image_w, image_h)) = dimensions_from_file && (width != image_w || height != image_h) {
+                            warn!(
+                                "Stale image dimensions for {full_file_name} in json {}x{} vs in image {}x{}",
+                                width, height, image_w, image_h
+                            );
+                        }
 
                         let mut image = image_data_json.to_image_data(width, height, None);
                         if let Some(jpg) = &mut image.jpeg {
