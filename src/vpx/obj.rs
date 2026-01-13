@@ -1,5 +1,6 @@
 //! Wavefront OBJ file reader and writer
 
+use crate::filesystem::FileSystem;
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::wavefront_obj_io;
 use crate::wavefront_obj_io::{ObjReader, ObjWriter};
@@ -49,15 +50,13 @@ fn obj_parse_vpx_comment(comment: &str) -> Option<VpxNormalBytes> {
 ///
 /// Somehow the z axis is inverted compared to the vpx file values,
 /// so we have to negate the z values.
-pub(crate) fn write_obj(
-    name: String,
-    vertices: &Vec<([u8; 32], Vertex3dNoTex2)>,
+fn write_obj_to_writer<W: io::Write>(
+    name: &str,
+    vertices: &[([u8; 32], Vertex3dNoTex2)],
     indices: &[i64],
-    obj_file_path: &Path,
+    writer: &mut W,
 ) -> Result<(), Box<dyn Error>> {
-    let mut obj_file = File::create(obj_file_path)?;
-    let mut writer = std::io::BufWriter::new(&mut obj_file);
-    let mut obj_writer = wavefront_obj_io::IoObjWriter::new(&mut writer);
+    let mut obj_writer = wavefront_obj_io::IoObjWriter::new(writer);
 
     // // material library
     // let mtl_file_path = obj_file_path.with_extension("mtl");
@@ -78,7 +77,7 @@ pub(crate) fn write_obj(
         vertices.len(),
         indices.len()
     ))?;
-    obj_writer.write_object_name(&name)?;
+    obj_writer.write_object_name(name)?;
 
     for (_, vertex) in vertices {
         obj_writer.write_vertex(vertex.x as f64, vertex.y as f64, vertex.z as f64, None)?;
@@ -115,9 +114,42 @@ pub(crate) fn write_obj(
     Ok(())
 }
 
+#[allow(dead_code)]
+pub(crate) fn write_obj(
+    name: String,
+    vertices: &[([u8; 32], Vertex3dNoTex2)],
+    indices: &[i64],
+    obj_file_path: &Path,
+) -> Result<(), Box<dyn Error>> {
+    let mut obj_file = File::create(obj_file_path)?;
+    let mut writer = std::io::BufWriter::new(&mut obj_file);
+    write_obj_to_writer(&name, vertices, indices, &mut writer)
+}
+
+pub(crate) fn write_obj_fs(
+    name: String,
+    vertices: &[([u8; 32], Vertex3dNoTex2)],
+    indices: &[i64],
+    obj_file_path: &Path,
+    fs: &dyn FileSystem,
+) -> Result<(), Box<dyn Error>> {
+    let mut buffer = Vec::new();
+    write_obj_to_writer(&name, vertices, indices, &mut buffer)?;
+    fs.write_file(obj_file_path, &buffer)?;
+    Ok(())
+}
+
+#[allow(dead_code)]
 pub(crate) fn read_obj_file(obj_file_path: &Path) -> io::Result<ObjData> {
     let obj_file = File::open(obj_file_path)?;
     let mut reader = io::BufReader::new(obj_file);
+    read_obj(&mut reader)
+}
+
+#[allow(dead_code)]
+pub(crate) fn read_obj_file_fs(obj_file_path: &Path, fs: &dyn FileSystem) -> io::Result<ObjData> {
+    let data = fs.read_file(obj_file_path)?;
+    let mut reader = io::BufReader::new(io::Cursor::new(data));
     read_obj(&mut reader)
 }
 

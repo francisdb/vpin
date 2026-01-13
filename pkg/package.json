@@ -1,0 +1,20 @@
+{
+  "name": "@jsm174/vpin-wasm",
+  "version": "0.1.0",
+  "description": "WASM bindings for vpin",
+  "main": "vpin.js",
+  "types": "vpin.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jsm174/vpin.git"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "files": [
+    "vpin.js",
+    "vpin.d.ts",
+    "vpin_bg.wasm",
+    "vpin_bg.wasm.d.ts"
+  ]
+}

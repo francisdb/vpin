@@ -396,7 +396,7 @@ fn read_vpx<F: Read + Seek>(comp: &mut CompoundFile<F>) -> io::Result<VPX> {
     })
 }
 
-fn write_vpx<F: Read + Write + Seek>(comp: &mut CompoundFile<F>, vpx: &VPX) -> io::Result<()> {
+pub fn write_vpx<F: Read + Write + Seek>(comp: &mut CompoundFile<F>, vpx: &VPX) -> io::Result<()> {
     create_game_storage(comp)?;
     write_custominfotags(comp, &vpx.custominfotags)?;
     write_tableinfo(comp, &vpx.info)?;

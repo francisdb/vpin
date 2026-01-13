@@ -1,0 +1,41 @@
+name: Publish WASM Package
+
+on:
+  push:
+    tags:
+      - 'wasm-v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli
+
+      - name: Build WASM
+        run: cargo build --release --target wasm32-unknown-unknown --features wasm --no-default-features
+
+      - name: Generate bindings
+        run: wasm-bindgen --target web --out-dir pkg target/wasm32-unknown-unknown/release/vpin.wasm
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@jsm174'
+
+      - name: Publish to GitHub Packages
+        run: npm publish ./pkg
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
