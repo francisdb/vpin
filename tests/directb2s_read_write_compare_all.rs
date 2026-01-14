@@ -80,7 +80,7 @@ fn read_all() -> TestResult {
     let result: TestResult = paths.par_iter().panic_fuse().try_for_each(run_test);
 
     #[cfg(not(feature = "parallel"))]
-    let result: TestResult = paths.iter().map(run_test).collect();
+    let result: TestResult = paths.iter().try_for_each(run_test);
 
     result
 }
