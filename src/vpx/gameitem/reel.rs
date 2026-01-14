@@ -5,11 +5,11 @@ use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
 };
-use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Debug, PartialEq, Dummy)]
+#[derive(Debug, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct Reel {
     pub ver1: Vertex2D,    // position on map (top right corner)
     pub ver2: Vertex2D,    // position on map (top right corner)

@@ -3,11 +3,11 @@ use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::color::Color;
 use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
-use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Dummy, PartialEq)]
+#[derive(Debug, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct Ball {
     pub pos: Vertex3D,
     pub radius: f32,

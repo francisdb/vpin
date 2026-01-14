@@ -5,7 +5,6 @@ use crate::vpx::json::F32WithNanInf;
 use crate::vpx::math::quantize_u8;
 use bytes::{Buf, BufMut, BytesMut};
 use encoding_rs::mem::{decode_latin1, encode_latin1_lossy};
-use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::ffi::CStr;
@@ -13,7 +12,8 @@ use std::io;
 
 const MAX_NAME_BUFFER: usize = 32;
 
-#[derive(Dummy, Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum MaterialType {
     Unknown = -1, // found in Hot Line (Williams 1966) SG1bsoN.vpx
     Basic = 0,
@@ -94,7 +94,8 @@ impl<'de> Deserialize<'de> for MaterialType {
 /**
  * Only used for backward compatibility loading and saving (VPX version < 10.8)
 */
-#[derive(Dummy, Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct SaveMaterial {
     pub name: String,
     /**
@@ -331,7 +332,8 @@ impl SaveMaterial {
 /**
  * Only used for backward compatibility loading and saving (VPX version < 10.8)
  */
-#[derive(Dummy, Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct SavePhysicsMaterial {
     name: String,
     elasticity: f32,
@@ -450,7 +452,8 @@ fn get_padding_3_validate(bytes: &mut BytesMut) {
     //assert_eq!(padding.to_vec(), [0, 0, 0]);
 }
 
-#[derive(Dummy, Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct Material {
     pub name: String,
 

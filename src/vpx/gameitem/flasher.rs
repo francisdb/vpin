@@ -6,12 +6,12 @@ use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
 };
-use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
-#[derive(Debug, PartialEq, Clone, Dummy, Default)]
+#[derive(Debug, PartialEq, Clone, Default)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum Filter {
     None = 0,
     Additive = 1,
@@ -106,7 +106,8 @@ impl<'de> Deserialize<'de> for Filter {
 ///
 /// Default in use by vpinball is Flasher
 /// Introduced in 10.8.1
-#[derive(Debug, PartialEq, Clone, Dummy, Default)]
+#[derive(Debug, PartialEq, Clone, Default)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum RenderMode {
     /// Custom blended images
     #[default]
@@ -192,7 +193,8 @@ impl<'de> Deserialize<'de> for RenderMode {
     }
 }
 
-#[derive(Debug, PartialEq, Dummy)]
+#[derive(Debug, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct Flasher {
     pub height: f32,
     pub pos_x: f32,

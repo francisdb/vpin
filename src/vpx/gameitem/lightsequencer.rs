@@ -1,11 +1,11 @@
 use super::vertex2d::Vertex2D;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::TimerDataRoot;
-use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Debug, PartialEq, Dummy)]
+#[derive(Debug, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct LightSequencer {
     pub center: Vertex2D,
     pub collection: String,

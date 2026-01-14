@@ -2,14 +2,14 @@ use super::dragpoint::DragPoint;
 use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite, BiffWriter};
 use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
-use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /**
  * Surface
  */
-#[derive(Debug, PartialEq, Dummy)]
+#[derive(Debug, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct Wall {
     pub hit_event: bool,
     pub is_droppable: bool,

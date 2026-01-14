@@ -1,10 +1,10 @@
 use super::GameItem;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
-use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Debug, PartialEq, Clone, Dummy)]
+#[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct DragPoint {
     pub x: f32,
     pub y: f32,

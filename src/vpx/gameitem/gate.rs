@@ -2,11 +2,11 @@ use super::vertex2d::Vertex2D;
 use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
-use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Debug, PartialEq, Clone, Dummy)]
+#[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum GateType {
     WireW = 1,
     WireRectangle = 2,
@@ -71,7 +71,8 @@ impl<'de> Deserialize<'de> for GateType {
     }
 }
 
-#[derive(Debug, PartialEq, Dummy)]
+#[derive(Debug, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct Gate {
     pub center: Vertex2D,                    // 1 VCEN
     pub length: f32,                         // 2 LGTH

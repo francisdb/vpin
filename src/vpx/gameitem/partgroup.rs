@@ -2,11 +2,11 @@ use crate::vpx::biff;
 use crate::vpx::biff::{BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::TimerDataRoot;
 use crate::vpx::gameitem::vertex2d::Vertex2D;
-use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Dummy, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum VisibilityMask {
     Playfield = 0x0001,
     Scoreview = 0x0002,
@@ -49,7 +49,8 @@ impl From<VisibilityMask> for u32 {
     }
 }
 
-#[derive(Debug, Dummy, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum SpaceReference {
     /// Inherit space reference from parent (note that root defaults to Playfield reference space)
     Inherit,
@@ -123,7 +124,8 @@ impl<'de> Deserialize<'de> for SpaceReference {
     }
 }
 
-#[derive(Debug, Dummy, PartialEq)]
+#[derive(Debug, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct PartGroup {
     //     // Standard properties
     //     TimerDataRoot m_tdr;

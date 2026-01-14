@@ -3,11 +3,11 @@ use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
 use crate::vpx::json::F32WithNanInf;
-use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Dummy, PartialEq)]
+#[derive(Debug, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct Bumper {
     pub center: Vertex2D,
     pub radius: f32,

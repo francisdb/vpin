@@ -10,7 +10,6 @@ use crate::vpx::{
     color::Color,
 };
 use bytes::{Buf, BufMut, BytesMut};
-use fake::Dummy;
 use flate2::read::ZlibDecoder;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -22,7 +21,8 @@ const BYTES_PER_VERTEX: usize = 32;
 /// TODO make private
 pub const MAX_VERTICES_FOR_2_BYTE_INDEX: usize = 65535;
 
-#[derive(Debug, PartialEq, Dummy)]
+#[derive(Debug, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct Primitive {
     pub position: Vertex3D, // 0 VPOS
     pub size: Vertex3D,     // 1 VSIZ

@@ -2,11 +2,11 @@ use super::vertex3d::Vertex3D;
 use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
-use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, PartialEq, Clone, Dummy)]
+#[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum TargetType {
     DropTargetBeveled = 1,
     DropTargetSimple = 2,
@@ -147,7 +147,8 @@ impl<'de> Deserialize<'de> for TargetType {
     }
 }
 
-#[derive(Debug, PartialEq, Dummy)]
+#[derive(Debug, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct HitTarget {
     pub position: Vertex3D,
     pub size: Vertex3D,

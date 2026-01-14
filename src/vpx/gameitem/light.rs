@@ -6,11 +6,11 @@ use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
 };
-use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Debug, PartialEq, Clone, Dummy)]
+#[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum ShadowMode {
     None = 0,
     RaytracedBallShadows = 1,
@@ -98,7 +98,8 @@ impl<'de> Deserialize<'de> for ShadowMode {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Dummy)]
+#[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum Fader {
     None = 0,
     Linear = 1,
@@ -192,7 +193,8 @@ impl<'de> Deserialize<'de> for Fader {
     }
 }
 
-#[derive(Debug, PartialEq, Dummy)]
+#[derive(Debug, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct Light {
     pub center: Vertex2D,    // VCEN
     pub height: Option<f32>, // HGHT added in 10.8

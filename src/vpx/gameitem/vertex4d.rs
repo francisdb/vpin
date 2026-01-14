@@ -1,8 +1,8 @@
 use crate::vpx::biff::{BiffRead, BiffReader, BiffWrite, BiffWriter};
-use fake::Dummy;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Dummy, PartialEq, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Copy)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct Vertex4D {
     pub x: f32,
     pub y: f32,
