@@ -12,11 +12,11 @@ use crate::vpx::material::{Material, SaveMaterial, SavePhysicsMaterial};
 use crate::vpx::math::{dequantize_u8, quantize_u8};
 use crate::vpx::renderprobe::RenderProbeWithGarbage;
 use bytes::{Buf, BufMut, BytesMut};
-use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Debug, PartialEq, Dummy, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum ViewLayoutMode {
     /// All tables before 10.8 used a viewer position relative to a fitting of a set of bounding vertices (not all parts) with a standard perspective projection skewed by a layback angle
     Legacy = 0,
@@ -161,7 +161,8 @@ impl Default for ViewSetup {
     }
 }
 
-#[derive(Debug, PartialEq, Dummy, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum ToneMapper {
     /// Reinhard, used to be the default until 10.8
     Reinhard,

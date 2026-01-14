@@ -1,9 +1,9 @@
 use super::biff::{self, BiffReader, BiffWriter};
-use fake::Dummy;
 use log::warn;
 // TODO comment here a vpx file that contains font data
 
-#[derive(PartialEq, Debug, Dummy)]
+#[derive(PartialEq, Debug)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct Collection {
     pub name: String,
     pub items: Vec<String>,

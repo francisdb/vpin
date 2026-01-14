@@ -3,11 +3,11 @@ use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
 use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
-use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Debug, PartialEq, Clone, Dummy)]
+#[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum RampType {
     Flat = 0,
     FourWire = 1,
@@ -125,7 +125,8 @@ impl<'de> Deserialize<'de> for RampType {
     }
 }
 
-#[derive(Debug, PartialEq, Dummy)]
+#[derive(Debug, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct Ramp {
     pub height_bottom: f32,                  // 1
     pub height_top: f32,                     // 2

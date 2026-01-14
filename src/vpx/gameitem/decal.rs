@@ -5,18 +5,19 @@ use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
 };
-use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
-#[derive(Debug, PartialEq, Dummy, Clone)]
+#[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum DecalType {
     Text = 0,
     Image = 1,
 }
 
-#[derive(Debug, PartialEq, Dummy, Clone)]
+#[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum SizingType {
     AutoSize = 0,
     AutoWidth = 1,
@@ -160,7 +161,8 @@ impl<'de> Deserialize<'de> for SizingType {
     }
 }
 
-#[derive(Debug, PartialEq, Dummy)]
+#[derive(Debug, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct Decal {
     pub center: Vertex2D,
     pub width: f32,

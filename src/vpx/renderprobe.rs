@@ -1,10 +1,10 @@
 use crate::vpx::biff::{BiffRead, BiffWrite, BiffWriter};
 use crate::vpx::gameitem::vertex4d::Vertex4D;
-use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Dummy)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 enum RenderProbeType {
     PlaneReflection = 0,
     ScreenSpaceTransparency = 1,
@@ -90,7 +90,8 @@ impl Serialize for RenderProbeType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Dummy)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 enum ReflectionMode {
     /// No reflections
     None = 0,
@@ -221,7 +222,8 @@ impl<'de> Deserialize<'de> for ReflectionMode {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Dummy)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct RenderProbe {
     type_: RenderProbeType,
     name: String,
@@ -241,7 +243,8 @@ pub struct RenderProbe {
 ///  * a second full ENDB tag (8 bytes) + 4 bytes of random data
 ///    because size calculation is done wrong.
 ///  * empty for some tables created during a specific period of 10.8.0 development
-#[derive(Debug, Clone, PartialEq, Dummy)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct RenderProbeWithGarbage {
     pub render_probe: RenderProbe,
     pub(crate) trailing_data: Vec<u8>,

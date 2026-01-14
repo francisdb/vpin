@@ -1,7 +1,7 @@
-use fake::Dummy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Debug, PartialEq, Clone, Dummy)]
+#[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum RampImageAlignment {
     World = 0,
     Wrap = 1,

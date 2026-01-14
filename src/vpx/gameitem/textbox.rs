@@ -7,11 +7,11 @@ use crate::vpx::{
     color::Color,
     gameitem::font::Font,
 };
-use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Debug, PartialEq, Clone, Dummy, Default)]
+#[derive(Debug, PartialEq, Clone, Default)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum TextAlignment {
     #[default]
     Left = 0,
@@ -105,7 +105,8 @@ impl<'de> Deserialize<'de> for TextAlignment {
     }
 }
 
-#[derive(Debug, PartialEq, Dummy)]
+#[derive(Debug, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct TextBox {
     pub ver1: Vertex2D,       // VER1
     pub ver2: Vertex2D,       // VER2

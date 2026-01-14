@@ -4,14 +4,14 @@ use super::{
 };
 use crate::vpx::wav::{WavHeader, read_wav_header, write_wav_header};
 use bytes::{BufMut, BytesMut};
-use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use std::fmt;
 use std::path::Path;
 
-#[derive(Debug, PartialEq, Dummy, Clone)]
+#[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum OutputTarget {
     Table = 0,
     Backglass = 1,

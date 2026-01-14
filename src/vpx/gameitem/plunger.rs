@@ -2,11 +2,11 @@ use super::vertex2d::Vertex2D;
 use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
-use fake::Dummy;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Debug, PartialEq, Clone, Dummy)]
+#[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum PlungerType {
     /// non-official, found in Star Wars (Data East 1992)/Star Wars (Data East 1992) VPW v1.2.2.vpx
     /// This is not in the official VPX documentation
@@ -108,7 +108,8 @@ impl<'de> Deserialize<'de> for PlungerType {
     }
 }
 
-#[derive(Debug, PartialEq, Dummy)]
+#[derive(Debug, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct Plunger {
     pub center: Vertex2D,
     pub width: f32,

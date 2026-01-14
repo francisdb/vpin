@@ -1,5 +1,4 @@
 use crate::vpx::biff::{BiffRead, BiffReader, BiffWrite, BiffWriter};
-use fake::Dummy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -36,7 +35,8 @@ use std::collections::HashSet;
  * - 0x04: underline
  * - 0x08: strikethrough
  */
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Dummy, Hash, Eq)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Hash, Eq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum FontStyle {
     Normal,
     Bold,
@@ -45,8 +45,8 @@ pub enum FontStyle {
     Strikethrough,
 }
 impl FontStyle {
-    fn to_u8(flag: &FontStyle) -> u8 {
-        match flag {
+    fn to_bitflag(&self) -> u8 {
+        match self {
             FontStyle::Normal => 1 << 0,
             FontStyle::Bold => 1 << 1,
             FontStyle::Italic => 1 << 2,
@@ -77,7 +77,7 @@ impl FontStyle {
     pub fn styles_to_flags(flags: &HashSet<Self>) -> u8 {
         let mut bitflags = 0u8;
         for flag in flags {
-            bitflags |= Self::to_u8(flag);
+            bitflags |= flag.to_bitflag();
         }
         bitflags
     }
@@ -111,7 +111,8 @@ pub const CHARSET_EXTENDED: u16 = 255;
 
 /// This is a font reference some primitives use.
 /// In vpinball represented as serialized win32 FONTDESC struct
-#[derive(PartialEq, Debug, Dummy)]
+#[derive(PartialEq, Debug)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct Font {
     /// from https://learn.microsoft.com/en-us/windows/win32/lwef/fontcharset-property
     /// An integer value that specifies the character set used by the font. The following are some

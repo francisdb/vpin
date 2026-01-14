@@ -1,10 +1,10 @@
 use crate::vpx::biff::BiffReader;
-use fake::Dummy;
 use serde::{Deserialize, Serialize};
 
 use super::biff::BiffWriter;
 
-#[derive(Debug, PartialEq, Clone, Copy, Dummy)]
+#[derive(Debug, PartialEq, Clone, Copy)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct Color {
     /// Unused byte, should be 0 but when reading from vpx files it might contain random data.
     /// So used for BIFF reading and writing
