@@ -1,5 +1,6 @@
 use crate::common::tables_dir;
 use pretty_assertions::assert_eq;
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use roxmltree::{Document, Node, NodeType};
 use std::collections::hash_map::DefaultHasher;
@@ -7,7 +8,7 @@ use std::fmt::Write;
 use std::hash::{Hash, Hasher};
 use std::io;
 use std::io::{Error, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use testresult::TestResult;
 use vpin::directb2s;
 use vpin::directb2s::DirectB2SData;
@@ -30,7 +31,7 @@ fn read_all() -> TestResult {
         .map(|p| p.to_path_buf())
         .collect::<Vec<_>>();
 
-    paths.par_iter().panic_fuse().try_for_each(|path| {
+    let run_test = |path: &PathBuf| -> TestResult {
         println!("testing: {path:?}");
 
         // read file to data
@@ -73,7 +74,15 @@ fn read_all() -> TestResult {
         // compare both
         assert_eq!(original, written);
         Ok(())
-    })
+    };
+
+    #[cfg(feature = "parallel")]
+    let result: TestResult = paths.par_iter().panic_fuse().try_for_each(run_test);
+
+    #[cfg(not(feature = "parallel"))]
+    let result: TestResult = paths.iter().try_for_each(run_test);
+
+    result
 }
 
 // fn tail(written: &String, n: usize) -> String {

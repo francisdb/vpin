@@ -12,6 +12,7 @@ use std::{fs::File, path::Path};
 use cfb::CompoundFile;
 use image::DynamicImage;
 use log::{debug, info, warn};
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use serde::de;
 use serde_json::Value;
@@ -1071,22 +1072,23 @@ fn write_gameitems<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), Wr
     let gameitems_ref = &vpx.gameitems;
     let gameitems_dir_clone = gameitems_dir.clone();
 
-    let results: Vec<Result<(), WriteError>> = files_to_write
-        .par_iter()
-        .map(|(file_name, idx)| {
-            let file_name_json = format!("{}.json", file_name);
-            let path = gameitems_dir_clone.join(&file_name_json);
-            let gameitem = &gameitems_ref[*idx];
+    let write_item = |(file_name, idx): &(String, usize)| -> Result<(), WriteError> {
+        let file_name_json = format!("{}.json", file_name);
+        let path = gameitems_dir_clone.join(&file_name_json);
+        let gameitem = &gameitems_ref[*idx];
 
-            let gameitem_file = File::create(&path).map_err(WriteError::Io)?;
-            serde_json::to_writer_pretty(&gameitem_file, gameitem).map_err(WriteError::Json)?;
+        let gameitem_file = File::create(&path).map_err(WriteError::Io)?;
+        serde_json::to_writer_pretty(&gameitem_file, gameitem).map_err(WriteError::Json)?;
 
-            // write_gameitem_binaries must be thread\-safe (writes distinct files)
-            write_gameitem_binaries(&gameitems_dir_clone, gameitem, file_name)?;
+        // write_gameitem_binaries must be thread\-safe (writes distinct files)
+        write_gameitem_binaries(&gameitems_dir_clone, gameitem, file_name)
+    };
 
-            Ok(())
-        })
-        .collect();
+    #[cfg(feature = "parallel")]
+    let results: Vec<Result<(), WriteError>> = files_to_write.par_iter().map(write_item).collect();
+
+    #[cfg(not(feature = "parallel"))]
+    let results: Vec<Result<(), WriteError>> = files_to_write.iter().map(write_item).collect();
 
     // Propagate the first error if any
     for r in results {
@@ -1260,32 +1262,35 @@ fn read_gameitems<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<GameItemEn
     let gameitems_index: Vec<GameItemInfoJson> = read_json(gameitems_index_path)?;
     let gameitems_dir = expanded_dir.as_ref().join("gameitems");
 
-    // Parallel per-item reads (order preserved)
-    let results: Vec<io::Result<GameItemEnum>> = gameitems_index
-        .into_par_iter()
-        .map(|gameitem_info| {
-            // take ownership of the file name for later binary reads
-            let file_name = gameitem_info.file_name;
-            let gameitem_path = gameitems_dir.join(&file_name);
+    let read_item = |gameitem_info: GameItemInfoJson| -> io::Result<GameItemEnum> {
+        let file_name = gameitem_info.file_name;
+        let gameitem_path = gameitems_dir.join(&file_name);
 
-            if !gameitem_path.exists() {
-                return Err(io::Error::new(
-                    io::ErrorKind::NotFound,
-                    format!("GameItem file not found: {}", gameitem_path.display()),
-                ));
-            }
+        if !gameitem_path.exists() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("GameItem file not found: {}", gameitem_path.display()),
+            ));
+        }
 
-            // read json and restore index-only metadata
-            let mut item: GameItemEnum = read_json(&gameitem_path)?;
-            item.set_locked(gameitem_info.is_locked);
-            item.set_editor_layer(gameitem_info.editor_layer);
-            item.set_editor_layer_name(gameitem_info.editor_layer_name);
-            item.set_editor_layer_visibility(gameitem_info.editor_layer_visibility);
+        // read json and restore index-only metadata
+        let mut item: GameItemEnum = read_json(&gameitem_path)?;
+        item.set_locked(gameitem_info.is_locked);
+        item.set_editor_layer(gameitem_info.editor_layer);
+        item.set_editor_layer_name(gameitem_info.editor_layer_name);
+        item.set_editor_layer_visibility(gameitem_info.editor_layer_visibility);
 
-            // read associated binaries (must be thread-safe; they operate on distinct files)
-            read_gameitem_binaries(&gameitems_dir, file_name, item)
-        })
-        .collect();
+        // read associated binaries (must be thread-safe; they operate on distinct files)
+        read_gameitem_binaries(&gameitems_dir, file_name, item)
+    };
+
+    #[cfg(feature = "parallel")]
+    let results: Vec<io::Result<GameItemEnum>> =
+        gameitems_index.into_par_iter().map(read_item).collect();
+
+    #[cfg(not(feature = "parallel"))]
+    let results: Vec<io::Result<GameItemEnum>> =
+        gameitems_index.into_iter().map(read_item).collect();
 
     // Propagate first error or return collected items in original order
     let mut out = Vec::with_capacity(results.len());
