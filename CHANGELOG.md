@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.2](https://github.com/francisdb/vpin/compare/v0.20.1...v0.20.2) - 2026-01-14
+
+### Other
+
+- move fake dummy derive to dev-dependencies ([#189](https://github.com/francisdb/vpin/pull/189))
+
 ## [0.20.1](https://github.com/francisdb/vpin/compare/v0.20.0...v0.20.1) - 2026-01-02
 
 ### Other
