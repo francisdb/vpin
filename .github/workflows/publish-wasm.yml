@@ -5,19 +5,26 @@ on:
     tags:
       - 'wasm-v*'
 
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   publish:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: stable
           targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2.8.2
 
       - name: Install wasm-bindgen-cli
         run: cargo install wasm-bindgen-cli
@@ -28,14 +35,20 @@ jobs:
       - name: Generate bindings
         run: wasm-bindgen --target web --out-dir pkg target/wasm32-unknown-unknown/release/vpin.wasm
 
+      - name: Update package name
+        run: |
+          sed -i 's/"name": "vpin"/"name": "vpin-wasm"/' pkg/package.json
+
+      - name: Copy README
+        run: cp wasm-readme.md pkg/README.md
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          registry-url: 'https://npm.pkg.github.com'
-          scope: '@jsm174'
+          registry-url: 'https://registry.npmjs.org'
 
-      - name: Publish to GitHub Packages
-        run: npm publish ./pkg
+      - name: Publish to npm
+        run: npm publish ./pkg --access public
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
