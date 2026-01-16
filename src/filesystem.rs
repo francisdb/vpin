@@ -156,6 +156,7 @@ impl FileSystem for MemoryFileSystem {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use testdir::testdir;
 
     #[test]
     fn test_memory_fs_write_read() {
@@ -181,6 +182,34 @@ mod tests {
 
         assert!(fs.exists(path));
         let data = fs.read_file(path).unwrap();
+        assert_eq!(data, b"hello");
+    }
+
+    #[test]
+    fn test_real_fs_write_read() {
+        let test_dir = testdir!();
+        let fs = RealFileSystem;
+        let path = test_dir.join("file.txt");
+
+        fs.write_file(&path, b"hello world").unwrap();
+        assert!(fs.exists(&path));
+        let data = fs.read_file(&path).unwrap();
+        assert_eq!(data, b"hello world");
+    }
+
+    #[test]
+    fn test_real_fs_create_file() {
+        let test_dir = testdir!();
+        let fs = RealFileSystem;
+        let path = test_dir.join("file2.txt");
+
+        {
+            let mut writer = fs.create_file(&path).unwrap();
+            writer.write_all(b"hello").unwrap();
+        }
+
+        assert!(fs.exists(&path));
+        let data = fs.read_file(&path).unwrap();
         assert_eq!(data, b"hello");
     }
 }

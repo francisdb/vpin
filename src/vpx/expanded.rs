@@ -197,9 +197,7 @@ pub fn read_fs<P: AsRef<Path>>(expanded_dir: &P, fs: &dyn FileSystem) -> io::Res
 
     let screenshot_path = expanded_dir.as_ref().join("screenshot.png");
     let screenshot = if fs.exists(&screenshot_path) {
-        let mut screenshot_file = fs.open_file(&screenshot_path)?;
-        let mut screenshot = Vec::new();
-        screenshot_file.read_to_end(&mut screenshot)?;
+        let screenshot = fs.read_file(&screenshot_path)?;
         Some(screenshot)
     } else {
         None
@@ -296,9 +294,7 @@ fn read_game_data<P: AsRef<Path>>(expanded_dir: &P, fs: &dyn FileSystem) -> io::
             format!("Script file not found: {}", script_path.display()),
         ));
     }
-    let mut script_file = fs.open_file(&script_path)?;
-    let mut code = Vec::new();
-    script_file.read_to_end(&mut code)?;
+    let code = fs.read_file(&script_path)?;
     game_data.code = code.into();
     Ok(game_data)
 }
