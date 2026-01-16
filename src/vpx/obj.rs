@@ -6,7 +6,6 @@ use crate::wavefront_obj_io;
 use crate::wavefront_obj_io::{ObjReader, ObjWriter};
 use log::warn;
 use std::error::Error;
-use std::fs::File;
 use std::io;
 use std::io::BufRead;
 use std::path::Path;
@@ -114,19 +113,7 @@ fn write_obj_to_writer<W: io::Write>(
     Ok(())
 }
 
-#[allow(dead_code)]
 pub(crate) fn write_obj(
-    name: String,
-    vertices: &[([u8; 32], Vertex3dNoTex2)],
-    indices: &[i64],
-    obj_file_path: &Path,
-) -> Result<(), Box<dyn Error>> {
-    let mut obj_file = File::create(obj_file_path)?;
-    let mut writer = std::io::BufWriter::new(&mut obj_file);
-    write_obj_to_writer(&name, vertices, indices, &mut writer)
-}
-
-pub(crate) fn write_obj_fs(
     name: String,
     vertices: &[([u8; 32], Vertex3dNoTex2)],
     indices: &[i64],
@@ -137,20 +124,6 @@ pub(crate) fn write_obj_fs(
     write_obj_to_writer(&name, vertices, indices, &mut buffer)?;
     fs.write_file(obj_file_path, &buffer)?;
     Ok(())
-}
-
-#[allow(dead_code)]
-pub(crate) fn read_obj_file(obj_file_path: &Path) -> io::Result<ObjData> {
-    let obj_file = File::open(obj_file_path)?;
-    let mut reader = io::BufReader::new(obj_file);
-    read_obj(&mut reader)
-}
-
-#[allow(dead_code)]
-pub(crate) fn read_obj_file_fs(obj_file_path: &Path, fs: &dyn FileSystem) -> io::Result<ObjData> {
-    let data = fs.read_file(obj_file_path)?;
-    let mut reader = io::BufReader::new(io::Cursor::new(data));
-    read_obj(&mut reader)
 }
 
 #[derive(Default)]
@@ -261,6 +234,7 @@ pub(crate) struct ObjData {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::filesystem::RealFileSystem;
     use pretty_assertions::assert_eq;
     use std::io::BufReader;
     use testdir::testdir;
@@ -345,7 +319,9 @@ f 1/1/1 1/1/1 1/1/1
     fn test_read_write_obj() -> TestResult {
         let screw_path = Path::new("testdata/screw.obj");
         let testdir = testdir!();
-        let obj_data = read_obj_file(screw_path)?;
+        let reader = RealFileSystem.open_file(screw_path)?;
+        let mut buffered_reader = io::BufReader::new(reader);
+        let obj_data = read_obj(&mut buffered_reader)?;
         let written_obj_path = testdir.join("screw.obj");
 
         // zip vertices, texture coordinates and normals into a single vec
@@ -376,6 +352,7 @@ f 1/1/1 1/1/1 1/1/1
             &vertices,
             &obj_data.indices,
             &written_obj_path,
+            &RealFileSystem,
         )?;
 
         // compare both files as strings

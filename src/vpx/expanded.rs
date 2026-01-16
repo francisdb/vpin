@@ -44,7 +44,7 @@ use crate::vpx::material::{
     SavePhysicsMaterialJson,
 };
 use crate::vpx::model::Vertex3dNoTex2;
-use crate::vpx::obj::{ObjData, read_obj as obj_read_obj, write_obj, write_obj_fs};
+use crate::vpx::obj::{ObjData, read_obj as obj_read_obj, write_obj};
 use crate::vpx::renderprobe::{RenderProbeJson, RenderProbeWithGarbage};
 use crate::vpx::tableinfo::TableInfo;
 
@@ -123,7 +123,7 @@ pub fn write_fs<P: AsRef<Path>>(
     }
 
     info!("Writing table info...");
-    write_info_fs(&vpx, expanded_dir, fs)?;
+    write_info(&vpx, expanded_dir, fs)?;
     info!("✓ Table info written");
 
     info!("Writing collections...");
@@ -134,38 +134,38 @@ pub fn write_fs<P: AsRef<Path>>(
     info!("✓ {} Collections written", vpx.collections.len());
 
     info!("Writing game items...");
-    write_gameitems_fs(vpx, expanded_dir, fs)?;
+    write_gameitems(vpx, expanded_dir, fs)?;
     info!("✓ {} Game items written", vpx.gameitems.len());
 
     info!("Writing images...");
-    write_images_fs(vpx, expanded_dir, fs)?;
+    write_images(vpx, expanded_dir, fs)?;
     info!("✓ {} Images written", vpx.images.len());
 
     info!("Writing sounds...");
-    write_sounds_fs(vpx, expanded_dir, fs)?;
+    write_sounds(vpx, expanded_dir, fs)?;
     info!("✓ {} Sounds written", vpx.sounds.len());
 
     info!("Writing fonts...");
-    write_fonts_fs(vpx, expanded_dir, fs)?;
+    write_fonts(vpx, expanded_dir, fs)?;
     info!("✓ {} Fonts written", vpx.fonts.len());
 
     info!("Writing game data...");
-    write_game_data_fs(vpx, expanded_dir, fs)?;
+    write_game_data(vpx, expanded_dir, fs)?;
     info!("✓ Game data written");
 
     if vpx.gamedata.materials.is_some() {
         info!("Writing materials...");
-        write_materials_fs(vpx, expanded_dir, fs)?;
+        write_materials(vpx, expanded_dir, fs)?;
         info!("✓ Materials written");
     } else {
         info!("Writing legacy materials...");
-        write_old_materials_fs(vpx, expanded_dir, fs)?;
-        write_old_materials_physics_fs(vpx, expanded_dir, fs)?;
+        write_old_materials(vpx, expanded_dir, fs)?;
+        write_old_materials_physics(vpx, expanded_dir, fs)?;
         info!("✓ Legacy materials written");
     }
 
     info!("Writing render probes...");
-    write_renderprobes_fs(vpx, expanded_dir, fs)?;
+    write_renderprobes(vpx, expanded_dir, fs)?;
     info!("✓ Render probes written");
 
     info!("=== VPX extraction process completed successfully ===");
@@ -206,37 +206,37 @@ pub fn read_fs<P: AsRef<Path>>(expanded_dir: &P, fs: &dyn FileSystem) -> io::Res
     };
 
     info!("Reading table info...");
-    let (info, custominfotags) = read_info_fs(expanded_dir, screenshot, fs)?;
+    let (info, custominfotags) = read_info(expanded_dir, screenshot, fs)?;
     info!("✓ Table info read");
 
     info!("Reading collections...");
-    let collections = read_collections_fs(expanded_dir, fs)?;
+    let collections = read_collections(expanded_dir, fs)?;
     info!("✓ {} Collections read", collections.len());
 
     info!("Reading game items...");
-    let gameitems = read_gameitems_fs(expanded_dir, fs)?;
+    let gameitems = read_gameitems(expanded_dir, fs)?;
     info!("✓ {} Game items read", gameitems.len());
 
     info!("Reading images...");
-    let images = read_images_fs(expanded_dir, fs)?;
+    let images = read_images(expanded_dir, fs)?;
     info!("✓ {} Images read", images.len());
 
     info!("Reading sounds...");
-    let sounds = read_sounds_fs(expanded_dir, fs)?;
+    let sounds = read_sounds(expanded_dir, fs)?;
     info!("✓ {} Sounds read", sounds.len());
 
     info!("Reading fonts...");
-    let fonts = read_fonts_fs(expanded_dir, fs)?;
+    let fonts = read_fonts(expanded_dir, fs)?;
     info!("✓ {} Fonts read", fonts.len());
 
     info!("Reading game data...");
-    let mut gamedata = read_game_data_fs(expanded_dir, fs)?;
+    let mut gamedata = read_game_data(expanded_dir, fs)?;
     gamedata.collections_size = collections.len() as u32;
     gamedata.gameitems_size = gameitems.len() as u32;
     gamedata.images_size = images.len() as u32;
     gamedata.sounds_size = sounds.len() as u32;
     gamedata.fonts_size = fonts.len() as u32;
-    let materials_opt = read_materials_fs(expanded_dir, fs)?;
+    let materials_opt = read_materials(expanded_dir, fs)?;
     match materials_opt {
         Some(materials) => {
             gamedata.materials_old = materials.iter().map(SaveMaterial::from).collect();
@@ -246,12 +246,12 @@ pub fn read_fs<P: AsRef<Path>>(expanded_dir: &P, fs: &dyn FileSystem) -> io::Res
             gamedata.materials = Some(materials);
         }
         None => {
-            gamedata.materials_old = read_old_materials_fs(expanded_dir, fs)?;
-            gamedata.materials_physics_old = read_old_materials_physics_fs(expanded_dir, fs)?;
+            gamedata.materials_old = read_old_materials(expanded_dir, fs)?;
+            gamedata.materials_physics_old = read_old_materials_physics(expanded_dir, fs)?;
             gamedata.materials_size = gamedata.materials_old.len() as u32;
         }
     }
-    gamedata.render_probes = read_renderprobes_fs(expanded_dir, fs)?;
+    gamedata.render_probes = read_renderprobes(expanded_dir, fs)?;
     info!("✓ Game data read");
 
     let vpx = VPX {
@@ -269,12 +269,7 @@ pub fn read_fs<P: AsRef<Path>>(expanded_dir: &P, fs: &dyn FileSystem) -> io::Res
     Ok(vpx)
 }
 
-#[allow(dead_code)]
-fn write_game_data<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
-    write_game_data_fs(vpx, expanded_dir, &RealFileSystem)
-}
-
-fn write_game_data_fs<P: AsRef<Path>>(
+fn write_game_data<P: AsRef<Path>>(
     vpx: &VPX,
     expanded_dir: &P,
     fs: &dyn FileSystem,
@@ -290,17 +285,9 @@ fn write_game_data_fs<P: AsRef<Path>>(
     Ok(())
 }
 
-#[allow(dead_code)]
-fn read_game_data<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<GameData> {
-    read_game_data_fs(expanded_dir, &RealFileSystem)
-}
-
-fn read_game_data_fs<P: AsRef<Path>>(
-    expanded_dir: &P,
-    fs: &dyn FileSystem,
-) -> io::Result<GameData> {
+fn read_game_data<P: AsRef<Path>>(expanded_dir: &P, fs: &dyn FileSystem) -> io::Result<GameData> {
     let game_data_path = expanded_dir.as_ref().join("gamedata.json");
-    let game_data_json: GameDataJson = read_json_fs(game_data_path, fs)?;
+    let game_data_json: GameDataJson = read_json(game_data_path, fs)?;
     let mut game_data = game_data_json.to_game_data();
     let script_path = expanded_dir.as_ref().join("script.vbs");
     if !fs.exists(&script_path) {
@@ -316,15 +303,7 @@ fn read_game_data_fs<P: AsRef<Path>>(
     Ok(game_data)
 }
 
-#[allow(dead_code)]
-fn read_json<P: AsRef<Path>, T>(json_path: P) -> io::Result<T>
-where
-    T: de::DeserializeOwned,
-{
-    read_json_fs(json_path, &RealFileSystem)
-}
-
-fn read_json_fs<P: AsRef<Path>, T>(json_path: P, fs: &dyn FileSystem) -> io::Result<T>
+fn read_json<P: AsRef<Path>, T>(json_path: P, fs: &dyn FileSystem) -> io::Result<T>
 where
     T: de::DeserializeOwned,
 {
@@ -345,12 +324,7 @@ where
     })
 }
 
-#[allow(dead_code)]
-fn write_images<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
-    write_images_fs(vpx, expanded_dir, &RealFileSystem)
-}
-
-fn write_images_fs<P: AsRef<Path>>(
+fn write_images<P: AsRef<Path>>(
     vpx: &VPX,
     expanded_dir: &P,
     fs: &dyn FileSystem,
@@ -403,6 +377,8 @@ fn write_images_fs<P: AsRef<Path>>(
             let file_name = format!("{}.{}", actual_name, image.ext());
 
             if let Some(jpeg) = &image.jpeg {
+                // Only if the actual image dimensions are different from
+                // the ones in the vpx file we add them to the json.
                 let cursor = io::Cursor::new(&jpeg.data);
                 let dimensions_file = read_image_dimensions_from_file_steam(&file_name, cursor)?;
                 match dimensions_file {
@@ -427,9 +403,11 @@ fn write_images_fs<P: AsRef<Path>>(
                 }
             };
             if image.link.is_some() {
+                // Links always store the dimensions in the json
                 json.width = Some(image.width);
                 json.height = Some(image.height);
             }
+            // for bits images we don't store the dimensions in the json as they always match
 
             json_images.push(json);
             debug!(
@@ -487,7 +465,7 @@ fn write_images_fs<P: AsRef<Path>>(
                         "Images stored as bits should have the extension .bmp"
                     );
 
-                    write_image_bmp_fs(
+                    write_image_bmp(
                         &file_path,
                         &bits.lzw_compressed_data,
                         image.width,
@@ -526,23 +504,7 @@ fn write_images_fs<P: AsRef<Path>>(
     Ok(())
 }
 
-#[allow(dead_code)]
 fn write_image_bmp(
-    file_path: &Path,
-    lzw_compressed_data: &[u8],
-    width: u32,
-    height: u32,
-) -> io::Result<()> {
-    write_image_bmp_fs(
-        file_path,
-        lzw_compressed_data,
-        width,
-        height,
-        &RealFileSystem,
-    )
-}
-
-fn write_image_bmp_fs(
     file_path: &Path,
     lzw_compressed_data: &[u8],
     width: u32,
@@ -551,6 +513,10 @@ fn write_image_bmp_fs(
 ) -> io::Result<()> {
     let image_to_save = vpx_image_to_dynamic_image(lzw_compressed_data, width, height);
     if image_to_save.color().has_alpha() {
+        // One example is the table "Guns N Roses (Data East 1994).vpx"
+        // that contains vp9 images with non-255 alpha values.
+        // They are actually labeled as sRGBA in the Visual Pinball image manager.
+        // However, when Visual Pinball itself exports the image it drops the alpha values.
         let file_name = file_path
             .file_name()
             .map(OsStr::to_string_lossy)
@@ -602,17 +568,12 @@ fn swap_red_and_blue(data: &[u8]) -> Vec<u8> {
     swapped
 }
 
-#[allow(dead_code)]
-fn read_images<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<ImageData>> {
-    read_images_fs(expanded_dir, &RealFileSystem)
-}
-
-fn read_images_fs<P: AsRef<Path>>(
+fn read_images<P: AsRef<Path>>(
     expanded_dir: &P,
     fs: &dyn FileSystem,
 ) -> io::Result<Vec<ImageData>> {
     let images_index_path = expanded_dir.as_ref().join("images.json");
-    let images_index_json: Vec<ImageDataJson> = read_json_fs(images_index_path, fs)?;
+    let images_index_json: Vec<ImageDataJson> = read_json(images_index_path, fs)?;
     let images_dir = expanded_dir.as_ref().join("images");
     let images: io::Result<Vec<ImageData>> = images_index_json
         .into_iter()
@@ -691,6 +652,7 @@ fn read_images_fs<P: AsRef<Path>>(
                             jpg.data = image_data;
                         }
                         if let Some(new_extension) = new_extension {
+                            // we need to change the file extension for the path
                             image.change_extension(new_extension);
                         }
                         image
@@ -706,24 +668,6 @@ fn read_images_fs<P: AsRef<Path>>(
         })
         .collect();
     images
-}
-
-#[allow(dead_code)]
-fn read_image_dimensions(file_path: &Path) -> io::Result<Option<(u32, u32)>> {
-    let decoder = image::ImageReader::open(file_path)?.with_guessed_format()?;
-    let dimensions_from_file = match decoder.into_dimensions() {
-        Ok(dimensions) => Some(dimensions),
-        Err(image_error) => {
-            // one issue we encountered is https://github.com/image-rs/image/issues/2231
-            warn!(
-                "Failed to read image dimensions for {}: {}",
-                file_path.display(),
-                image_error
-            );
-            None
-        }
-    };
-    Ok(dimensions_from_file)
 }
 
 fn read_image_dimensions_from_file_steam<R: BufRead + Seek>(
@@ -805,12 +749,7 @@ fn read_image_bmp(data: &[u8]) -> io::Result<ImageBmp> {
     Ok(image_bmp)
 }
 
-#[allow(dead_code)]
-fn write_sounds<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
-    write_sounds_fs(vpx, expanded_dir, &RealFileSystem)
-}
-
-fn write_sounds_fs<P: AsRef<Path>>(
+fn write_sounds<P: AsRef<Path>>(
     vpx: &VPX,
     expanded_dir: &P,
     fs: &dyn FileSystem,
@@ -873,12 +812,7 @@ fn write_sounds_fs<P: AsRef<Path>>(
     Ok(())
 }
 
-#[allow(dead_code)]
-fn read_sounds<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<SoundData>> {
-    read_sounds_fs(expanded_dir, &RealFileSystem)
-}
-
-fn read_sounds_fs<P: AsRef<Path>>(
+fn read_sounds<P: AsRef<Path>>(
     expanded_dir: &P,
     fs: &dyn FileSystem,
 ) -> io::Result<Vec<SoundData>> {
@@ -887,7 +821,7 @@ fn read_sounds_fs<P: AsRef<Path>>(
         info!("No sounds.json found");
         return Ok(vec![]);
     }
-    let sounds_json: Vec<SoundDataJson> = read_json_fs(&sounds_json_path, fs)?;
+    let sounds_json: Vec<SoundDataJson> = read_json(&sounds_json_path, fs)?;
     let sounds_dir = expanded_dir.as_ref().join("sounds");
     let sounds: io::Result<Vec<SoundData>> = sounds_json
         .into_iter()
@@ -911,12 +845,7 @@ fn read_sounds_fs<P: AsRef<Path>>(
     sounds
 }
 
-#[allow(dead_code)]
-fn write_fonts<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
-    write_fonts_fs(vpx, expanded_dir, &RealFileSystem)
-}
-
-fn write_fonts_fs<P: AsRef<Path>>(
+fn write_fonts<P: AsRef<Path>>(
     vpx: &VPX,
     expanded_dir: &P,
     fs: &dyn FileSystem,
@@ -939,21 +868,13 @@ fn write_fonts_fs<P: AsRef<Path>>(
     Ok(())
 }
 
-#[allow(dead_code)]
-fn read_fonts<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<FontData>> {
-    read_fonts_fs(expanded_dir, &RealFileSystem)
-}
-
-fn read_fonts_fs<P: AsRef<Path>>(
-    expanded_dir: &P,
-    fs: &dyn FileSystem,
-) -> io::Result<Vec<FontData>> {
+fn read_fonts<P: AsRef<Path>>(expanded_dir: &P, fs: &dyn FileSystem) -> io::Result<Vec<FontData>> {
     let fonts_index_path = expanded_dir.as_ref().join("fonts.json");
     if !fs.exists(&fonts_index_path) {
         info!("No fonts.json found");
         return Ok(vec![]);
     }
-    let fonts_json: Vec<FontDataJson> = read_json_fs(fonts_index_path, fs)?;
+    let fonts_json: Vec<FontDataJson> = read_json(fonts_index_path, fs)?;
     let fonts_index: Vec<FontData> = fonts_json
         .iter()
         .map(|font_data_json| font_data_json.to_font_data())
@@ -980,12 +901,7 @@ fn read_fonts_fs<P: AsRef<Path>>(
     fonts
 }
 
-#[allow(dead_code)]
-fn write_materials<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
-    write_materials_fs(vpx, expanded_dir, &RealFileSystem)
-}
-
-fn write_materials_fs<P: AsRef<Path>>(
+fn write_materials<P: AsRef<Path>>(
     vpx: &VPX,
     expanded_dir: &P,
     fs: &dyn FileSystem,
@@ -1000,12 +916,7 @@ fn write_materials_fs<P: AsRef<Path>>(
     Ok(())
 }
 
-#[allow(dead_code)]
-fn read_materials<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Option<Vec<Material>>> {
-    read_materials_fs(expanded_dir, &RealFileSystem)
-}
-
-fn read_materials_fs<P: AsRef<Path>>(
+fn read_materials<P: AsRef<Path>>(
     expanded_dir: &P,
     fs: &dyn FileSystem,
 ) -> io::Result<Option<Vec<Material>>> {
@@ -1022,12 +933,7 @@ fn read_materials_fs<P: AsRef<Path>>(
     Ok(Some(materials))
 }
 
-#[allow(dead_code)]
-fn write_old_materials<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
-    write_old_materials_fs(vpx, expanded_dir, &RealFileSystem)
-}
-
-fn write_old_materials_fs<P: AsRef<Path>>(
+fn write_old_materials<P: AsRef<Path>>(
     vpx: &VPX,
     expanded_dir: &P,
     fs: &dyn FileSystem,
@@ -1044,12 +950,7 @@ fn write_old_materials_fs<P: AsRef<Path>>(
     Ok(())
 }
 
-#[allow(dead_code)]
-fn read_old_materials<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<SaveMaterial>> {
-    read_old_materials_fs(expanded_dir, &RealFileSystem)
-}
-
-fn read_old_materials_fs<P: AsRef<Path>>(
+fn read_old_materials<P: AsRef<Path>>(
     expanded_dir: &P,
     fs: &dyn FileSystem,
 ) -> io::Result<Vec<SaveMaterial>> {
@@ -1066,15 +967,7 @@ fn read_old_materials_fs<P: AsRef<Path>>(
     Ok(materials)
 }
 
-#[allow(dead_code)]
 fn write_old_materials_physics<P: AsRef<Path>>(
-    vpx: &VPX,
-    expanded_dir: &P,
-) -> Result<(), WriteError> {
-    write_old_materials_physics_fs(vpx, expanded_dir, &RealFileSystem)
-}
-
-fn write_old_materials_physics_fs<P: AsRef<Path>>(
     vpx: &VPX,
     expanded_dir: &P,
     fs: &dyn FileSystem,
@@ -1091,14 +984,7 @@ fn write_old_materials_physics_fs<P: AsRef<Path>>(
     Ok(())
 }
 
-#[allow(dead_code)]
 fn read_old_materials_physics<P: AsRef<Path>>(
-    expanded_dir: &P,
-) -> io::Result<Option<Vec<SavePhysicsMaterial>>> {
-    read_old_materials_physics_fs(expanded_dir, &RealFileSystem)
-}
-
-fn read_old_materials_physics_fs<P: AsRef<Path>>(
     expanded_dir: &P,
     fs: &dyn FileSystem,
 ) -> io::Result<Option<Vec<SavePhysicsMaterial>>> {
@@ -1164,12 +1050,7 @@ impl FileNameGen {
     }
 }
 
-#[allow(dead_code)]
-fn write_gameitems<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
-    write_gameitems_fs(vpx, expanded_dir, &RealFileSystem)
-}
-
-fn write_gameitems_fs<P: AsRef<Path>>(
+fn write_gameitems<P: AsRef<Path>>(
     vpx: &VPX,
     expanded_dir: &P,
     fs: &dyn FileSystem,
@@ -1218,7 +1099,7 @@ fn write_gameitems_fs<P: AsRef<Path>>(
         let json_bytes = serde_json::to_vec_pretty(gameitem).map_err(WriteError::Json)?;
         fs.write_file(&path, &json_bytes)?;
 
-        write_gameitem_binaries_fs(&gameitems_dir_clone, gameitem, file_name, fs)?;
+        write_gameitem_binaries(&gameitems_dir_clone, gameitem, file_name, fs)?;
 
         Ok(())
     };
@@ -1229,6 +1110,7 @@ fn write_gameitems_fs<P: AsRef<Path>>(
     #[cfg(not(feature = "parallel"))]
     let results: Vec<Result<(), WriteError>> = files_to_write.iter().map(write_item).collect();
 
+    // Propagate the first error if any
     for r in results {
         r?;
     }
@@ -1256,75 +1138,7 @@ fn compress_data(data: &[u8]) -> io::Result<Vec<u8>> {
     encoder.finish()
 }
 
-#[allow(dead_code)]
 fn write_gameitem_binaries(
-    gameitems_dir: &Path,
-    gameitem: &GameItemEnum,
-    json_file_name: &str,
-) -> Result<(), WriteError> {
-    if let GameItemEnum::Primitive(primitive) = gameitem {
-        // use wavefront-rs to write the vertices and indices
-        // we first have to decompress the data as they are stored compressed
-        if let Some(ReadMesh { vertices, indices }) = &primitive.read_mesh()? {
-            let obj_path = gameitems_dir.join(format!("{json_file_name}.obj"));
-            write_obj(gameitem.name().to_string(), vertices, indices, &obj_path)
-                .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
-
-            if let Some(animation_frames) = &primitive.compressed_animation_vertices_data {
-                if let Some(compressed_lengths) = &primitive.compressed_animation_vertices_len {
-                    // zip frames with the counts
-                    let zipped = animation_frames.iter().zip(compressed_lengths.iter());
-                    write_animation_frames_to_objs(
-                        gameitems_dir,
-                        gameitem,
-                        json_file_name,
-                        vertices,
-                        indices,
-                        zipped,
-                    )?;
-                } else {
-                    return Err(WriteError::Io(io::Error::new(
-                        io::ErrorKind::NotFound,
-                        format!(
-                            "Animation frames should always come with counts: {json_file_name}"
-                        ),
-                    )));
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-#[allow(dead_code)]
-fn write_animation_frames_to_objs(
-    gameitems_dir: &Path,
-    gameitem: &GameItemEnum,
-    json_file_name: &str,
-    vertices: &[([u8; 32], Vertex3dNoTex2)],
-    indices: &[i64],
-    zipped: Zip<Iter<Vec<u8>>, Iter<u32>>,
-) -> Result<(), WriteError> {
-    for (i, (compressed_frame, compressed_length)) in zipped.enumerate() {
-        let animation_frame_vertices =
-            read_vpx_animation_frame(compressed_frame, compressed_length);
-        let full_vertices = replace_vertices(vertices, animation_frame_vertices)?;
-        // The file name of the sequence must be <meshname>_x.obj where x is the frame number.
-        let file_name_without_ext = json_file_name.trim_end_matches(".json");
-        let file_name = animation_frame_file_name(file_name_without_ext, i);
-        let obj_path = gameitems_dir.join(file_name);
-        write_obj(
-            gameitem.name().to_string(),
-            &full_vertices,
-            indices,
-            &obj_path,
-        )
-        .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
-    }
-    Ok(())
-}
-
-fn write_gameitem_binaries_fs(
     gameitems_dir: &Path,
     gameitem: &GameItemEnum,
     json_file_name: &str,
@@ -1334,7 +1148,7 @@ fn write_gameitem_binaries_fs(
         && let Some(ReadMesh { vertices, indices }) = &primitive.read_mesh()?
     {
         let obj_path = gameitems_dir.join(format!("{json_file_name}.obj"));
-        write_obj_fs(
+        write_obj(
             gameitem.name().to_string(),
             vertices,
             indices,
@@ -1346,7 +1160,7 @@ fn write_gameitem_binaries_fs(
         if let Some(animation_frames) = &primitive.compressed_animation_vertices_data {
             if let Some(compressed_lengths) = &primitive.compressed_animation_vertices_len {
                 let zipped = animation_frames.iter().zip(compressed_lengths.iter());
-                write_animation_frames_to_objs_fs(
+                write_animation_frames_to_objs(
                     gameitems_dir,
                     gameitem,
                     json_file_name,
@@ -1366,7 +1180,7 @@ fn write_gameitem_binaries_fs(
     Ok(())
 }
 
-fn write_animation_frames_to_objs_fs(
+fn write_animation_frames_to_objs(
     gameitems_dir: &Path,
     gameitem: &GameItemEnum,
     json_file_name: &str,
@@ -1382,7 +1196,7 @@ fn write_animation_frames_to_objs_fs(
         let file_name_without_ext = json_file_name.trim_end_matches(".json");
         let file_name = animation_frame_file_name(file_name_without_ext, i);
         let obj_path = gameitems_dir.join(file_name);
-        write_obj_fs(
+        write_obj(
             gameitem.name().to_string(),
             &full_vertices,
             indices,
@@ -1463,12 +1277,7 @@ fn write_vertex_index_for_vpx(bytes_per_index: u8, vpx_indices: &mut BytesMut, v
     }
 }
 
-#[allow(dead_code)]
-fn read_gameitems<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<GameItemEnum>> {
-    read_gameitems_fs(expanded_dir, &RealFileSystem)
-}
-
-fn read_gameitems_fs<P: AsRef<Path>>(
+fn read_gameitems<P: AsRef<Path>>(
     expanded_dir: &P,
     fs: &dyn FileSystem,
 ) -> io::Result<Vec<GameItemEnum>> {
@@ -1477,7 +1286,7 @@ fn read_gameitems_fs<P: AsRef<Path>>(
         info!("No gameitems.json found");
         return Ok(vec![]);
     }
-    let gameitems_index: Vec<GameItemInfoJson> = read_json_fs(gameitems_index_path, fs)?;
+    let gameitems_index: Vec<GameItemInfoJson> = read_json(gameitems_index_path, fs)?;
     let gameitems_dir = expanded_dir.as_ref().join("gameitems");
 
     let read_item = |gameitem_info: GameItemInfoJson| -> io::Result<GameItemEnum> {
@@ -1492,14 +1301,14 @@ fn read_gameitems_fs<P: AsRef<Path>>(
         }
 
         // read json and restore index-only metadata
-        let mut item: GameItemEnum = read_json_fs(&gameitem_path, fs)?;
+        let mut item: GameItemEnum = read_json(&gameitem_path, fs)?;
         item.set_locked(gameitem_info.is_locked);
         item.set_editor_layer(gameitem_info.editor_layer);
         item.set_editor_layer_name(gameitem_info.editor_layer_name);
         item.set_editor_layer_visibility(gameitem_info.editor_layer_visibility);
 
         // read associated binaries (must be thread-safe; they operate on distinct files)
-        read_gameitem_binaries_fs(&gameitems_dir, file_name, item, fs)
+        read_gameitem_binaries(&gameitems_dir, file_name, item, fs)
     };
 
     #[cfg(feature = "parallel")]
@@ -1517,16 +1326,7 @@ fn read_gameitems_fs<P: AsRef<Path>>(
     Ok(out)
 }
 
-#[allow(dead_code)]
 fn read_gameitem_binaries(
-    gameitems_dir: &Path,
-    gameitem_file_name: String,
-    item: GameItemEnum,
-) -> io::Result<GameItemEnum> {
-    read_gameitem_binaries_fs(gameitems_dir, gameitem_file_name, item, &RealFileSystem)
-}
-
-fn read_gameitem_binaries_fs(
     gameitems_dir: &Path,
     gameitem_file_name: String,
     mut item: GameItemEnum,
@@ -1537,7 +1337,7 @@ fn read_gameitem_binaries_fs(
         let obj_path = gameitems_dir.join(format!("{gameitem_file_name}.obj"));
         if fs.exists(&obj_path) {
             let (vertices_len, indices_len, compressed_vertices, compressed_indices) =
-                read_obj_fs(&obj_path, fs)?;
+                read_obj(&obj_path, fs)?;
             primitive.num_vertices = Some(vertices_len as u32);
             primitive.compressed_vertices_len = Some(compressed_vertices.len() as u32);
             primitive.compressed_vertices_data = Some(compressed_vertices);
@@ -1554,7 +1354,7 @@ fn read_gameitem_binaries_fs(
                 let frame_path =
                     gameitems_dir.join(animation_frame_file_name(gameitem_file_name, frame));
                 if fs.exists(&frame_path) {
-                    let animation_frame = read_obj_as_frame_fs(&frame_path, fs)?;
+                    let animation_frame = read_obj_as_frame(&frame_path, fs)?;
                     frames.push(animation_frame);
                     frame += 1;
                 } else {
@@ -1586,15 +1386,7 @@ fn animation_frame_file_name(gameitem_file_name: &str, index: usize) -> String {
     format!("{gameitem_file_name}_anim_{index}.obj")
 }
 
-#[allow(dead_code)]
-fn read_expanded_obj(obj_path: &Path) -> io::Result<(usize, usize, Vec<u8>, Vec<u8>)> {
-    read_obj_fs(obj_path, &RealFileSystem)
-}
-
-fn read_obj_fs(
-    obj_path: &Path,
-    fs: &dyn FileSystem,
-) -> io::Result<(usize, usize, Vec<u8>, Vec<u8>)> {
+fn read_obj(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<(usize, usize, Vec<u8>, Vec<u8>)> {
     let obj_data = fs.read_file(obj_path)?;
     let mut reader = io::BufReader::new(io::Cursor::new(obj_data));
     let ObjData {
@@ -1660,12 +1452,7 @@ fn read_obj_fs(
     ))
 }
 
-#[allow(dead_code)]
-fn read_obj_as_frame(obj_path: &Path) -> io::Result<Vec<VertData>> {
-    read_obj_as_frame_fs(obj_path, &RealFileSystem)
-}
-
-fn read_obj_as_frame_fs(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<Vec<VertData>> {
+fn read_obj_as_frame(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<Vec<VertData>> {
     let obj_data = fs.read_file(obj_path)?;
     let mut reader = io::BufReader::new(io::Cursor::new(obj_data));
     let ObjData {
@@ -1696,12 +1483,7 @@ fn read_obj_as_frame_fs(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<Vec<
     Ok(vertices)
 }
 
-#[allow(dead_code)]
-fn write_info<P: AsRef<Path>>(vpx: &&VPX, expanded_dir: &P) -> Result<(), WriteError> {
-    write_info_fs(vpx, expanded_dir, &RealFileSystem)
-}
-
-fn write_info_fs<P: AsRef<Path>>(
+fn write_info<P: AsRef<Path>>(
     vpx: &&VPX,
     expanded_dir: &P,
     fs: &dyn FileSystem,
@@ -1713,15 +1495,7 @@ fn write_info_fs<P: AsRef<Path>>(
     Ok(())
 }
 
-#[allow(dead_code)]
 fn read_info<P: AsRef<Path>>(
-    expanded_dir: &P,
-    screenshot: Option<Vec<u8>>,
-) -> io::Result<(TableInfo, CustomInfoTags)> {
-    read_info_fs(expanded_dir, screenshot, &RealFileSystem)
-}
-
-fn read_info_fs<P: AsRef<Path>>(
     expanded_dir: &P,
     screenshot: Option<Vec<u8>>,
     fs: &dyn FileSystem,
@@ -1730,17 +1504,12 @@ fn read_info_fs<P: AsRef<Path>>(
     if !fs.exists(&info_path) {
         return Ok((TableInfo::default(), CustomInfoTags::default()));
     }
-    let value: Value = read_json_fs(&info_path, fs)?;
+    let value: Value = read_json(&info_path, fs)?;
     let (info, custominfotags) = json_to_info(value, screenshot)?;
     Ok((info, custominfotags))
 }
 
-#[allow(dead_code)]
-fn read_collections<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<Vec<Collection>> {
-    read_collections_fs(expanded_dir, &RealFileSystem)
-}
-
-fn read_collections_fs<P: AsRef<Path>>(
+fn read_collections<P: AsRef<Path>>(
     expanded_dir: &P,
     fs: &dyn FileSystem,
 ) -> io::Result<Vec<Collection>> {
@@ -1749,19 +1518,12 @@ fn read_collections_fs<P: AsRef<Path>>(
         info!("No collections.json found");
         return Ok(vec![]);
     }
-    let value = read_json_fs(collections_path, fs)?;
+    let value = read_json(collections_path, fs)?;
     let collections: Vec<Collection> = json_to_collections(value)?;
     Ok(collections)
 }
 
-#[allow(dead_code)]
 fn read_renderprobes<P: AsRef<Path>>(
-    expanded_dir: &P,
-) -> io::Result<Option<Vec<RenderProbeWithGarbage>>> {
-    read_renderprobes_fs(expanded_dir, &RealFileSystem)
-}
-
-fn read_renderprobes_fs<P: AsRef<Path>>(
     expanded_dir: &P,
     fs: &dyn FileSystem,
 ) -> io::Result<Option<Vec<RenderProbeWithGarbage>>> {
@@ -1769,17 +1531,12 @@ fn read_renderprobes_fs<P: AsRef<Path>>(
     if !fs.exists(&renderprobes_path) {
         return Ok(None);
     }
-    let value: Vec<RenderProbeJson> = read_json_fs(renderprobes_path, fs)?;
+    let value: Vec<RenderProbeJson> = read_json(renderprobes_path, fs)?;
     let renderprobes = value.iter().map(|v| v.to_renderprobe()).collect();
     Ok(Some(renderprobes))
 }
 
-#[allow(dead_code)]
-fn write_renderprobes<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
-    write_renderprobes_fs(vpx, expanded_dir, &RealFileSystem)
-}
-
-fn write_renderprobes_fs<P: AsRef<Path>>(
+fn write_renderprobes<P: AsRef<Path>>(
     vpx: &VPX,
     expanded_dir: &P,
     fs: &dyn FileSystem,
@@ -2011,7 +1768,7 @@ mod test {
         let test_dir = testdir!();
         let bmp_path = test_dir.join("test_image.bmp");
 
-        write_image_bmp(&bmp_path, &LZW_COMPRESSED_DATA, 2, 2)?;
+        write_image_bmp(&bmp_path, &LZW_COMPRESSED_DATA, 2, 2, &RealFileSystem)?;
 
         let file_bytes = std::fs::read(&bmp_path)?;
         let read_compressed_data = read_image_bmp(&file_bytes)?;
@@ -2311,16 +2068,6 @@ mod test {
         assert_eq!("test__2".to_string(), future);
         let last = file_name_gen.ensure_unique("test".to_string());
         assert_eq!("test__3".to_string(), last);
-    }
-
-    #[test]
-    fn test_read_image_dimensions_png_as_hdr() {
-        // this file is actually a png file but with hdr extension
-        // see https://github.com/francisdb/vpin/issues/110
-        let hdr_path = Path::new("testdata").join("wrongly_labeled_png.hdr");
-        let dimensions = read_image_dimensions(&hdr_path).unwrap();
-
-        assert_eq!(dimensions, Some((512, 256)));
     }
 
     #[test]
