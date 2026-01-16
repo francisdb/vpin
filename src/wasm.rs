@@ -3,8 +3,8 @@ use std::path::Path;
 use wasm_bindgen::prelude::*;
 
 use crate::filesystem::{FileSystem, MemoryFileSystem};
-use crate::vpx::expanded::{read_fs, write_fs};
 use crate::vpx;
+use crate::vpx::expanded::{read_fs, write_fs};
 
 thread_local! {
     static PROGRESS_CALLBACK: RefCell<Option<js_sys::Function>> = const { RefCell::new(None) };
@@ -75,7 +75,10 @@ pub fn extract(data: &[u8], callback: Option<js_sys::Function>) -> Result<js_sys
 }
 
 #[wasm_bindgen]
-pub fn assemble(files: js_sys::Object, callback: Option<js_sys::Function>) -> Result<Vec<u8>, JsError> {
+pub fn assemble(
+    files: js_sys::Object,
+    callback: Option<js_sys::Function>,
+) -> Result<Vec<u8>, JsError> {
     set_progress_callback(callback);
 
     emit_progress("Reading files...");
