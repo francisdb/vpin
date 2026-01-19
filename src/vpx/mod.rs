@@ -353,6 +353,14 @@ pub fn from_bytes(slice: &[u8]) -> io::Result<VPX> {
     read_vpx(&mut comp)
 }
 
+pub fn to_bytes(vpx: &VPX) -> io::Result<Vec<u8>> {
+    let buffer = std::io::Cursor::new(Vec::new());
+    let mut comp = CompoundFile::create(buffer)?;
+    write_vpx(&mut comp, vpx)?;
+    comp.flush()?;
+    Ok(comp.into_inner().into_inner())
+}
+
 /// Writes a VPX file from memory to disk
 ///
 /// see also [`read()`]

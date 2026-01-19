@@ -16,3 +16,9 @@ Cargo.lock
 # output from example
 basic.vpx
 basic.ini
+
+# WASM build output (generated, not committed)
+pkg/vpin.js
+pkg/vpin.d.ts
+pkg/vpin_bg.wasm
+pkg/vpin_bg.wasm.d.ts
