@@ -1765,7 +1765,7 @@ mod test {
         let fs = MemoryFileSystem::default();
         let bmp_path = Path::new("test_image.bmp");
 
-        write_image_bmp(&bmp_path, &LZW_COMPRESSED_DATA, 2, 2, &fs)?;
+        write_image_bmp(bmp_path, &LZW_COMPRESSED_DATA, 2, 2, &fs)?;
 
         let file_bytes = fs.read_file(bmp_path)?;
         let read_compressed_data = read_image_bmp(&file_bytes)?;

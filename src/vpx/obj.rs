@@ -350,7 +350,7 @@ f 1/1/1 1/1/1 1/1/1
             obj_data.name,
             &vertices,
             &obj_data.indices,
-            &written_obj_path,
+            written_obj_path,
             &memory_fs,
         )?;
 
@@ -361,7 +361,7 @@ f 1/1/1 1/1/1 1/1/1
             original = original.replace("\r\n", "\n")
         }
         // The obj file will always be written with \n line endings.
-        let written = memory_fs.read_to_string(&written_obj_path)?;
+        let written = memory_fs.read_to_string(written_obj_path)?;
         assert_eq!(original, written);
         Ok(())
     }

@@ -303,7 +303,7 @@ mod tests {
         let height: u32 = 128;
         let bytes_per_pixel: u8 = 4;
         let compressed_original = RAW_LZW_BMP_128_128_DATA;
-        let decompressed = from_lzw_blocks(&compressed_original);
+        let decompressed = from_lzw_blocks(compressed_original);
 
         assert_eq!(
             decompressed.len(),

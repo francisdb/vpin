@@ -47,6 +47,8 @@ jobs:
           toolchain: stable
           targets: wasm32-wasip1
       - uses: Swatinem/rust-cache@v2.8.2
+      - name: Install wasmtime-cli
+        run: cargo install wasmtime-cli
       - name: Run WASM tests
         run: cargo test --target wasm32-wasip1
 
@@ -61,5 +63,7 @@ jobs:
           toolchain: stable
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2.8.2
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli
       - name: Run WASM tests
         run: cargo test --target wasm32-unknown-unknown --features wasm
