@@ -1740,6 +1740,7 @@ fn retrieve_entries_from_compound_file(comp: &CompoundFile<File>) -> Vec<String>
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::filesystem::MemoryFileSystem;
     use crate::vpx::gameitem;
     use crate::vpx::gameitem::GameItemEnum;
     use crate::vpx::gameitem::primitive::Primitive;
@@ -1750,7 +1751,7 @@ mod test {
     use pretty_assertions::assert_eq;
     use std::collections::HashMap;
     use std::io::BufReader;
-    use testdir::testdir;
+    //use testdir::testdir;
     use testresult::TestResult;
 
     // Encoded data for 2x2 argb with alpha always 0xFF because the vpinball
@@ -1761,12 +1762,12 @@ mod test {
 
     #[test]
     pub fn test_write_read_bmp() -> TestResult {
-        let test_dir = testdir!();
-        let bmp_path = test_dir.join("test_image.bmp");
+        let fs = MemoryFileSystem::default();
+        let bmp_path = Path::new("test_image.bmp");
 
-        write_image_bmp(&bmp_path, &LZW_COMPRESSED_DATA, 2, 2, &RealFileSystem)?;
+        write_image_bmp(&bmp_path, &LZW_COMPRESSED_DATA, 2, 2, &fs)?;
 
-        let file_bytes = std::fs::read(&bmp_path)?;
+        let file_bytes = fs.read_file(bmp_path)?;
         let read_compressed_data = read_image_bmp(&file_bytes)?;
 
         assert_eq!(2, read_compressed_data.width);
@@ -1789,18 +1790,14 @@ mod test {
         assert_eq!(rgba2, rgba);
     }
 
+    const SCREENSHOT_DATA: &[u8] = include_bytes!("../../testdata/1x1.png");
+
     #[test]
     pub fn test_expand_write_read() -> TestResult {
-        let expanded_path = testdir!();
-        if expanded_path.exists() {
-            std::fs::remove_dir_all(&expanded_path)?;
-        }
-        std::fs::create_dir(&expanded_path)?;
+        let fs = MemoryFileSystem::default();
 
         // read 1x1.png as a Vec<u8>
-        let mut screenshot = Vec::new();
-        let mut screenshot_file = File::open("testdata/1x1.png")?;
-        screenshot_file.read_to_end(&mut screenshot)?;
+        let screenshot = SCREENSHOT_DATA.to_vec();
 
         let version = Version::new(1074);
 
@@ -2035,17 +2032,18 @@ mod test {
             ],
         };
 
-        write(&vpx, &expanded_path)?;
+        let path = Path::new("expanded");
+        write_fs(&vpx, &path, &fs)?;
 
         // the user has updated one image from png to webp
-        let image_path = expanded_path.join("images").join("test image replaced.png");
+        let image_path = path.join("images").join("test image replaced.png");
         let new_image_path = image_path.with_extension("webp");
-        std::fs::rename(&image_path, &new_image_path)?;
+        fs.rename(&image_path, &new_image_path)?;
 
         // adjust the image path in the vpx
         vpx.images[1].change_extension("webp");
 
-        let read = read(&expanded_path)?;
+        let read = read_fs(&path, &fs)?;
 
         assert_eq!(&vpx, &read);
         Ok(())
@@ -2067,6 +2065,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(not(target_family = "wasm"))]
     fn test_read_image_dimensions_png_as_hdr_stream() {
         // this file is actually a png file but with hdr extension
         // see https://github.com/francisdb/vpin/issues/110

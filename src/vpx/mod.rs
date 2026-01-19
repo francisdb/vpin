@@ -2,7 +2,7 @@
 //!
 //! # Example
 //!
-//! ```
+//! ```no_run
 //! use std::io;
 //! use std::path::PathBuf;
 //! use vpin::vpx::{read, version};
@@ -102,7 +102,7 @@ pub fn vpu_to_m(x: f32) -> f32 {
 ///
 /// # Example
 ///
-/// ```
+/// ```no_run
 /// use std::io;
 /// use std::path::PathBuf;
 /// use vpin::vpx::{read, version};
@@ -181,7 +181,7 @@ pub enum VerifyResult {
 ///
 /// # Example
 ///
-/// ```
+/// ```no_run
 /// use std::io;
 /// use std::path::PathBuf;
 /// use vpin::vpx::{open, read, version};
@@ -1072,9 +1072,11 @@ fn write_custominfotags<F: Read + Write + Seek>(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(target_family = "wasm"))]
     use crate::vpx::image::ImageDataBits;
     use pretty_assertions::assert_eq;
     use std::io::Cursor;
+    #[cfg(not(target_family = "wasm"))]
     use testdir::testdir;
 
     use super::*;
@@ -1096,10 +1098,13 @@ mod tests {
         Ok(())
     }
 
+    const TEST_TABLE_BYTES: &[u8] =
+        include_bytes!("../../testdata/completely_blank_table_10_7_4.vpx");
+
     #[test]
     fn test_mac_generation() -> io::Result<()> {
-        let path = PathBuf::from("testdata/completely_blank_table_10_7_4.vpx");
-        let mut comp = cfb::open(path)?;
+        let cursor = Cursor::new(TEST_TABLE_BYTES.to_vec());
+        let mut comp = CompoundFile::open_strict(cursor)?;
 
         let expected = [
             231, 121, 242, 251, 174, 227, 247, 90, 58, 105, 13, 92, 13, 73, 151, 86,
@@ -1129,8 +1134,8 @@ mod tests {
 
     #[test]
     fn read_write_gamedata() -> io::Result<()> {
-        let path = PathBuf::from("testdata/completely_blank_table_10_7_4.vpx");
-        let mut comp = cfb::open(path)?;
+        let cursor = Cursor::new(TEST_TABLE_BYTES.to_vec());
+        let mut comp = CompoundFile::open_strict(cursor)?;
         let version = read_version(&mut comp)?;
         let original = read_gamedata(&mut comp, &version)?;
 
@@ -1148,8 +1153,8 @@ mod tests {
 
     #[test]
     fn read_write_gameitems() -> io::Result<()> {
-        let path = PathBuf::from("testdata/completely_blank_table_10_7_4.vpx");
-        let mut comp = cfb::open(path)?;
+        let cursor = Cursor::new(TEST_TABLE_BYTES.to_vec());
+        let mut comp = CompoundFile::open_strict(cursor)?;
         let version = read_version(&mut comp)?;
         let gamedata = read_gamedata(&mut comp, &version)?;
         let original = read_gameitems(&mut comp, &gamedata)?;
@@ -1168,6 +1173,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_family = "wasm"))]
     fn read() -> io::Result<()> {
         let path = PathBuf::from("testdata/completely_blank_table_10_7_4.vpx");
         let mut comp = cfb::open(path)?;
@@ -1200,6 +1206,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_family = "wasm"))]
     fn create_minimal_vpx_and_read() -> io::Result<()> {
         let dir: PathBuf = testdir!();
         let test_vpx_path = dir.join("test.vpx");
@@ -1213,6 +1220,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_family = "wasm"))]
     fn images_to_webp_and_compact() -> io::Result<()> {
         let dir: PathBuf = testdir!();
         let test_vpx_path = dir.join("test.vpx");
@@ -1288,6 +1296,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_family = "wasm"))]
     fn test_extractvbs_empty_file() {
         let dir: PathBuf = testdir!();
         let test_vpx_path = dir.join("test.vpx");
@@ -1304,6 +1313,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_family = "wasm"))]
     fn test_verify_empty_file() {
         let dir: PathBuf = testdir!();
         let test_vpx_path = dir.join("test.vpx");

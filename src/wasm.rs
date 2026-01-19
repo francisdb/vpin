@@ -130,3 +130,81 @@ pub fn assemble(
 
     Ok(bytes)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wasm_bindgen_test::*;
+
+    #[wasm_bindgen_test]
+    fn test_extract_with_invalid_data() {
+        let invalid_data = b"invalid vpx data";
+        let result = extract(invalid_data, None);
+        assert!(result.is_err());
+    }
+
+    #[wasm_bindgen_test]
+    fn test_assemble_with_empty_files() {
+        let files = js_sys::Object::new();
+        let result = assemble(files, None);
+        assert!(result.is_err());
+    }
+
+    #[wasm_bindgen_test]
+    fn test_extract() {
+        let original_data = include_bytes!("../testdata/completely_blank_table_10_7_4.vpx");
+        let extract_result = extract(original_data, None).expect("Extraction failed");
+        assert_eq!(95, js_sys::Object::keys(&extract_result).length());
+        // print all keys
+        // to see the results use:
+        // cargo test --target wasm32-unknown-unknown --features wasm -- --nocapture
+        let keys = js_sys::Object::keys(&extract_result);
+        for i in 0..keys.length() {
+            let key = keys.get(i);
+            let key_str = key.as_string().unwrap();
+            web_sys::console::log_1(&JsValue::from_str(&key_str));
+        }
+        let version_key = JsValue::from_str("/vpx/version.txt");
+        let version_value = js_sys::Reflect::get(&extract_result, &version_key).unwrap();
+        let version_array = js_sys::Uint8Array::from(version_value);
+        let version_str = String::from_utf8(version_array.to_vec()).unwrap();
+        assert_eq!("1072", version_str);
+    }
+
+    #[wasm_bindgen_test]
+    fn test_assemble() {
+        let original_data = include_bytes!("../testdata/completely_blank_table_10_7_4.vpx");
+        let extract_result = extract(original_data, None).expect("Extraction failed");
+
+        let assemble_result = assemble(extract_result.clone(), None).expect("Assembly failed");
+
+        let extract_result2 = extract(&assemble_result, None).expect("Re-extraction failed");
+        // compare key count
+        assert_eq!(
+            js_sys::Object::keys(&extract_result).length(),
+            js_sys::Object::keys(&extract_result2).length()
+        );
+        // compare all keys and values one by one
+        let keys = js_sys::Object::keys(&extract_result);
+        for i in 0..keys.length() {
+            let key = keys.get(i);
+            let original_value = js_sys::Reflect::get(&extract_result, &key).unwrap();
+            let reassembled_value = js_sys::Reflect::get(&extract_result2, &key).unwrap();
+            let original_array = js_sys::Uint8Array::from(original_value);
+            let reassembled_array = js_sys::Uint8Array::from(reassembled_value);
+            assert_eq!(
+                original_array.length(),
+                reassembled_array.length(),
+                "Mismatched length for key {:?}",
+                key
+            );
+            let original_bytes = original_array.to_vec();
+            let reassembled_bytes = reassembled_array.to_vec();
+            assert_eq!(
+                original_bytes, reassembled_bytes,
+                "Mismatched content for key {:?}",
+                key
+            );
+        }
+    }
+}

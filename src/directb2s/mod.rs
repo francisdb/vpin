@@ -2,7 +2,7 @@
 //!
 //! # Example
 //!
-//! ```
+//! ```no_run
 //! use std::io;
 //! use std::path::PathBuf;
 //! use vpin::directb2s;
@@ -798,4 +798,22 @@ pub enum ReelIlluminationLocation {
 pub enum ReelRollingDirection {
     Up = 0,
     Down = 1,
+}
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    #[cfg(not(target_family = "wasm"))]
+    fn test_read_directb2s() {
+        let file = std::fs::File::open(
+            "testdata/Police Force (Williams 1989) FULL DMD.stripped.directb2s",
+        )
+        .unwrap();
+        let reader = std::io::BufReader::new(file);
+        let data = crate::directb2s::read(reader).unwrap();
+
+        assert_eq!(data.game_name.value, "polic_l4");
+        assert!(!data.author.value.is_empty());
+    }
 }

@@ -49,6 +49,52 @@ pub struct MemoryFileSystem {
 }
 
 impl MemoryFileSystem {
+    /// Renames a file from `from` to `to`.
+    /// This is for now only available in test builds.
+    #[cfg(test)]
+    pub(crate) fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+        let from_str = from.to_string_lossy().to_string();
+        let to_str = to.to_string_lossy().to_string();
+        let mut files = self.files.write().unwrap();
+
+        // Clone the data instead of removing it first
+        if let Some(data) = files.get(&from_str).cloned() {
+            files.insert(to_str, data);
+            files.remove(&from_str);
+            Ok(())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("File not found: {}", from_str),
+            ))
+        }
+    }
+
+    /// Reads the entire file at `path` as a UTF-8 string.
+    ///
+    /// Throws an error if the file does not exist or if the content is not valid UTF-8.
+    ///
+    /// This is for now only available in test builds.
+    #[cfg(test)]
+    pub(crate) fn read_to_string(&self, path: &Path) -> io::Result<String> {
+        let path_str = path.to_string_lossy().to_string();
+        let files = self.files.read().unwrap();
+        match files.get(&path_str) {
+            Some(data) => String::from_utf8(data.clone()).map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Invalid UTF-8 data in file {}: {}", path_str, e),
+                )
+            }),
+            None => Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("File not found: {}", path_str),
+            )),
+        }
+    }
+}
+
+impl MemoryFileSystem {
     pub fn new() -> Self {
         Self {
             files: Arc::new(RwLock::new(HashMap::new())),
@@ -156,6 +202,7 @@ impl FileSystem for MemoryFileSystem {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(not(target_family = "wasm"))]
     use testdir::testdir;
 
     #[test]
@@ -186,6 +233,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_family = "wasm"))]
     fn test_real_fs_write_read() {
         let test_dir = testdir!();
         let fs = RealFileSystem;
@@ -198,6 +246,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_family = "wasm"))]
     fn test_real_fs_create_file() {
         let test_dir = testdir!();
         let fs = RealFileSystem;

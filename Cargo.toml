@@ -45,8 +45,8 @@ log = "0.4"
 itoa = "1.0.15"
 ryu = "1.0.20"
 rayon = { version = "1.11.0", optional = true }
-wasm-bindgen = { version = "0.2", optional = true }
-js-sys = { version = "0.3", optional = true }
+wasm-bindgen = { version = "0.2.108", optional = true }
+js-sys = { version = "0.3.85", optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
 web-sys = { version = "0.3", optional = true, features = ["console"] }
 
@@ -54,12 +54,18 @@ web-sys = { version = "0.3", optional = true, features = ["console"] }
 env_logger = "0.11.8"
 dirs = "6.0.0"
 pretty_assertions = "1.4.1"
-rand = "0.9.2"
-testdir = "0.9.3"
+rand = { version = "0.9.2" }
 walkdir = "2.5.0"
 roxmltree = "0.21.1"
 testresult = "0.4.1"
 fake = { version = "4.4.0", features = ["derive"] }
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+testdir = "0.9.3"
+[target.'cfg(target_family = "wasm")'.dev-dependencies]
+# TODO keep this in sync with wasm-bindgen version above
+wasm-bindgen-test = "0.3.58"
+# In fact an indirect dependency of rand, but we need to specify the wasm_js feature here
+getrandom = { version = "0.3.2", features = ["wasm_js"] }
 
 [profile.test]
 # level 0 is very slow for writing to compound files
