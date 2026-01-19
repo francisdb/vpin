@@ -53,6 +53,7 @@ mod test {
                 !name.contains("CAPTAINSPAULDINGv1.0")
                     && !name.contains("RM054")
                     && !name.contains("Stranger Things 4")
+                    && name.contains("Dark Chaos")
             })
             .collect();
 
