@@ -5,13 +5,13 @@ WASM bindings for extracting and assembling VPX (Visual Pinball X) table files.
 ## Installation
 
 ```bash
-npm install @jsm174/vpin-wasm
+npm install @francisdb/vpin-wasm
 ```
 
 ## Usage
 
 ```typescript
-import init, { extract, assemble } from '@jsm174/vpin-wasm';
+import init, { extract, assemble } from '@francisdb/vpin-wasm';
 
 await init();
 ```
@@ -31,6 +31,7 @@ const files = extract(vpxBytes, (message) => {
 ```
 
 **Parameters:**
+
 - `data: Uint8Array` - VPX file bytes
 - `callback?: (message: string) => void` - Optional progress callback
 
@@ -55,6 +56,7 @@ const vpxBytes = assemble(files, (message) => {
 ```
 
 **Parameters:**
+
 - `files: Record<string, Uint8Array>` - Object mapping file paths to contents
 - `callback?: (message: string) => void` - Optional progress callback
 
@@ -77,7 +79,7 @@ Extracted files use paths starting with `/vpx/`:
 ## Example: Round-trip
 
 ```typescript
-import init, { extract, assemble } from '@jsm174/vpin-wasm';
+import init, { extract, assemble } from '@francisdb/vpin-wasm';
 
 await init();
 
