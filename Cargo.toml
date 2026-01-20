@@ -36,8 +36,7 @@ utf16string = "0.2.0"
 quick-xml = { version = "0.38.4", features = ["serialize"] }
 serde_repr = "0.1.20"
 hex = "0.4.3"
-flate2 = "1.1.5"
-image = "0.25.8"
+flate2 = "1.1.8"
 weezl = "0.1.12"
 regex = "1.12.2"
 sanitize-filename = "0.6"
@@ -49,6 +48,15 @@ wasm-bindgen = { version = "0.2.108", optional = true }
 js-sys = { version = "0.3.85", optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
 web-sys = { version = "0.3", optional = true, features = ["console"] }
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+image = { version = "0.25.9", default-features = false, features = [
+    "bmp", "exr", "hdr", "jpeg", "png", "webp", "rayon"
+] }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+image = { version = "0.25.9", default-features = false, features = [
+    "bmp", "exr", "hdr", "jpeg", "png", "webp"
+] }
 
 [dev-dependencies]
 env_logger = "0.11.8"
