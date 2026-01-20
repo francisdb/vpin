@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.6](https://github.com/francisdb/vpin/compare/v0.20.5...v0.20.6) - 2026-01-20
+
+### Other
+
+- update Node.js version to 24 for OICD compatibility
+
 ## [0.20.5](https://github.com/francisdb/vpin/compare/v0.20.4...v0.20.5) - 2026-01-20
 
 ### Other
