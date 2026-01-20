@@ -50,12 +50,12 @@ console_error_panic_hook = { version = "0.1", optional = true }
 web-sys = { version = "0.3", optional = true, features = ["console"] }
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 image = { version = "0.25.9", default-features = false, features = [
-    "bmp", "exr", "hdr", "jpeg", "png", "webp", "rayon"
+    "bmp", "exr", "hdr", "jpeg", "png", "tga", "webp", "rayon"
 ] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 image = { version = "0.25.9", default-features = false, features = [
-    "bmp", "exr", "hdr", "jpeg", "png", "webp"
+    "bmp", "exr", "hdr", "jpeg", "png", "tga", "webp"
 ] }
 
 [dev-dependencies]
