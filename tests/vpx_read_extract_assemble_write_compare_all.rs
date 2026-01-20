@@ -1,6 +1,7 @@
 mod common;
 
 #[cfg(test)]
+#[cfg(not(target_family = "wasm"))]
 mod test {
 
     use pretty_assertions::assert_eq;

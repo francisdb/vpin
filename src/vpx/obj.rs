@@ -234,10 +234,9 @@ pub(crate) struct ObjData {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::filesystem::RealFileSystem;
+    use crate::filesystem::MemoryFileSystem;
     use pretty_assertions::assert_eq;
-    use std::io::BufReader;
-    use testdir::testdir;
+    use std::io::{BufReader, Cursor};
     use testresult::TestResult;
 
     #[test]
@@ -315,14 +314,12 @@ f 1/1/1 1/1/1 1/1/1
         read_obj(&mut reader).unwrap();
     }
 
+    const SCREW_OBJ_BYTES: &[u8] = include_bytes!("../../testdata/screw.obj");
+
     #[test]
     fn test_read_write_obj() -> TestResult {
-        let screw_path = Path::new("testdata/screw.obj");
-        let testdir = testdir!();
-        let reader = RealFileSystem.open_file(screw_path)?;
-        let mut buffered_reader = io::BufReader::new(reader);
-        let obj_data = read_obj(&mut buffered_reader)?;
-        let written_obj_path = testdir.join("screw.obj");
+        let mut reader = Cursor::new(SCREW_OBJ_BYTES);
+        let obj_data = read_obj(&mut reader)?;
 
         // zip vertices, texture coordinates and normals into a single vec
         let vertices: Vec<([u8; 32], Vertex3dNoTex2)> = obj_data
@@ -347,23 +344,25 @@ f 1/1/1 1/1/1 1/1/1
             })
             .collect();
 
+        let memory_fs = MemoryFileSystem::default();
+        let written_obj_path = Path::new("screw.obj");
         write_obj(
             obj_data.name,
             &vertices,
             &obj_data.indices,
-            &written_obj_path,
-            &RealFileSystem,
+            written_obj_path,
+            &memory_fs,
         )?;
 
         // compare both files as strings
-        let mut original = std::fs::read_to_string(screw_path)?;
+        let mut original = String::from_utf8(SCREW_OBJ_BYTES.to_vec())?;
         // When on Windows the original file will be checked out with \r\n line endings.
         if cfg!(windows) {
             original = original.replace("\r\n", "\n")
         }
         // The obj file will always be written with \n line endings.
-        let written = std::fs::read_to_string(&written_obj_path)?;
-        pretty_assertions::assert_eq!(original, written);
+        let written = memory_fs.read_to_string(written_obj_path)?;
+        assert_eq!(original, written);
         Ok(())
     }
 

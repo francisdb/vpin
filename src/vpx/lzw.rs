@@ -294,15 +294,16 @@ mod tests {
         assert_eq!(bits, decompressed);
     }
 
+    const RAW_LZW_BMP_128_128_DATA: &[u8] =
+        include_bytes!("../../testdata/raw_lzw_bmp_128_128_data.bin");
+
     #[test]
     fn test_lzw_read_write() {
         let width: u32 = 128;
         let height: u32 = 128;
         let bytes_per_pixel: u8 = 4;
-        let file_path = "testdata/raw_lzw_bmp_128_128_data.bin";
-        let compressed_original = std::fs::read(file_path).unwrap();
-
-        let decompressed = from_lzw_blocks(&compressed_original);
+        let compressed_original = RAW_LZW_BMP_128_128_DATA;
+        let decompressed = from_lzw_blocks(compressed_original);
 
         assert_eq!(
             decompressed.len(),
