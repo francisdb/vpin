@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.4](https://github.com/francisdb/vpin/compare/v0.20.3...v0.20.4) - 2026-01-20
+
+### Added
+
+- add wasm support for web editor ([#188](https://github.com/francisdb/vpin/pull/188))
+
+### Other
+
+- wasm publishing to rpm repo
+- *(deps)* bump actions/setup-node from 4 to 6 ([#196](https://github.com/francisdb/vpin/pull/196))
+- wasm tests ([#195](https://github.com/francisdb/vpin/pull/195))
+
 ## [0.20.3](https://github.com/francisdb/vpin/compare/v0.20.2...v0.20.3) - 2026-01-14
 
 ### Added
