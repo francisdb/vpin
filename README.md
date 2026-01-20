@@ -2,7 +2,11 @@
 
 Rust library for the visual/virtual pinball ecosystem
 
+Find it on crates.io:
 https://crates.io/crates/vpin
+
+Also available on npm as WASM package:
+https://www.npmjs.com/package/@francisdb/vpin-wasm
 
 Join [#vpxtool on "Virtual Pinball Chat" discord](https://discord.gg/eYsvyMu8) for support and questions.
 
@@ -12,11 +16,12 @@ https://docs.rs/vpin
 
 ## Example code
 
-Check the [examples folder](examples/)
+Check the [examples folder](/examples)
 
 ## Projects using vpin
 
 https://github.com/francisdb/vpxtool
+https://github.com/jsm174/vpx-editor
 
 ## Other links
 
