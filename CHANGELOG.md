@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.8](https://github.com/francisdb/vpin/compare/v0.20.7...v0.20.8) - 2026-01-20
+
+### Other
+
+- add support for 2 more image file formats
+- running integration tests in memory ([#202](https://github.com/francisdb/vpin/pull/202))
+- select specific image format features ([#200](https://github.com/francisdb/vpin/pull/200))
+
 ## [0.20.7](https://github.com/francisdb/vpin/compare/v0.20.6...v0.20.7) - 2026-01-20
 
 ### Other
