@@ -4,13 +4,17 @@ mod common;
 #[cfg(not(target_family = "wasm"))]
 mod test {
 
+    const EXTRACT_IN_MEMORY: bool = true;
+
     use pretty_assertions::assert_eq;
+    // TODO once we can capture logs per extract / assemble we can re-enable parallel tests
     // use rayon::prelude::*;
     use crate::common::{assert_equal_vpx, find_files, tables_dir};
     use log::info;
     use std::io;
     use std::path::{Path, PathBuf};
     use testdir::testdir;
+    use vpin::filesystem::{FileSystem, MemoryFileSystem, RealFileSystem};
 
     fn init() {
         let _ = env_logger::builder()
@@ -55,39 +59,57 @@ mod test {
         // TODO why is par_iter() not faster but just consuming all cpu cores?
         filtered.iter().enumerate().try_for_each(|(n, path)| {
             info!("testing {}/{}: {:?}", n + 1, filtered.len(), path);
+            let original_vpx_bytes = std::fs::read(path)?;
+            let extract_dir = if EXTRACT_IN_MEMORY {
+                None
+            } else {
+                Some(&dir as &Path)
+            };
             let ReadAndWriteResult {
                 extracted,
-                test_vpx,
-            } = read_and_write_vpx(&dir, path)?;
-            assert_equal_vpx(path, test_vpx.clone());
-            // panic!("stop");
-            // if all is good we remove the test file and the extracted dir
-            std::fs::remove_file(&test_vpx)?;
-            std::fs::remove_dir_all(extracted)?;
+                test_vpx_bytes,
+            } = read_and_write_vpx(extract_dir, &original_vpx_bytes)?;
+            assert_equal_vpx(&original_vpx_bytes, &test_vpx_bytes, path);
+            if let Some(extracted) = extracted {
+                std::fs::remove_dir_all(extracted)?;
+            }
             Ok(())
         })
     }
 
     struct ReadAndWriteResult {
-        extracted: PathBuf,
-        test_vpx: PathBuf,
+        /// only set if extracted to real filesystem
+        extracted: Option<PathBuf>,
+        test_vpx_bytes: Vec<u8>,
     }
 
-    fn read_and_write_vpx(dir: &Path, path: &Path) -> io::Result<ReadAndWriteResult> {
-        let original = vpin::vpx::read(path)?;
-        let extract_dir = dir.join("extracted");
-        // make dir
-        std::fs::create_dir_all(&extract_dir)?;
-        vpin::vpx::expanded::write(&original, &extract_dir).map_err(io::Error::other)?;
-        let expanded_read = vpin::vpx::expanded::read(&extract_dir).map_err(io::Error::other)?;
+    fn read_and_write_vpx(
+        extractr_dir: Option<&Path>,
+        original_vpx_bytes: &[u8],
+    ) -> io::Result<ReadAndWriteResult> {
+        let original = vpin::vpx::from_bytes(original_vpx_bytes)?;
+        let (fs, extract_dir): (Box<dyn FileSystem>, PathBuf) = if let Some(dir) = extractr_dir {
+            let extract_dir = dir.join("extracted");
+            // make dir
+            std::fs::create_dir_all(&extract_dir)?;
+            (Box::new(RealFileSystem), extract_dir)
+        } else {
+            (Box::new(MemoryFileSystem::new()), PathBuf::from("/vpx"))
+        };
+
+        vpin::vpx::expanded::write_fs(&original, &extract_dir, &*fs).map_err(io::Error::other)?;
+        let expanded_read =
+            vpin::vpx::expanded::read_fs(&extract_dir, &*fs).map_err(io::Error::other)?;
         // special case for comparing code
         assert_eq!(original.gamedata.code, expanded_read.gamedata.code);
-        let file_name = path.file_name().unwrap();
-        let test_vpx_path = dir.join(file_name);
-        vpin::vpx::write(&test_vpx_path, &expanded_read)?;
+        let test_vpx_bytes = vpin::vpx::to_bytes(&expanded_read)?;
         Ok(ReadAndWriteResult {
-            extracted: extract_dir,
-            test_vpx: test_vpx_path,
+            extracted: if EXTRACT_IN_MEMORY {
+                None
+            } else {
+                Some(extract_dir)
+            },
+            test_vpx_bytes,
         })
     }
 }

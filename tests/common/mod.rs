@@ -7,7 +7,7 @@ use flate2::read::ZlibDecoder;
 use std::ffi::OsStr;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io;
-use std::io::{Read, Seek, Write};
+use std::io::{Cursor, Read, Seek, Write};
 use std::path::{MAIN_SEPARATOR_STR, Path, PathBuf};
 use vpin::vpx::biff::BiffReader;
 use vpin::vpx::lzw::from_lzw_blocks;
@@ -62,17 +62,20 @@ pub(crate) fn find_files<P: AsRef<Path>>(
     Ok(found)
 }
 
-pub(crate) fn assert_equal_vpx(vpx_path: &Path, test_vpx_path: PathBuf) {
-    let mut comp = cfb::open(vpx_path).unwrap();
-    let mut test_comp = cfb::open(&test_vpx_path).unwrap();
+pub(crate) fn assert_equal_vpx(vpx_bytes: &[u8], test_vpx_bytes: &[u8], vpx_path: &Path) {
+    // TODO remove the path argument, make this return Result and add context to error messages at call site
+    let cursor = io::Cursor::new(vpx_bytes);
+    let mut comp = CompoundFile::open_strict(cursor).unwrap();
+    let test_cursor = io::Cursor::new(test_vpx_bytes);
+    let mut test_comp = CompoundFile::open_strict(test_cursor).unwrap();
 
     assert_eq!(comp.version(), test_comp.version());
 
     // let version = version::read_version(&mut comp).unwrap();
     // println!("version: {:?}", version);
 
-    let original_paths = compound_file_paths_and_lengths(vpx_path);
-    let test_paths = compound_file_paths_and_lengths(&test_vpx_path);
+    let original_paths = compound_file_paths_and_lengths(&comp);
+    let test_paths = compound_file_paths_and_lengths(&test_comp);
 
     let gamestg_path = Path::new(MAIN_SEPARATOR_STR).join("GameStg");
     let mac_path = gamestg_path.join("MAC");
@@ -114,7 +117,7 @@ pub(crate) fn assert_equal_vpx(vpx_path: &Path, test_vpx_path: PathBuf) {
                     panic!(
                         "Non equal lengths for {:?} in {} original:{} test:{}, check the files original.bin and test.bin!",
                         path,
-                        test_vpx_path.file_name().unwrap().to_string_lossy(),
+                        vpx_path.file_name().unwrap().to_string_lossy(),
                         original_data.len(),
                         test_data.len()
                     );
@@ -129,12 +132,7 @@ pub(crate) fn assert_equal_vpx(vpx_path: &Path, test_vpx_path: PathBuf) {
                 let item_tags = tags_and_hashes(&mut comp, path, skip);
                 let test_item_tags = tags_and_hashes(&mut test_comp, path, skip);
                 if item_tags != test_item_tags {
-                    println!(
-                        "non equal {:?} for {} vs {}",
-                        path,
-                        vpx_path.display(),
-                        test_vpx_path.display()
-                    );
+                    println!("non equal {:?} for {}", path, vpx_path.display());
                 }
                 pretty_assertions::assert_eq!(item_tags, test_item_tags);
             }
@@ -145,9 +143,10 @@ pub(crate) fn assert_equal_vpx(vpx_path: &Path, test_vpx_path: PathBuf) {
     pretty_assertions::assert_eq!(original_paths, test_paths, "non equal {:?}", vpx_path);
 }
 
-fn compound_file_paths_and_lengths(compound_file_path: &Path) -> Vec<(PathBuf, u64, String)> {
-    let comp3 = cfb::open(compound_file_path).unwrap();
-    comp3
+fn compound_file_paths_and_lengths(
+    compound_file: &CompoundFile<Cursor<&[u8]>>,
+) -> Vec<(PathBuf, u64, String)> {
+    compound_file
         .walk()
         .filter(|entry| entry.is_stream())
         .map(|entry| {
