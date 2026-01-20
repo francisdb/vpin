@@ -3,9 +3,10 @@ name: Publish WASM Package
 on:
   push:
     tags:
-      - 'wasm-v*'
+      - 'v*'
 
 permissions:
+  id-token: write  # Required for OIDC
   contents: read
 
 env:
@@ -35,9 +36,10 @@ jobs:
       - name: Generate bindings
         run: wasm-bindgen --target web --out-dir pkg target/wasm32-unknown-unknown/release/vpin.wasm
 
-      - name: Update package name
+      - name: Update package version
         run: |
-          sed -i 's/"name": "vpin"/"name": "vpin-wasm"/' pkg/package.json
+          VERSION=${GITHUB_REF#refs/tags/v}
+          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" pkg/package.json
 
       - name: Copy README
         run: cp wasm-readme.md pkg/README.md
@@ -48,7 +50,7 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
+      # Using Trusted Publishing via OpenID Connect (OIDC) - no NPM_TOKEN needed
+      # Configure at: https://www.npmjs.com/settings/francisdb/packages/@francisdb/vpin-wasm/access
       - name: Publish to npm
-        run: npm publish ./pkg --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish ./pkg

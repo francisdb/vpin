@@ -22,3 +22,4 @@ pkg/vpin.js
 pkg/vpin.d.ts
 pkg/vpin_bg.wasm
 pkg/vpin_bg.wasm.d.ts
+pkg/README.md

@@ -1,15 +1,25 @@
 {
-  "name": "@jsm174/vpin-wasm",
+  "name": "@francisdb/vpin-wasm",
   "version": "0.1.0",
-  "description": "WASM bindings for vpin",
+  "description": "WASM bindings for vpin, a rust library for the visual/virtual pinball ecosystem.",
+  "homepage": "https://github.com/francisdb/vpin",
+  "bugs": {
+    "url": "https://github.com/francisdb/vpin/issues"
+  },
+  "license": "MIT",
+  "keywords": [
+    "pinball",
+    "vpx",
+    "visual-pinball"
+  ],
   "main": "vpin.js",
   "types": "vpin.d.ts",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jsm174/vpin.git"
+    "url": "git+https://github.com/francisdb/vpin.git"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public"
   },
   "files": [
     "vpin.js",
