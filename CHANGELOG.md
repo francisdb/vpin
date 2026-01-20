@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.5](https://github.com/francisdb/vpin/compare/v0.20.4...v0.20.5) - 2026-01-20
+
+### Other
+
+- update README with links to npm package
+- allow triggering further workflow runs
+
 ## [0.20.4](https://github.com/francisdb/vpin/compare/v0.20.3...v0.20.4) - 2026-01-20
 
 ### Added
