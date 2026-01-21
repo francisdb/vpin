@@ -81,4 +81,4 @@ getrandom = { version = "0.3.2", features = ["wasm_js"] }
 opt-level = 1
 
 [patch.crates-io]
-cfb = { git = "https://github.com/mdsteele/rust-cfb", rev = "23457a4f1e49c6847f7b83d485bb5eb20873c5b6" }
+cfb = { git = "https://github.com/mdsteele/rust-cfb", rev = "bf45363a14279d25cb23fee2436e8d501168bac3" }
