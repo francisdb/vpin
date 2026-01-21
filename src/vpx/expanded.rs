@@ -11,6 +11,7 @@ use std::{fs::File, path::Path};
 
 use crate::filesystem::{FileSystem, RealFileSystem};
 
+use super::{VPX, Version, gameitem, read_gamedata};
 use cfb::CompoundFile;
 use image::DynamicImage;
 use log::{debug, info, warn};
@@ -18,8 +19,7 @@ use log::{debug, info, warn};
 use rayon::prelude::*;
 use serde::de;
 use serde_json::Value;
-
-use super::{VPX, Version, gameitem, read_gamedata};
+use tracing::{info_span, instrument};
 
 use super::collection::Collection;
 use super::font;
@@ -1129,7 +1129,9 @@ fn compress_data(data: &[u8]) -> io::Result<Vec<u8>> {
     // before 10.6.1, compression was always LZW
     // "abuses the VP-Image-LZW compressor"
     // see https://github.com/vpinball/vpinball/commit/09f5510d676cd6b204350dfc4a93b9bf93284c56
-    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::best());
+    // Using default compression (level 6) instead of best (level 9) for better performance
+    // Level 6 provides a good balance between speed and compression ratio
+    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
     encoder.write_all(data)?;
     encoder.finish()
 }
@@ -1286,25 +1288,7 @@ fn read_gameitems<P: AsRef<Path>>(
     let gameitems_dir = expanded_dir.as_ref().join("gameitems");
 
     let read_item = |gameitem_info: GameItemInfoJson| -> io::Result<GameItemEnum> {
-        let file_name = gameitem_info.file_name;
-        let gameitem_path = gameitems_dir.join(&file_name);
-
-        if !fs.exists(&gameitem_path) {
-            return Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("GameItem file not found: {}", gameitem_path.display()),
-            ));
-        }
-
-        // read json and restore index-only metadata
-        let mut item: GameItemEnum = read_json(&gameitem_path, fs)?;
-        item.set_locked(gameitem_info.is_locked);
-        item.set_editor_layer(gameitem_info.editor_layer);
-        item.set_editor_layer_name(gameitem_info.editor_layer_name);
-        item.set_editor_layer_visibility(gameitem_info.editor_layer_visibility);
-
-        // read associated binaries (must be thread-safe; they operate on distinct files)
-        read_gameitem_binaries(&gameitems_dir, file_name, item, fs)
+        read_game_item(gameitem_info, &gameitems_dir, fs)
     };
 
     #[cfg(feature = "parallel")]
@@ -1320,6 +1304,33 @@ fn read_gameitems<P: AsRef<Path>>(
         out.push(r?);
     }
     Ok(out)
+}
+
+#[instrument(skip(fs, gameitems_dir, gameitem_info), fields(path = ?&gameitem_info.file_name))]
+fn read_game_item(
+    gameitem_info: GameItemInfoJson,
+    gameitems_dir: &Path,
+    fs: &dyn FileSystem,
+) -> io::Result<GameItemEnum> {
+    let file_name = gameitem_info.file_name;
+    let gameitem_path = gameitems_dir.join(&file_name);
+
+    if !fs.exists(&gameitem_path) {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("GameItem file not found: {}", gameitem_path.display()),
+        ));
+    }
+
+    // read json and restore index-only metadata
+    let mut item: GameItemEnum = read_json(&gameitem_path, fs)?;
+    item.set_locked(gameitem_info.is_locked);
+    item.set_editor_layer(gameitem_info.editor_layer);
+    item.set_editor_layer_name(gameitem_info.editor_layer_name);
+    item.set_editor_layer_visibility(gameitem_info.editor_layer_visibility);
+
+    // read associated binaries (must be thread-safe; they operate on distinct files)
+    read_gameitem_binaries(&gameitems_dir, file_name, item, fs)
 }
 
 fn read_gameitem_binaries(
@@ -1382,8 +1393,13 @@ fn animation_frame_file_name(gameitem_file_name: &str, index: usize) -> String {
     format!("{gameitem_file_name}_anim_{index}.obj")
 }
 
+#[instrument(skip(fs))]
 fn read_obj(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<(usize, usize, Vec<u8>, Vec<u8>)> {
+    let _span = info_span!("fs_read").entered();
     let obj_data = fs.read_file(obj_path)?;
+    drop(_span);
+
+    let _parse_span = info_span!("parse_obj").entered();
     let mut reader = io::BufReader::new(io::Cursor::new(obj_data));
     let ObjData {
         name: _,
@@ -1394,7 +1410,9 @@ fn read_obj(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<(usize, usize, V
     } = obj_read_obj(&mut reader).map_err(|e| {
         io::Error::other(format!("Error reading obj {}: {}", obj_path.display(), e))
     })?;
+    drop(_parse_span);
 
+    let _convert_span = info_span!("convert_vertices", count = vertices.len()).entered();
     let mut vpx_vertices = BytesMut::with_capacity(vertices.len() * 32);
     for ((v, vt), vn) in vertices
         .iter()
@@ -1418,12 +1436,15 @@ fn read_obj(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<(usize, usize, V
         };
         write_vertex(&mut vpx_vertices, &vertext, vpx_vertex_normal_data);
     }
+    drop(_convert_span);
+
+    let _index_span = info_span!("convert_indices", count = indices.len()).entered();
     let bytes_per_index: u8 = if vertices.len() > MAX_VERTICES_FOR_2_BYTE_INDEX {
         4
     } else {
         2
     };
-    let mut vpx_indices = BytesMut::new();
+    let mut vpx_indices = BytesMut::with_capacity(indices.len() * bytes_per_index as usize);
     for chunk in indices.chunks(3) {
         let v1 = chunk[0];
         let v2 = chunk[1];
@@ -1432,22 +1453,41 @@ fn read_obj(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<(usize, usize, V
         write_vertex_index_for_vpx(bytes_per_index, &mut vpx_indices, v2);
         write_vertex_index_for_vpx(bytes_per_index, &mut vpx_indices, v1);
     }
+    drop(_index_span);
+
     let vertices_len = vertices.len();
-    let incices_len = indices.len();
+    let indices_len = indices.len();
 
-    let vertices = vpx_vertices.to_vec();
-    let indices = vpx_indices.to_vec();
+    let _compress_span = info_span!(
+        "compress_data",
+        vertex_bytes = vpx_vertices.len(),
+        index_bytes = vpx_indices.len()
+    )
+    .entered();
 
-    let compressed_vertices = compress_data(&vertices)?;
-    let compressed_indices = compress_data(&indices)?;
+    #[cfg(feature = "parallel")]
+    let (compressed_vertices, compressed_indices) = rayon::join(
+        || compress_data(&vpx_vertices),
+        || compress_data(&vpx_indices),
+    );
+
+    #[cfg(not(feature = "parallel"))]
+    let (compressed_vertices, compressed_indices) =
+        (compress_data(&vpx_vertices), compress_data(&vpx_indices));
+
+    let compressed_vertices = compressed_vertices?;
+    let compressed_indices = compressed_indices?;
+    drop(_compress_span);
+
     Ok((
         vertices_len,
-        incices_len,
+        indices_len,
         compressed_vertices,
         compressed_indices,
     ))
 }
 
+#[instrument(skip(fs))]
 fn read_obj_as_frame(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<Vec<VertData>> {
     let obj_data = fs.read_file(obj_path)?;
     let mut reader = io::BufReader::new(io::Cursor::new(obj_data));

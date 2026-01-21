@@ -9,6 +9,7 @@ use std::error::Error;
 use std::io;
 use std::io::BufRead;
 use std::path::Path;
+use tracing::{info_span, instrument};
 
 // We have some issues where the data in the vpx file contains NaN values for normals.
 // Therefore, we came up with an elaborate way to store the vpx normals data as a comment in the obj file.
@@ -113,6 +114,7 @@ fn write_obj_to_writer<W: io::Write>(
     Ok(())
 }
 
+#[instrument(skip(vertices, indices, fs, obj_file_path), fields(path = ?obj_file_path, vertex_count = vertices.len(), index_count = indices.len()))]
 pub(crate) fn write_obj(
     name: String,
     vertices: &[([u8; 32], Vertex3dNoTex2)],
@@ -122,7 +124,10 @@ pub(crate) fn write_obj(
 ) -> Result<(), Box<dyn Error>> {
     let mut buffer = Vec::new();
     write_obj_to_writer(&name, vertices, indices, &mut buffer)?;
+
+    let _span = info_span!("fs_write", bytes = buffer.len()).entered();
     fs.write_file(obj_file_path, &buffer)?;
+
     Ok(())
 }
 
@@ -211,6 +216,7 @@ impl ObjReader for VpxObjReader {
     }
 }
 
+#[instrument(skip(reader))]
 pub(crate) fn read_obj<R: BufRead>(mut reader: &mut R) -> std::io::Result<ObjData> {
     let vpx_reader = VpxObjReader::new();
     vpx_reader.read(&mut reader)

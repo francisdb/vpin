@@ -56,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let script = std::fs::read_to_string(Path::new("examples").join("basic.vbs"))?;
     vpx.set_script(script);
 
-    vpx::write("basic.vpx", &vpx)?;
+    vpx::write(Path::new("basic.vpx"), &vpx)?;
 
     println!("Wrote basic.vpx.");
     println!(r#"Try running it with "VPinballX_GL -play basic.vpx""#);

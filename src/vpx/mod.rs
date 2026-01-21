@@ -23,11 +23,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::vpx::biff::BiffReader;
 use cfb::{CompoundFile, CreateStreamOptions, OpenStreamOptions};
 use log::{debug, info, warn};
 use md2::{Digest, Md2};
-
-use crate::vpx::biff::BiffReader;
+use tracing::{info_span, instrument};
 
 use crate::vpx::expanded::vpx_image_to_dynamic_image;
 use crate::vpx::image::ImageDataJpeg;
@@ -331,6 +331,7 @@ pub fn open_rw<P: AsRef<Path>>(path: P) -> io::Result<VpxFile<File>> {
 /// see also [`write()`]
 ///
 /// **Note:** This might take up a lot of memory depending on the size of the VPX file.
+#[instrument]
 pub fn read(path: &Path) -> io::Result<VPX> {
     if !path.exists() {
         return Err(io::Error::new(
@@ -348,11 +349,13 @@ pub fn read(path: &Path) -> io::Result<VPX> {
 /// see also [`write()`]
 ///
 /// **Note:** This might take up a lot of memory depending on the size of the VPX file.
+#[instrument(skip(slice))]
 pub fn from_bytes(slice: &[u8]) -> io::Result<VPX> {
     let mut comp = CompoundFile::open_strict(std::io::Cursor::new(slice))?;
     read_vpx(&mut comp)
 }
 
+#[instrument(skip(vpx))]
 pub fn to_bytes(vpx: &VPX) -> io::Result<Vec<u8>> {
     let buffer = std::io::Cursor::new(Vec::new());
     let mut comp = CompoundFile::create(buffer)?;
@@ -363,8 +366,9 @@ pub fn to_bytes(vpx: &VPX) -> io::Result<Vec<u8>> {
 
 /// Writes a VPX file from memory to disk
 ///
-/// see also [`read()`]
-pub fn write<P: AsRef<Path>>(path: P, vpx: &VPX) -> io::Result<()> {
+/// see also [`read()`]/// ///
+#[instrument(skip(vpx))]
+pub fn write(path: &Path, vpx: &VPX) -> io::Result<()> {
     let file = File::options()
         .read(true)
         .write(true)
@@ -373,10 +377,7 @@ pub fn write<P: AsRef<Path>>(path: P, vpx: &VPX) -> io::Result<()> {
         .open(&path)?;
     let mut comp = CompoundFile::create(file)?;
     let result = write_vpx(&mut comp, vpx);
-    info!(
-        "Wrote {}",
-        path.as_ref().file_name().unwrap().to_string_lossy()
-    );
+    info!("Wrote {}", path.file_name().unwrap().to_string_lossy());
     result
 }
 
@@ -783,6 +784,7 @@ fn write_game_data<F: Read + Write + Seek>(
     // game_data_stream.flush()
 }
 
+#[instrument(skip(comp, gamedata), fields(gameitem_count = gamedata.gameitems_size))]
 fn read_gameitems<F: Read + Seek>(
     comp: &mut CompoundFile<F>,
     gamedata: &GameData,
@@ -800,6 +802,7 @@ fn read_gameitems<F: Read + Seek>(
         .collect()
 }
 
+#[instrument(skip(comp, gameitems), fields(gameitem_count = gameitems.len()))]
 fn write_game_items<F: Read + Write + Seek>(
     comp: &mut CompoundFile<F>,
     gameitems: &[GameItemEnum],
@@ -821,27 +824,38 @@ fn write_game_items<F: Read + Write + Seek>(
     Ok(())
 }
 
+#[instrument(skip(comp, gamedata), fields(sound_count = gamedata.sounds_size))]
 fn read_sounds<F: Read + Seek>(
     comp: &mut CompoundFile<F>,
     gamedata: &GameData,
     file_version: &Version,
 ) -> io::Result<Vec<SoundData>> {
     (0..gamedata.sounds_size)
-        .map(|index| {
-            let path = Path::new(MAIN_SEPARATOR_STR)
-                .join("GameStg")
-                .join(format!("Sound{index}"));
-            let mut input = Vec::new();
-            let options = OpenStreamOptions::new().buffer_size(64 * 1024);
-            let mut stream = comp.open_stream_with_options(&path, options)?;
-            stream.read_to_end(&mut input)?;
-            let mut reader = BiffReader::new(&input);
-            let sound = sound::read(file_version, &mut reader);
-            Ok(sound)
-        })
+        .map(|index| read_sound(comp, file_version, index)?)
         .collect()
 }
 
+#[instrument(skip(comp, file_version), fields(index))]
+fn read_sound<F: Read + Seek>(
+    comp: &mut CompoundFile<F>,
+    file_version: &Version,
+    index: u32,
+) -> Result<Result<SoundData, Error>, Error> {
+    let path = Path::new(MAIN_SEPARATOR_STR)
+        .join("GameStg")
+        .join(format!("Sound{index}"));
+    let mut input = Vec::new();
+    let span = info_span!("read_sound_stream", ?path);
+    let options = OpenStreamOptions::new().buffer_size(64 * 1024);
+    let mut stream = comp.open_stream_with_options(&path, options)?;
+    stream.read_to_end(&mut input)?;
+    drop(span);
+    let mut reader = BiffReader::new(&input);
+    let sound = sound::read(file_version, &mut reader);
+    Ok(Ok(sound))
+}
+
+#[instrument(skip(comp, sounds), fields(sound_count = sounds.len()))]
 fn write_sounds<F: Read + Write + Seek>(
     comp: &mut CompoundFile<F>,
     sounds: &[SoundData],
@@ -894,6 +908,7 @@ fn write_collections<F: Read + Write + Seek>(
     Ok(())
 }
 
+#[instrument(skip(comp, gamedata), fields(image_count = gamedata.images_size))]
 fn read_images<F: Read + Seek>(
     comp: &mut CompoundFile<F>,
     gamedata: &GameData,
@@ -913,6 +928,7 @@ fn read_image<F: Read + Seek>(comp: &mut CompoundFile<F>, index: u32) -> Result<
     Ok(ImageData::biff_read(&mut reader))
 }
 
+#[instrument(skip(comp, images), fields(image_count = images.len()))]
 fn write_images<F: Read + Write + Seek>(
     comp: &mut CompoundFile<F>,
     images: &[ImageData],

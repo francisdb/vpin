@@ -17,9 +17,32 @@ mod test {
     use vpin::filesystem::{FileSystem, MemoryFileSystem, RealFileSystem};
 
     fn init() {
-        let _ = env_logger::builder()
-            .is_test(true)
-            .filter_level(log::LevelFilter::Info)
+        use crate::common::tracing_duration_filter::DurationFilterLayer;
+        use std::time::Duration;
+        use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
+
+        // let _ = env_logger::builder()
+        //     .is_test(true)
+        //     .filter_level(log::LevelFilter::Info)
+        //     .try_init();
+
+        // let _ = fmt()
+        //     .with_env_filter(
+        //         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        //     )
+        //     .with_test_writer()
+        //     .with_span_events(fmt::format::FmtSpan::CLOSE)
+        //     .try_init();
+
+        let _ = tracing_subscriber::registry()
+            .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+            .with(
+                fmt::layer()
+                    .with_test_writer()
+                    .with_ansi(true) // Enable colored output
+                    .with_span_events(fmt::format::FmtSpan::CLOSE), // Show timing when spans close
+            )
+            .with(DurationFilterLayer::new(Duration::from_millis(50)))
             .try_init();
     }
 
@@ -53,7 +76,14 @@ mod test {
                 !name.contains("CAPTAINSPAULDINGv1.0")
                     && !name.contains("RM054")
                     && !name.contains("Stranger Things 4")
+<<<<<<< HEAD
                     && name.contains("Dark Chaos")
+=======
+                // this one is very slow to read gameitems, writing is fast though
+                // mainly Primitive.WEDNESDAY_AND_THING.json
+                //&& name.contains("Spooky Wednesday")
+                && name.contains("Van Halen (Original 2025)")
+>>>>>>> dadd6e0 (feat: enhance performance with default vertex compression and add tracing instrumentation)
             })
             .collect();
 

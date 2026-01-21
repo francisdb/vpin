@@ -2,6 +2,8 @@
 #![allow(dead_code)]
 #![cfg(test)]
 
+pub mod tracing_duration_filter;
+
 use cfb::CompoundFile;
 use flate2::read::ZlibDecoder;
 use std::ffi::OsStr;
