@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tracing::{Subscriber, error, span};
+use tracing::{Subscriber, span};
 use tracing_subscriber::{Layer, layer::Context};
 
 /// A tracing layer that only logs spans that exceed a minimum duration
@@ -46,7 +46,7 @@ where
                         tracing_subscriber::fmt::format::DefaultFields,
                     >>() {
                         if !fields.fields.is_empty() {
-                            format!(" [{}]", fields.fields)
+                            format!(" {}", fields.fields)
                         } else {
                             String::new()
                         }
@@ -54,12 +54,11 @@ where
                         String::new()
                     };
 
-                    // Delegate to tracing's warn! macro so it uses the configured formatter
-                    // We use warn level so it's visible and styled differently from regular info logs
+                    // Use eprintln! directly to avoid escaping the pre-formatted ANSI codes in fields
                     let name = metadata.name();
                     let target = metadata.target();
-                    error!(
-                        "!!! [SLOW] !!! {target}::{name} took {elapsed:?} (threshold: {:?}){fields_str}",
+                    eprintln!(
+                        "\x1b[38;5;208m⚠️  [SLOW] ⚠️\x1b[0m  {target}::{name} took \x1b[36m{elapsed:?}\x1b[0m (threshold: {:?}){fields_str}",
                         self.min_duration
                     );
                 }

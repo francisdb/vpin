@@ -1054,8 +1054,8 @@ fn write_gameitems<P: AsRef<Path>>(
     let gameitems_dir = expanded_dir.as_ref().join("gameitems");
     fs.create_dir_all(&gameitems_dir)?;
     let mut file_name_gen = FileNameGen::default();
-    let mut files: Vec<GameItemInfoJson> = Vec::new();
-    let mut files_to_write: Vec<(String, usize)> = Vec::new();
+    let mut files: Vec<GameItemInfoJson> = Vec::with_capacity(vpx.gameitems.len());
+    let mut files_to_write: Vec<(String, usize)> = Vec::with_capacity(vpx.gameitems.len());
 
     for (idx, gameitem) in vpx.gameitems.iter().enumerate() {
         let file_name = gameitem_filename_stem(&mut file_name_gen, gameitem);
@@ -1131,7 +1131,11 @@ fn compress_data(data: &[u8]) -> io::Result<Vec<u8>> {
     // see https://github.com/vpinball/vpinball/commit/09f5510d676cd6b204350dfc4a93b9bf93284c56
     // Using default compression (level 6) instead of best (level 9) for better performance
     // Level 6 provides a good balance between speed and compression ratio
-    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+
+    // Pre-allocate buffer with estimated compressed size (typically ~50-70% of original)
+    let estimated_size = (data.len() * 7) / 10;
+    let output = Vec::with_capacity(estimated_size);
+    let mut encoder = flate2::write::ZlibEncoder::new(output, flate2::Compression::default());
     encoder.write_all(data)?;
     encoder.finish()
 }
@@ -1601,17 +1605,16 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
     let version = version::read_version(&mut comp).unwrap();
     let gamedata = read_gamedata(&mut comp, &version).unwrap();
 
-    let mut files: Vec<String> = Vec::new();
+    let mut files: Vec<String> = Vec::with_capacity(gamedata.images_size as usize);
 
     let images_path = root_dir_path.join("images");
     let images_size = gamedata.images_size;
     for index in 0..images_size {
         let path = format!("GameStg/Image{index}");
-        let mut input = Vec::new();
-        comp.open_stream(&path)
-            .unwrap()
-            .read_to_end(&mut input)
-            .unwrap();
+        let mut stream = comp.open_stream(&path).unwrap();
+        let stream_len = stream.len() as usize;
+        let mut input = Vec::with_capacity(stream_len);
+        stream.read_to_end(&mut input).unwrap();
         let mut reader = BiffReader::new(&input);
         let img = ImageData::biff_read(&mut reader);
 
@@ -1635,11 +1638,10 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
     let sounds_path = root_dir_path.join("sounds");
     for index in 0..sounds_size {
         let path = format!("GameStg/Sound{index}");
-        let mut input = Vec::new();
-        comp.open_stream(&path)
-            .unwrap()
-            .read_to_end(&mut input)
-            .unwrap();
+        let mut stream = comp.open_stream(&path).unwrap();
+        let stream_len = stream.len() as usize;
+        let mut input = Vec::with_capacity(stream_len);
+        stream.read_to_end(&mut input).unwrap();
         let mut reader = BiffReader::new(&input);
         let sound = sound::read(&version, &mut reader);
 
@@ -1662,11 +1664,10 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
     let fonts_path = root_dir_path.join("fonts");
     for index in 0..fonts_size {
         let path = format!("GameStg/Font{index}");
-        let mut input = Vec::new();
-        comp.open_stream(&path)
-            .unwrap()
-            .read_to_end(&mut input)
-            .unwrap();
+        let mut stream = comp.open_stream(&path).unwrap();
+        let stream_len = stream.len() as usize;
+        let mut input = Vec::with_capacity(stream_len);
+        stream.read_to_end(&mut input).unwrap();
         let font = font::read(&input);
 
         let ext = font.ext();
@@ -1692,11 +1693,10 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
     let mut file_name_gen = FileNameGen::default();
     for index in 0..gameitems_size {
         let path = format!("GameStg/GameItem{index}");
-        let mut input = Vec::new();
-        comp.open_stream(&path)
-            .unwrap()
-            .read_to_end(&mut input)
-            .unwrap();
+        let mut stream = comp.open_stream(&path).unwrap();
+        let stream_len = stream.len() as usize;
+        let mut input = Vec::with_capacity(stream_len);
+        stream.read_to_end(&mut input).unwrap();
         let gameitem = gameitem::read(&input);
         let mut gameitem_path = gameitems_path.clone();
         let file_name_stem = gameitem_filename_stem(&mut file_name_gen, &gameitem);

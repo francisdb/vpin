@@ -39,10 +39,11 @@ mod test {
             .with(
                 fmt::layer()
                     .with_test_writer()
-                    .with_ansi(true) // Enable colored output
-                    .with_span_events(fmt::format::FmtSpan::CLOSE), // Show timing when spans close
+                    // Enable colored output
+                    .with_ansi(true), // Show timing when spans close
+                                      //.with_span_events(fmt::format::FmtSpan::CLOSE),
             )
-            .with(DurationFilterLayer::new(Duration::from_millis(50)))
+            .with(DurationFilterLayer::new(Duration::from_millis(300)))
             .try_init();
     }
 
@@ -76,14 +77,13 @@ mod test {
                 !name.contains("CAPTAINSPAULDINGv1.0")
                     && !name.contains("RM054")
                     && !name.contains("Stranger Things 4")
-<<<<<<< HEAD
-                    && name.contains("Dark Chaos")
-=======
-                // this one is very slow to read gameitems, writing is fast though
-                // mainly Primitive.WEDNESDAY_AND_THING.json
+                //&& name.contains("Dark Chaos")
+                // contains huge primitives that take a long time to process
                 //&& name.contains("Spooky Wednesday")
-                && name.contains("Van Halen (Original 2025)")
->>>>>>> dadd6e0 (feat: enhance performance with default vertex compression and add tracing instrumentation)
+                // contains huge primitives that take a long time to process
+                && name.contains("Street Fighter II (Gottlieb 1993) VPW 1.1")
+                // contains a 200mb mp3 sound file
+                //&& name.contains("Van Halen (Original 2025)")
             })
             .collect();
 

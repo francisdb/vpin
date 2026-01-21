@@ -807,21 +807,30 @@ fn write_game_items<F: Read + Write + Seek>(
     comp: &mut CompoundFile<F>,
     gameitems: &[GameItemEnum],
 ) -> io::Result<()> {
-    let gamestg = Path::new(MAIN_SEPARATOR_STR).join("GameStg");
+    let game_storage_path = Path::new(MAIN_SEPARATOR_STR).join("GameStg");
     for (index, gameitem) in gameitems.iter().enumerate() {
-        let path = gamestg.join(format!("GameItem{index}"));
-        let options = if matches!(gameitem, GameItemEnum::Primitive(_)) {
-            CreateStreamOptions::new()
-                .buffer_size(64 * 1024)
-                .overwrite(false)
-        } else {
-            CreateStreamOptions::new().overwrite(false)
-        };
-        let mut stream = comp.create_stream_with_options(&path, options)?;
-        let data = gameitem::write(gameitem);
-        stream.write_all(&data)?;
+        let path = game_storage_path.join(format!("GameItem{index}"));
+        write_gameitem(comp, &path, gameitem)?;
     }
     Ok(())
+}
+
+#[instrument(skip(comp, path, gameitem), fields(name = ?gameitem.name()))]
+fn write_gameitem<F: Read + Write + Seek>(
+    comp: &mut CompoundFile<F>,
+    path: &Path,
+    gameitem: &GameItemEnum,
+) -> Result<(), Error> {
+    let options = if matches!(gameitem, GameItemEnum::Primitive(_)) {
+        CreateStreamOptions::new()
+            .buffer_size(64 * 1024)
+            .overwrite(false)
+    } else {
+        CreateStreamOptions::new().overwrite(false)
+    };
+    let mut stream = comp.create_stream_with_options(&path, options)?;
+    let data = gameitem::write(gameitem);
+    stream.write_all(&data)
 }
 
 #[instrument(skip(comp, gamedata), fields(sound_count = gamedata.sounds_size))]
