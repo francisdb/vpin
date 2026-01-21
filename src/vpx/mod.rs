@@ -918,7 +918,7 @@ fn write_images<F: Read + Write + Seek>(
     images: &[ImageData],
 ) -> io::Result<()> {
     for (index, image) in images.iter().enumerate() {
-        write_image(comp, index, image)?;
+        write_image(comp, index, image, false)?;
     }
     Ok(())
 }
@@ -927,11 +927,12 @@ fn write_image<F: Read + Write + Seek>(
     comp: &mut CompoundFile<F>,
     index: usize,
     image: &ImageData,
+    overwrite: bool,
 ) -> Result<(), Error> {
     let path = format!("GameStg/Image{index}");
     let options = CreateStreamOptions::new()
         .buffer_size(64 * 1024)
-        .overwrite(false);
+        .overwrite(overwrite);
     let mut stream = comp.create_stream_with_options(&path, options)?;
     let mut writer = BiffWriter::new();
     image.biff_write(&mut writer);
@@ -977,7 +978,7 @@ fn images_to_webp<F: Read + Write + Seek>(
                         .write_to(&mut cursor, ImageFormat::WebP)
                         .map_err(|e| io::Error::other(e.to_string()))?;
                     jpeg.data = webp;
-                    write_image(comp, index as usize, &image_data)?;
+                    write_image(comp, index as usize, &image_data, true)?;
                     conversions.push(ImageToWebpConversion {
                         name: image_data.name.clone(),
                         old_extension: "png".to_string(),
@@ -1012,7 +1013,7 @@ fn images_to_webp<F: Read + Write + Seek>(
                     };
                     image_data.bits = None;
                     image_data.jpeg = Some(jpg);
-                    write_image(comp, index as usize, &image_data)?;
+                    write_image(comp, index as usize, &image_data, true)?;
                 }
                 conversions.push(ImageToWebpConversion {
                     name: image_data.name.clone(),
