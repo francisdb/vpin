@@ -65,20 +65,15 @@ use crate::vpx::renderprobe::{RenderProbeJson, RenderProbeWithGarbage};
 use crate::vpx::tableinfo::TableInfo;
 
 /// Format for exporting primitive mesh data
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum PrimitiveMeshFormat {
     /// Wavefront OBJ format (text-based, human-readable)
+    #[default]
     Obj,
     /// Binary GLTF format (GLB) - more efficient for large meshes
     /// TODO: Consider packing animation frames into a single GLB using GLTF animations
     /// TODO: Consider adding compression support for GLB files
     Glb,
-}
-
-impl Default for PrimitiveMeshFormat {
-    fn default() -> Self {
-        PrimitiveMeshFormat::Obj
-    }
 }
 
 /// Sanitize a filename using the sanitize-filename crate

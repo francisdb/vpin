@@ -402,10 +402,10 @@ impl ObjData {
                     Vertex3dNoTex2 {
                         x: v.0,
                         y: v.1,
-                        z: z,
+                        z,
                         nx: vn.0,
                         ny: vn.1,
-                        nz: nz,
+                        nz,
                         tu: vt.0,
                         tv: vt.1.unwrap_or(0.0),
                     },
