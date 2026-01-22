@@ -40,6 +40,18 @@ vpin = { version = "0.20", default-features = false, features = ["parallel"] }
 
 Check the [examples folder](/examples)
 
+## Expanded VPX Format
+
+The library supports extracting VPX files to an expanded directory format for easier editing and version control.
+
+For primitive mesh data, you can choose between two formats:
+
+- **OBJ format** (default) - Text-based Wavefront OBJ, human-readable and widely supported
+- **GLB format** (optional) - Binary GLTF, significantly faster I/O for large meshes and animation frames
+
+Use `write_with_format()` to specify the format. Both formats are supported for reading, with OBJ checked first for
+backward compatibility.
+
 ## Projects using vpin
 
 https://github.com/francisdb/vpxtool

@@ -1,16 +1,18 @@
 //! Wavefront OBJ file reader and writer
 
 use crate::filesystem::FileSystem;
+use crate::vpx::expanded::BytesMutExt;
+use crate::vpx::gameitem::primitive::MAX_VERTICES_FOR_2_BYTE_INDEX;
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::wavefront_obj_io;
 use crate::wavefront_obj_io::{ObjReader, ObjWriter};
+use bytes::{BufMut, BytesMut};
 use log::warn;
 use std::error::Error;
 use std::io;
 use std::io::BufRead;
 use std::path::Path;
 use tracing::{info_span, instrument};
-
 // We have some issues where the data in the vpx file contains NaN values for normals.
 // Therefore, we came up with an elaborate way to store the vpx normals data as a comment in the obj file.
 // To be seen if we keep this as it comes with considerable overhead.
@@ -50,7 +52,9 @@ fn obj_parse_vpx_comment(comment: &str) -> Option<VpxNormalBytes> {
 ///
 /// Somehow the z axis is inverted compared to the vpx file values,
 /// so we have to negate the z values.
-fn write_obj_to_writer<W: io::Write>(
+/// This also affects winding order of the faces.
+/// TODO we should be reversing the winding order as well here instead of higher up in the code
+pub(crate) fn write_obj_to_writer<W: io::Write>(
     name: &str,
     vertices: &[([u8; 32], Vertex3dNoTex2)],
     indices: &[i64],
@@ -81,7 +85,7 @@ fn write_obj_to_writer<W: io::Write>(
     obj_writer.write_object_name(name)?;
 
     for (_, vertex) in vertices {
-        obj_writer.write_vertex(vertex.x, vertex.y, vertex.z, None)?;
+        obj_writer.write_vertex(vertex.x, vertex.y, -vertex.z, None)?;
     }
     for (_, vertex) in vertices {
         obj_writer.write_texture_coordinate(vertex.tu, Some(vertex.tv), None)?;
@@ -96,13 +100,12 @@ fn write_obj_to_writer<W: io::Write>(
         }
         let x = if vertex.nx.is_nan() { 0.0 } else { vertex.nx };
         let y = if vertex.ny.is_nan() { 0.0 } else { vertex.ny };
-        let z = if vertex.nz.is_nan() { 0.0 } else { vertex.nz };
+        let z = if vertex.nz.is_nan() { 0.0 } else { -vertex.nz };
         obj_writer.write_normal(x, y, z)?;
     }
     // write all faces in groups of 3
     for chunk in indices.chunks(3) {
         // obj indices are 1 based
-        // since the z axis is inverted we have to reverse the order of the vertices
         let v1 = chunk[0] + 1;
         let v2 = chunk[1] + 1;
         let v3 = chunk[2] + 1;
@@ -115,16 +118,118 @@ fn write_obj_to_writer<W: io::Write>(
     Ok(())
 }
 
+pub(crate) fn read_obj_from_reader<R: BufRead>(
+    mut reader: &mut R,
+) -> io::Result<(
+    String,
+    Vec<Vertex3dNoTex2>,
+    Vec<(f32, f32, f32, Option<f32>)>,
+    Vec<i64>,
+    BytesMut,
+    BytesMut,
+)> {
+    let ObjData {
+        name,
+        vertices,
+        texture_coordinates,
+        normals,
+        indices,
+    } = read_obj(&mut reader).map_err(|e| io::Error::other(format!("Error reading obj: {}", e)))?;
+
+    let mut final_vertices = Vec::with_capacity(vertices.len());
+    let mut vpx_vertices = BytesMut::with_capacity(vertices.len() * 32);
+    for ((v, vt), vn) in vertices
+        .iter()
+        .zip(texture_coordinates.iter())
+        .zip(normals.iter())
+    {
+        let (normal, vpx_vertex_normal_data) = vn;
+        let nx = normal.0;
+        let ny = normal.1;
+        let nz = -(normal.2);
+
+        let vertext = Vertex3dNoTex2 {
+            x: v.0,
+            y: v.1,
+            z: -(v.2),
+            nx,
+            ny,
+            nz,
+            tu: vt.0,
+            tv: vt.1.unwrap_or(0.0),
+        };
+        write_vertex(&mut vpx_vertices, &vertext, vpx_vertex_normal_data);
+        final_vertices.push(vertext);
+    }
+
+    let bytes_per_index: u8 = if vertices.len() > MAX_VERTICES_FOR_2_BYTE_INDEX {
+        4
+    } else {
+        2
+    };
+    let mut vpx_indices = BytesMut::with_capacity(indices.len() * bytes_per_index as usize);
+    for chunk in indices.chunks(3) {
+        let v1 = chunk[0];
+        let v2 = chunk[1];
+        let v3 = chunk[2];
+        write_vertex_index_for_vpx(bytes_per_index, &mut vpx_indices, v3);
+        write_vertex_index_for_vpx(bytes_per_index, &mut vpx_indices, v2);
+        write_vertex_index_for_vpx(bytes_per_index, &mut vpx_indices, v1);
+    }
+    // TODO this should just return optional vpx bytes if they are overridden
+    Ok((
+        name,
+        final_vertices,
+        vertices,
+        indices,
+        vpx_vertices,
+        vpx_indices,
+    ))
+}
+
+pub(crate) fn write_vertex_index_for_vpx(
+    bytes_per_index: u8,
+    vpx_indices: &mut BytesMut,
+    vertex_index: i64,
+) {
+    if bytes_per_index == 2 {
+        vpx_indices.put_u16_le(vertex_index as u16);
+    } else {
+        vpx_indices.put_u32_le(vertex_index as u32);
+    }
+}
+
+fn write_vertex(
+    buff: &mut BytesMut,
+    vertex: &Vertex3dNoTex2,
+    vpx_vertex_normal_data: &Option<[u8; 12]>,
+) {
+    buff.put_f32_le(vertex.x);
+    buff.put_f32_le(vertex.y);
+    buff.put_f32_le(vertex.z);
+    // normals
+    if let Some(bytes) = vpx_vertex_normal_data {
+        buff.put_slice(bytes);
+    } else {
+        buff.put_f32_le_nan_as_zero(vertex.nx);
+        buff.put_f32_le_nan_as_zero(vertex.ny);
+        buff.put_f32_le_nan_as_zero(vertex.nz);
+    }
+    // texture coordinates
+    buff.put_f32_le(vertex.tu);
+    buff.put_f32_le(vertex.tv);
+}
+
 #[instrument(skip(vertices, indices, fs, obj_file_path), fields(path = ?obj_file_path, vertex_count = vertices.len(), index_count = indices.len()))]
 pub(crate) fn write_obj(
-    name: String,
+    name: &str,
     vertices: &[([u8; 32], Vertex3dNoTex2)],
     indices: &[i64],
     obj_file_path: &Path,
     fs: &dyn FileSystem,
 ) -> Result<(), Box<dyn Error>> {
     let mut buffer = Vec::new();
-    write_obj_to_writer(&name, vertices, indices, &mut buffer)?;
+    write_obj_to_writer(name, vertices, indices, &mut buffer)?;
 
     let _span = info_span!("fs_write", bytes = buffer.len()).entered();
     fs.write_file(obj_file_path, &buffer)?;
@@ -246,6 +351,70 @@ pub(crate) struct ObjData {
     pub indices: Vec<i64>,
 }
 
+impl ObjData {
+    /// Converts ObjData to the vertex format used by write_glb and write_obj.
+    ///
+    /// This creates the 32-byte vertex arrays with proper VPX normal bytes.
+    /// If VPX bytes are available from the OBJ comments, they are used directly.
+    /// Otherwise, the normal float values are encoded as bytes.
+    ///
+    /// When `negate_z` is true, the z coordinates are negated for VPX format compatibility.
+    pub(crate) fn to_vertices(&self, negate_z: bool) -> Vec<([u8; 32], Vertex3dNoTex2)> {
+        use byteorder::{LittleEndian, WriteBytesExt};
+
+        self.vertices
+            .iter()
+            .zip(&self.texture_coordinates)
+            .zip(&self.normals)
+            .map(|((v, vt), (vn, vpx_bytes_opt))| {
+                let mut bytes = [0u8; 32];
+
+                let z = if negate_z { -v.2 } else { v.2 };
+                let nz = if negate_z { -vn.2 } else { vn.2 };
+
+                // Write position bytes (0-11)
+                let mut cursor = std::io::Cursor::new(&mut bytes[0..12]);
+                cursor.write_f32::<LittleEndian>(v.0).unwrap();
+                cursor.write_f32::<LittleEndian>(v.1).unwrap();
+                cursor.write_f32::<LittleEndian>(z).unwrap();
+
+                // Write normal bytes (12-23)
+                // If we have VPX bytes from OBJ, use them, otherwise encode the floats
+                if let Some(vpx_bytes) = vpx_bytes_opt {
+                    bytes[12..24].copy_from_slice(vpx_bytes);
+                } else {
+                    // Encode normals as floats
+                    let mut cursor = std::io::Cursor::new(&mut bytes[12..24]);
+                    cursor.write_f32::<LittleEndian>(vn.0).unwrap();
+                    cursor.write_f32::<LittleEndian>(vn.1).unwrap();
+                    cursor.write_f32::<LittleEndian>(nz).unwrap();
+                }
+
+                // Write texcoord bytes (24-31)
+                let mut cursor = std::io::Cursor::new(&mut bytes[24..32]);
+                cursor.write_f32::<LittleEndian>(vt.0).unwrap();
+                cursor
+                    .write_f32::<LittleEndian>(vt.1.unwrap_or(0.0))
+                    .unwrap();
+
+                (
+                    bytes,
+                    Vertex3dNoTex2 {
+                        x: v.0,
+                        y: v.1,
+                        z: z,
+                        nx: vn.0,
+                        ny: vn.1,
+                        nz: nz,
+                        tu: vt.0,
+                        tv: vt.1.unwrap_or(0.0),
+                    },
+                )
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -267,12 +436,59 @@ f 1/1/1 1/1/1 1/1/1
         let read_data = read_obj(&mut reader)?;
         let expected = ObjData {
             name: "minimal".to_string(),
-            vertices: vec![(1.0, 2.0, 3.0, None)],
-            texture_coordinates: vec![(2.0, Some(4.0), None)],
-            normals: vec![((0.0, 1.0, 0.0), None)],
+            vertices: vec![(1.0f32, 2.0f32, 3.0f32, None)],
+            texture_coordinates: vec![(2.0f32, Some(4.0f32), None)],
+            normals: vec![((0.0f32, 1.0f32, 0.0f32), None)],
             indices: vec![0, 0, 0],
         };
         assert_eq!(read_data, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrip_minimal_obj() -> TestResult {
+        let obj_contents = r#"# VPXTOOL table OBJ file
+# VPXTOOL OBJ file
+# numVerts: 1 numFaces: 3
+o minimal
+v 1 2 3
+vt 2 4
+vn 0 1 0
+f 1/1/1 1/1/1 1/1/1
+"#;
+
+        let mut reader = BufReader::new(obj_contents.as_bytes());
+        let (name, vertices, _vertices2, indices, vpx_vertices, _read_data_vpx_indices) =
+            read_obj_from_reader(&mut reader)?;
+
+        // TODO optimize: we don't need to convert to vpx_vertices and back for this test
+
+        let chunked_vertices = vpx_vertices
+            .chunks(32)
+            .map(|chunk| {
+                let mut array = [0u8; 32];
+                array.copy_from_slice(chunk);
+                array
+            })
+            .collect::<Vec<[u8; 32]>>();
+        let vertices = chunked_vertices
+            .iter()
+            .zip(vertices.iter())
+            .map(|(b, v)| (*b, v.clone()))
+            .collect::<Vec<([u8; 32], Vertex3dNoTex2)>>();
+
+        let mut buffer = Vec::new();
+        write_obj_to_writer(&name, &vertices, &indices, &mut buffer)?;
+
+        let written_obj_contents = String::from_utf8(buffer)?;
+        // When on Windows the original file will be checked out with \r\n line endings.
+        let original = if cfg!(windows) {
+            obj_contents.replace("\r\n", "\n")
+        } else {
+            obj_contents.to_string()
+        };
+        // The obj file will always be written with \n line endings.
+        assert_eq!(original, written_obj_contents);
         Ok(())
     }
 
@@ -290,14 +506,14 @@ f 1/1/1 1/1/1 1/1/1
         let read_data = read_obj(&mut reader)?;
         let expected = ObjData {
             name: "with_nan".to_string(),
-            vertices: vec![(1.0, 2.0, 3.0, None)],
-            texture_coordinates: vec![(2.0, Some(4.0), None)],
+            vertices: vec![(1.0f32, 2.0f32, 3.0f32, None)],
+            texture_coordinates: vec![(2.0f32, Some(4.0f32), None)],
             normals: vec![
                 (
                     (f32::NAN, 1.0f32, 0.0f32),
                     Some([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
                 ),
-                ((1.0, 2.0, 3.0), None),
+                ((1.0f32, 2.0f32, 3.0f32), None),
             ],
             indices: vec![0, 0, 0],
         };
@@ -336,33 +552,13 @@ f 1/1/1 1/1/1 1/1/1
         let mut reader = Cursor::new(SCREW_OBJ_BYTES);
         let obj_data = read_obj(&mut reader)?;
 
-        // zip vertices, texture coordinates and normals into a single vec
-        let vertices: Vec<([u8; 32], Vertex3dNoTex2)> = obj_data
-            .vertices
-            .iter()
-            .zip(&obj_data.texture_coordinates)
-            .zip(&obj_data.normals)
-            .map(|((v, vt), (vn, _))| {
-                (
-                    [0u8; 32],
-                    Vertex3dNoTex2 {
-                        x: v.0,
-                        y: v.1,
-                        z: v.2,
-                        nx: vn.0,
-                        ny: vn.1,
-                        nz: vn.2,
-                        tu: vt.0,
-                        tv: vt.1.unwrap_or(0.0),
-                    },
-                )
-            })
-            .collect();
+        // Convert to vertex format (no z-axis negation for OBJ-to-OBJ round-trip)
+        let vertices = obj_data.to_vertices(true);
 
         let memory_fs = MemoryFileSystem::default();
         let written_obj_path = Path::new("screw.obj");
         write_obj(
-            obj_data.name,
+            &obj_data.name,
             &vertices,
             &obj_data.indices,
             written_obj_path,

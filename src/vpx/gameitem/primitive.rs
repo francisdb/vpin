@@ -250,30 +250,10 @@ impl Primitive {
                 } else {
                     2
                 };
-                let mut vertices: Vec<([u8; 32], Vertex3dNoTex2)> =
-                    Vec::with_capacity(num_vertices);
 
-                let mut buff = BytesMut::from(raw_vertices.as_slice());
-                for _ in 0..num_vertices {
-                    let mut vertex = read_vertex(&mut buff);
-                    // invert the z axis for both position and normal
-                    vertex.1.z = -vertex.1.z;
-                    vertex.1.nz = -vertex.1.nz;
-                    vertices.push(vertex);
-                }
+                let vertices = raw_vertices_to_vertices(raw_vertices, num_vertices);
 
-                let mut buff = BytesMut::from(indices.as_slice());
-                let num_indices = indices.len() / bytes_per_index as usize;
-                let mut indices: Vec<i64> = Vec::with_capacity(num_indices);
-                for _ in 0..num_indices / 3 {
-                    // Looks like the indices are in reverse order
-                    let v1 = read_vertex_index_from_vpx(bytes_per_index, &mut buff);
-                    let v2 = read_vertex_index_from_vpx(bytes_per_index, &mut buff);
-                    let v3 = read_vertex_index_from_vpx(bytes_per_index, &mut buff);
-                    indices.push(v3);
-                    indices.push(v2);
-                    indices.push(v1);
-                }
+                let indices = raw_indices_to_indices(indices, bytes_per_index);
 
                 Ok(Some(ReadMesh { vertices, indices }))
             } else {
@@ -857,6 +837,37 @@ pub(crate) fn compress_mesh_data(data: &[u8]) -> io::Result<Vec<u8>> {
     let mut encoder = ZlibEncoder::new(output, compression_level);
     encoder.write_all(data)?;
     encoder.finish()
+}
+
+// TODO make private
+pub fn raw_vertices_to_vertices(
+    raw_vertices: Vec<u8>,
+    num_vertices: usize,
+) -> Vec<([u8; 32], Vertex3dNoTex2)> {
+    let mut vertices = Vec::with_capacity(num_vertices);
+    let mut buff = BytesMut::from(raw_vertices.as_slice());
+    for _ in 0..num_vertices {
+        let vertex = read_vertex(&mut buff);
+        vertices.push(vertex);
+    }
+    vertices
+}
+
+// TODO make private
+pub fn raw_indices_to_indices(indices: Vec<u8>, bytes_per_index: u8) -> Vec<i64> {
+    let mut buff = BytesMut::from(indices.as_slice());
+    let num_indices = indices.len() / bytes_per_index as usize;
+    let mut indices: Vec<i64> = Vec::with_capacity(num_indices);
+    for _ in 0..num_indices / 3 {
+        // Looks like the indices are in reverse order
+        let v1 = read_vertex_index_from_vpx(bytes_per_index, &mut buff);
+        let v2 = read_vertex_index_from_vpx(bytes_per_index, &mut buff);
+        let v3 = read_vertex_index_from_vpx(bytes_per_index, &mut buff);
+        indices.push(v3);
+        indices.push(v2);
+        indices.push(v1);
+    }
+    indices
 }
 
 fn read_vertex(buffer: &mut BytesMut) -> ([u8; 32], Vertex3dNoTex2) {
