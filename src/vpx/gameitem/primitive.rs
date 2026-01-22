@@ -839,8 +839,7 @@ pub(crate) fn compress_mesh_data(data: &[u8]) -> io::Result<Vec<u8>> {
     encoder.finish()
 }
 
-// TODO make private
-pub fn raw_vertices_to_vertices(
+fn raw_vertices_to_vertices(
     raw_vertices: Vec<u8>,
     num_vertices: usize,
 ) -> Vec<([u8; 32], Vertex3dNoTex2)> {
@@ -853,8 +852,7 @@ pub fn raw_vertices_to_vertices(
     vertices
 }
 
-// TODO make private
-pub fn raw_indices_to_indices(indices: Vec<u8>, bytes_per_index: u8) -> Vec<i64> {
+fn raw_indices_to_indices(indices: Vec<u8>, bytes_per_index: u8) -> Vec<i64> {
     let mut buff = BytesMut::from(indices.as_slice());
     let num_indices = indices.len() / bytes_per_index as usize;
     let mut indices: Vec<i64> = Vec::with_capacity(num_indices);
