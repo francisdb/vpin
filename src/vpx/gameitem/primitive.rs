@@ -914,14 +914,6 @@ fn read_vertex_index_from_vpx(bytes_per_index: u8, buff: &mut BytesMut) -> i64 {
 }
 
 /// Decompress mesh data (vertices or indices) using zlib compression.
-//
-// This is how they were compressed using zlib
-//
-// const mz_ulong slen = (mz_ulong)(sizeof(Vertex3dNoTex2)*m_mesh.NumVertices());
-// mz_ulong clen = compressBound(slen);
-// mz_uint8 * c = (mz_uint8 *)malloc(clen);
-// if (compress2(c, &clen, (const unsigned char *)m_mesh.m_vertices.data(), slen, MZ_BEST_COMPRESSION) != Z_OK)
-// ShowError("Could not compress primitive vertex data");
 fn decompress_mesh_data(compressed_data: &[u8]) -> io::Result<Vec<u8>> {
     let mut decoder = ZlibDecoder::new(compressed_data);
     let mut decompressed_data = Vec::new();
