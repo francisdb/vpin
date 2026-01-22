@@ -62,6 +62,7 @@ mod test {
         // * Spooky Wednesday
         // * Street Fighter II (Gottlieb 1993) VPW 1.1
         // * Van Halen (Original 2025) - contains a 200mb mp3 sound file
+        // * InvaderTable_2.260.vpx - contains about 5000 gameitems? Chokes the cfb writer.
 
         // Example tables caused problems in the past:
         //
