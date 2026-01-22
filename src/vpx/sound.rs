@@ -9,6 +9,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use std::fmt;
 use std::path::Path;
+use tracing::instrument;
 
 #[derive(Debug, PartialEq, Clone)]
 #[cfg_attr(test, derive(fake::Dummy))]
@@ -307,6 +308,7 @@ impl SoundData {
     }
 }
 
+#[instrument(skip(file_version, reader))]
 pub(crate) fn read(file_version: &Version, reader: &mut BiffReader) -> SoundData {
     let mut name: String = "".to_string();
     let mut path: String = "".to_string();

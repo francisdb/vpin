@@ -11,6 +11,7 @@ use std::{fs::File, path::Path};
 
 use crate::filesystem::{FileSystem, RealFileSystem};
 
+use super::{VPX, Version, gameitem, read_gamedata};
 use cfb::CompoundFile;
 use image::DynamicImage;
 use log::{debug, info, warn};
@@ -18,8 +19,7 @@ use log::{debug, info, warn};
 use rayon::prelude::*;
 use serde::de;
 use serde_json::Value;
-
-use super::{VPX, Version, gameitem, read_gamedata};
+use tracing::{info_span, instrument};
 
 use super::collection::Collection;
 use super::font;
@@ -30,11 +30,11 @@ use super::version;
 use crate::vpx::biff::{BiffRead, BiffReader};
 use crate::vpx::custominfotags::CustomInfoTags;
 use crate::vpx::font::{FontData, FontDataJson};
-use crate::vpx::gameitem::GameItemEnum;
 use crate::vpx::gameitem::primitive::{
     MAX_VERTICES_FOR_2_BYTE_INDEX, ReadMesh, VertData, read_vpx_animation_frame,
     write_animation_vertex_data,
 };
+use crate::vpx::gameitem::{GameItemEnum, primitive};
 use crate::vpx::image::{ImageData, ImageDataBits, ImageDataJson};
 use crate::vpx::jsonmodel::{collections_json, info_to_json, json_to_collections, json_to_info};
 use crate::vpx::lzw::{from_lzw_blocks, to_lzw_blocks};
@@ -1054,8 +1054,8 @@ fn write_gameitems<P: AsRef<Path>>(
     let gameitems_dir = expanded_dir.as_ref().join("gameitems");
     fs.create_dir_all(&gameitems_dir)?;
     let mut file_name_gen = FileNameGen::default();
-    let mut files: Vec<GameItemInfoJson> = Vec::new();
-    let mut files_to_write: Vec<(String, usize)> = Vec::new();
+    let mut files: Vec<GameItemInfoJson> = Vec::with_capacity(vpx.gameitems.len());
+    let mut files_to_write: Vec<(String, usize)> = Vec::with_capacity(vpx.gameitems.len());
 
     for (idx, gameitem) in vpx.gameitems.iter().enumerate() {
         let file_name = gameitem_filename_stem(&mut file_name_gen, gameitem);
@@ -1123,15 +1123,6 @@ fn gameitem_filename_stem(file_name_gen: &mut FileNameGen, gameitem: &GameItemEn
     name = name.replace(|c: char| !c.is_alphanumeric(), "_");
     let file_name = format!("{}.{}", gameitem.type_name(), name);
     file_name_gen.ensure_unique(file_name)
-}
-
-fn compress_data(data: &[u8]) -> io::Result<Vec<u8>> {
-    // before 10.6.1, compression was always LZW
-    // "abuses the VP-Image-LZW compressor"
-    // see https://github.com/vpinball/vpinball/commit/09f5510d676cd6b204350dfc4a93b9bf93284c56
-    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::best());
-    encoder.write_all(data)?;
-    encoder.finish()
 }
 
 fn write_gameitem_binaries(
@@ -1286,25 +1277,7 @@ fn read_gameitems<P: AsRef<Path>>(
     let gameitems_dir = expanded_dir.as_ref().join("gameitems");
 
     let read_item = |gameitem_info: GameItemInfoJson| -> io::Result<GameItemEnum> {
-        let file_name = gameitem_info.file_name;
-        let gameitem_path = gameitems_dir.join(&file_name);
-
-        if !fs.exists(&gameitem_path) {
-            return Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("GameItem file not found: {}", gameitem_path.display()),
-            ));
-        }
-
-        // read json and restore index-only metadata
-        let mut item: GameItemEnum = read_json(&gameitem_path, fs)?;
-        item.set_locked(gameitem_info.is_locked);
-        item.set_editor_layer(gameitem_info.editor_layer);
-        item.set_editor_layer_name(gameitem_info.editor_layer_name);
-        item.set_editor_layer_visibility(gameitem_info.editor_layer_visibility);
-
-        // read associated binaries (must be thread-safe; they operate on distinct files)
-        read_gameitem_binaries(&gameitems_dir, file_name, item, fs)
+        read_game_item(gameitem_info, &gameitems_dir, fs)
     };
 
     #[cfg(feature = "parallel")]
@@ -1320,6 +1293,33 @@ fn read_gameitems<P: AsRef<Path>>(
         out.push(r?);
     }
     Ok(out)
+}
+
+#[instrument(skip(fs, gameitems_dir, gameitem_info), fields(path = ?&gameitem_info.file_name))]
+fn read_game_item(
+    gameitem_info: GameItemInfoJson,
+    gameitems_dir: &Path,
+    fs: &dyn FileSystem,
+) -> io::Result<GameItemEnum> {
+    let file_name = gameitem_info.file_name;
+    let gameitem_path = gameitems_dir.join(&file_name);
+
+    if !fs.exists(&gameitem_path) {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("GameItem file not found: {}", gameitem_path.display()),
+        ));
+    }
+
+    // read json and restore index-only metadata
+    let mut item: GameItemEnum = read_json(&gameitem_path, fs)?;
+    item.set_locked(gameitem_info.is_locked);
+    item.set_editor_layer(gameitem_info.editor_layer);
+    item.set_editor_layer_name(gameitem_info.editor_layer_name);
+    item.set_editor_layer_visibility(gameitem_info.editor_layer_visibility);
+
+    // read associated binaries (must be thread-safe; they operate on distinct files)
+    read_gameitem_binaries(gameitems_dir, file_name, item, fs)
 }
 
 fn read_gameitem_binaries(
@@ -1367,7 +1367,7 @@ fn read_gameitem_binaries(
                 for vertex in animation_frame_vertices {
                     write_animation_vertex_data(&mut buff, &vertex);
                 }
-                let compressed_frame = compress_data(&buff)?;
+                let compressed_frame = primitive::compress_mesh_data(&buff)?;
                 compressed_lengths.push(compressed_frame.len() as u32);
                 compressed_animation_vertices.push(compressed_frame);
             }
@@ -1382,8 +1382,12 @@ fn animation_frame_file_name(gameitem_file_name: &str, index: usize) -> String {
     format!("{gameitem_file_name}_anim_{index}.obj")
 }
 
+#[instrument(skip(fs))]
 fn read_obj(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<(usize, usize, Vec<u8>, Vec<u8>)> {
+    let _span = info_span!("fs_read").entered();
     let obj_data = fs.read_file(obj_path)?;
+    drop(_span);
+
     let mut reader = io::BufReader::new(io::Cursor::new(obj_data));
     let ObjData {
         name: _,
@@ -1418,12 +1422,14 @@ fn read_obj(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<(usize, usize, V
         };
         write_vertex(&mut vpx_vertices, &vertext, vpx_vertex_normal_data);
     }
+
+    let _index_span = info_span!("convert_indices", count = indices.len()).entered();
     let bytes_per_index: u8 = if vertices.len() > MAX_VERTICES_FOR_2_BYTE_INDEX {
         4
     } else {
         2
     };
-    let mut vpx_indices = BytesMut::new();
+    let mut vpx_indices = BytesMut::with_capacity(indices.len() * bytes_per_index as usize);
     for chunk in indices.chunks(3) {
         let v1 = chunk[0];
         let v2 = chunk[1];
@@ -1432,22 +1438,47 @@ fn read_obj(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<(usize, usize, V
         write_vertex_index_for_vpx(bytes_per_index, &mut vpx_indices, v2);
         write_vertex_index_for_vpx(bytes_per_index, &mut vpx_indices, v1);
     }
+    drop(_index_span);
+
     let vertices_len = vertices.len();
-    let incices_len = indices.len();
+    let indices_len = indices.len();
+    let (compressed_vertices, compressed_indices) =
+        compress_vertices_and_indices(&vpx_vertices, &vpx_indices)?;
 
-    let vertices = vpx_vertices.to_vec();
-    let indices = vpx_indices.to_vec();
-
-    let compressed_vertices = compress_data(&vertices)?;
-    let compressed_indices = compress_data(&indices)?;
     Ok((
         vertices_len,
-        incices_len,
+        indices_len,
         compressed_vertices,
         compressed_indices,
     ))
 }
 
+#[instrument(skip(vpx_vertices, vpx_indices), fields(
+    vertices_bytes = vpx_vertices.len(),
+    indices_bytes = vpx_indices.len()
+))]
+fn compress_vertices_and_indices(
+    vpx_vertices: &[u8],
+    vpx_indices: &[u8],
+) -> io::Result<(Vec<u8>, Vec<u8>)> {
+    #[cfg(feature = "parallel")]
+    let (compressed_vertices, compressed_indices) = rayon::join(
+        || primitive::compress_mesh_data(vpx_vertices),
+        || primitive::compress_mesh_data(vpx_indices),
+    );
+
+    #[cfg(not(feature = "parallel"))]
+    let (compressed_vertices, compressed_indices) = (
+        primitive::compress_mesh_data(&vpx_vertices),
+        primitive::compress_mesh_data(&vpx_indices),
+    );
+
+    let compressed_vertices = compressed_vertices?;
+    let compressed_indices = compressed_indices?;
+    Ok((compressed_vertices, compressed_indices))
+}
+
+#[instrument(skip(fs))]
 fn read_obj_as_frame(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<Vec<VertData>> {
     let obj_data = fs.read_file(obj_path)?;
     let mut reader = io::BufReader::new(io::Cursor::new(obj_data));
@@ -1561,17 +1592,16 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
     let version = version::read_version(&mut comp).unwrap();
     let gamedata = read_gamedata(&mut comp, &version).unwrap();
 
-    let mut files: Vec<String> = Vec::new();
+    let mut files: Vec<String> = Vec::with_capacity(gamedata.images_size as usize);
 
     let images_path = root_dir_path.join("images");
     let images_size = gamedata.images_size;
     for index in 0..images_size {
         let path = format!("GameStg/Image{index}");
-        let mut input = Vec::new();
-        comp.open_stream(&path)
-            .unwrap()
-            .read_to_end(&mut input)
-            .unwrap();
+        let mut stream = comp.open_stream(&path).unwrap();
+        let stream_len = stream.len() as usize;
+        let mut input = Vec::with_capacity(stream_len);
+        stream.read_to_end(&mut input).unwrap();
         let mut reader = BiffReader::new(&input);
         let img = ImageData::biff_read(&mut reader);
 
@@ -1595,11 +1625,10 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
     let sounds_path = root_dir_path.join("sounds");
     for index in 0..sounds_size {
         let path = format!("GameStg/Sound{index}");
-        let mut input = Vec::new();
-        comp.open_stream(&path)
-            .unwrap()
-            .read_to_end(&mut input)
-            .unwrap();
+        let mut stream = comp.open_stream(&path).unwrap();
+        let stream_len = stream.len() as usize;
+        let mut input = Vec::with_capacity(stream_len);
+        stream.read_to_end(&mut input).unwrap();
         let mut reader = BiffReader::new(&input);
         let sound = sound::read(&version, &mut reader);
 
@@ -1622,11 +1651,10 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
     let fonts_path = root_dir_path.join("fonts");
     for index in 0..fonts_size {
         let path = format!("GameStg/Font{index}");
-        let mut input = Vec::new();
-        comp.open_stream(&path)
-            .unwrap()
-            .read_to_end(&mut input)
-            .unwrap();
+        let mut stream = comp.open_stream(&path).unwrap();
+        let stream_len = stream.len() as usize;
+        let mut input = Vec::with_capacity(stream_len);
+        stream.read_to_end(&mut input).unwrap();
         let font = font::read(&input);
 
         let ext = font.ext();
@@ -1652,11 +1680,10 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
     let mut file_name_gen = FileNameGen::default();
     for index in 0..gameitems_size {
         let path = format!("GameStg/GameItem{index}");
-        let mut input = Vec::new();
-        comp.open_stream(&path)
-            .unwrap()
-            .read_to_end(&mut input)
-            .unwrap();
+        let mut stream = comp.open_stream(&path).unwrap();
+        let stream_len = stream.len() as usize;
+        let mut input = Vec::with_capacity(stream_len);
+        stream.read_to_end(&mut input).unwrap();
         let gameitem = gameitem::read(&input);
         let mut gameitem_path = gameitems_path.clone();
         let file_name_stem = gameitem_filename_stem(&mut file_name_gen, &gameitem);

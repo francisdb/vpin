@@ -224,8 +224,8 @@ impl Primitive {
     pub fn read_mesh(&self) -> Result<Option<ReadMesh>, WriteError> {
         if let Some(vertices_data) = &self.compressed_vertices_data {
             if let Some(indices_data) = &self.compressed_indices_data {
-                let raw_vertices = decompress_data(vertices_data)?;
-                let indices = decompress_data(indices_data)?;
+                let raw_vertices = decompress_mesh_data(vertices_data)?;
+                let indices = decompress_mesh_data(indices_data)?;
                 let calculated_num_vertices = raw_vertices.len() / BYTES_PER_VERTEX;
                 assert_eq!(
                     calculated_num_vertices,
@@ -821,6 +821,140 @@ impl BiffWrite for Primitive {
     }
 }
 
+fn read_vertex_index_from_vpx(bytes_per_index: u8, buff: &mut BytesMut) -> i64 {
+    if bytes_per_index == 2 {
+        buff.get_u16_le() as i64
+    } else {
+        buff.get_u32_le() as i64
+    }
+}
+
+/// Decompress mesh data (vertices or indices) using zlib compression.
+fn decompress_mesh_data(compressed_data: &[u8]) -> io::Result<Vec<u8>> {
+    let mut decoder = ZlibDecoder::new(compressed_data);
+    let mut decompressed_data = Vec::new();
+    decoder.read_to_end(&mut decompressed_data)?;
+    Ok(decompressed_data)
+}
+
+/// Compress mesh data (vertices or indices) using zlib compression.
+pub(crate) fn compress_mesh_data(data: &[u8]) -> io::Result<Vec<u8>> {
+    use flate2::Compression;
+    use flate2::write::ZlibEncoder;
+    use std::io::Write;
+
+    // before 10.6.1, compression was always LZW
+    // "abuses the VP-Image-LZW compressor"
+    // see https://github.com/vpinball/vpinball/commit/09f5510d676cd6b204350dfc4a93b9bf93284c56
+
+    // Pre-allocate buffer with estimated compressed size (typically ~50-70% of original)
+    let estimated_size = (data.len() * 7) / 10;
+    let output = Vec::with_capacity(estimated_size);
+
+    // The best compression level is too slow for large meshes, so we use a default level
+    let compression_level = Compression::default();
+
+    let mut encoder = ZlibEncoder::new(output, compression_level);
+    encoder.write_all(data)?;
+    encoder.finish()
+}
+
+fn read_vertex(buffer: &mut BytesMut) -> ([u8; 32], Vertex3dNoTex2) {
+    let mut bytes = [0; 32];
+    buffer.copy_to_slice(&mut bytes);
+    let mut vertex_buff = BytesMut::from(bytes.as_ref());
+
+    let x = vertex_buff.get_f32_le();
+    let y = vertex_buff.get_f32_le();
+    let z = vertex_buff.get_f32_le();
+    // normals
+    let nx = vertex_buff.get_f32_le();
+    let ny = vertex_buff.get_f32_le();
+    let nz = vertex_buff.get_f32_le();
+    // texture coordinates
+    let tu = vertex_buff.get_f32_le();
+    let tv = vertex_buff.get_f32_le();
+    let v3d = Vertex3dNoTex2 {
+        x,
+        y,
+        z,
+        nx,
+        ny,
+        nz,
+        tu,
+        tv,
+    };
+    (bytes, v3d)
+}
+
+/// Animation frame vertex data
+/// this is combined with the primary mesh face and texture data.
+///
+/// This struct is used for serializing and deserializing in the vpinball C++ code
+#[derive(Debug, Clone, Copy)]
+pub struct VertData {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub nx: f32,
+    pub ny: f32,
+    pub nz: f32,
+}
+impl VertData {
+    pub const SERIALIZED_SIZE: usize = 24;
+}
+
+pub(crate) fn read_vpx_animation_frame(
+    compressed_frame: &[u8],
+    compressed_length: &u32,
+) -> Result<Vec<VertData>, WriteError> {
+    if compressed_frame.len() != *compressed_length as usize {
+        return Err(WriteError::Io(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "Animation frame compressed length does not match: {} != {}",
+                compressed_frame.len(),
+                compressed_length
+            ),
+        )));
+    }
+    let decompressed_frame = decompress_mesh_data(compressed_frame)?;
+    let frame_data_len = decompressed_frame.len() / VertData::SERIALIZED_SIZE;
+    let mut buff = BytesMut::from(decompressed_frame.as_slice());
+    let mut vertices: Vec<VertData> = Vec::with_capacity(frame_data_len);
+    for _ in 0..frame_data_len {
+        let vertex = read_animation_vertex_data(&mut buff);
+        vertices.push(vertex);
+    }
+    Ok(vertices)
+}
+
+fn read_animation_vertex_data(buffer: &mut BytesMut) -> VertData {
+    let x = buffer.get_f32_le();
+    let y = buffer.get_f32_le();
+    let z = buffer.get_f32_le();
+    let nx = buffer.get_f32_le();
+    let ny = buffer.get_f32_le();
+    let nz = buffer.get_f32_le();
+    VertData {
+        x,
+        y,
+        z,
+        nx,
+        ny,
+        nz,
+    }
+}
+
+pub(crate) fn write_animation_vertex_data(buff: &mut BytesMut, vertex: &VertData) {
+    buff.put_f32_le(vertex.x);
+    buff.put_f32_le(vertex.y);
+    buff.put_f32_le(vertex.z);
+    buff.put_f32_le(vertex.nx);
+    buff.put_f32_le(vertex.ny);
+    buff.put_f32_le(vertex.nz);
+}
+
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
@@ -903,122 +1037,48 @@ mod tests {
         let primitive_read = Primitive::biff_read(&mut BiffReader::new(writer.get_data()));
         assert_eq!(primitive, primitive_read);
     }
-}
 
-fn read_vertex_index_from_vpx(bytes_per_index: u8, buff: &mut BytesMut) -> i64 {
-    if bytes_per_index == 2 {
-        buff.get_u16_le() as i64
-    } else {
-        buff.get_u32_le() as i64
+    #[test]
+    fn test_compress_decompress_mesh_data() {
+        // Test with small data
+        let original_small = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let compressed_small = compress_mesh_data(&original_small).unwrap();
+        let decompressed_small = decompress_mesh_data(&compressed_small).unwrap();
+        assert_eq!(original_small, decompressed_small);
+        // Compression should make it larger for tiny data due to headers
+        assert!(compressed_small.len() > original_small.len());
+
+        // Test with larger data (simulating vertex data: 100 vertices * 32 bytes)
+        let original_large: Vec<u8> = (0..3200).map(|i| (i % 256) as u8).collect();
+        let compressed_large = compress_mesh_data(&original_large).unwrap();
+        let decompressed_large = decompress_mesh_data(&compressed_large).unwrap();
+        assert_eq!(original_large, decompressed_large);
+        // Compression should reduce size for larger repetitive data
+        assert!(compressed_large.len() < original_large.len());
+
+        // Test with very large data (>10MB) to verify adaptive compression level
+        let original_huge: Vec<u8> = vec![42; 11_000_000]; // 11MB of same byte
+        let compressed_huge = compress_mesh_data(&original_huge).unwrap();
+        let decompressed_huge = decompress_mesh_data(&compressed_huge).unwrap();
+        assert_eq!(original_huge, decompressed_huge);
+        // Should compress extremely well due to repetition
+        assert!(compressed_huge.len() < 100_000); // Should be much smaller than 11MB
     }
-}
 
-// This is how they were compressed using zlib
-//
-// const mz_ulong slen = (mz_ulong)(sizeof(Vertex3dNoTex2)*m_mesh.NumVertices());
-// mz_ulong clen = compressBound(slen);
-// mz_uint8 * c = (mz_uint8 *)malloc(clen);
-// if (compress2(c, &clen, (const unsigned char *)m_mesh.m_vertices.data(), slen, MZ_BEST_COMPRESSION) != Z_OK)
-// ShowError("Could not compress primitive vertex data");
-fn decompress_data(compressed_data: &[u8]) -> io::Result<Vec<u8>> {
-    let mut decoder = ZlibDecoder::new(compressed_data);
-    let mut decompressed_data = Vec::new();
-    decoder.read_to_end(&mut decompressed_data)?;
-    Ok(decompressed_data)
-}
-
-fn read_vertex(buffer: &mut BytesMut) -> ([u8; 32], Vertex3dNoTex2) {
-    let mut bytes = [0; 32];
-    buffer.copy_to_slice(&mut bytes);
-    let mut vertex_buff = BytesMut::from(bytes.as_ref());
-
-    let x = vertex_buff.get_f32_le();
-    let y = vertex_buff.get_f32_le();
-    let z = vertex_buff.get_f32_le();
-    // normals
-    let nx = vertex_buff.get_f32_le();
-    let ny = vertex_buff.get_f32_le();
-    let nz = vertex_buff.get_f32_le();
-    // texture coordinates
-    let tu = vertex_buff.get_f32_le();
-    let tv = vertex_buff.get_f32_le();
-    let v3d = Vertex3dNoTex2 {
-        x,
-        y,
-        z,
-        nx,
-        ny,
-        nz,
-        tu,
-        tv,
-    };
-    (bytes, v3d)
-}
-
-/// Animation frame vertex data
-/// this is combined with the primary mesh face and texture data.
-///
-/// This struct is used for serializing and deserializing in the vpinball C++ code
-#[derive(Debug, Clone, Copy)]
-pub struct VertData {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-    pub nx: f32,
-    pub ny: f32,
-    pub nz: f32,
-}
-impl VertData {
-    pub const SERIALIZED_SIZE: usize = 24;
-}
-
-pub(crate) fn read_vpx_animation_frame(
-    compressed_frame: &[u8],
-    compressed_length: &u32,
-) -> Result<Vec<VertData>, WriteError> {
-    if compressed_frame.len() != *compressed_length as usize {
-        return Err(WriteError::Io(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!(
-                "Animation frame compressed length does not match: {} != {}",
-                compressed_frame.len(),
-                compressed_length
-            ),
-        )));
+    #[test]
+    fn test_compress_mesh_data_empty() {
+        let original = vec![];
+        let compressed = compress_mesh_data(&original).unwrap();
+        let decompressed = decompress_mesh_data(&compressed).unwrap();
+        assert_eq!(original, decompressed);
     }
-    let decompressed_frame = decompress_data(compressed_frame)?;
-    let frame_data_len = decompressed_frame.len() / VertData::SERIALIZED_SIZE;
-    let mut buff = BytesMut::from(decompressed_frame.as_slice());
-    let mut vertices: Vec<VertData> = Vec::with_capacity(frame_data_len);
-    for _ in 0..frame_data_len {
-        let vertex = read_animation_vertex_data(&mut buff);
-        vertices.push(vertex);
-    }
-    Ok(vertices)
-}
 
-fn read_animation_vertex_data(buffer: &mut BytesMut) -> VertData {
-    let x = buffer.get_f32_le();
-    let y = buffer.get_f32_le();
-    let z = buffer.get_f32_le();
-    let nx = buffer.get_f32_le();
-    let ny = buffer.get_f32_le();
-    let nz = buffer.get_f32_le();
-    VertData {
-        x,
-        y,
-        z,
-        nx,
-        ny,
-        nz,
+    #[test]
+    fn test_compress_mesh_data_random_like() {
+        // Test with pseudo-random data (harder to compress)
+        let original: Vec<u8> = (0..1000).map(|i| ((i * 7 + 13) % 256) as u8).collect();
+        let compressed = compress_mesh_data(&original).unwrap();
+        let decompressed = decompress_mesh_data(&compressed).unwrap();
+        assert_eq!(original, decompressed);
     }
-}
-
-pub(crate) fn write_animation_vertex_data(buff: &mut BytesMut, vertex: &VertData) {
-    buff.put_f32_le(vertex.x);
-    buff.put_f32_le(vertex.y);
-    buff.put_f32_le(vertex.z);
-    buff.put_f32_le(vertex.nx);
-    buff.put_f32_le(vertex.ny);
-    buff.put_f32_le(vertex.nz);
 }

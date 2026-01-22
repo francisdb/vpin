@@ -17,9 +17,33 @@ mod test {
     use vpin::filesystem::{FileSystem, MemoryFileSystem, RealFileSystem};
 
     fn init() {
-        let _ = env_logger::builder()
-            .is_test(true)
-            .filter_level(log::LevelFilter::Info)
+        use crate::common::tracing_duration_filter::DurationFilterLayer;
+        use std::time::Duration;
+        use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
+
+        // let _ = env_logger::builder()
+        //     .is_test(true)
+        //     .filter_level(log::LevelFilter::Info)
+        //     .try_init();
+
+        // let _ = fmt()
+        //     .with_env_filter(
+        //         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        //     )
+        //     .with_test_writer()
+        //     .with_span_events(fmt::format::FmtSpan::CLOSE)
+        //     .try_init();
+
+        let _ = tracing_subscriber::registry()
+            .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+            .with(
+                fmt::layer()
+                    .with_test_writer()
+                    // Enable colored output
+                    .with_ansi(true), // Show timing when spans close
+                                      //.with_span_events(fmt::format::FmtSpan::CLOSE),
+            )
+            .with(DurationFilterLayer::new(Duration::from_millis(300)))
             .try_init();
     }
 
@@ -31,6 +55,12 @@ mod test {
         let paths = find_files(&folder, "vpx")?;
         // testdir can not be used in non-main threads
         let dir: PathBuf = testdir!();
+
+        // Example tables with performance issues
+        // * Dark Chaos
+        // * Spooky Wednesday
+        // * Street Fighter II (Gottlieb 1993) VPW 1.1
+        // * Van Halen (Original 2025) - contains a 200mb mp3 sound file
 
         // Example tables caused problems in the past:
         //
@@ -53,7 +83,6 @@ mod test {
                 !name.contains("CAPTAINSPAULDINGv1.0")
                     && !name.contains("RM054")
                     && !name.contains("Stranger Things 4")
-                    && name.contains("Dark Chaos")
             })
             .collect();
 
