@@ -1319,7 +1319,7 @@ fn read_game_item(
     item.set_editor_layer_visibility(gameitem_info.editor_layer_visibility);
 
     // read associated binaries (must be thread-safe; they operate on distinct files)
-    read_gameitem_binaries(&gameitems_dir, file_name, item, fs)
+    read_gameitem_binaries(gameitems_dir, file_name, item, fs)
 }
 
 fn read_gameitem_binaries(
@@ -1463,8 +1463,8 @@ fn compress_vertices_and_indices(
 ) -> io::Result<(Vec<u8>, Vec<u8>)> {
     #[cfg(feature = "parallel")]
     let (compressed_vertices, compressed_indices) = rayon::join(
-        || primitive::compress_mesh_data(&vpx_vertices),
-        || primitive::compress_mesh_data(&vpx_indices),
+        || primitive::compress_mesh_data(vpx_vertices),
+        || primitive::compress_mesh_data(vpx_indices),
     );
 
     #[cfg(not(feature = "parallel"))]

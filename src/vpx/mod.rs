@@ -374,7 +374,7 @@ pub fn write(path: &Path, vpx: &VPX) -> io::Result<()> {
         .write(true)
         .create(true)
         .truncate(true)
-        .open(&path)?;
+        .open(path)?;
     let mut comp = CompoundFile::create(file)?;
     let result = write_vpx(&mut comp, vpx);
     info!("Wrote {}", path.file_name().unwrap().to_string_lossy());
@@ -828,7 +828,7 @@ fn write_gameitem<F: Read + Write + Seek>(
     } else {
         CreateStreamOptions::new().overwrite(false)
     };
-    let mut stream = comp.create_stream_with_options(&path, options)?;
+    let mut stream = comp.create_stream_with_options(path, options)?;
     let data = gameitem::write(gameitem);
     stream.write_all(&data)
 }

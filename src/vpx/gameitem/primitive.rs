@@ -821,90 +821,6 @@ impl BiffWrite for Primitive {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::vpx::biff::BiffWriter;
-    use fake::{Fake, Faker};
-
-    use super::*;
-    use crate::vpx::gameitem::tests::RandomOption;
-    use pretty_assertions::assert_eq;
-    use rand::Rng;
-
-    #[test]
-    fn test_write_read() {
-        let mut rng = rand::rng();
-        let primitive: Primitive = Primitive {
-            position: Vertex3D::new(1.0, 2.0, 3.0),
-            size: Vertex3D::new(4.0, 5.0, 6.0),
-            rot_and_tra: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9],
-            image: "image".to_string(),
-            normal_map: Some("normal_map".to_string()),
-            sides: 1,
-            name: "name".to_string(),
-            material: "material".to_string(),
-            side_color: Faker.fake(),
-            is_visible: rng.random(),
-            // random bool
-            draw_textures_inside: rng.random(),
-            hit_event: rng.random(),
-            threshold: 1.0,
-            elasticity: 2.0,
-            elasticity_falloff: 3.0,
-            friction: 4.0,
-            scatter: 5.0,
-            edge_factor_ui: 6.0,
-            collision_reduction_factor: Some(7.0),
-            is_collidable: rng.random(),
-            is_toy: rng.random(),
-            use_3d_mesh: rng.random(),
-            static_rendering: rng.random(),
-            disable_lighting_top_old: Some(rng.random()),
-            disable_lighting_top: Some(rng.random()),
-            disable_lighting_below: rng.random_option(),
-            is_reflection_enabled: rng.random_option(),
-            backfaces_enabled: rng.random_option(),
-            physics_material: Some("physics_material".to_string()),
-            overwrite_physics: rng.random_option(),
-            display_texture: rng.random_option(),
-            object_space_normal_map: rng.random_option(),
-            min_aa_bound: Some(vec![0, 1, 2, 3, 4, 5, 6, 7, 8]),
-            max_aa_bound: Some(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]),
-            mesh_file_name: Some("mesh_file_name".to_string()),
-            num_vertices: Some(8),
-            compressed_vertices_len: Some(9),
-            compressed_vertices_data: Some(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]),
-            num_indices: Some(10),
-            compressed_indices_len: Some(11),
-            compressed_indices_data: Some(vec![2, 3, 4, 5, 6, 7, 8, 9, 10]),
-            compressed_animation_vertices_len: Some(vec![9, 8]),
-            compressed_animation_vertices_data: Some(vec![
-                vec![4, 5, 6, 7, 8, 9, 10, 11, 12],
-                vec![5, 6, 7, 8, 9, 10, 11, 12],
-            ]),
-            depth_bias: 12.0,
-            add_blend: rng.random_option(),
-            use_depth_mask: rng.random_option(),
-            alpha: Some(13.0),
-            color: Faker.fake(),
-            light_map: Some("light_map".to_string()),
-            reflection_probe: Some("reflection_probe".to_string()),
-            reflection_strength: Some(14.0),
-            refraction_probe: Some("refraction_probe".to_string()),
-            refraction_thickness: Some(15.0),
-            is_locked: rng.random(),
-            editor_layer: Some(17),
-            editor_layer_name: Some("editor_layer_name".to_string()),
-            editor_layer_visibility: rng.random_option(),
-            part_group_name: Some("part_group_name".to_string()),
-        };
-        let mut writer = BiffWriter::new();
-        Primitive::biff_write(&primitive, &mut writer);
-        let primitive_read = Primitive::biff_read(&mut BiffReader::new(writer.get_data()));
-        assert_eq!(primitive, primitive_read);
-    }
-}
-
 fn read_vertex_index_from_vpx(bytes_per_index: u8, buff: &mut BytesMut) -> i64 {
     if bytes_per_index == 2 {
         buff.get_u16_le() as i64
@@ -1037,4 +953,132 @@ pub(crate) fn write_animation_vertex_data(buff: &mut BytesMut, vertex: &VertData
     buff.put_f32_le(vertex.nx);
     buff.put_f32_le(vertex.ny);
     buff.put_f32_le(vertex.nz);
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::vpx::biff::BiffWriter;
+    use fake::{Fake, Faker};
+
+    use super::*;
+    use crate::vpx::gameitem::tests::RandomOption;
+    use pretty_assertions::assert_eq;
+    use rand::Rng;
+
+    #[test]
+    fn test_write_read() {
+        let mut rng = rand::rng();
+        let primitive: Primitive = Primitive {
+            position: Vertex3D::new(1.0, 2.0, 3.0),
+            size: Vertex3D::new(4.0, 5.0, 6.0),
+            rot_and_tra: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9],
+            image: "image".to_string(),
+            normal_map: Some("normal_map".to_string()),
+            sides: 1,
+            name: "name".to_string(),
+            material: "material".to_string(),
+            side_color: Faker.fake(),
+            is_visible: rng.random(),
+            // random bool
+            draw_textures_inside: rng.random(),
+            hit_event: rng.random(),
+            threshold: 1.0,
+            elasticity: 2.0,
+            elasticity_falloff: 3.0,
+            friction: 4.0,
+            scatter: 5.0,
+            edge_factor_ui: 6.0,
+            collision_reduction_factor: Some(7.0),
+            is_collidable: rng.random(),
+            is_toy: rng.random(),
+            use_3d_mesh: rng.random(),
+            static_rendering: rng.random(),
+            disable_lighting_top_old: Some(rng.random()),
+            disable_lighting_top: Some(rng.random()),
+            disable_lighting_below: rng.random_option(),
+            is_reflection_enabled: rng.random_option(),
+            backfaces_enabled: rng.random_option(),
+            physics_material: Some("physics_material".to_string()),
+            overwrite_physics: rng.random_option(),
+            display_texture: rng.random_option(),
+            object_space_normal_map: rng.random_option(),
+            min_aa_bound: Some(vec![0, 1, 2, 3, 4, 5, 6, 7, 8]),
+            max_aa_bound: Some(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]),
+            mesh_file_name: Some("mesh_file_name".to_string()),
+            num_vertices: Some(8),
+            compressed_vertices_len: Some(9),
+            compressed_vertices_data: Some(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]),
+            num_indices: Some(10),
+            compressed_indices_len: Some(11),
+            compressed_indices_data: Some(vec![2, 3, 4, 5, 6, 7, 8, 9, 10]),
+            compressed_animation_vertices_len: Some(vec![9, 8]),
+            compressed_animation_vertices_data: Some(vec![
+                vec![4, 5, 6, 7, 8, 9, 10, 11, 12],
+                vec![5, 6, 7, 8, 9, 10, 11, 12],
+            ]),
+            depth_bias: 12.0,
+            add_blend: rng.random_option(),
+            use_depth_mask: rng.random_option(),
+            alpha: Some(13.0),
+            color: Faker.fake(),
+            light_map: Some("light_map".to_string()),
+            reflection_probe: Some("reflection_probe".to_string()),
+            reflection_strength: Some(14.0),
+            refraction_probe: Some("refraction_probe".to_string()),
+            refraction_thickness: Some(15.0),
+            is_locked: rng.random(),
+            editor_layer: Some(17),
+            editor_layer_name: Some("editor_layer_name".to_string()),
+            editor_layer_visibility: rng.random_option(),
+            part_group_name: Some("part_group_name".to_string()),
+        };
+        let mut writer = BiffWriter::new();
+        Primitive::biff_write(&primitive, &mut writer);
+        let primitive_read = Primitive::biff_read(&mut BiffReader::new(writer.get_data()));
+        assert_eq!(primitive, primitive_read);
+    }
+
+    #[test]
+    fn test_compress_decompress_mesh_data() {
+        // Test with small data
+        let original_small = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let compressed_small = compress_mesh_data(&original_small).unwrap();
+        let decompressed_small = decompress_mesh_data(&compressed_small).unwrap();
+        assert_eq!(original_small, decompressed_small);
+        // Compression should make it larger for tiny data due to headers
+        assert!(compressed_small.len() > original_small.len());
+
+        // Test with larger data (simulating vertex data: 100 vertices * 32 bytes)
+        let original_large: Vec<u8> = (0..3200).map(|i| (i % 256) as u8).collect();
+        let compressed_large = compress_mesh_data(&original_large).unwrap();
+        let decompressed_large = decompress_mesh_data(&compressed_large).unwrap();
+        assert_eq!(original_large, decompressed_large);
+        // Compression should reduce size for larger repetitive data
+        assert!(compressed_large.len() < original_large.len());
+
+        // Test with very large data (>10MB) to verify adaptive compression level
+        let original_huge: Vec<u8> = vec![42; 11_000_000]; // 11MB of same byte
+        let compressed_huge = compress_mesh_data(&original_huge).unwrap();
+        let decompressed_huge = decompress_mesh_data(&compressed_huge).unwrap();
+        assert_eq!(original_huge, decompressed_huge);
+        // Should compress extremely well due to repetition
+        assert!(compressed_huge.len() < 100_000); // Should be much smaller than 11MB
+    }
+
+    #[test]
+    fn test_compress_mesh_data_empty() {
+        let original = vec![];
+        let compressed = compress_mesh_data(&original).unwrap();
+        let decompressed = decompress_mesh_data(&compressed).unwrap();
+        assert_eq!(original, decompressed);
+    }
+
+    #[test]
+    fn test_compress_mesh_data_random_like() {
+        // Test with pseudo-random data (harder to compress)
+        let original: Vec<u8> = (0..1000).map(|i| ((i * 7 + 13) % 256) as u8).collect();
+        let compressed = compress_mesh_data(&original).unwrap();
+        let decompressed = decompress_mesh_data(&compressed).unwrap();
+        assert_eq!(original, decompressed);
+    }
 }
