@@ -145,7 +145,15 @@ struct VpxObjReader {
 
 impl VpxObjReader {
     fn new() -> Self {
-        Self::default()
+        Self {
+            indices: Vec::with_capacity(8 * 1024),
+            vertices: Vec::with_capacity(8 * 1024),
+            texture_coordinates: Vec::with_capacity(8 * 1024),
+            normals: Vec::with_capacity(8 * 1024),
+            object_count: 0,
+            previous_comment: None,
+            name: String::new(),
+        }
     }
 
     /// Reads the stream and returns the ObjData consuming the reader

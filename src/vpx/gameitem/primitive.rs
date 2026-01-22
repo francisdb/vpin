@@ -224,8 +224,8 @@ impl Primitive {
     pub fn read_mesh(&self) -> Result<Option<ReadMesh>, WriteError> {
         if let Some(vertices_data) = &self.compressed_vertices_data {
             if let Some(indices_data) = &self.compressed_indices_data {
-                let raw_vertices = decompress_data(vertices_data)?;
-                let indices = decompress_data(indices_data)?;
+                let raw_vertices = decompress_mesh_data(vertices_data)?;
+                let indices = decompress_mesh_data(indices_data)?;
                 let calculated_num_vertices = raw_vertices.len() / BYTES_PER_VERTEX;
                 assert_eq!(
                     calculated_num_vertices,
@@ -913,6 +913,8 @@ fn read_vertex_index_from_vpx(bytes_per_index: u8, buff: &mut BytesMut) -> i64 {
     }
 }
 
+/// Decompress mesh data (vertices or indices) using zlib compression.
+//
 // This is how they were compressed using zlib
 //
 // const mz_ulong slen = (mz_ulong)(sizeof(Vertex3dNoTex2)*m_mesh.NumVertices());
@@ -920,11 +922,33 @@ fn read_vertex_index_from_vpx(bytes_per_index: u8, buff: &mut BytesMut) -> i64 {
 // mz_uint8 * c = (mz_uint8 *)malloc(clen);
 // if (compress2(c, &clen, (const unsigned char *)m_mesh.m_vertices.data(), slen, MZ_BEST_COMPRESSION) != Z_OK)
 // ShowError("Could not compress primitive vertex data");
-fn decompress_data(compressed_data: &[u8]) -> io::Result<Vec<u8>> {
+fn decompress_mesh_data(compressed_data: &[u8]) -> io::Result<Vec<u8>> {
     let mut decoder = ZlibDecoder::new(compressed_data);
     let mut decompressed_data = Vec::new();
     decoder.read_to_end(&mut decompressed_data)?;
     Ok(decompressed_data)
+}
+
+/// Compress mesh data (vertices or indices) using zlib compression.
+pub(crate) fn compress_mesh_data(data: &[u8]) -> io::Result<Vec<u8>> {
+    use flate2::Compression;
+    use flate2::write::ZlibEncoder;
+    use std::io::Write;
+
+    // before 10.6.1, compression was always LZW
+    // "abuses the VP-Image-LZW compressor"
+    // see https://github.com/vpinball/vpinball/commit/09f5510d676cd6b204350dfc4a93b9bf93284c56
+
+    // Pre-allocate buffer with estimated compressed size (typically ~50-70% of original)
+    let estimated_size = (data.len() * 7) / 10;
+    let output = Vec::with_capacity(estimated_size);
+
+    // The best compression level is too slow for large meshes, so we use a default level
+    let compression_level = Compression::default();
+
+    let mut encoder = ZlibEncoder::new(output, compression_level);
+    encoder.write_all(data)?;
+    encoder.finish()
 }
 
 fn read_vertex(buffer: &mut BytesMut) -> ([u8; 32], Vertex3dNoTex2) {
@@ -986,7 +1010,7 @@ pub(crate) fn read_vpx_animation_frame(
             ),
         )));
     }
-    let decompressed_frame = decompress_data(compressed_frame)?;
+    let decompressed_frame = decompress_mesh_data(compressed_frame)?;
     let frame_data_len = decompressed_frame.len() / VertData::SERIALIZED_SIZE;
     let mut buff = BytesMut::from(decompressed_frame.as_slice());
     let mut vertices: Vec<VertData> = Vec::with_capacity(frame_data_len);

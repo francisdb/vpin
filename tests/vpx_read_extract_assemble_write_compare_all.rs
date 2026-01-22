@@ -56,6 +56,12 @@ mod test {
         // testdir can not be used in non-main threads
         let dir: PathBuf = testdir!();
 
+        // Example tables with performance issues
+        // * Dark Chaos
+        // * Spooky Wednesday
+        // * Street Fighter II (Gottlieb 1993) VPW 1.1
+        // * Van Halen (Original 2025) - contains a 200mb mp3 sound file
+
         // Example tables caused problems in the past:
         //
         // * Inhabiting Mars RC 4 - for animation frame
@@ -77,13 +83,6 @@ mod test {
                 !name.contains("CAPTAINSPAULDINGv1.0")
                     && !name.contains("RM054")
                     && !name.contains("Stranger Things 4")
-                //&& name.contains("Dark Chaos")
-                // contains huge primitives that take a long time to process
-                //&& name.contains("Spooky Wednesday")
-                // contains huge primitives that take a long time to process
-                && name.contains("Street Fighter II (Gottlieb 1993) VPW 1.1")
-                // contains a 200mb mp3 sound file
-                //&& name.contains("Van Halen (Original 2025)")
             })
             .collect();
 

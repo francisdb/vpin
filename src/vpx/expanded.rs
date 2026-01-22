@@ -30,11 +30,11 @@ use super::version;
 use crate::vpx::biff::{BiffRead, BiffReader};
 use crate::vpx::custominfotags::CustomInfoTags;
 use crate::vpx::font::{FontData, FontDataJson};
-use crate::vpx::gameitem::GameItemEnum;
 use crate::vpx::gameitem::primitive::{
     MAX_VERTICES_FOR_2_BYTE_INDEX, ReadMesh, VertData, read_vpx_animation_frame,
     write_animation_vertex_data,
 };
+use crate::vpx::gameitem::{GameItemEnum, primitive};
 use crate::vpx::image::{ImageData, ImageDataBits, ImageDataJson};
 use crate::vpx::jsonmodel::{collections_json, info_to_json, json_to_collections, json_to_info};
 use crate::vpx::lzw::{from_lzw_blocks, to_lzw_blocks};
@@ -1125,21 +1125,6 @@ fn gameitem_filename_stem(file_name_gen: &mut FileNameGen, gameitem: &GameItemEn
     file_name_gen.ensure_unique(file_name)
 }
 
-fn compress_data(data: &[u8]) -> io::Result<Vec<u8>> {
-    // before 10.6.1, compression was always LZW
-    // "abuses the VP-Image-LZW compressor"
-    // see https://github.com/vpinball/vpinball/commit/09f5510d676cd6b204350dfc4a93b9bf93284c56
-    // Using default compression (level 6) instead of best (level 9) for better performance
-    // Level 6 provides a good balance between speed and compression ratio
-
-    // Pre-allocate buffer with estimated compressed size (typically ~50-70% of original)
-    let estimated_size = (data.len() * 7) / 10;
-    let output = Vec::with_capacity(estimated_size);
-    let mut encoder = flate2::write::ZlibEncoder::new(output, flate2::Compression::default());
-    encoder.write_all(data)?;
-    encoder.finish()
-}
-
 fn write_gameitem_binaries(
     gameitems_dir: &Path,
     gameitem: &GameItemEnum,
@@ -1382,7 +1367,7 @@ fn read_gameitem_binaries(
                 for vertex in animation_frame_vertices {
                     write_animation_vertex_data(&mut buff, &vertex);
                 }
-                let compressed_frame = compress_data(&buff)?;
+                let compressed_frame = primitive::compress_mesh_data(&buff)?;
                 compressed_lengths.push(compressed_frame.len() as u32);
                 compressed_animation_vertices.push(compressed_frame);
             }
@@ -1403,7 +1388,6 @@ fn read_obj(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<(usize, usize, V
     let obj_data = fs.read_file(obj_path)?;
     drop(_span);
 
-    let _parse_span = info_span!("parse_obj").entered();
     let mut reader = io::BufReader::new(io::Cursor::new(obj_data));
     let ObjData {
         name: _,
@@ -1414,9 +1398,7 @@ fn read_obj(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<(usize, usize, V
     } = obj_read_obj(&mut reader).map_err(|e| {
         io::Error::other(format!("Error reading obj {}: {}", obj_path.display(), e))
     })?;
-    drop(_parse_span);
 
-    let _convert_span = info_span!("convert_vertices", count = vertices.len()).entered();
     let mut vpx_vertices = BytesMut::with_capacity(vertices.len() * 32);
     for ((v, vt), vn) in vertices
         .iter()
@@ -1440,7 +1422,6 @@ fn read_obj(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<(usize, usize, V
         };
         write_vertex(&mut vpx_vertices, &vertext, vpx_vertex_normal_data);
     }
-    drop(_convert_span);
 
     let _index_span = info_span!("convert_indices", count = indices.len()).entered();
     let bytes_per_index: u8 = if vertices.len() > MAX_VERTICES_FOR_2_BYTE_INDEX {
@@ -1461,27 +1442,8 @@ fn read_obj(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<(usize, usize, V
 
     let vertices_len = vertices.len();
     let indices_len = indices.len();
-
-    let _compress_span = info_span!(
-        "compress_data",
-        vertex_bytes = vpx_vertices.len(),
-        index_bytes = vpx_indices.len()
-    )
-    .entered();
-
-    #[cfg(feature = "parallel")]
-    let (compressed_vertices, compressed_indices) = rayon::join(
-        || compress_data(&vpx_vertices),
-        || compress_data(&vpx_indices),
-    );
-
-    #[cfg(not(feature = "parallel"))]
     let (compressed_vertices, compressed_indices) =
-        (compress_data(&vpx_vertices), compress_data(&vpx_indices));
-
-    let compressed_vertices = compressed_vertices?;
-    let compressed_indices = compressed_indices?;
-    drop(_compress_span);
+        compress_vertices_and_indices(&vpx_vertices, &vpx_indices)?;
 
     Ok((
         vertices_len,
@@ -1489,6 +1451,31 @@ fn read_obj(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<(usize, usize, V
         compressed_vertices,
         compressed_indices,
     ))
+}
+
+#[instrument(skip(vpx_vertices, vpx_indices), fields(
+    vertices_bytes = vpx_vertices.len(),
+    indices_bytes = vpx_indices.len()
+))]
+fn compress_vertices_and_indices(
+    vpx_vertices: &[u8],
+    vpx_indices: &[u8],
+) -> io::Result<(Vec<u8>, Vec<u8>)> {
+    #[cfg(feature = "parallel")]
+    let (compressed_vertices, compressed_indices) = rayon::join(
+        || primitive::compress_mesh_data(&vpx_vertices),
+        || primitive::compress_mesh_data(&vpx_indices),
+    );
+
+    #[cfg(not(feature = "parallel"))]
+    let (compressed_vertices, compressed_indices) = (
+        primitive::compress_mesh_data(&vpx_vertices),
+        primitive::compress_mesh_data(&vpx_indices),
+    );
+
+    let compressed_vertices = compressed_vertices?;
+    let compressed_indices = compressed_indices?;
+    Ok((compressed_vertices, compressed_indices))
 }
 
 #[instrument(skip(fs))]
