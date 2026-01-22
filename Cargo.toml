@@ -36,7 +36,6 @@ utf16string = "0.2.0"
 quick-xml = { version = "0.39.0", features = ["serialize"] }
 serde_repr = "0.1.20"
 hex = "0.4.3"
-flate2 = { version = "1.1.8", features = ["zlib-ng"], default-features = false }
 weezl = "0.1.12"
 regex = "1.12.2"
 sanitize-filename = "0.6"
@@ -49,12 +48,17 @@ wasm-bindgen = { version = "0.2.108", optional = true }
 js-sys = { version = "0.3.85", optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
 web-sys = { version = "0.3", optional = true, features = ["console"] }
+
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
+# Use zlib-ng for much faster compression/decompression on native targets
+flate2 = { version = "1.1.8", features = ["zlib-ng"], default-features = false }
 image = { version = "0.25.9", default-features = false, features = [
     "bmp", "exr", "gif", "hdr", "jpeg", "png", "tga", "webp", "rayon"
 ] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
+# Use pure Rust miniz_oxide backend for wasm compatibility
+flate2 = { version = "1.1.8", default-features = true }
 image = { version = "0.25.9", default-features = false, features = [
     "bmp", "exr", "gif", "hdr", "jpeg", "png", "tga", "webp"
 ] }
