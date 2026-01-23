@@ -1,7 +1,7 @@
 use encoding_rs::mem::{decode_latin1, encode_latin1_lossy};
 
 /// The enum used inside vpinball to represent a vertex in the vpx format (Vertex3D_NoTex2).
-/// https://github.com/vpinball/vpinball/blob/9bb99ca92ff7e7eb37c9fb42dd4dcc206b814132/def.h#L165C7-L181
+/// <https://github.com/vpinball/vpinball/blob/9bb99ca92ff7e7eb37c9fb42dd4dcc206b814132/def.h#L165C7-L181>
 ///
 /// This struct is used for serializing and deserializing in the vpinball C++ code
 #[derive(Debug, PartialEq, Clone)]

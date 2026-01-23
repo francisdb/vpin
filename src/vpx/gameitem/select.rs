@@ -81,12 +81,12 @@ where
 
 /// Macro to implement HasSharedAttributes for a given type
 /// Assumes the type has the following fields:
-/// - name: String
-/// - is_locked: bool
-/// - editor_layer: Option<u32>
-/// - editor_layer_name: Option<String>
-/// - editor_layer_visibility: Option<bool>
-/// - part_group_name: Option<String>
+/// - name: `String`
+/// - is_locked: `bool`
+/// - editor_layer: `Option<u32>`
+/// - editor_layer_name: `Option<String>`
+/// - editor_layer_visibility: `Option<bool>`
+/// - part_group_name: `Option<String>`
 #[macro_export]
 macro_rules! impl_shared_attributes {
     ($ty:ty) => {

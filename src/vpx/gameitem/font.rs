@@ -114,7 +114,7 @@ pub const CHARSET_EXTENDED: u16 = 255;
 #[derive(PartialEq, Debug)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Font {
-    /// from https://learn.microsoft.com/en-us/windows/win32/lwef/fontcharset-property
+    /// from <https://learn.microsoft.com/en-us/windows/win32/lwef/fontcharset-property>
     /// An integer value that specifies the character set used by the font. The following are some
     /// common settings for value:
     /// 0 Standard Windows characters (ANSI).

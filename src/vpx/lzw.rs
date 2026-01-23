@@ -3,11 +3,11 @@
 //! NOTE: Visual Pinball uses its own LZW implementation that differs slightly from the standard LZW
 //! implementation. However, Visual Pinball can also read the compressed data we produce.
 //!
-//! https://github.com/vpinball/vpinball/blob/master/media/lzwwriter.h
-//! https://github.com/vpinball/vpinball/blob/master/media/lzwwriter.cpp
+//! <https://github.com/vpinball/vpinball/blob/master/media/lzwwriter.h>
+//! <https://github.com/vpinball/vpinball/blob/master/media/lzwwriter.cpp>
 //!
-//! https://github.com/freezy/VisualPinball.Engine/blob/master/VisualPinball.Engine/IO/LzwWriter.cs
-//! https://github.com/freezy/VisualPinball.Engine/blob/master/VisualPinball.Engine/IO/LzwReader.cs
+//! <https://github.com/freezy/VisualPinball.Engine/blob/master/VisualPinball.Engine/IO/LzwWriter.cs>
+//! <https://github.com/freezy/VisualPinball.Engine/blob/master/VisualPinball.Engine/IO/LzwReader.cs>
 
 use weezl::BitOrder;
 

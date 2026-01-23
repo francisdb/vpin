@@ -1,3 +1,5 @@
+#![cfg(feature = "directb2s")]
+
 use crate::common::tables_dir;
 use pretty_assertions::assert_eq;
 #[cfg(feature = "parallel")]
