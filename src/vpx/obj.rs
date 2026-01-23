@@ -56,7 +56,8 @@ fn write_obj_to_writer<W: io::Write>(
     indices: &[i64],
     writer: &mut W,
 ) -> Result<(), Box<dyn Error>> {
-    let mut obj_writer = wavefront_obj_io::IoObjWriter::new(writer);
+    let mut obj_writer: wavefront_obj_io::IoObjWriter<_, f32> =
+        wavefront_obj_io::IoObjWriter::new(writer);
 
     // // material library
     // let mtl_file_path = obj_file_path.with_extension("mtl");
@@ -80,10 +81,10 @@ fn write_obj_to_writer<W: io::Write>(
     obj_writer.write_object_name(name)?;
 
     for (_, vertex) in vertices {
-        obj_writer.write_vertex(vertex.x as f64, vertex.y as f64, vertex.z as f64, None)?;
+        obj_writer.write_vertex(vertex.x, vertex.y, vertex.z, None)?;
     }
     for (_, vertex) in vertices {
-        obj_writer.write_texture_coordinate(vertex.tu as f64, Some(vertex.tv as f64), None)?;
+        obj_writer.write_texture_coordinate(vertex.tu, Some(vertex.tv), None)?;
     }
     for (bytes, vertex) in vertices {
         // if one of the values is NaN we write a special comment with the bytes
@@ -96,7 +97,7 @@ fn write_obj_to_writer<W: io::Write>(
         let x = if vertex.nx.is_nan() { 0.0 } else { vertex.nx };
         let y = if vertex.ny.is_nan() { 0.0 } else { vertex.ny };
         let z = if vertex.nz.is_nan() { 0.0 } else { vertex.nz };
-        obj_writer.write_normal(x as f64, y as f64, z as f64)?;
+        obj_writer.write_normal(x, y, z)?;
     }
     // write all faces in groups of 3
     for chunk in indices.chunks(3) {
@@ -134,8 +135,8 @@ pub(crate) fn write_obj(
 #[derive(Default)]
 struct VpxObjReader {
     indices: Vec<i64>,
-    vertices: Vec<(f64, f64, f64, Option<f64>)>,
-    texture_coordinates: Vec<(f64, Option<f64>, Option<f64>)>,
+    vertices: Vec<(f32, f32, f32, Option<f32>)>,
+    texture_coordinates: Vec<(f32, Option<f32>, Option<f32>)>,
     normals: Vec<ObjNormal>,
     object_count: usize,
     /// keeps the previous comment to be associated with the next normal
@@ -178,7 +179,7 @@ impl VpxObjReader {
     }
 }
 
-impl ObjReader for VpxObjReader {
+impl ObjReader<f32> for VpxObjReader {
     fn read_comment(&mut self, comment: &str) {
         self.previous_comment = Some(comment.to_string());
     }
@@ -189,17 +190,17 @@ impl ObjReader for VpxObjReader {
         self.previous_comment = None;
     }
 
-    fn read_vertex(&mut self, x: f64, y: f64, z: f64, w: Option<f64>) {
+    fn read_vertex(&mut self, x: f32, y: f32, z: f32, w: Option<f32>) {
         self.vertices.push((x, y, z, w));
         self.previous_comment = None;
     }
 
-    fn read_texture_coordinate(&mut self, u: f64, v: Option<f64>, w: Option<f64>) {
+    fn read_texture_coordinate(&mut self, u: f32, v: Option<f32>, w: Option<f32>) {
         self.texture_coordinates.push((u, v, w));
         self.previous_comment = None;
     }
 
-    fn read_normal(&mut self, nx: f64, ny: f64, nz: f64) {
+    fn read_normal(&mut self, nx: f32, ny: f32, nz: f32) {
         // If on the write side there was a NaN value that will be stored in a comment
         // This way we stay symmetric
         if let Some(comment) = &self.previous_comment {
@@ -230,13 +231,13 @@ pub(crate) fn read_obj<R: BufRead>(mut reader: &mut R) -> std::io::Result<ObjDat
     vpx_reader.read(&mut reader)
 }
 
-pub type ObjNormal = ((f64, f64, f64), Option<VpxNormalBytes>);
+pub type ObjNormal = ((f32, f32, f32), Option<VpxNormalBytes>);
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct ObjData {
     pub name: String,
-    pub vertices: Vec<(f64, f64, f64, Option<f64>)>,
-    pub texture_coordinates: Vec<(f64, Option<f64>, Option<f64>)>,
+    pub vertices: Vec<(f32, f32, f32, Option<f32>)>,
+    pub texture_coordinates: Vec<(f32, Option<f32>, Option<f32>)>,
     pub normals: Vec<ObjNormal>,
     /// Indices can also be relative, so they can be negative
     /// stored by three as vertex, texture, normal are all the same
@@ -293,7 +294,7 @@ f 1/1/1 1/1/1 1/1/1
             texture_coordinates: vec![(2.0, Some(4.0), None)],
             normals: vec![
                 (
-                    (f64::NAN, 1.0, 0.0),
+                    (f32::NAN, 1.0f32, 0.0f32),
                     Some([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
                 ),
                 ((1.0, 2.0, 3.0), None),
@@ -328,7 +329,7 @@ f 1/1/1 1/1/1 1/1/1
         read_obj(&mut reader).unwrap();
     }
 
-    const SCREW_OBJ_BYTES: &[u8] = include_bytes!("../../testdata/screw.obj");
+    const SCREW_OBJ_BYTES: &[u8] = include_bytes!("../../testdata/screw_f32.obj");
 
     #[test]
     fn test_read_write_obj() -> TestResult {
@@ -345,14 +346,14 @@ f 1/1/1 1/1/1 1/1/1
                 (
                     [0u8; 32],
                     Vertex3dNoTex2 {
-                        x: v.0 as f32,
-                        y: v.1 as f32,
-                        z: v.2 as f32,
-                        nx: vn.0 as f32,
-                        ny: vn.1 as f32,
-                        nz: vn.2 as f32,
-                        tu: vt.0 as f32,
-                        tv: vt.1.unwrap_or(0.0) as f32,
+                        x: v.0,
+                        y: v.1,
+                        z: v.2,
+                        nx: vn.0,
+                        ny: vn.1,
+                        nz: vn.2,
+                        tu: vt.0,
+                        tv: vt.1.unwrap_or(0.0),
                     },
                 )
             })
