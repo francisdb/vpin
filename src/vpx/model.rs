@@ -16,6 +16,35 @@ pub struct Vertex3dNoTex2 {
     pub tv: f32,
 }
 
+impl Vertex3dNoTex2 {
+    #[cfg(test)]
+    pub(crate) fn as_vpx_bytes(&self) -> [u8; 32] {
+        let mut b = [0u8; 32];
+        let mut offset = 0;
+        for &value in &[
+            self.x, self.y, self.z, self.nx, self.ny, self.nz, self.tu, self.tv,
+        ] {
+            b[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+            offset += 4;
+        }
+        b
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_vpx_bytes(b: &[u8; 32]) -> Self {
+        Vertex3dNoTex2 {
+            x: f32::from_le_bytes([b[0], b[1], b[2], b[3]]),
+            y: f32::from_le_bytes([b[4], b[5], b[6], b[7]]),
+            z: f32::from_le_bytes([b[8], b[9], b[10], b[11]]),
+            nx: f32::from_le_bytes([b[12], b[13], b[14], b[15]]),
+            ny: f32::from_le_bytes([b[16], b[17], b[18], b[19]]),
+            nz: f32::from_le_bytes([b[20], b[21], b[22], b[23]]),
+            tu: f32::from_le_bytes([b[24], b[25], b[26], b[27]]),
+            tv: f32::from_le_bytes([b[28], b[29], b[30], b[31]]),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum StringEncoding {
     Latin1,
@@ -118,5 +147,22 @@ mod tests {
 
         let bytes_decoded: Vec<u8> = s.into();
         assert_eq!(bytes, bytes_decoded);
+    }
+
+    #[test]
+    fn test_vertex3d_no_tex2_serialization() {
+        let vertex = Vertex3dNoTex2 {
+            x: 1.0,
+            y: 2.0,
+            z: 3.0,
+            nx: 0.0,
+            ny: 1.0,
+            nz: 0.0,
+            tu: 0.5,
+            tv: 0.5,
+        };
+        let bytes = vertex.as_vpx_bytes();
+        let deserialized_vertex = Vertex3dNoTex2::from_vpx_bytes(&bytes);
+        assert_eq!(vertex, deserialized_vertex);
     }
 }

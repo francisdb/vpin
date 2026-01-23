@@ -11,7 +11,8 @@
 
 use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::primitive::VertexWrapper;
-use byteorder::{LittleEndian, WriteBytesExt};
+use crate::vpx::obj::VpxFace;
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use serde_json::json;
 use std::error::Error;
 use std::io::{self, Read};
@@ -31,7 +32,7 @@ type VpxNormalBytes = [u8; 12];
 pub(crate) fn write_glb(
     name: String,
     vertices: &[VertexWrapper],
-    indices: &[i64],
+    indices: &[VpxFace],
     glb_file_path: &Path,
     fs: &dyn FileSystem,
 ) -> Result<(), Box<dyn Error>> {
@@ -47,7 +48,7 @@ pub(crate) fn write_glb(
 fn write_glb_to_writer<W: io::Write>(
     name: &str,
     vertices: &[VertexWrapper],
-    indices: &[i64],
+    indices: &[VpxFace],
     writer: &mut W,
 ) -> Result<(), Box<dyn Error>> {
     // Build binary buffer with all vertex data
@@ -97,11 +98,15 @@ fn write_glb_to_writer<W: io::Write>(
     // Write indices (SCALAR uint16 or uint32)
     let indices_offset = bin_data.len();
     let use_u32 = vertices.len() > 65535;
-    for &idx in indices {
+    for face in indices {
         if use_u32 {
-            bin_data.write_u32::<LittleEndian>(idx as u32)?;
+            bin_data.write_u32::<LittleEndian>(face.i0 as u32)?;
+            bin_data.write_u32::<LittleEndian>(face.i1 as u32)?;
+            bin_data.write_u32::<LittleEndian>(face.i2 as u32)?;
         } else {
-            bin_data.write_u16::<LittleEndian>(idx as u16)?;
+            bin_data.write_u16::<LittleEndian>(face.i0 as u16)?;
+            bin_data.write_u16::<LittleEndian>(face.i1 as u16)?;
+            bin_data.write_u16::<LittleEndian>(face.i2 as u16)?;
         }
     }
     let indices_length = bin_data.len() - indices_offset;
@@ -160,7 +165,7 @@ fn write_glb_to_writer<W: io::Write>(
             {
                 "bufferView": 3,
                 "componentType": if use_u32 { 5125 } else { 5123 }, // UNSIGNED_INT or UNSIGNED_SHORT
-                "count": indices.len(),
+                "count": indices.len() * 3,
                 "type": "SCALAR",
                 "byteOffset": 0,
             },
@@ -209,7 +214,7 @@ fn write_glb_to_writer<W: io::Write>(
 pub(crate) fn read_glb(
     glb_path: &Path,
     fs: &dyn FileSystem,
-) -> io::Result<(Vec<VertexWrapper>, Vec<i64>)> {
+) -> io::Result<(Vec<VertexWrapper>, Vec<VpxFace>)> {
     let _span = info_span!("fs_read").entered();
     let glb_data = fs.read_file(glb_path)?;
     drop(_span);
@@ -227,7 +232,7 @@ pub(crate) fn read_glb(
 /// Returns: `(name, vertices, indices)`
 pub(crate) fn read_glb_from_reader<R: Read>(
     reader: &mut R,
-) -> io::Result<(String, Vec<VertexWrapper>, Vec<i64>)> {
+) -> io::Result<(String, Vec<VertexWrapper>, Vec<VpxFace>)> {
     use crate::vpx::model::Vertex3dNoTex2;
     use byteorder::{LittleEndian, ReadBytesExt};
 
@@ -400,21 +405,39 @@ pub(crate) fn read_glb_from_reader<R: Read>(
         vertices.push(VertexWrapper::new(bytes, vertex));
     }
 
-    // Read indices - no reversal, just read them as-is
-    let mut indices = Vec::with_capacity(idx_count);
+    let indices = read_glb_indices(&bin_data, &idx_offset, idx_count, use_u32)?;
 
-    for i in 0..idx_count {
+    Ok((name, vertices, indices))
+}
+
+fn read_glb_indices(
+    bin_data: &&[u8],
+    idx_offset: &usize,
+    idx_count: usize,
+    use_u32: bool,
+) -> io::Result<Vec<VpxFace>> {
+    let mut indices = Vec::with_capacity(idx_count / 3);
+    for i in 0..idx_count / 3 {
         let idx = if use_u32 {
-            let mut c = io::Cursor::new(&bin_data[idx_offset + i * 4..]);
-            c.read_u32::<LittleEndian>()? as i64
+            // Each face has 3 indices, each u32 is 4 bytes, so offset is i * 12
+            let mut c = io::Cursor::new(&bin_data[idx_offset + i * 12..]);
+            VpxFace::new(
+                c.read_u32::<LittleEndian>()? as i64,
+                c.read_u32::<LittleEndian>()? as i64,
+                c.read_u32::<LittleEndian>()? as i64,
+            )
         } else {
-            let mut c = io::Cursor::new(&bin_data[idx_offset + i * 2..]);
-            c.read_u16::<LittleEndian>()? as i64
+            // Each face has 3 indices, each u16 is 2 bytes, so offset is i * 6
+            let mut c = io::Cursor::new(&bin_data[idx_offset + i * 6..]);
+            VpxFace::new(
+                c.read_u16::<LittleEndian>()? as i64,
+                c.read_u16::<LittleEndian>()? as i64,
+                c.read_u16::<LittleEndian>()? as i64,
+            )
         };
         indices.push(idx);
     }
-
-    Ok((name, vertices, indices))
+    Ok(indices)
 }
 
 #[cfg(test)]
@@ -434,57 +457,56 @@ mod test {
 
         // Create simple test data
         let vertices = vec![
-            VertexWrapper::new(
-                [0u8; 32],
-                Vertex3dNoTex2 {
-                    x: 0.0,
-                    y: 0.0,
-                    z: 0.0,
-                    nx: 0.0,
-                    ny: 1.0,
-                    nz: 0.0,
-                    tu: 0.0,
-                    tv: 0.0,
-                },
-            ),
-            VertexWrapper::new(
-                [0u8; 32],
-                Vertex3dNoTex2 {
-                    x: 1.0,
-                    y: 0.0,
-                    z: 0.0,
-                    nx: 0.0,
-                    ny: 1.0,
-                    nz: 0.0,
-                    tu: 1.0,
-                    tv: 0.0,
-                },
-            ),
-            VertexWrapper::new(
-                [0u8; 32],
-                Vertex3dNoTex2 {
-                    x: 0.0,
-                    y: 1.0,
-                    z: 0.0,
-                    nx: 0.0,
-                    ny: 1.0,
-                    nz: 0.0,
-                    tu: 0.0,
-                    tv: 1.0,
-                },
-            ),
+            Vertex3dNoTex2 {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                nx: 0.0,
+                ny: 1.0,
+                nz: 0.0,
+                tu: 0.0,
+                tv: 0.0,
+            },
+            Vertex3dNoTex2 {
+                x: 1.0,
+                y: 0.0,
+                z: 0.0,
+                nx: 0.0,
+                ny: 1.0,
+                nz: 0.0,
+                tu: 1.0,
+                tv: 0.0,
+            },
+            Vertex3dNoTex2 {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+                nx: 0.0,
+                ny: 1.0,
+                nz: 0.0,
+                tu: 0.0,
+                tv: 1.0,
+            },
         ];
-        let indices = vec![0, 1, 2];
-
+        let indices = vec![VpxFace::new(0, 1, 2)];
+        let vertices_with_encoded = vertices
+            .iter()
+            .map(|v| VertexWrapper::new(v.as_vpx_bytes(), v.clone()))
+            .collect::<Vec<VertexWrapper>>();
         // Write GLB
-        write_glb("TestMesh".to_string(), &vertices, &indices, &path, &fs)?;
+        write_glb(
+            "TestMesh".to_string(),
+            &vertices_with_encoded,
+            &indices,
+            &path,
+            &fs,
+        )?;
 
         // Read it back
         let (read_vertices, read_indices) = read_glb(&path, &fs)?;
 
-        assert_eq!(read_vertices.len(), 3);
-        assert_eq!(read_indices.len(), 3);
-
+        assert_eq!(vertices_with_encoded, read_vertices);
+        assert_eq!(indices, read_indices);
         Ok(())
     }
 
@@ -513,7 +535,7 @@ mod test {
                 tv: 0.0,
             },
         )];
-        let indices = vec![0, 0, 0];
+        let indices = vec![VpxFace::new(0, 0, 0)];
 
         // Write and read back
         write_glb("TestNaN".to_string(), &vertices, &indices, &path, &fs)?;
@@ -553,15 +575,10 @@ mod test {
 
         // Step 2: Write to GLB
         let mut glb_buffer = Vec::new();
-        let serialized_indices = read_result
-            .indices
-            .iter()
-            .flat_map(|i| [i.i0, i.i1, i.i2])
-            .collect::<Vec<i64>>();
         write_glb_to_writer(
             &read_result.name,
             &vertices,
-            &serialized_indices,
+            &read_result.indices,
             &mut glb_buffer,
         )?;
 
@@ -575,20 +592,12 @@ mod test {
             "Mesh name should be preserved in GLB round-trip"
         );
 
-        let deserialized_indices: Vec<VpxFace> = glb_indices
-            .chunks(3)
-            .map(|chunk| {
-                assert_eq!(chunk.len(), 3);
-                VpxFace::new(chunk[0], chunk[1], chunk[2])
-            })
-            .collect();
-
         // Step 4: Write OBJ from GLB data
         let mut screw_obj_bytes_after_roundtrip = Vec::new();
         write_obj_to_writer(
             &read_result.name,
             &glb_vertices,
-            &deserialized_indices,
+            &glb_indices,
             &mut screw_obj_bytes_after_roundtrip,
         )?;
 

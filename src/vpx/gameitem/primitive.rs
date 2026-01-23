@@ -5,6 +5,7 @@ use crate::vpx::expanded::WriteError;
 use crate::vpx::model::Vertex3dNoTex2;
 
 use crate::impl_shared_attributes;
+use crate::vpx::obj::VpxFace;
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
@@ -217,7 +218,12 @@ struct PrimitiveJson {
 
 /// A wrapper for a vertex that includes both the original encoded data and the decoded vertex.
 ///
-/// We have found tables with NaN values in the normals, so we keep the original encoded data for fidelity.
+/// We have found tables with NaN values in the normals.
+/// And there are multiple values that give a NaN when decoded.
+/// So we keep the original encoded data for fidelity.
+///
+/// TODO only keep this data around if we know we had NaNs in the source data
+#[derive(Debug, Clone, PartialEq)]
 pub struct VertexWrapper {
     pub vpx_encoded_vertex: [u8; 32],
     pub vertex: Vertex3dNoTex2,
@@ -233,7 +239,7 @@ impl VertexWrapper {
 
 pub struct ReadMesh {
     pub vertices: Vec<VertexWrapper>,
-    pub indices: Vec<i64>,
+    pub indices: Vec<VpxFace>,
 }
 
 impl Primitive {
@@ -865,18 +871,16 @@ fn raw_vertices_to_vertices(raw_vertices: Vec<u8>, num_vertices: usize) -> Vec<V
     vertices
 }
 
-fn raw_indices_to_indices(indices: Vec<u8>, bytes_per_index: u8) -> Vec<i64> {
-    let mut buff = BytesMut::from(indices.as_slice());
-    let num_indices = indices.len() / bytes_per_index as usize;
-    let mut indices: Vec<i64> = Vec::with_capacity(num_indices);
+fn raw_indices_to_indices(vpx_encoded_indices: Vec<u8>, bytes_per_index: u8) -> Vec<VpxFace> {
+    let mut buff = BytesMut::from(vpx_encoded_indices.as_slice());
+    let num_indices = vpx_encoded_indices.len() / bytes_per_index as usize;
+    let mut indices: Vec<VpxFace> = Vec::with_capacity(num_indices);
     for _ in 0..num_indices / 3 {
         // Looks like the indices are in reverse order
         let v1 = read_vertex_index_from_vpx(bytes_per_index, &mut buff);
         let v2 = read_vertex_index_from_vpx(bytes_per_index, &mut buff);
         let v3 = read_vertex_index_from_vpx(bytes_per_index, &mut buff);
-        indices.push(v3);
-        indices.push(v2);
-        indices.push(v1);
+        indices.push(VpxFace::new(v1, v2, v3));
     }
     indices
 }

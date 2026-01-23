@@ -1177,29 +1177,15 @@ fn write_gameitem_binaries(
         match mesh_format {
             PrimitiveMeshFormat::Obj => {
                 let obj_path = gameitems_dir.join(format!("{json_file_name}.obj"));
-                // TODO can we avoid allocating here?
-                let vpx_indices: Vec<VpxFace> = indices
-                    .chunks_exact(3)
-                    .map(|triangle| VpxFace::new(triangle[0], triangle[1], triangle[2]))
-                    .collect();
-                write_obj(gameitem.name(), vertices, &vpx_indices, &obj_path, fs)
+                write_obj(gameitem.name(), vertices, &indices, &obj_path, fs)
                     .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
             }
             PrimitiveMeshFormat::Glb => {
                 let glb_path = gameitems_dir.join(format!("{json_file_name}.glb"));
-                // In general when reversing Z for vertices/normals we also need to reverse the winding order
-                // TODO turn this around, it should only happen for obj, but for glb
-                // the indices coming from read_mesh() have been reversed to match the winding order
-                // so we need to reverse them back here
-                let glb_indices: Vec<i64> = indices
-                    .chunks_exact(3)
-                    .flat_map(|triangle| triangle.iter().rev())
-                    .cloned()
-                    .collect();
                 crate::vpx::gltf::write_glb(
                     gameitem.name().to_string(),
                     vertices,
-                    &glb_indices,
+                    &indices,
                     &glb_path,
                     fs,
                 )
@@ -1236,7 +1222,7 @@ fn write_animation_frames_to_meshes(
     gameitem: &GameItemEnum,
     json_file_name: &str,
     vertices: &[VertexWrapper],
-    indices: &[i64],
+    vpx_indices: &[VpxFace],
     zipped: Zip<Iter<Vec<u8>>, Iter<u32>>,
     mesh_format: PrimitiveMeshFormat,
     fs: &dyn FileSystem,
@@ -1252,10 +1238,6 @@ fn write_animation_frames_to_meshes(
         match mesh_format {
             PrimitiveMeshFormat::Obj => {
                 // TODO deduplicate code with above
-                let vpx_indices: Vec<VpxFace> = indices
-                    .chunks_exact(3)
-                    .map(|triangle| VpxFace::new(triangle[0], triangle[1], triangle[2]))
-                    .collect();
                 write_obj(
                     gameitem.name(),
                     &full_vertices,
@@ -1266,19 +1248,10 @@ fn write_animation_frames_to_meshes(
                 .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
             }
             PrimitiveMeshFormat::Glb => {
-                // In general when reversing Z for vertices/normals we also need to reverse the winding order
-                // TODO turn this around, it should only happen for obj, but for glb
-                // the indices coming from read_mesh() have been reversed to match the winding order
-                // so we need to reverse them back here
-                let glb_indices: Vec<i64> = indices
-                    .chunks_exact(3)
-                    .flat_map(|triangle| triangle.iter().rev())
-                    .cloned()
-                    .collect();
                 crate::vpx::gltf::write_glb(
                     gameitem.name().to_string(),
                     &full_vertices,
-                    &glb_indices,
+                    &vpx_indices,
                     &mesh_path,
                     fs,
                 )
@@ -1305,7 +1278,7 @@ fn replace_vertices(
             full_vertex.nx = animation_vertex.nx;
             full_vertex.ny = animation_vertex.ny;
             full_vertex.nz = animation_vertex.nz;
-            // TODO we don't have a full representation of the vertex, so we use a zeroed hash
+            // TODO we don't have a full representation of the vertex
             VertexWrapper::new([0u8; 32], full_vertex)
         })
         .collect::<Vec<_>>();
@@ -1535,12 +1508,14 @@ fn read_glb_and_compress(
         2
     };
     let mut vpx_indices = BytesMut::with_capacity(indices.len() * bytes_per_index as usize);
-    for &idx in &indices {
-        write_vertex_index_for_vpx(bytes_per_index, &mut vpx_indices, idx);
+    for idx in &indices {
+        write_vertex_index_for_vpx(bytes_per_index, &mut vpx_indices, idx.i0);
+        write_vertex_index_for_vpx(bytes_per_index, &mut vpx_indices, idx.i1);
+        write_vertex_index_for_vpx(bytes_per_index, &mut vpx_indices, idx.i2);
     }
 
     let vertices_len = vertices.len();
-    let indices_len = indices.len();
+    let indices_len = indices.len() * 3;
     let (compressed_vertices, compressed_indices) =
         compress_vertices_and_indices(&vpx_vertices, &vpx_indices)?;
 

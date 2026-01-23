@@ -127,7 +127,10 @@ pub(crate) fn write_obj_to_writer<W: io::Write>(
 }
 
 pub(crate) struct ReadObjResult {
+    #[allow(unused)]
     pub(crate) name: String,
+    // TOD investigate if we really need this and try to keep symmetry with the writing side
+    #[allow(unused)]
     pub(crate) final_vertices: Vec<Vertex3dNoTex2>,
     pub(crate) vertices: Vec<(f32, f32, f32, Option<f32>)>,
     pub(crate) indices: Vec<VpxFace>,
@@ -354,10 +357,10 @@ impl VpxObjNormal {
 ///
 /// *I do wonder if these indices can be negative?*
 #[derive(Debug, PartialEq)]
-pub(crate) struct VpxFace {
-    pub(crate) i0: i64,
-    pub(crate) i1: i64,
-    pub(crate) i2: i64,
+pub struct VpxFace {
+    pub i0: i64,
+    pub i1: i64,
+    pub i2: i64,
 }
 impl VpxFace {
     pub(crate) fn new(i0: i64, i1: i64, i2: i64) -> Self {
@@ -376,70 +379,6 @@ pub(crate) struct ObjData {
     ///
     /// Here they are 0-based, in obj files they are 1-based
     pub indices: Vec<VpxFace>,
-}
-
-impl ObjData {
-    /// Converts ObjData to the vertex format used by write_glb and write_obj.
-    ///
-    /// This creates the 32-byte vertex arrays with proper VPX normal bytes.
-    /// If VPX bytes are available from the OBJ comments, they are used directly.
-    /// Otherwise, the normal float values are encoded as bytes.
-    ///
-    /// When `negate_z` is true, the z coordinates are negated for VPX format compatibility.
-    pub(crate) fn to_vertices(&self, negate_z: bool) -> Vec<VertexWrapper> {
-        use byteorder::{LittleEndian, WriteBytesExt};
-
-        self.vertices
-            .iter()
-            .zip(&self.texture_coordinates)
-            .zip(&self.normals)
-            .map(|((v, vt), vn)| {
-                let mut bytes = [0u8; 32];
-
-                let z = if negate_z { -v.2 } else { v.2 };
-                let nz = if negate_z { -vn.z } else { vn.z };
-
-                // Write position bytes (0-11)
-                let mut cursor = std::io::Cursor::new(&mut bytes[0..12]);
-                cursor.write_f32::<LittleEndian>(v.0).unwrap();
-                cursor.write_f32::<LittleEndian>(v.1).unwrap();
-                cursor.write_f32::<LittleEndian>(z).unwrap();
-
-                // Write normal bytes (12-23)
-                // If we have VPX bytes from OBJ, use them, otherwise encode the floats
-                if let Some(vpx_bytes) = &vn.vpx_bytes {
-                    bytes[12..24].copy_from_slice(vpx_bytes);
-                } else {
-                    // Encode normals as floats
-                    let mut cursor = std::io::Cursor::new(&mut bytes[12..24]);
-                    cursor.write_f32::<LittleEndian>(vn.x).unwrap();
-                    cursor.write_f32::<LittleEndian>(vn.y).unwrap();
-                    cursor.write_f32::<LittleEndian>(nz).unwrap();
-                }
-
-                // Write texcoord bytes (24-31)
-                let mut cursor = std::io::Cursor::new(&mut bytes[24..32]);
-                cursor.write_f32::<LittleEndian>(vt.0).unwrap();
-                cursor
-                    .write_f32::<LittleEndian>(vt.1.unwrap_or(0.0))
-                    .unwrap();
-
-                VertexWrapper {
-                    vpx_encoded_vertex: bytes,
-                    vertex: Vertex3dNoTex2 {
-                        x: v.0,
-                        y: v.1,
-                        z,
-                        nx: vn.x,
-                        ny: vn.y,
-                        nz,
-                        tu: vt.0,
-                        tv: vt.1.unwrap_or(0.0),
-                    },
-                }
-            })
-            .collect()
-    }
 }
 
 #[cfg(test)]
@@ -595,8 +534,60 @@ f 1/1/1 1/1/1 1/1/1
         let mut reader = Cursor::new(SCREW_OBJ_BYTES);
         let obj_data = read_obj(&mut reader)?;
 
+        // TODO clean up this mess
         // Convert to vertex format (no z-axis negation for OBJ-to-OBJ round-trip)
-        let vertices = obj_data.to_vertices(true);
+        use byteorder::{LittleEndian, WriteBytesExt};
+        let vertices: Vec<VertexWrapper> = obj_data
+            .vertices
+            .iter()
+            .zip(&obj_data.texture_coordinates)
+            .zip(&obj_data.normals)
+            .map(|((v, vt), vn)| {
+                let mut bytes = [0u8; 32];
+
+                let z = if true { -v.2 } else { v.2 };
+                let nz = if true { -vn.z } else { vn.z };
+
+                // Write position bytes (0-11)
+                let mut cursor = std::io::Cursor::new(&mut bytes[0..12]);
+                cursor.write_f32::<LittleEndian>(v.0).unwrap();
+                cursor.write_f32::<LittleEndian>(v.1).unwrap();
+                cursor.write_f32::<LittleEndian>(z).unwrap();
+
+                // Write normal bytes (12-23)
+                // If we have VPX bytes from OBJ, use them, otherwise encode the floats
+                if let Some(vpx_bytes) = &vn.vpx_bytes {
+                    bytes[12..24].copy_from_slice(vpx_bytes);
+                } else {
+                    // Encode normals as floats
+                    let mut cursor = std::io::Cursor::new(&mut bytes[12..24]);
+                    cursor.write_f32::<LittleEndian>(vn.x).unwrap();
+                    cursor.write_f32::<LittleEndian>(vn.y).unwrap();
+                    cursor.write_f32::<LittleEndian>(nz).unwrap();
+                }
+
+                // Write texcoord bytes (24-31)
+                let mut cursor = std::io::Cursor::new(&mut bytes[24..32]);
+                cursor.write_f32::<LittleEndian>(vt.0).unwrap();
+                cursor
+                    .write_f32::<LittleEndian>(vt.1.unwrap_or(0.0))
+                    .unwrap();
+
+                VertexWrapper {
+                    vpx_encoded_vertex: bytes,
+                    vertex: Vertex3dNoTex2 {
+                        x: v.0,
+                        y: v.1,
+                        z,
+                        nx: vn.x,
+                        ny: vn.y,
+                        nz,
+                        tu: vt.0,
+                        tv: vt.1.unwrap_or(0.0),
+                    },
+                }
+            })
+            .collect();
 
         let memory_fs = MemoryFileSystem::default();
         let written_obj_path = Path::new("screw.obj");
