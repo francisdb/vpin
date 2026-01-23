@@ -5,6 +5,7 @@ mod common;
 mod test {
 
     const EXTRACT_IN_MEMORY: bool = true;
+    const PRIMITIVE_MESH_FORMAT: PrimitiveMeshFormat = PrimitiveMeshFormat::Obj;
 
     use pretty_assertions::assert_eq;
     // TODO once we can capture logs per extract / assemble we can re-enable parallel tests
@@ -128,7 +129,7 @@ mod test {
             (Box::new(MemoryFileSystem::new()), PathBuf::from("/vpx"))
         };
 
-        vpin::vpx::expanded::write_fs(&original, &extract_dir, PrimitiveMeshFormat::Obj, &*fs)
+        vpin::vpx::expanded::write_fs(&original, &extract_dir, PRIMITIVE_MESH_FORMAT, &*fs)
             .map_err(io::Error::other)?;
         let expanded_read =
             vpin::vpx::expanded::read_fs(&extract_dir, &*fs).map_err(io::Error::other)?;
