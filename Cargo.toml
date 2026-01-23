@@ -1,6 +1,6 @@
 [package]
 name = "vpin"
-version = "0.20.9"
+version = "0.20.8"
 edition = "2024"
 description = "Rust library for the virtual pinball ecosystem"
 repository = "https://github.com/francisdb/vpin"
