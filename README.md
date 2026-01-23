@@ -14,6 +14,28 @@ Join [#vpxtool on "Virtual Pinball Chat" discord](https://discord.gg/eYsvyMu8) f
 
 https://docs.rs/vpin
 
+## Features
+
+The library provides several optional features that can be enabled:
+
+- `parallel` (default): Enables parallel processing using rayon for better performance
+- `directb2s` (default): Enables support for DirectB2S backglass files (requires quick-xml)
+- `wasm`: Enables WebAssembly bindings for browser/Node.js usage
+
+To use only VPX functionality without DirectB2S support:
+
+```toml
+[dependencies]
+vpin = { version = "0.20", default-features = false }
+```
+
+To enable specific features:
+
+```toml
+[dependencies]
+vpin = { version = "0.20", default-features = false, features = ["parallel"] }
+```
+
 ## Example code
 
 Check the [examples folder](/examples)

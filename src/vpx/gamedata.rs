@@ -284,7 +284,7 @@ pub struct GameData {
     /// CLMO
     /// During the 10.8.0 development cycle, this field was added but later again removed
     /// Has meanwhile been replaced by the new [`GameData::bg_view_mode_desktop`],
-    /// [`GameData::bg_view_mode_fullscreen`] and [`GameData::bg_view_mode_ffs`] fields
+    /// [`GameData::bg_view_mode_fullscreen`] and [`GameData::bg_view_mode_full_single_screen`] fields
     /// See [the related commit](https://github.com/vpinball/vpinball/commit/5087b3c51b99676f91b02ee4b0c0af4b89b6afda)
     /// CLM_RELATIVE = 0, // All tables before 10.8 used a camera position relative to a fitting of a set of bounding vertices (not all parts)
     /// CLM_ABSOLUTE = 1 // Position camera relative to the bottom center of the table

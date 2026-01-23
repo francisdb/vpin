@@ -11,13 +11,17 @@ documentation = "https://docs.rs/vpin"
 keywords = ["vpin", "visual-pinball", "virtual-pinball", "vpx"]
 categories = ["game-engines", "game-development"]
 
+[package.metadata.docs.rs]
+all-features = true
+
 exclude = [
     "testdata/*",
 ]
 
 [features]
-default = ["parallel"]
+default = ["parallel", "directb2s"]
 parallel = ["rayon"]
+directb2s = ["quick-xml"]
 wasm = ["wasm-bindgen", "js-sys", "console_error_panic_hook", "web-sys"]
 
 [lib]
@@ -33,7 +37,7 @@ nom = "8.0.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.145", features = ["preserve_order"] }
 utf16string = "0.2.0"
-quick-xml = { version = "0.39.0", features = ["serialize"] }
+quick-xml = { version = "0.39.0", features = ["serialize"], optional = true }
 serde_repr = "0.1.20"
 hex = "0.4.3"
 weezl = "0.1.12"
