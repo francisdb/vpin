@@ -573,9 +573,15 @@ mod test {
 
         // Step 5: Compare original OBJ with OBJ written from GLB
         let original_string = String::from_utf8(SCREW_OBJ_BYTES.to_vec())?;
-        let roundtrip_string = String::from_utf8(screw_obj_bytes_after_roundtrip)?;
+        // When on Windows the original file will be checked out from git with \r\n line endings.
+        let original = if cfg!(windows) {
+            original_string.replace("\r\n", "\n")
+        } else {
+            original_string.to_string()
+        };
+        let after_roundtrip = String::from_utf8(screw_obj_bytes_after_roundtrip)?;
 
-        assert_eq!(original_string, roundtrip_string);
+        assert_eq!(original, after_roundtrip);
 
         Ok(())
     }
