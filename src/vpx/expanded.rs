@@ -1406,19 +1406,19 @@ fn read_obj(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<(usize, usize, V
         .zip(normals.iter())
     {
         let (normal, vpx_vertex_normal_data) = vn;
-        let nx = normal.0 as f32;
-        let ny = normal.1 as f32;
-        let nz = -(normal.2 as f32);
+        let nx = normal.0;
+        let ny = normal.1;
+        let nz = -(normal.2);
 
         let vertext = Vertex3dNoTex2 {
-            x: v.0 as f32,
-            y: v.1 as f32,
-            z: -(v.2 as f32),
+            x: v.0,
+            y: v.1,
+            z: -(v.2),
             nx,
             ny,
             nz,
-            tu: vt.0 as f32,
-            tv: vt.1.unwrap_or(0.0) as f32,
+            tu: vt.0,
+            tv: vt.1.unwrap_or(0.0),
         };
         write_vertex(&mut vpx_vertices, &vertext, vpx_vertex_normal_data);
     }
@@ -1494,13 +1494,13 @@ fn read_obj_as_frame(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<Vec<Ver
     let mut vertices: Vec<VertData> = Vec::with_capacity(obj_vertices.len());
     for (v, vn) in obj_vertices.iter().zip(normals.iter()) {
         let (normal, _) = vn;
-        let nx = normal.0 as f32;
-        let ny = normal.1 as f32;
-        let nz = -(normal.2 as f32);
+        let nx = normal.0;
+        let ny = normal.1;
+        let nz = -(normal.2);
         let vertext = VertData {
-            x: v.0 as f32,
-            y: v.1 as f32,
-            z: -(v.2 as f32),
+            x: v.0,
+            y: v.1,
+            z: -(v.2),
             nx,
             ny,
             nz,

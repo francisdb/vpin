@@ -4,36 +4,81 @@
 //! The library provides traits for reading and writing .obj files
 //! It keeps the 1-based indexing of the .obj format.
 
+use std::fmt::Display;
 use std::io;
 use std::io::{BufRead, BufReader, Error, ErrorKind};
+use std::str::FromStr;
 
-pub trait ObjWriter {
+/// Trait for floating point types that can be used in OBJ files.
+/// This allows the library to work with both f32 and f64 precision.
+pub trait ObjFloat: Copy + Display + FromStr + PartialEq {
+    /// Returns the fractional part of the number
+    fn fract(self) -> Self;
+
+    /// Returns true if the fractional part is zero
+    fn is_zero_fract(self) -> bool {
+        self.fract() == Self::zero()
+    }
+
+    /// Returns the zero value for this type
+    fn zero() -> Self;
+}
+
+impl ObjFloat for f32 {
+    fn fract(self) -> Self {
+        self.fract()
+    }
+    fn zero() -> Self {
+        0.0
+    }
+}
+
+impl ObjFloat for f64 {
+    fn fract(self) -> Self {
+        self.fract()
+    }
+    fn zero() -> Self {
+        0.0
+    }
+}
+
+/// Trait for writing OBJ file data with configurable float precision.
+///
+/// The generic parameter `F` defaults to `f64` for backward compatibility,
+/// but can be set to `f32` for applications that work with single-precision data
+/// (like VPX files which use f32 internally).
+pub trait ObjWriter<F: ObjFloat = f64> {
     fn write_comment<S: AsRef<str>>(&mut self, comment: S) -> io::Result<()>;
     fn write_object_name<S: AsRef<str>>(&mut self, name: S) -> io::Result<()>;
-    fn write_vertex(&mut self, x: f64, y: f64, z: f64, w: Option<f64>) -> io::Result<()>;
-    fn write_texture_coordinate(
-        &mut self,
-        u: f64,
-        v: Option<f64>,
-        w: Option<f64>,
-    ) -> io::Result<()>;
-    fn write_normal(&mut self, nx: f64, ny: f64, nz: f64) -> io::Result<()>;
+    fn write_vertex(&mut self, x: F, y: F, z: F, w: Option<F>) -> io::Result<()>;
+    fn write_texture_coordinate(&mut self, u: F, v: Option<F>, w: Option<F>) -> io::Result<()>;
+    fn write_normal(&mut self, nx: F, ny: F, nz: F) -> io::Result<()>;
     fn write_face(
         &mut self,
         vertex_indices: &[(usize, Option<usize>, Option<usize>)],
     ) -> io::Result<()>;
 }
 
-pub trait ObjReader {
+/// Trait for reading OBJ file data with configurable float precision.
+///
+/// The generic parameter `F` defaults to `f64` for backward compatibility,
+/// but can be set to `f32` for applications that work with single-precision data.
+pub trait ObjReader<F: ObjFloat = f64> {
     fn read_comment(&mut self, comment: &str) -> ();
     fn read_object_name(&mut self, name: &str) -> ();
-    fn read_vertex(&mut self, x: f64, y: f64, z: f64, w: Option<f64>) -> ();
-    fn read_texture_coordinate(&mut self, u: f64, v: Option<f64>, w: Option<f64>) -> ();
-    fn read_normal(&mut self, nx: f64, ny: f64, nz: f64) -> ();
+    fn read_vertex(&mut self, x: F, y: F, z: F, w: Option<F>) -> ();
+    fn read_texture_coordinate(&mut self, u: F, v: Option<F>, w: Option<F>) -> ();
+    fn read_normal(&mut self, nx: F, ny: F, nz: F) -> ();
     fn read_face(&mut self, vertex_indices: &[(usize, Option<usize>, Option<usize>)]) -> ();
 }
 
-pub fn read_obj_file<R: io::Read, T: ObjReader>(reader: R, obj_reader: &mut T) -> io::Result<()> {
+pub fn read_obj_file<R: io::Read, T: ObjReader<F>, F: ObjFloat>(
+    reader: R,
+    obj_reader: &mut T,
+) -> io::Result<()>
+where
+    <F as FromStr>::Err: std::fmt::Display,
+{
     let mut buf_reader = BufReader::new(reader);
     let mut line = String::new();
     let mut lineno: usize = 0;
@@ -53,11 +98,11 @@ pub fn read_obj_file<R: io::Read, T: ObjReader>(reader: R, obj_reader: &mut T) -
             )
         })?;
 
-        let parse_f = |s: &str, kind: &str| -> io::Result<f64> {
-            s.parse::<f64>().map_err(|_| {
+        let parse_f = |s: &str, kind: &str| -> io::Result<F> {
+            s.parse::<F>().map_err(|e| {
                 Error::new(
                     ErrorKind::InvalidData,
-                    format!("line {}: invalid {} float: {}", lineno, kind, s),
+                    format!("line {}: invalid {} float: {} ({})", lineno, kind, s, e),
                 )
             })
         };
@@ -112,10 +157,10 @@ pub fn read_obj_file<R: io::Read, T: ObjReader>(reader: R, obj_reader: &mut T) -
                     })
                     .and_then(|s| parse_f(s, "vertex z"))?;
                 let w = match parts.next() {
-                    Some(s) => Some(s.parse::<f64>().map_err(|_| {
+                    Some(s) => Some(s.parse::<F>().map_err(|e| {
                         Error::new(
                             ErrorKind::InvalidData,
-                            format!("line {}: invalid vertex w float: {}", lineno, s),
+                            format!("line {}: invalid vertex w float: {} ({})", lineno, s, e),
                         )
                     })?),
                     None => None,
@@ -133,19 +178,19 @@ pub fn read_obj_file<R: io::Read, T: ObjReader>(reader: R, obj_reader: &mut T) -
                     })
                     .and_then(|s| parse_f(s, "texture u"))?;
                 let v = match parts.next() {
-                    Some(s) => Some(s.parse::<f64>().map_err(|_| {
+                    Some(s) => Some(s.parse::<F>().map_err(|e| {
                         Error::new(
                             ErrorKind::InvalidData,
-                            format!("line {}: invalid texture v float: {}", lineno, s),
+                            format!("line {}: invalid texture v float: {} ({})", lineno, s, e),
                         )
                     })?),
                     None => None,
                 };
                 let w = match parts.next() {
-                    Some(s) => Some(s.parse::<f64>().map_err(|_| {
+                    Some(s) => Some(s.parse::<F>().map_err(|e| {
                         Error::new(
                             ErrorKind::InvalidData,
-                            format!("line {}: invalid texture w float: {}", lineno, s),
+                            format!("line {}: invalid texture w float: {} ({})", lineno, s, e),
                         )
                     })?),
                     None => None,
@@ -245,16 +290,41 @@ pub fn read_obj_file<R: io::Read, T: ObjReader>(reader: R, obj_reader: &mut T) -
     Ok(())
 }
 
-pub struct IoObjWriter<W: io::Write> {
+pub struct IoObjWriter<W: io::Write, F: ObjFloat = f64> {
     out: W,
     line_buf: Vec<u8>,
+    /// When true, use VPinball-compatible formatting (6 decimal places like fprintf %f)
+    vpinball_compat: bool,
+    _phantom: std::marker::PhantomData<F>,
 }
-impl<W: io::Write> IoObjWriter<W> {
+impl<W: io::Write, F: ObjFloat> IoObjWriter<W, F> {
+    /// Creates a new OBJ writer with default formatting (full precision)
     pub fn new(writer: W) -> Self {
         IoObjWriter {
             out: writer,
             line_buf: Vec::with_capacity(256),
+            vpinball_compat: false,
+            _phantom: std::marker::PhantomData,
         }
+    }
+
+    /// Creates a new OBJ writer with VPinball-compatible formatting.
+    /// This uses 6 decimal places (like fprintf %f) to match VPinball's OBJ export format.
+    #[cfg(test)]
+    pub fn new_vpinball_compat(writer: W) -> Self {
+        IoObjWriter {
+            out: writer,
+            line_buf: Vec::with_capacity(256),
+            vpinball_compat: true,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    /// Sets VPinball-compatible formatting mode.
+    /// When true, floats are formatted with 6 decimal places to match VPinball's fprintf %f.
+    #[cfg(test)]
+    pub fn set_vpinball_compat(&mut self, compat: bool) {
+        self.vpinball_compat = compat;
     }
 
     #[inline]
@@ -269,14 +339,19 @@ impl<W: io::Write> IoObjWriter<W> {
     }
 
     #[inline]
-    fn push_f(&mut self, v: f64) {
+    fn push_f(&mut self, v: F) {
         // we want 0 as "0" not "0.0"
-        if v.fract() == 0.0 {
+        if v.is_zero_fract() {
             self.push_str(&format!("{}", v));
             return;
         }
-        let mut buf = ryu::Buffer::new();
-        self.push_str(buf.format(v));
+        // Use VPinball-compatible formatting (6 decimal places like fprintf %f) if enabled,
+        // otherwise use full precision
+        if self.vpinball_compat {
+            self.push_str(&format!("{:.6}", v));
+        } else {
+            self.push_str(&format!("{}", v));
+        }
     }
 
     #[inline]
@@ -287,7 +362,7 @@ impl<W: io::Write> IoObjWriter<W> {
         Ok(())
     }
 }
-impl<W: io::Write> ObjWriter for IoObjWriter<W> {
+impl<W: io::Write, F: ObjFloat> ObjWriter<F> for IoObjWriter<W, F> {
     fn write_comment<S: AsRef<str>>(&mut self, comment: S) -> io::Result<()> {
         self.push_str("# ");
         self.push_str(comment.as_ref());
@@ -300,7 +375,7 @@ impl<W: io::Write> ObjWriter for IoObjWriter<W> {
         self.flush_line()
     }
 
-    fn write_vertex(&mut self, x: f64, y: f64, z: f64, w: Option<f64>) -> io::Result<()> {
+    fn write_vertex(&mut self, x: F, y: F, z: F, w: Option<F>) -> io::Result<()> {
         self.push_str("v ");
         self.push_f(x);
         self.push_str(" ");
@@ -314,12 +389,7 @@ impl<W: io::Write> ObjWriter for IoObjWriter<W> {
         self.flush_line()
     }
 
-    fn write_texture_coordinate(
-        &mut self,
-        u: f64,
-        v: Option<f64>,
-        w: Option<f64>,
-    ) -> io::Result<()> {
+    fn write_texture_coordinate(&mut self, u: F, v: Option<F>, w: Option<F>) -> io::Result<()> {
         self.push_str("vt ");
         self.push_f(u);
         if let Some(vv) = v {
@@ -333,7 +403,7 @@ impl<W: io::Write> ObjWriter for IoObjWriter<W> {
         self.flush_line()
     }
 
-    fn write_normal(&mut self, nx: f64, ny: f64, nz: f64) -> io::Result<()> {
+    fn write_normal(&mut self, nx: F, ny: F, nz: F) -> io::Result<()> {
         self.push_str("vn ");
         self.push_f(nx);
         self.push_str(" ");
@@ -384,7 +454,7 @@ mod tests {
     type Face = Vec<(usize, Option<usize>, Option<usize>)>;
 
     #[derive(Default)]
-    struct TestObjReader {
+    struct TestObjReader64 {
         comments: Vec<String>,
         names: Vec<String>,
         vertices: Vec<(f64, f64, f64, Option<f64>)>,
@@ -393,7 +463,7 @@ mod tests {
         faces: Vec<Face>,
     }
 
-    impl ObjReader for TestObjReader {
+    impl ObjReader for TestObjReader64 {
         fn read_comment(&mut self, comment: &str) {
             self.comments.push(comment.to_string());
         }
@@ -422,9 +492,9 @@ mod tests {
     #[test]
     fn test_obj_reading() {
         // read testdata/screw.obj using TestObjReader
-        let obj_data = include_str!("../testdata/screw.obj");
+        let obj_data = include_str!("../testdata/screw_f64.obj");
         let cursor = Cursor::new(obj_data);
-        let mut reader: TestObjReader = Default::default();
+        let mut reader: TestObjReader64 = Default::default();
         read_obj_file(cursor, &mut reader).unwrap();
         // this does not check correctness and ordering of data, just that all data was read
         assert_eq!(reader.comments.len(), 3);
@@ -446,7 +516,7 @@ f 1/1/1 2/2/2 3/3/3
 ";
 
         let reader = Cursor::new(input);
-        let mut test_reader: TestObjReader = Default::default();
+        let mut test_reader: TestObjReader64 = Default::default();
         read_obj_file(reader, &mut test_reader).unwrap();
         assert_eq!(test_reader.comments, vec!["This is a test OBJ file"]);
         assert_eq!(test_reader.names, vec!["TestObject"]);
@@ -496,10 +566,10 @@ f 1/1/1 2/2/2 3/3/3
         assert_eq!(output, expected_output);
     }
 
-    struct WritingReader {
+    struct WritingReader64 {
         writer: IoObjWriter<Vec<u8>>,
     }
-    impl ObjReader for WritingReader {
+    impl ObjReader for WritingReader64 {
         fn read_comment(&mut self, comment: &str) {
             self.writer.write_comment(comment).unwrap();
         }
@@ -526,15 +596,230 @@ f 1/1/1 2/2/2 3/3/3
     }
 
     #[test]
-    fn test_obj_read_write_compare() {
+    fn test_obj_read_write_compare_64() {
         // git might change line endings as they are text files, so normalize to \n
-        let obj_data = include_str!("../testdata/screw.obj").replace("\r\n", "\n");
+        let obj_data = include_str!("../testdata/screw_f64.obj").replace("\r\n", "\n");
         let cursor = Cursor::new(&obj_data);
-        let writer = IoObjWriter::new(Vec::new());
-        let mut reader = WritingReader { writer };
+        // Use VPinball-compatible formatting to match the screw.obj file format
+        let writer: IoObjWriter<_, f64> = IoObjWriter::new(Vec::new());
+        let mut reader = WritingReader64 { writer };
         read_obj_file(cursor, &mut reader).unwrap();
 
         let output = String::from_utf8(reader.writer.out).unwrap();
         assert_eq!(output, obj_data);
+    }
+
+    // Tests for f32 support
+
+    #[derive(Default)]
+    struct TestObjReader32 {
+        vertices: Vec<(f32, f32, f32, Option<f32>)>,
+        texture_coordinates: Vec<(f32, Option<f32>, Option<f32>)>,
+        normals: Vec<(f32, f32, f32)>,
+    }
+
+    impl ObjReader<f32> for TestObjReader32 {
+        fn read_comment(&mut self, _comment: &str) {}
+        fn read_object_name(&mut self, _name: &str) {}
+
+        fn read_vertex(&mut self, x: f32, y: f32, z: f32, w: Option<f32>) {
+            self.vertices.push((x, y, z, w));
+        }
+
+        fn read_texture_coordinate(&mut self, u: f32, v: Option<f32>, w: Option<f32>) {
+            self.texture_coordinates.push((u, v, w));
+        }
+
+        fn read_normal(&mut self, nx: f32, ny: f32, nz: f32) {
+            self.normals.push((nx, ny, nz));
+        }
+
+        fn read_face(&mut self, _vertex_indices: &[(usize, Option<usize>, Option<usize>)]) {}
+    }
+
+    struct WritingReader32 {
+        writer: IoObjWriter<Vec<u8>, f32>,
+    }
+    impl ObjReader<f32> for WritingReader32 {
+        fn read_comment(&mut self, comment: &str) {
+            self.writer.write_comment(comment).unwrap();
+        }
+
+        fn read_object_name(&mut self, name: &str) {
+            self.writer.write_object_name(name).unwrap();
+        }
+
+        fn read_vertex(&mut self, x: f32, y: f32, z: f32, w: Option<f32>) {
+            self.writer.write_vertex(x, y, z, w).unwrap();
+        }
+
+        fn read_texture_coordinate(&mut self, u: f32, v: Option<f32>, w: Option<f32>) {
+            self.writer.write_texture_coordinate(u, v, w).unwrap();
+        }
+
+        fn read_normal(&mut self, nx: f32, ny: f32, nz: f32) {
+            self.writer.write_normal(nx, ny, nz).unwrap();
+        }
+
+        fn read_face(&mut self, vertex_indices: &[(usize, Option<usize>, Option<usize>)]) {
+            self.writer.write_face(vertex_indices).unwrap();
+        }
+    }
+
+    #[test]
+    fn test_obj_f32_reading() {
+        let input = "o TestObject
+v 1.5 2.5 3.5
+vt 0.25 0.75
+vn 0.0 1.0 0.0
+";
+
+        let reader = Cursor::new(input);
+        let mut test_reader = TestObjReader32::default();
+        read_obj_file(reader, &mut test_reader).unwrap();
+
+        assert_eq!(test_reader.vertices, vec![(1.5f32, 2.5f32, 3.5f32, None)]);
+        assert_eq!(
+            test_reader.texture_coordinates,
+            vec![(0.25f32, Some(0.75f32), None)]
+        );
+        assert_eq!(test_reader.normals, vec![(0.0f32, 1.0f32, 0.0f32)]);
+    }
+
+    #[test]
+    fn test_obj_f32_writing() {
+        let mut buffer = Vec::new();
+        let mut writer: IoObjWriter<_, f32> = IoObjWriter::new(&mut buffer);
+
+        writer.write_comment("f32 test").unwrap();
+        writer.write_object_name("F32Object").unwrap();
+        writer.write_vertex(1.5f32, 2.5f32, 3.5f32, None).unwrap();
+        writer
+            .write_texture_coordinate(0.25f32, Some(0.75f32), None)
+            .unwrap();
+        writer.write_normal(0.0f32, 1.0f32, 0.0f32).unwrap();
+
+        let output = String::from_utf8(buffer).unwrap();
+        let expected = "# f32 test
+o F32Object
+v 1.5 2.5 3.5
+vt 0.25 0.75
+vn 0 1 0
+";
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_obj_f32_round_trip() {
+        // Test that f32 values round-trip correctly
+        let input = "o Test
+v 0.123456789 0.987654321 1.5
+vn 0.577 0.577 0.577
+";
+
+        let reader = Cursor::new(input);
+        let mut test_reader = TestObjReader32::default();
+        read_obj_file(reader, &mut test_reader).unwrap();
+
+        // Write back using f32 writer
+        let mut buffer = Vec::new();
+        let mut writer: IoObjWriter<_, f32> = IoObjWriter::new(&mut buffer);
+        writer.write_object_name("Test").unwrap();
+        for (x, y, z, w) in &test_reader.vertices {
+            writer.write_vertex(*x, *y, *z, *w).unwrap();
+        }
+        for (nx, ny, nz) in &test_reader.normals {
+            writer.write_normal(*nx, *ny, *nz).unwrap();
+        }
+
+        let output = String::from_utf8(buffer).unwrap();
+
+        // The values should be f32-precision
+        assert!(output.contains("o Test"));
+        assert!(output.contains("v "));
+        assert!(output.contains("vn "));
+    }
+
+    #[test]
+    fn test_vpinball_compat_formatting() {
+        let mut buffer = Vec::new();
+        let mut writer: IoObjWriter<_, f64> = IoObjWriter::new_vpinball_compat(&mut buffer);
+
+        writer.write_object_name("VPinballTest").unwrap();
+        writer
+            .write_vertex(754.4214477539063, 1753.2353515625, -91.72238159179688, None)
+            .unwrap();
+        writer
+            .write_texture_coordinate(0.123456789, Some(0.987654321), None)
+            .unwrap();
+        writer
+            .write_normal(0.5773502691896257, 0.5773502691896257, 0.5773502691896257)
+            .unwrap();
+
+        let output = String::from_utf8(buffer).unwrap();
+
+        // VPinball uses fprintf %f which gives 6 decimal places
+        let expected = "o VPinballTest
+v 754.421448 1753.235352 -91.722382
+vt 0.123457 0.987654
+vn 0.577350 0.577350 0.577350
+";
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_vpinball_compat_flag_toggle() {
+        // Test that we can toggle the flag
+        let mut buffer = Vec::new();
+        let mut writer: IoObjWriter<_, f32> = IoObjWriter::new(&mut buffer);
+
+        // Start with default (full precision)
+        writer
+            .write_vertex(1.2345678_f32, 2.345678_f32, 3.45678_f32, None)
+            .unwrap();
+
+        // Enable VPinball compat
+        writer.set_vpinball_compat(true);
+        writer
+            .write_vertex(1.2345678_f32, 2.3456789_f32, 3.456789_f32, None)
+            .unwrap();
+
+        let output = String::from_utf8(buffer).unwrap();
+
+        // First line should have full f32 precision, second should have 6 decimals
+        let lines: Vec<&str> = output.lines().collect();
+        assert_eq!(lines.len(), 2);
+
+        // Full precision output (f32 Display)
+        assert_eq!(lines[0], "v 1.2345678 2.345678 3.45678");
+
+        // VPinball compat output (6 decimal places)
+        assert_eq!(lines[1], "v 1.234568 2.345679 3.456789");
+    }
+
+    #[test]
+    fn test_obj_read_write_compare_32() {
+        // git might change line endings as they are text files, so normalize to \n
+        let obj_data = include_str!("../testdata/screw_f32.obj").replace("\r\n", "\n");
+        let cursor = Cursor::new(&obj_data);
+        // Use VPinball-compatible formatting to match the screw.obj file format
+        let writer: IoObjWriter<_, f32> = IoObjWriter::new(Vec::new());
+        let mut reader = WritingReader32 { writer };
+        read_obj_file(cursor, &mut reader).unwrap();
+
+        let output = String::from_utf8(reader.writer.out).unwrap();
+        assert_eq!(output, obj_data);
+    }
+
+    #[test]
+    fn f32_reader_can_read_f64_obj() {
+        let obj_data = include_str!("../testdata/screw_f64.obj");
+        let cursor = Cursor::new(obj_data);
+        let mut test_reader: TestObjReader32 = Default::default();
+        read_obj_file(cursor, &mut test_reader).unwrap();
+        // just check that some data was read
+        assert_eq!(test_reader.vertices.len(), 41);
+        assert_eq!(test_reader.texture_coordinates.len(), 41);
+        assert_eq!(test_reader.normals.len(), 41);
     }
 }
