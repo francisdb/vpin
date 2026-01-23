@@ -5,6 +5,7 @@ mod common;
 mod test {
 
     const EXTRACT_IN_MEMORY: bool = true;
+    const PRIMITIVE_MESH_FORMAT: PrimitiveMeshFormat = PrimitiveMeshFormat::Obj;
 
     use pretty_assertions::assert_eq;
     // TODO once we can capture logs per extract / assemble we can re-enable parallel tests
@@ -15,6 +16,7 @@ mod test {
     use std::path::{Path, PathBuf};
     use testdir::testdir;
     use vpin::filesystem::{FileSystem, MemoryFileSystem, RealFileSystem};
+    use vpin::vpx::expanded::PrimitiveMeshFormat;
 
     fn init() {
         use crate::common::tracing_duration_filter::DurationFilterLayer;
@@ -61,6 +63,7 @@ mod test {
         // * Spooky Wednesday
         // * Street Fighter II (Gottlieb 1993) VPW 1.1
         // * Van Halen (Original 2025) - contains a 200mb mp3 sound file
+        // * InvaderTable_2.260.vpx - contains about 5000 gameitems? Chokes the cfb writer.
 
         // Example tables caused problems in the past:
         //
@@ -120,18 +123,19 @@ mod test {
         let original = vpin::vpx::from_bytes(original_vpx_bytes)?;
         let (fs, extract_dir): (Box<dyn FileSystem>, PathBuf) = if let Some(dir) = extractr_dir {
             let extract_dir = dir.join("extracted");
-            // make dir
             std::fs::create_dir_all(&extract_dir)?;
             (Box::new(RealFileSystem), extract_dir)
         } else {
             (Box::new(MemoryFileSystem::new()), PathBuf::from("/vpx"))
         };
 
-        vpin::vpx::expanded::write_fs(&original, &extract_dir, &*fs).map_err(io::Error::other)?;
+        vpin::vpx::expanded::write_fs(&original, &extract_dir, PRIMITIVE_MESH_FORMAT, &*fs)
+            .map_err(io::Error::other)?;
         let expanded_read =
             vpin::vpx::expanded::read_fs(&extract_dir, &*fs).map_err(io::Error::other)?;
         // special case for comparing code
         assert_eq!(original.gamedata.code, expanded_read.gamedata.code);
+
         let test_vpx_bytes = vpin::vpx::to_bytes(&expanded_read)?;
         Ok(ReadAndWriteResult {
             extracted: if EXTRACT_IN_MEMORY {

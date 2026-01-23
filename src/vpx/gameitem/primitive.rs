@@ -5,6 +5,7 @@ use crate::vpx::expanded::WriteError;
 use crate::vpx::model::Vertex3dNoTex2;
 
 use crate::impl_shared_attributes;
+use crate::vpx::obj::VpxFace;
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
@@ -215,9 +216,30 @@ struct PrimitiveJson {
     part_group_name: Option<String>,
 }
 
+/// A wrapper for a vertex that includes both the original encoded data and the decoded vertex.
+///
+/// We have found tables with NaN values in the normals.
+/// And there are multiple values that give a NaN when decoded.
+/// So we keep the original encoded data for fidelity.
+///
+/// TODO only keep this data around if we know we had NaNs in the source data
+#[derive(Debug, Clone, PartialEq)]
+pub struct VertexWrapper {
+    pub vpx_encoded_vertex: [u8; 32],
+    pub vertex: Vertex3dNoTex2,
+}
+impl VertexWrapper {
+    pub fn new(vpx_encoded_vertex: [u8; 32], vertex: Vertex3dNoTex2) -> Self {
+        Self {
+            vpx_encoded_vertex,
+            vertex,
+        }
+    }
+}
+
 pub struct ReadMesh {
-    pub vertices: Vec<([u8; 32], Vertex3dNoTex2)>,
-    pub indices: Vec<i64>,
+    pub vertices: Vec<VertexWrapper>,
+    pub indices: Vec<VpxFace>,
 }
 
 impl Primitive {
@@ -250,30 +272,10 @@ impl Primitive {
                 } else {
                     2
                 };
-                let mut vertices: Vec<([u8; 32], Vertex3dNoTex2)> =
-                    Vec::with_capacity(num_vertices);
 
-                let mut buff = BytesMut::from(raw_vertices.as_slice());
-                for _ in 0..num_vertices {
-                    let mut vertex = read_vertex(&mut buff);
-                    // invert the z axis for both position and normal
-                    vertex.1.z = -vertex.1.z;
-                    vertex.1.nz = -vertex.1.nz;
-                    vertices.push(vertex);
-                }
+                let vertices = raw_vertices_to_vertices(raw_vertices, num_vertices);
 
-                let mut buff = BytesMut::from(indices.as_slice());
-                let num_indices = indices.len() / bytes_per_index as usize;
-                let mut indices: Vec<i64> = Vec::with_capacity(num_indices);
-                for _ in 0..num_indices / 3 {
-                    // Looks like the indices are in reverse order
-                    let v1 = read_vertex_index_from_vpx(bytes_per_index, &mut buff);
-                    let v2 = read_vertex_index_from_vpx(bytes_per_index, &mut buff);
-                    let v3 = read_vertex_index_from_vpx(bytes_per_index, &mut buff);
-                    indices.push(v3);
-                    indices.push(v2);
-                    indices.push(v1);
-                }
+                let indices = raw_indices_to_indices(indices, bytes_per_index);
 
                 Ok(Some(ReadMesh { vertices, indices }))
             } else {
@@ -830,7 +832,7 @@ fn read_vertex_index_from_vpx(bytes_per_index: u8, buff: &mut BytesMut) -> i64 {
 }
 
 /// Decompress mesh data (vertices or indices) using zlib compression.
-fn decompress_mesh_data(compressed_data: &[u8]) -> io::Result<Vec<u8>> {
+pub(crate) fn decompress_mesh_data(compressed_data: &[u8]) -> io::Result<Vec<u8>> {
     let mut decoder = ZlibDecoder::new(compressed_data);
     let mut decompressed_data = Vec::new();
     decoder.read_to_end(&mut decompressed_data)?;
@@ -859,7 +861,31 @@ pub(crate) fn compress_mesh_data(data: &[u8]) -> io::Result<Vec<u8>> {
     encoder.finish()
 }
 
-fn read_vertex(buffer: &mut BytesMut) -> ([u8; 32], Vertex3dNoTex2) {
+fn raw_vertices_to_vertices(raw_vertices: Vec<u8>, num_vertices: usize) -> Vec<VertexWrapper> {
+    let mut vertices = Vec::with_capacity(num_vertices);
+    let mut buff = BytesMut::from(raw_vertices.as_slice());
+    for _ in 0..num_vertices {
+        let vertex = read_vertex(&mut buff);
+        vertices.push(vertex);
+    }
+    vertices
+}
+
+fn raw_indices_to_indices(vpx_encoded_indices: Vec<u8>, bytes_per_index: u8) -> Vec<VpxFace> {
+    let mut buff = BytesMut::from(vpx_encoded_indices.as_slice());
+    let num_indices = vpx_encoded_indices.len() / bytes_per_index as usize;
+    let mut indices: Vec<VpxFace> = Vec::with_capacity(num_indices);
+    for _ in 0..num_indices / 3 {
+        // Looks like the indices are in reverse order
+        let v1 = read_vertex_index_from_vpx(bytes_per_index, &mut buff);
+        let v2 = read_vertex_index_from_vpx(bytes_per_index, &mut buff);
+        let v3 = read_vertex_index_from_vpx(bytes_per_index, &mut buff);
+        indices.push(VpxFace::new(v1, v2, v3));
+    }
+    indices
+}
+
+fn read_vertex(buffer: &mut BytesMut) -> VertexWrapper {
     let mut bytes = [0; 32];
     buffer.copy_to_slice(&mut bytes);
     let mut vertex_buff = BytesMut::from(bytes.as_ref());
@@ -884,7 +910,10 @@ fn read_vertex(buffer: &mut BytesMut) -> ([u8; 32], Vertex3dNoTex2) {
         tu,
         tv,
     };
-    (bytes, v3d)
+    VertexWrapper {
+        vpx_encoded_vertex: bytes,
+        vertex: v3d,
+    }
 }
 
 /// Animation frame vertex data
