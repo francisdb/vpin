@@ -310,6 +310,7 @@ impl<W: io::Write, F: ObjFloat> IoObjWriter<W, F> {
 
     /// Creates a new OBJ writer with VPinball-compatible formatting.
     /// This uses 6 decimal places (like fprintf %f) to match VPinball's OBJ export format.
+    #[cfg(test)]
     pub fn new_vpinball_compat(writer: W) -> Self {
         IoObjWriter {
             out: writer,
@@ -321,6 +322,7 @@ impl<W: io::Write, F: ObjFloat> IoObjWriter<W, F> {
 
     /// Sets VPinball-compatible formatting mode.
     /// When true, floats are formatted with 6 decimal places to match VPinball's fprintf %f.
+    #[cfg(test)]
     pub fn set_vpinball_compat(&mut self, compat: bool) {
         self.vpinball_compat = compat;
     }
@@ -773,13 +775,13 @@ vn 0.577350 0.577350 0.577350
 
         // Start with default (full precision)
         writer
-            .write_vertex(1.23456789f32, 2.3456789f32, 3.456789f32, None)
+            .write_vertex(1.2345678_f32, 2.345678_f32, 3.45678_f32, None)
             .unwrap();
 
         // Enable VPinball compat
         writer.set_vpinball_compat(true);
         writer
-            .write_vertex(1.23456789f32, 2.3456789f32, 3.456789f32, None)
+            .write_vertex(1.2345678_f32, 2.3456789_f32, 3.456789_f32, None)
             .unwrap();
 
         let output = String::from_utf8(buffer).unwrap();
@@ -789,10 +791,10 @@ vn 0.577350 0.577350 0.577350
         assert_eq!(lines.len(), 2);
 
         // Full precision output (f32 Display)
-        assert!(lines[0].starts_with("v 1.234567"));
+        assert_eq!(lines[0], "v 1.2345678 2.345678 3.45678");
 
         // VPinball compat output (6 decimal places)
-        assert!(lines[1].starts_with("v 1.234568 2.345679 3.456789"));
+        assert_eq!(lines[1], "v 1.234568 2.345679 3.456789");
     }
 
     #[test]
@@ -807,5 +809,17 @@ vn 0.577350 0.577350 0.577350
 
         let output = String::from_utf8(reader.writer.out).unwrap();
         assert_eq!(output, obj_data);
+    }
+
+    #[test]
+    fn f32_reader_can_read_f64_obj() {
+        let obj_data = include_str!("../testdata/screw_f64.obj");
+        let cursor = Cursor::new(obj_data);
+        let mut test_reader: TestObjReader32 = Default::default();
+        read_obj_file(cursor, &mut test_reader).unwrap();
+        // just check that some data was read
+        assert_eq!(test_reader.vertices.len(), 41);
+        assert_eq!(test_reader.texture_coordinates.len(), 41);
+        assert_eq!(test_reader.normals.len(), 41);
     }
 }
