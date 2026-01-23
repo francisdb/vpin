@@ -1,8 +1,13 @@
 //! Wavefront OBJ file reader and writer
+//!
+//! This binds the vpx format to the wavefront obj format for easier inspection and editing.
+//!
+//! Z axis for vertices and normals is negated to match vpx coordinate system.
+//! Winding order is reversed to comply with the winding order change due to z negation.
 
 use crate::filesystem::FileSystem;
 use crate::vpx::expanded::BytesMutExt;
-use crate::vpx::gameitem::primitive::MAX_VERTICES_FOR_2_BYTE_INDEX;
+use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::wavefront_obj_io;
 use crate::wavefront_obj_io::{ObjReader, ObjWriter};
@@ -50,14 +55,12 @@ fn obj_parse_vpx_comment(comment: &str) -> Option<VpxNormalBytes> {
 /// Writes a wavefront obj file from the vertices and indices
 /// as they are stored in the m3cx and m3ci fields of the primitive
 ///
-/// Somehow the z axis is inverted compared to the vpx file values,
-/// so we have to negate the z values.
-/// This also affects winding order of the faces.
-/// TODO we should be reversing the winding order as well here instead of higher up in the code
+/// VPinball exports obj files with negated z axis compared to vpx files internal representation.
+/// So we have to negate the vertex/normal z values + reverse face winding order.
 pub(crate) fn write_obj_to_writer<W: io::Write>(
     name: &str,
-    vertices: &[([u8; 32], Vertex3dNoTex2)],
-    indices: &[i64],
+    vpx_vertices: &[VertexWrapper],
+    vpx_indices: &[VpxFace],
     writer: &mut W,
 ) -> Result<(), Box<dyn Error>> {
     let mut obj_writer: wavefront_obj_io::IoObjWriter<_, f32> =
@@ -79,22 +82,26 @@ pub(crate) fn write_obj_to_writer<W: io::Write>(
     obj_writer.write_comment("VPXTOOL OBJ file")?;
     obj_writer.write_comment(format!(
         "numVerts: {} numFaces: {}",
-        vertices.len(),
-        indices.len()
+        vpx_vertices.len(),
+        vpx_indices.len()
     ))?;
     obj_writer.write_object_name(name)?;
 
-    for (_, vertex) in vertices {
+    for VertexWrapper { vertex, .. } in vpx_vertices {
         obj_writer.write_vertex(vertex.x, vertex.y, -vertex.z, None)?;
     }
-    for (_, vertex) in vertices {
+    for VertexWrapper { vertex, .. } in vpx_vertices {
         obj_writer.write_texture_coordinate(vertex.tu, Some(vertex.tv), None)?;
     }
-    for (bytes, vertex) in vertices {
+    for VertexWrapper {
+        vpx_encoded_vertex,
+        vertex,
+    } in vpx_vertices
+    {
         // if one of the values is NaN we write a special comment with the bytes
         if vertex.nx.is_nan() || vertex.ny.is_nan() || vertex.nz.is_nan() {
             warn!("NaN found in vertex normal: {vertex:?}");
-            let data = bytes[12..24].try_into()?;
+            let data = vpx_encoded_vertex[12..24].try_into()?;
             let content = obj_vpx_comment(&data);
             obj_writer.write_comment(content)?;
         }
@@ -104,11 +111,12 @@ pub(crate) fn write_obj_to_writer<W: io::Write>(
         obj_writer.write_normal(x, y, z)?;
     }
     // write all faces in groups of 3
-    for chunk in indices.chunks(3) {
+    for face in vpx_indices {
+        // We reverse face winding order due to z negation
         // obj indices are 1 based
-        let v1 = chunk[0] + 1;
-        let v2 = chunk[1] + 1;
-        let v3 = chunk[2] + 1;
+        let v1 = face.i0 + 1;
+        let v2 = face.i1 + 1;
+        let v3 = face.i2 + 1;
         obj_writer.write_face(&[
             (v1 as usize, Some(v1 as usize), Some(v1 as usize)),
             (v2 as usize, Some(v2 as usize), Some(v2 as usize)),
@@ -118,16 +126,15 @@ pub(crate) fn write_obj_to_writer<W: io::Write>(
     Ok(())
 }
 
-pub(crate) fn read_obj_from_reader<R: BufRead>(
-    mut reader: &mut R,
-) -> io::Result<(
-    String,
-    Vec<Vertex3dNoTex2>,
-    Vec<(f32, f32, f32, Option<f32>)>,
-    Vec<i64>,
-    BytesMut,
-    BytesMut,
-)> {
+pub(crate) struct ReadObjResult {
+    pub(crate) name: String,
+    pub(crate) final_vertices: Vec<Vertex3dNoTex2>,
+    pub(crate) vertices: Vec<(f32, f32, f32, Option<f32>)>,
+    pub(crate) indices: Vec<VpxFace>,
+    pub(crate) vpx_encoded_vertices: BytesMut,
+}
+
+pub(crate) fn read_obj_from_reader<R: BufRead>(mut reader: &mut R) -> io::Result<ReadObjResult> {
     let ObjData {
         name,
         vertices,
@@ -137,54 +144,37 @@ pub(crate) fn read_obj_from_reader<R: BufRead>(
     } = read_obj(&mut reader).map_err(|e| io::Error::other(format!("Error reading obj: {}", e)))?;
 
     let mut final_vertices = Vec::with_capacity(vertices.len());
-    let mut vpx_vertices = BytesMut::with_capacity(vertices.len() * 32);
+    let mut vpx_encoded_vertices = BytesMut::with_capacity(vertices.len() * 32);
     for ((v, vt), vn) in vertices
         .iter()
         .zip(texture_coordinates.iter())
         .zip(normals.iter())
     {
-        let (normal, vpx_vertex_normal_data) = vn;
-        let nx = normal.0;
-        let ny = normal.1;
-        let nz = -(normal.2);
+        let nx = vn.x;
+        let ny = vn.y;
+        let nz = -vn.z;
 
         let vertext = Vertex3dNoTex2 {
             x: v.0,
             y: v.1,
-            z: -(v.2),
+            z: -v.2,
             nx,
             ny,
             nz,
             tu: vt.0,
             tv: vt.1.unwrap_or(0.0),
         };
-        write_vertex(&mut vpx_vertices, &vertext, vpx_vertex_normal_data);
+        write_vertex(&mut vpx_encoded_vertices, &vertext, &vn.vpx_bytes);
         final_vertices.push(vertext);
     }
 
-    let bytes_per_index: u8 = if vertices.len() > MAX_VERTICES_FOR_2_BYTE_INDEX {
-        4
-    } else {
-        2
-    };
-    let mut vpx_indices = BytesMut::with_capacity(indices.len() * bytes_per_index as usize);
-    for chunk in indices.chunks(3) {
-        let v1 = chunk[0];
-        let v2 = chunk[1];
-        let v3 = chunk[2];
-        write_vertex_index_for_vpx(bytes_per_index, &mut vpx_indices, v3);
-        write_vertex_index_for_vpx(bytes_per_index, &mut vpx_indices, v2);
-        write_vertex_index_for_vpx(bytes_per_index, &mut vpx_indices, v1);
-    }
-    // TODO this should just return optional vpx bytes if they are overridden
-    Ok((
+    Ok(ReadObjResult {
         name,
         final_vertices,
         vertices,
         indices,
-        vpx_vertices,
-        vpx_indices,
-    ))
+        vpx_encoded_vertices,
+    })
 }
 
 pub(crate) fn write_vertex_index_for_vpx(
@@ -223,8 +213,8 @@ fn write_vertex(
 #[instrument(skip(vertices, indices, fs, obj_file_path), fields(path = ?obj_file_path, vertex_count = vertices.len(), index_count = indices.len()))]
 pub(crate) fn write_obj(
     name: &str,
-    vertices: &[([u8; 32], Vertex3dNoTex2)],
-    indices: &[i64],
+    vertices: &[VertexWrapper],
+    indices: &[VpxFace],
     obj_file_path: &Path,
     fs: &dyn FileSystem,
 ) -> Result<(), Box<dyn Error>> {
@@ -239,10 +229,10 @@ pub(crate) fn write_obj(
 
 #[derive(Default)]
 struct VpxObjReader {
-    indices: Vec<i64>,
+    indices: Vec<VpxFace>,
     vertices: Vec<(f32, f32, f32, Option<f32>)>,
     texture_coordinates: Vec<(f32, Option<f32>, Option<f32>)>,
-    normals: Vec<ObjNormal>,
+    normals: Vec<VpxObjNormal>,
     object_count: usize,
     /// keeps the previous comment to be associated with the next normal
     previous_comment: Option<String>,
@@ -312,20 +302,24 @@ impl ObjReader<f32> for VpxObjReader {
             // parse the comment as hex string
             if let Some(bytes) = obj_parse_vpx_comment(comment) {
                 // use the bytes as the normal
-                self.normals.push(((nx, ny, nz), Some(bytes)));
+                self.normals
+                    .push(VpxObjNormal::new(nx, ny, nz, Some(bytes)));
             } else {
-                self.normals.push(((nx, ny, nz), None));
+                self.normals.push(VpxObjNormal::new(nx, ny, nz, None));
             }
         } else {
-            self.normals.push(((nx, ny, nz), None));
+            self.normals.push(VpxObjNormal::new(nx, ny, nz, None));
         }
         self.previous_comment = None;
     }
 
     fn read_face(&mut self, vertex_indices: &[(usize, Option<usize>, Option<usize>)]) {
-        self.indices.push(vertex_indices[0].0 as i64 - 1);
-        self.indices.push(vertex_indices[1].0 as i64 - 1);
-        self.indices.push(vertex_indices[2].0 as i64 - 1);
+        let vpx_face = VpxFace {
+            i0: vertex_indices[0].0 as i64 - 1,
+            i1: vertex_indices[1].0 as i64 - 1,
+            i2: vertex_indices[2].0 as i64 - 1,
+        };
+        self.indices.push(vpx_face);
         self.previous_comment = None;
     }
 }
@@ -336,19 +330,52 @@ pub(crate) fn read_obj<R: BufRead>(mut reader: &mut R) -> std::io::Result<ObjDat
     vpx_reader.read(&mut reader)
 }
 
-pub type ObjNormal = ((f32, f32, f32), Option<VpxNormalBytes>);
+#[derive(Debug, PartialEq)]
+pub(crate) struct VpxObjNormal {
+    pub(crate) x: f32,
+    pub(crate) y: f32,
+    pub(crate) z: f32,
+    // in case the normal had NaN values, we store the original vpx bytes here
+    vpx_bytes: Option<VpxNormalBytes>,
+}
+impl VpxObjNormal {
+    fn new(x: f32, y: f32, z: f32, vpx_bytes: Option<VpxNormalBytes>) -> Self {
+        Self { x, y, z, vpx_bytes }
+    }
+}
+
+/// A face in the vpx file, consisting of three vertex indices
+///
+/// zero-based indices
+/// vpx based winding order
+///
+/// Normally the faces are also storing pointers to texture and normal indices,
+/// but in vpx files these are always the same as the vertex indices.
+///
+/// *I do wonder if these indices can be negative?*
+#[derive(Debug, PartialEq)]
+pub(crate) struct VpxFace {
+    pub(crate) i0: i64,
+    pub(crate) i1: i64,
+    pub(crate) i2: i64,
+}
+impl VpxFace {
+    pub(crate) fn new(i0: i64, i1: i64, i2: i64) -> Self {
+        Self { i0, i1, i2 }
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct ObjData {
     pub name: String,
     pub vertices: Vec<(f32, f32, f32, Option<f32>)>,
     pub texture_coordinates: Vec<(f32, Option<f32>, Option<f32>)>,
-    pub normals: Vec<ObjNormal>,
+    pub normals: Vec<VpxObjNormal>,
     /// Indices can also be relative, so they can be negative
     /// stored by three as vertex, texture, normal are all the same
     ///
     /// Here they are 0-based, in obj files they are 1-based
-    pub indices: Vec<i64>,
+    pub indices: Vec<VpxFace>,
 }
 
 impl ObjData {
@@ -359,18 +386,18 @@ impl ObjData {
     /// Otherwise, the normal float values are encoded as bytes.
     ///
     /// When `negate_z` is true, the z coordinates are negated for VPX format compatibility.
-    pub(crate) fn to_vertices(&self, negate_z: bool) -> Vec<([u8; 32], Vertex3dNoTex2)> {
+    pub(crate) fn to_vertices(&self, negate_z: bool) -> Vec<VertexWrapper> {
         use byteorder::{LittleEndian, WriteBytesExt};
 
         self.vertices
             .iter()
             .zip(&self.texture_coordinates)
             .zip(&self.normals)
-            .map(|((v, vt), (vn, vpx_bytes_opt))| {
+            .map(|((v, vt), vn)| {
                 let mut bytes = [0u8; 32];
 
                 let z = if negate_z { -v.2 } else { v.2 };
-                let nz = if negate_z { -vn.2 } else { vn.2 };
+                let nz = if negate_z { -vn.z } else { vn.z };
 
                 // Write position bytes (0-11)
                 let mut cursor = std::io::Cursor::new(&mut bytes[0..12]);
@@ -380,13 +407,13 @@ impl ObjData {
 
                 // Write normal bytes (12-23)
                 // If we have VPX bytes from OBJ, use them, otherwise encode the floats
-                if let Some(vpx_bytes) = vpx_bytes_opt {
+                if let Some(vpx_bytes) = &vn.vpx_bytes {
                     bytes[12..24].copy_from_slice(vpx_bytes);
                 } else {
                     // Encode normals as floats
                     let mut cursor = std::io::Cursor::new(&mut bytes[12..24]);
-                    cursor.write_f32::<LittleEndian>(vn.0).unwrap();
-                    cursor.write_f32::<LittleEndian>(vn.1).unwrap();
+                    cursor.write_f32::<LittleEndian>(vn.x).unwrap();
+                    cursor.write_f32::<LittleEndian>(vn.y).unwrap();
                     cursor.write_f32::<LittleEndian>(nz).unwrap();
                 }
 
@@ -397,19 +424,19 @@ impl ObjData {
                     .write_f32::<LittleEndian>(vt.1.unwrap_or(0.0))
                     .unwrap();
 
-                (
-                    bytes,
-                    Vertex3dNoTex2 {
+                VertexWrapper {
+                    vpx_encoded_vertex: bytes,
+                    vertex: Vertex3dNoTex2 {
                         x: v.0,
                         y: v.1,
                         z,
-                        nx: vn.0,
-                        ny: vn.1,
+                        nx: vn.x,
+                        ny: vn.y,
                         nz,
                         tu: vt.0,
                         tv: vt.1.unwrap_or(0.0),
                     },
-                )
+                }
             })
             .collect()
     }
@@ -438,8 +465,8 @@ f 1/1/1 1/1/1 1/1/1
             name: "minimal".to_string(),
             vertices: vec![(1.0f32, 2.0f32, 3.0f32, None)],
             texture_coordinates: vec![(2.0f32, Some(4.0f32), None)],
-            normals: vec![((0.0f32, 1.0f32, 0.0f32), None)],
-            indices: vec![0, 0, 0],
+            normals: vec![VpxObjNormal::new(0.0f32, 1.0f32, 0.0f32, None)],
+            indices: vec![VpxFace::new(0, 0, 0)],
         };
         assert_eq!(read_data, expected);
         Ok(())
@@ -447,23 +474,29 @@ f 1/1/1 1/1/1 1/1/1
 
     #[test]
     fn roundtrip_minimal_obj() -> TestResult {
+        // minimal obj with a single triangle
         let obj_contents = r#"# VPXTOOL table OBJ file
 # VPXTOOL OBJ file
-# numVerts: 1 numFaces: 3
+# numVerts: 3 numFaces: 1
 o minimal
-v 1 2 3
-vt 2 4
-vn 0 1 0
-f 1/1/1 1/1/1 1/1/1
+v 0 0 0
+v 1 0 0
+v 0 1 0
+vt 0 0
+vt 1 0
+vt 0 1
+vn 0 0 1
+vn 0 0 1
+vn 0 0 1
+f 1/1/1 2/2/2 3/3/3
 "#;
 
         let mut reader = BufReader::new(obj_contents.as_bytes());
-        let (name, vertices, _vertices2, indices, vpx_vertices, _read_data_vpx_indices) =
-            read_obj_from_reader(&mut reader)?;
+        let read_result = read_obj_from_reader(&mut reader)?;
 
         // TODO optimize: we don't need to convert to vpx_vertices and back for this test
-
-        let chunked_vertices = vpx_vertices
+        let chunked_vertices = read_result
+            .vpx_encoded_vertices
             .chunks(32)
             .map(|chunk| {
                 let mut array = [0u8; 32];
@@ -473,12 +506,20 @@ f 1/1/1 1/1/1 1/1/1
             .collect::<Vec<[u8; 32]>>();
         let vertices = chunked_vertices
             .iter()
-            .zip(vertices.iter())
-            .map(|(b, v)| (*b, v.clone()))
-            .collect::<Vec<([u8; 32], Vertex3dNoTex2)>>();
+            .zip(read_result.final_vertices.iter())
+            .map(|(b, v)| VertexWrapper {
+                vpx_encoded_vertex: *b,
+                vertex: v.clone(),
+            })
+            .collect::<Vec<VertexWrapper>>();
 
         let mut buffer = Vec::new();
-        write_obj_to_writer(&name, &vertices, &indices, &mut buffer)?;
+        write_obj_to_writer(
+            &read_result.name,
+            &vertices,
+            &read_result.indices,
+            &mut buffer,
+        )?;
 
         let written_obj_contents = String::from_utf8(buffer)?;
         // When on Windows the original file will be checked out with \r\n line endings.
@@ -509,13 +550,15 @@ f 1/1/1 1/1/1 1/1/1
             vertices: vec![(1.0f32, 2.0f32, 3.0f32, None)],
             texture_coordinates: vec![(2.0f32, Some(4.0f32), None)],
             normals: vec![
-                (
-                    (f32::NAN, 1.0f32, 0.0f32),
+                VpxObjNormal::new(
+                    f32::NAN,
+                    1.0f32,
+                    0.0f32,
                     Some([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
                 ),
-                ((1.0f32, 2.0f32, 3.0f32), None),
+                VpxObjNormal::new(1.0f32, 2.0f32, 3.0f32, None),
             ],
-            indices: vec![0, 0, 0],
+            indices: vec![VpxFace::new(0, 0, 0)],
         };
         // we can't compare a structure with NaN values
         assert_eq!(read_data.name, expected.name);
@@ -523,10 +566,10 @@ f 1/1/1 1/1/1 1/1/1
         assert_eq!(read_data.texture_coordinates, expected.texture_coordinates);
         assert_eq!(read_data.normals.len(), expected.normals.len());
         assert_eq!(
-            read_data.normals.first().unwrap().1,
-            expected.normals.first().unwrap().1
+            read_data.normals.first().unwrap().y,
+            expected.normals.first().unwrap().y
         );
-        assert_eq!(read_data.normals[1].1, expected.normals[1].1);
+        assert_eq!(read_data.normals[1].y, expected.normals[1].y);
         assert_eq!(read_data.indices, expected.indices);
         Ok(())
     }

@@ -215,8 +215,24 @@ struct PrimitiveJson {
     part_group_name: Option<String>,
 }
 
+/// A wrapper for a vertex that includes both the original encoded data and the decoded vertex.
+///
+/// We have found tables with NaN values in the normals, so we keep the original encoded data for fidelity.
+pub struct VertexWrapper {
+    pub vpx_encoded_vertex: [u8; 32],
+    pub vertex: Vertex3dNoTex2,
+}
+impl VertexWrapper {
+    pub fn new(vpx_encoded_vertex: [u8; 32], vertex: Vertex3dNoTex2) -> Self {
+        Self {
+            vpx_encoded_vertex,
+            vertex,
+        }
+    }
+}
+
 pub struct ReadMesh {
-    pub vertices: Vec<([u8; 32], Vertex3dNoTex2)>,
+    pub vertices: Vec<VertexWrapper>,
     pub indices: Vec<i64>,
 }
 
@@ -810,7 +826,7 @@ fn read_vertex_index_from_vpx(bytes_per_index: u8, buff: &mut BytesMut) -> i64 {
 }
 
 /// Decompress mesh data (vertices or indices) using zlib compression.
-fn decompress_mesh_data(compressed_data: &[u8]) -> io::Result<Vec<u8>> {
+pub(crate) fn decompress_mesh_data(compressed_data: &[u8]) -> io::Result<Vec<u8>> {
     let mut decoder = ZlibDecoder::new(compressed_data);
     let mut decompressed_data = Vec::new();
     decoder.read_to_end(&mut decompressed_data)?;
@@ -839,10 +855,7 @@ pub(crate) fn compress_mesh_data(data: &[u8]) -> io::Result<Vec<u8>> {
     encoder.finish()
 }
 
-fn raw_vertices_to_vertices(
-    raw_vertices: Vec<u8>,
-    num_vertices: usize,
-) -> Vec<([u8; 32], Vertex3dNoTex2)> {
+fn raw_vertices_to_vertices(raw_vertices: Vec<u8>, num_vertices: usize) -> Vec<VertexWrapper> {
     let mut vertices = Vec::with_capacity(num_vertices);
     let mut buff = BytesMut::from(raw_vertices.as_slice());
     for _ in 0..num_vertices {
@@ -868,7 +881,7 @@ fn raw_indices_to_indices(indices: Vec<u8>, bytes_per_index: u8) -> Vec<i64> {
     indices
 }
 
-fn read_vertex(buffer: &mut BytesMut) -> ([u8; 32], Vertex3dNoTex2) {
+fn read_vertex(buffer: &mut BytesMut) -> VertexWrapper {
     let mut bytes = [0; 32];
     buffer.copy_to_slice(&mut bytes);
     let mut vertex_buff = BytesMut::from(bytes.as_ref());
@@ -893,7 +906,10 @@ fn read_vertex(buffer: &mut BytesMut) -> ([u8; 32], Vertex3dNoTex2) {
         tu,
         tv,
     };
-    (bytes, v3d)
+    VertexWrapper {
+        vpx_encoded_vertex: bytes,
+        vertex: v3d,
+    }
 }
 
 /// Animation frame vertex data

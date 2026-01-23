@@ -45,7 +45,7 @@ use crate::vpx::biff::{BiffRead, BiffReader};
 use crate::vpx::custominfotags::CustomInfoTags;
 use crate::vpx::font::{FontData, FontDataJson};
 use crate::vpx::gameitem::primitive::{
-    MAX_VERTICES_FOR_2_BYTE_INDEX, ReadMesh, VertData, read_vpx_animation_frame,
+    MAX_VERTICES_FOR_2_BYTE_INDEX, ReadMesh, VertData, VertexWrapper, read_vpx_animation_frame,
     write_animation_vertex_data,
 };
 use crate::vpx::gameitem::{GameItemEnum, primitive};
@@ -59,7 +59,8 @@ use crate::vpx::material::{
 };
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::{
-    ObjData, read_obj as obj_read_obj, read_obj_from_reader, write_obj, write_vertex_index_for_vpx,
+    ObjData, ReadObjResult, VpxFace, read_obj as obj_read_obj, read_obj_from_reader, write_obj,
+    write_vertex_index_for_vpx,
 };
 use crate::vpx::renderprobe::{RenderProbeJson, RenderProbeWithGarbage};
 use crate::vpx::tableinfo::TableInfo;
@@ -1176,7 +1177,12 @@ fn write_gameitem_binaries(
         match mesh_format {
             PrimitiveMeshFormat::Obj => {
                 let obj_path = gameitems_dir.join(format!("{json_file_name}.obj"));
-                write_obj(gameitem.name(), vertices, indices, &obj_path, fs)
+                // TODO can we avoid allocating here?
+                let vpx_indices: Vec<VpxFace> = indices
+                    .chunks_exact(3)
+                    .map(|triangle| VpxFace::new(triangle[0], triangle[1], triangle[2]))
+                    .collect();
+                write_obj(gameitem.name(), vertices, &vpx_indices, &obj_path, fs)
                     .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
             }
             PrimitiveMeshFormat::Glb => {
@@ -1229,7 +1235,7 @@ fn write_animation_frames_to_meshes(
     gameitems_dir: &Path,
     gameitem: &GameItemEnum,
     json_file_name: &str,
-    vertices: &[([u8; 32], Vertex3dNoTex2)],
+    vertices: &[VertexWrapper],
     indices: &[i64],
     zipped: Zip<Iter<Vec<u8>>, Iter<u32>>,
     mesh_format: PrimitiveMeshFormat,
@@ -1245,8 +1251,19 @@ fn write_animation_frames_to_meshes(
 
         match mesh_format {
             PrimitiveMeshFormat::Obj => {
-                write_obj(gameitem.name(), &full_vertices, indices, &mesh_path, fs)
-                    .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
+                // TODO deduplicate code with above
+                let vpx_indices: Vec<VpxFace> = indices
+                    .chunks_exact(3)
+                    .map(|triangle| VpxFace::new(triangle[0], triangle[1], triangle[2]))
+                    .collect();
+                write_obj(
+                    gameitem.name(),
+                    &full_vertices,
+                    &vpx_indices,
+                    &mesh_path,
+                    fs,
+                )
+                .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
             }
             PrimitiveMeshFormat::Glb => {
                 // In general when reversing Z for vertices/normals we also need to reverse the winding order
@@ -1273,14 +1290,14 @@ fn write_animation_frames_to_meshes(
 }
 
 fn replace_vertices(
-    vertices: &[([u8; 32], Vertex3dNoTex2)],
+    vertices: &[VertexWrapper],
     animation_frame_vertices: Result<Vec<VertData>, WriteError>,
-) -> Result<Vec<([u8; 32], Vertex3dNoTex2)>, WriteError> {
+) -> Result<Vec<VertexWrapper>, WriteError> {
     // combine animation_vertices with the vertices and indices from the mesh
     let full_vertices = vertices
         .iter()
         .zip(animation_frame_vertices?.iter())
-        .map(|((_, vertex), animation_vertex)| {
+        .map(|(VertexWrapper { vertex, .. }, animation_vertex)| {
             let mut full_vertex: Vertex3dNoTex2 = (*vertex).clone();
             full_vertex.x = animation_vertex.x;
             full_vertex.y = animation_vertex.y;
@@ -1289,7 +1306,7 @@ fn replace_vertices(
             full_vertex.ny = animation_vertex.ny;
             full_vertex.nz = animation_vertex.nz;
             // TODO we don't have a full representation of the vertex, so we use a zeroed hash
-            ([0u8; 32], full_vertex)
+            VertexWrapper::new([0u8; 32], full_vertex)
         })
         .collect::<Vec<_>>();
     Ok(full_vertices)
@@ -1394,7 +1411,26 @@ fn read_gameitem_binaries(
         if let Some(format) = mesh_format {
             let (vertices_len, indices_len, compressed_vertices, compressed_indices) = match format
             {
-                PrimitiveMeshFormat::Obj => read_obj(&obj_path, fs)?,
+                PrimitiveMeshFormat::Obj => {
+                    let read_result = read_obj(&obj_path, fs)?;
+                    let vertices_len = read_result.vertices.len();
+                    let serialized_indices_len = read_result.indices.len() * 3;
+
+                    let vpx_encoded_indices =
+                        vpx_encode_vertices(read_result.vertices.len(), &read_result.indices);
+
+                    let (compressed_vertices, compressed_indices) = compress_vertices_and_indices(
+                        &read_result.vpx_encoded_vertices,
+                        &vpx_encoded_indices,
+                    )?;
+
+                    (
+                        vertices_len,
+                        serialized_indices_len,
+                        compressed_vertices,
+                        compressed_indices,
+                    )
+                }
                 PrimitiveMeshFormat::Glb => read_glb_and_compress(&glb_path, fs)?,
             };
             primitive.num_vertices = Some(vertices_len as u32);
@@ -1467,28 +1503,13 @@ fn animation_frame_file_name(
 }
 
 #[instrument(skip(fs))]
-fn read_obj(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<(usize, usize, Vec<u8>, Vec<u8>)> {
+fn read_obj(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<ReadObjResult> {
     let _span = info_span!("fs_read").entered();
     let obj_data = fs.read_file(obj_path)?;
     drop(_span);
-
     let mut reader = io::BufReader::new(io::Cursor::new(obj_data));
-
     // TODO if this fails we need to report which file caused the error
-    let (_name, _vertices, vertices, indices, vpx_vertices, vpx_indices) =
-        read_obj_from_reader(&mut reader)?;
-
-    let vertices_len = vertices.len();
-    let indices_len = indices.len();
-    let (compressed_vertices, compressed_indices) =
-        compress_vertices_and_indices(&vpx_vertices, &vpx_indices)?;
-
-    Ok((
-        vertices_len,
-        indices_len,
-        compressed_vertices,
-        compressed_indices,
-    ))
+    read_obj_from_reader(&mut reader)
 }
 
 fn read_glb_and_compress(
@@ -1500,8 +1521,11 @@ fn read_glb_and_compress(
 
     // Build BytesMut for vertices - just copy the 32-byte arrays
     let mut vpx_vertices = BytesMut::with_capacity(vertices.len() * 32);
-    for (bytes, _vertex) in &vertices {
-        vpx_vertices.put_slice(bytes);
+    for VertexWrapper {
+        vpx_encoded_vertex, ..
+    } in &vertices
+    {
+        vpx_vertices.put_slice(vpx_encoded_vertex);
     }
 
     // Build BytesMut for indices
@@ -1553,6 +1577,21 @@ fn compress_vertices_and_indices(
     Ok((compressed_vertices, compressed_indices))
 }
 
+fn vpx_encode_vertices(vertices_len: usize, indices: &[VpxFace]) -> BytesMut {
+    let bytes_per_index: u8 = if vertices_len > MAX_VERTICES_FOR_2_BYTE_INDEX {
+        4
+    } else {
+        2
+    };
+    let mut vpx_encoded_indices = BytesMut::with_capacity(indices.len() * bytes_per_index as usize);
+    for face in indices {
+        write_vertex_index_for_vpx(bytes_per_index, &mut vpx_encoded_indices, face.i0);
+        write_vertex_index_for_vpx(bytes_per_index, &mut vpx_encoded_indices, face.i1);
+        write_vertex_index_for_vpx(bytes_per_index, &mut vpx_encoded_indices, face.i2);
+    }
+    vpx_encoded_indices
+}
+
 #[instrument(skip(fs))]
 fn read_mesh_as_frame(
     mesh_path: &Path,
@@ -1579,10 +1618,9 @@ fn read_obj_as_frame(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<Vec<Ver
     })?;
     let mut vertices: Vec<VertData> = Vec::with_capacity(obj_vertices.len());
     for (v, vn) in obj_vertices.iter().zip(normals.iter()) {
-        let (normal, _) = vn;
-        let nx = normal.0;
-        let ny = normal.1;
-        let nz = -(normal.2);
+        let nx = vn.x;
+        let ny = vn.y;
+        let nz = -(vn.z);
         let vertext = VertData {
             x: v.0,
             y: v.1,
@@ -2294,5 +2332,50 @@ mod test {
         let dimensions = read_image_dimensions_from_file_steam("test.png", reader).unwrap();
 
         assert_eq!(dimensions, None);
+    }
+
+    const SCREW_32_OBJ_BYTES: &[u8] = include_bytes!("../../testdata/screw_f32.obj");
+
+    #[test]
+    fn test_read_write_obj() -> TestResult {
+        let fs = MemoryFileSystem::default();
+        let obj_path = Path::new("test.obj");
+
+        // put the bytes in the memory filesystem
+        fs.write_file(obj_path, SCREW_32_OBJ_BYTES)?;
+
+        let read_result = read_obj(obj_path, &fs)?;
+
+        // FIXME we don't have the encoded vertex data, so we just put zeros here
+        //   the read/write is not symmetrical because of this
+        let wrapped_vertices = read_result
+            .final_vertices
+            .iter()
+            .map(|v| VertexWrapper {
+                vpx_encoded_vertex: [0; 32],
+                vertex: v.clone(),
+            })
+            .collect::<Vec<VertexWrapper>>();
+
+        write_obj(
+            &read_result.name,
+            &wrapped_vertices,
+            &read_result.indices,
+            obj_path,
+            &fs,
+        )?;
+
+        let mut original_string = String::from_utf8(SCREW_32_OBJ_BYTES.to_vec())?;
+        // on windows obj files are written with \r\n line endings
+        if cfg!(windows) {
+            original_string = original_string.replace("\r\n", "\n");
+        }
+
+        let written_bytes = fs.read_file(obj_path)?;
+        let written_string = String::from_utf8(written_bytes)?;
+
+        assert_eq!(original_string, written_string);
+
+        Ok(())
     }
 }
