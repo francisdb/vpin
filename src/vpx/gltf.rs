@@ -30,14 +30,14 @@ type VpxNormalBytes = [u8; 12];
 /// The z axis is inverted compared to the vpx file values.
 #[instrument(skip(vertices, indices, fs, glb_file_path), fields(path = ?glb_file_path, vertex_count = vertices.len(), index_count = indices.len()))]
 pub(crate) fn write_glb(
-    name: String,
+    name: &str,
     vertices: &[VertexWrapper],
     indices: &[VpxFace],
     glb_file_path: &Path,
     fs: &dyn FileSystem,
 ) -> Result<(), Box<dyn Error>> {
     let mut buffer = Vec::new();
-    write_glb_to_writer(&name, vertices, indices, &mut buffer)?;
+    write_glb_to_writer(name, vertices, indices, &mut buffer)?;
 
     let _span = info_span!("fs_write", bytes = buffer.len()).entered();
     fs.write_file(glb_file_path, &buffer)?;
@@ -387,14 +387,12 @@ pub(crate) fn read_glb_from_reader<R: Read>(
         byte_cursor.write_f32::<LittleEndian>(z)?;
 
         // Restore VPX normal bytes (12-23) from extras
-        if let Some(ref normals) = vpx_normals {
-            if i < normals.len() {
-                if let Ok(vpx_bytes) = hex::decode(&normals[i]) {
-                    if vpx_bytes.len() == 12 {
-                        bytes[12..24].copy_from_slice(&vpx_bytes);
-                    }
-                }
-            }
+        if let Some(ref normals) = vpx_normals
+            && i < normals.len()
+            && let Ok(vpx_bytes) = hex::decode(&normals[i])
+            && vpx_bytes.len() == 12
+        {
+            bytes[12..24].copy_from_slice(&vpx_bytes);
         }
 
         // Write texcoords (24-31)
@@ -456,7 +454,7 @@ mod test {
         let path = PathBuf::from("/test.glb");
 
         // Create simple test data
-        let vertices = vec![
+        let vertices = [
             Vertex3dNoTex2 {
                 x: 0.0,
                 y: 0.0,
@@ -494,13 +492,7 @@ mod test {
             .map(|v| VertexWrapper::new(v.as_vpx_bytes(), v.clone()))
             .collect::<Vec<VertexWrapper>>();
         // Write GLB
-        write_glb(
-            "TestMesh".to_string(),
-            &vertices_with_encoded,
-            &indices,
-            &path,
-            &fs,
-        )?;
+        write_glb("TestMesh", &vertices_with_encoded, &indices, &path, &fs)?;
 
         // Read it back
         let (read_vertices, read_indices) = read_glb(&path, &fs)?;
@@ -538,7 +530,7 @@ mod test {
         let indices = vec![VpxFace::new(0, 0, 0)];
 
         // Write and read back
-        write_glb("TestNaN".to_string(), &vertices, &indices, &path, &fs)?;
+        write_glb("TestNaN", &vertices, &indices, &path, &fs)?;
         let (read_vertices, _) = read_glb(&path, &fs)?;
 
         assert_eq!(read_vertices.len(), 1);

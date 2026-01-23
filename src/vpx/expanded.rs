@@ -33,7 +33,7 @@ use log::{debug, info, warn};
 use rayon::prelude::*;
 use serde::de;
 use serde_json::Value;
-use tracing::{info_span, instrument};
+use tracing::instrument;
 
 use super::collection::Collection;
 use super::font;
@@ -1177,19 +1177,13 @@ fn write_gameitem_binaries(
         match mesh_format {
             PrimitiveMeshFormat::Obj => {
                 let obj_path = gameitems_dir.join(format!("{json_file_name}.obj"));
-                write_obj(gameitem.name(), vertices, &indices, &obj_path, fs)
+                write_obj(gameitem.name(), vertices, indices, &obj_path, fs)
                     .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
             }
             PrimitiveMeshFormat::Glb => {
                 let glb_path = gameitems_dir.join(format!("{json_file_name}.glb"));
-                crate::vpx::gltf::write_glb(
-                    gameitem.name().to_string(),
-                    vertices,
-                    &indices,
-                    &glb_path,
-                    fs,
-                )
-                .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
+                crate::vpx::gltf::write_glb(gameitem.name(), vertices, indices, &glb_path, fs)
+                    .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
             }
         }
 
@@ -1198,7 +1192,7 @@ fn write_gameitem_binaries(
                 let zipped = animation_frames.iter().zip(compressed_lengths.iter());
                 write_animation_frames_to_meshes(
                     gameitems_dir,
-                    gameitem,
+                    gameitem.name(),
                     json_file_name,
                     vertices,
                     indices,
@@ -1217,9 +1211,10 @@ fn write_gameitem_binaries(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_animation_frames_to_meshes(
     gameitems_dir: &Path,
-    gameitem: &GameItemEnum,
+    name: &str,
     json_file_name: &str,
     vertices: &[VertexWrapper],
     vpx_indices: &[VpxFace],
@@ -1237,25 +1232,12 @@ fn write_animation_frames_to_meshes(
 
         match mesh_format {
             PrimitiveMeshFormat::Obj => {
-                // TODO deduplicate code with above
-                write_obj(
-                    gameitem.name(),
-                    &full_vertices,
-                    &vpx_indices,
-                    &mesh_path,
-                    fs,
-                )
-                .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
+                write_obj(name, &full_vertices, vpx_indices, &mesh_path, fs)
+                    .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
             }
             PrimitiveMeshFormat::Glb => {
-                crate::vpx::gltf::write_glb(
-                    gameitem.name().to_string(),
-                    &full_vertices,
-                    &vpx_indices,
-                    &mesh_path,
-                    fs,
-                )
-                .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
+                crate::vpx::gltf::write_glb(name, &full_vertices, vpx_indices, &mesh_path, fs)
+                    .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
             }
         }
     }
@@ -1477,12 +1459,10 @@ fn animation_frame_file_name(
 
 #[instrument(skip(fs))]
 fn read_obj(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<ReadObjResult> {
-    let _span = info_span!("fs_read").entered();
     let obj_data = fs.read_file(obj_path)?;
-    drop(_span);
     let mut reader = io::BufReader::new(io::Cursor::new(obj_data));
-    // TODO if this fails we need to report which file caused the error
     read_obj_from_reader(&mut reader)
+        .map_err(|e| io::Error::other(format!("Error reading obj {}: {}", obj_path.display(), e)))
 }
 
 fn read_glb_and_compress(
@@ -2352,5 +2332,26 @@ mod test {
         assert_eq!(original_string, written_string);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_read_obj_invalid() {
+        let fs = MemoryFileSystem::default();
+        let obj_path = Path::new("invalid.obj");
+
+        // put invalid bytes in the memory filesystem
+        fs.write_file(obj_path, b"this is not a valid obj file")
+            .unwrap();
+
+        let read_result = read_obj(obj_path, &fs);
+        assert!(read_result.is_err());
+        // message
+        assert_eq!(
+            read_result.unwrap_err().to_string(),
+            format!(
+                "Error reading obj {}: Error reading obj: line 1: Unknown line prefix: this",
+                obj_path.display()
+            )
+        );
     }
 }

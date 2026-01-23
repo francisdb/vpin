@@ -126,6 +126,7 @@ pub(crate) fn write_obj_to_writer<W: io::Write>(
     Ok(())
 }
 
+#[derive(Debug)]
 pub(crate) struct ReadObjResult {
     #[allow(unused)]
     pub(crate) name: String,
