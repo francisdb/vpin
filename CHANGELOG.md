@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.9](https://github.com/francisdb/vpin/compare/v0.20.8...v0.20.9) - 2026-01-28
+
+### Added
+
+- add GLB format support for VPX extraction ([#205](https://github.com/francisdb/vpin/pull/205))
+- directb2s cargo feature and update documentation ([#207](https://github.com/francisdb/vpin/pull/207))
+- switch to f32 precision in OBJ file handling ([#206](https://github.com/francisdb/vpin/pull/206))
+
+### Other
+
+- update cfb dependency to version 0.13.0
+- Revert "chore: release v0.20.9 ([#203](https://github.com/francisdb/vpin/pull/203))"
+- release v0.20.9 ([#203](https://github.com/francisdb/vpin/pull/203))
+- vertex compression and add tracing instrumentation ([#204](https://github.com/francisdb/vpin/pull/204))
+- *(deps)* update quick-xml requirement from 0.38.4 to 0.39.0 ([#187](https://github.com/francisdb/vpin/pull/187))
+- set cfb buffer sizes ([#193](https://github.com/francisdb/vpin/pull/193))
+
 ## [0.20.8](https://github.com/francisdb/vpin/compare/v0.20.7...v0.20.8) - 2026-01-20
 
 ### Other
