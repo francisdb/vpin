@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.10](https://github.com/francisdb/vpin/compare/v0.20.9...v0.20.10) - 2026-01-28
+
+### Other
+
+- switch flate2 dependency to use zlib-rs feature ([#209](https://github.com/francisdb/vpin/pull/209))
+
 ## [0.20.9](https://github.com/francisdb/vpin/compare/v0.20.8...v0.20.9) - 2026-01-28
 
 ### Added
