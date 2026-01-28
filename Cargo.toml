@@ -55,7 +55,7 @@ web-sys = { version = "0.3", optional = true, features = ["console"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 # Use zlib-ng for much faster compression/decompression on native targets
-flate2 = { version = "1.1.8", features = ["zlib-ng"], default-features = false }
+flate2 = { version = "1.1.8", features = ["zlib-rs"], default-features = false }
 image = { version = "0.25.9", default-features = false, features = [
     "bmp", "exr", "gif", "hdr", "jpeg", "png", "tga", "webp", "rayon"
 ] }
