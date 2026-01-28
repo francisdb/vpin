@@ -30,7 +30,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 byteorder = "1.5.0"
 bytes = "1.11.0"
-cfb = "0.12.1"
+cfb = "0.13.0"
 encoding_rs = "0.8.35"
 md2 = "0.10.2"
 nom = "8.0.0"
@@ -90,6 +90,3 @@ getrandom = { version = "0.3.2", features = ["wasm_js"] }
 # level 0 is very slow for writing to compound files
 # see https://github.com/mdsteele/rust-cfb/issues/42
 opt-level = 1
-
-[patch.crates-io]
-cfb = { git = "https://github.com/mdsteele/rust-cfb", rev = "bf45363a14279d25cb23fee2436e8d501168bac3" }
