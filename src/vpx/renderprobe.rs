@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
-enum RenderProbeType {
+pub(crate) enum RenderProbeType {
     PlaneReflection = 0,
     ScreenSpaceTransparency = 1,
 }
@@ -225,8 +225,8 @@ impl<'de> Deserialize<'de> for ReflectionMode {
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct RenderProbe {
-    type_: RenderProbeType,
-    name: String,
+    pub(crate) type_: RenderProbeType,
+    pub(crate) name: String,
     roughness: u32,
     /// Old stuff, not used anymore, but still in the file
     roughness_clear: Option<u32>,

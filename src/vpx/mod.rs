@@ -29,8 +29,7 @@ use log::{debug, info, warn};
 use md2::{Digest, Md2};
 use tracing::{info_span, instrument};
 
-use crate::vpx::expanded::vpx_image_to_dynamic_image;
-use crate::vpx::image::ImageDataJpeg;
+use crate::vpx::image::{ImageDataJpeg, vpx_image_to_dynamic_image};
 use crate::vpx::tableinfo::read_tableinfo;
 use tableinfo::{TableInfo, write_tableinfo};
 use version::Version;
