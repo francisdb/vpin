@@ -148,13 +148,14 @@ mod tests {
         let fs = MemoryFileSystem::new();
         let expanded_dir = PathBuf::from("test_info");
 
-        let mut info = TableInfo::default();
-        info.table_name = Some("Test Table".to_string());
-        info.author_name = Some("Test Author".to_string());
-        info.table_description = Some("Test Description".to_string());
+        let info = TableInfo {
+            table_name: Some("Test Table".to_string()),
+            author_name: Some("Test Author".to_string()),
+            table_description: Some("Test Description".to_string()),
+            ..Default::default()
+        };
 
-        let mut custom_info_tags = CustomInfoTags::default();
-        custom_info_tags.push("Custom tag info there".to_string());
+        let custom_info_tags = vec!["Some custom info tag".to_string()];
 
         write_info(&info, &custom_info_tags, &expanded_dir, &fs).unwrap();
 
@@ -172,9 +173,11 @@ mod tests {
         let fs = MemoryFileSystem::new();
         let expanded_dir = PathBuf::from("test_gamedata");
 
-        let mut gamedata = GameData::default();
-        gamedata.name = "Test GameData".to_string();
-        gamedata.code = StringWithEncoding::new("print('Hello, VPX!')");
+        let gamedata = GameData {
+            name: "Test gamedata".to_string(),
+            code: StringWithEncoding::new("print('Hello, VPX!')"),
+            ..Default::default()
+        };
 
         write_game_data(&gamedata, &expanded_dir, &fs).unwrap();
 
