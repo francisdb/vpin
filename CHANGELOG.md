@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.11](https://github.com/francisdb/vpin/compare/v0.20.10...v0.20.11) - 2026-01-29
+
+### Added
+
+- improve directory listing ([#213](https://github.com/francisdb/vpin/pull/213))
+
+### Other
+
+- split up expanded module ([#211](https://github.com/francisdb/vpin/pull/211))
+
 ## [0.20.10](https://github.com/francisdb/vpin/compare/v0.20.9...v0.20.10) - 2026-01-28
 
 ### Other
