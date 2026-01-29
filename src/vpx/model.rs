@@ -59,10 +59,10 @@ pub struct StringWithEncoding {
     pub string: String,
 }
 impl StringWithEncoding {
-    pub fn new(string: String) -> StringWithEncoding {
+    pub fn new(string: impl Into<String>) -> StringWithEncoding {
         StringWithEncoding {
             encoding: StringEncoding::Utf8,
-            string,
+            string: string.into(),
         }
     }
 

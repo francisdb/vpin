@@ -530,6 +530,8 @@ f 1/1/1 1/1/1 1/1/1
 
     const SCREW_OBJ_BYTES: &[u8] = include_bytes!("../../testdata/screw_f32.obj");
 
+    const SCREW_32_OBJ_BYTES: &[u8] = include_bytes!("../../testdata/screw_f32.obj");
+
     #[test]
     fn test_read_write_obj() -> TestResult {
         let mut reader = Cursor::new(SCREW_OBJ_BYTES);
@@ -613,10 +615,80 @@ f 1/1/1 1/1/1 1/1/1
     }
 
     #[test]
+    fn test_read_write_obj_fs() -> TestResult {
+        use crate::vpx::gameitem::primitive::VertexWrapper;
+        use crate::vpx::obj::{read_obj_from_reader, write_obj};
+
+        let fs = MemoryFileSystem::default();
+        let obj_path = Path::new("test.obj");
+
+        // put the bytes in the memory filesystem
+        fs.write_file(obj_path, SCREW_32_OBJ_BYTES)?;
+
+        let obj_data = fs.read_file(obj_path)?;
+        let mut reader = BufReader::new(Cursor::new(obj_data));
+        let read_result = read_obj_from_reader(&mut reader)?;
+
+        // FIXME we don't have the encoded vertex data, so we just put zeros here
+        //   the read/write is not symmetrical because of this
+        let wrapped_vertices = read_result
+            .final_vertices
+            .iter()
+            .map(|v| VertexWrapper {
+                vpx_encoded_vertex: [0; 32],
+                vertex: v.clone(),
+            })
+            .collect::<Vec<VertexWrapper>>();
+
+        write_obj(
+            &read_result.name,
+            &wrapped_vertices,
+            &read_result.indices,
+            obj_path,
+            &fs,
+        )?;
+
+        let mut original_string = String::from_utf8(SCREW_32_OBJ_BYTES.to_vec())?;
+        // on windows obj files are written with \r\n line endings
+        if cfg!(windows) {
+            original_string = original_string.replace("\r\n", "\n");
+        }
+
+        let written_bytes = fs.read_file(obj_path)?;
+        let written_string = String::from_utf8(written_bytes)?;
+
+        assert_eq!(original_string, written_string);
+
+        Ok(())
+    }
+
+    #[test]
     fn test_write_read_vpx_comment() {
         let bytes: VpxNormalBytes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
         let comment = obj_vpx_comment(&bytes);
         let parsed = obj_parse_vpx_comment(&comment).unwrap();
         assert_eq!(bytes, parsed);
+    }
+
+    #[test]
+    fn test_read_obj_invalid() {
+        use crate::vpx::obj::read_obj_from_reader;
+
+        let fs = MemoryFileSystem::default();
+        let obj_path = Path::new("invalid.obj");
+
+        // put invalid bytes in the memory filesystem
+        fs.write_file(obj_path, b"this is not a valid obj file")
+            .unwrap();
+
+        let obj_data = fs.read_file(obj_path).unwrap();
+        let mut reader = BufReader::new(Cursor::new(obj_data));
+        let read_result = read_obj_from_reader(&mut reader);
+        assert!(read_result.is_err());
+        // message
+        assert_eq!(
+            read_result.unwrap_err().to_string(),
+            "Error reading obj: line 1: Unknown line prefix: this"
+        );
     }
 }

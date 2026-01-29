@@ -1,4 +1,6 @@
 use super::biff::{self, BiffRead, BiffReader, BiffWrite, BiffWriter};
+use crate::vpx::lzw::from_lzw_blocks;
+use image::DynamicImage;
 use log::warn;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -451,6 +453,36 @@ fn write_jpg(img: &ImageDataJpeg) -> Vec<u8> {
     // writer.write_tagged_f32("ALTV", img.alpha_test_value);
     writer.close(true);
     writer.get_data().to_vec()
+}
+
+pub(crate) fn vpx_image_to_dynamic_image(
+    lzw_compressed_data: &[u8],
+    width: u32,
+    height: u32,
+) -> DynamicImage {
+    let decompressed_bgra = from_lzw_blocks(lzw_compressed_data);
+    let decompressed_rgba: Vec<u8> = swap_red_and_blue(&decompressed_bgra);
+
+    let rgba_image = image::RgbaImage::from_raw(width, height, decompressed_rgba)
+        .expect("Decompressed image data does not match dimensions");
+    let dynamic_image = DynamicImage::ImageRgba8(rgba_image);
+
+    let uses_alpha = decompressed_bgra.chunks_exact(4).any(|bgra| bgra[3] != 255);
+    if uses_alpha {
+        dynamic_image
+    } else {
+        let rgb_image = dynamic_image.to_rgb8();
+        DynamicImage::ImageRgb8(rgb_image)
+    }
+}
+
+/// Can convert between RGBA and BGRA by swapping the red and blue channels
+pub(crate) fn swap_red_and_blue(data: &[u8]) -> Vec<u8> {
+    let mut swapped = Vec::with_capacity(data.len());
+    for chunk in data.chunks_exact(4) {
+        swapped.extend_from_slice(&[chunk[2], chunk[1], chunk[0], chunk[3]])
+    }
+    swapped
 }
 
 #[cfg(test)]
