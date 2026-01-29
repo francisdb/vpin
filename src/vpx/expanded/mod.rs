@@ -21,20 +21,13 @@ mod primitives;
 mod sounds;
 mod util;
 
-use crate::filesystem::{FileSystem, RealFileSystem};
-use crate::vpx::{VPX, Version, gameitem, read_gamedata};
-use cfb::CompoundFile;
+use crate::filesystem::{FileSystem, MemoryFileSystem, RealFileSystem};
+use crate::vpx::{VPX, Version};
 use log::info;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::Path;
-
-use crate::vpx::biff::{BiffRead, BiffReader};
-use crate::vpx::font;
-use crate::vpx::image::ImageData;
-use crate::vpx::sound;
 
 pub use primitives::BytesMutExt;
 
@@ -271,203 +264,21 @@ pub fn read_fs<P: AsRef<Path>>(expanded_dir: &P, fs: &dyn FileSystem) -> io::Res
 }
 
 pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
-    use std::collections::HashSet;
+    let vpx = crate::vpx::read(vpx_file_path).unwrap();
+    let fs = MemoryFileSystem::default();
 
-    let root_dir_path_str = vpx_file_path.with_extension("");
-    let root_dir_path = Path::new(&root_dir_path_str);
-    let root_dir_parent = root_dir_path
-        .parent()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_default();
+    // take the file name without extension as the directory name
+    let expanded_dir = Path::new(
+        vpx_file_path
+            .file_stem()
+            .unwrap_or_else(|| std::ffi::OsStr::new("expanded")),
+    );
 
-    let mut comp = cfb::open(vpx_file_path).unwrap();
-    let version = crate::vpx::version::read_version(&mut comp).unwrap();
-    let gamedata = read_gamedata(&mut comp, &version).unwrap();
+    write_fs(&vpx, &expanded_dir, PrimitiveMeshFormat::default(), &fs).unwrap();
 
-    let mut files: Vec<String> = Vec::with_capacity(gamedata.images_size as usize);
-
-    let images_path = root_dir_path.join("images");
-    let images_size = gamedata.images_size;
-    for index in 0..images_size {
-        let path = format!("GameStg/Image{index}");
-        let mut stream = comp.open_stream(&path).unwrap();
-        let stream_len = stream.len() as usize;
-        let mut input = Vec::with_capacity(stream_len);
-        stream.read_to_end(&mut input).unwrap();
-        let mut reader = BiffReader::new(&input);
-        let img = ImageData::biff_read(&mut reader);
-
-        let mut jpeg_path = images_path.clone();
-        let ext = img.ext();
-
-        jpeg_path.push(format!("{}.{}", img.name, ext));
-
-        files.push(jpeg_path.to_string_lossy().to_string());
-    }
-    if images_size == 0 {
-        files.push(
-            images_path
-                .join(std::path::MAIN_SEPARATOR_STR)
-                .to_string_lossy()
-                .to_string(),
-        );
-    }
-
-    let sounds_size = gamedata.sounds_size;
-    let sounds_path = root_dir_path.join("sounds");
-    for index in 0..sounds_size {
-        let path = format!("GameStg/Sound{index}");
-        let mut stream = comp.open_stream(&path).unwrap();
-        let stream_len = stream.len() as usize;
-        let mut input = Vec::with_capacity(stream_len);
-        stream.read_to_end(&mut input).unwrap();
-        let mut reader = BiffReader::new(&input);
-        let sound = sound::read(&version, &mut reader);
-
-        let ext = sound.ext();
-        let mut sound_path = sounds_path.clone();
-        sound_path.push(format!("{}.{}", sound.name, ext));
-
-        files.push(sound_path.to_string_lossy().to_string());
-    }
-    if sounds_size == 0 {
-        files.push(
-            sounds_path
-                .join(std::path::MAIN_SEPARATOR_STR)
-                .to_string_lossy()
-                .to_string(),
-        );
-    }
-
-    let fonts_size = gamedata.fonts_size;
-    let fonts_path = root_dir_path.join("fonts");
-    for index in 0..fonts_size {
-        let path = format!("GameStg/Font{index}");
-        let mut stream = comp.open_stream(&path).unwrap();
-        let stream_len = stream.len() as usize;
-        let mut input = Vec::with_capacity(stream_len);
-        stream.read_to_end(&mut input).unwrap();
-        let font = font::read(&input);
-
-        let ext = font.ext();
-        let mut font_path = fonts_path.clone();
-        font_path.push(format!("Font{}.{}.{}", index, font.name, ext));
-
-        files.push(font_path.to_string_lossy().to_string());
-    }
-    if fonts_size == 0 {
-        files.push(fonts_path.to_string_lossy().to_string());
-    }
-
-    let entries = retrieve_entries_from_compound_file(&comp);
-    entries.iter().for_each(|path| {
-        // write the steam directly to a file
-        let file_path = root_dir_path.join(&path[1..]);
-        // println!("Writing to {}", file_path.display());
-        files.push(file_path.to_string_lossy().to_string());
-    });
-
-    let gameitems_path = root_dir_path.join("gameitems");
-    let gameitems_size = gamedata.gameitems_size;
-
-    // Need to use FileNameGen abstraction that is in gameitems module
-    // but we can't access it here, so we duplicate the logic
-    let mut used_names_lowercase: HashSet<String> = HashSet::new();
-
-    for index in 0..gameitems_size {
-        let path = format!("GameStg/GameItem{index}");
-        let mut stream = comp.open_stream(&path).unwrap();
-        let stream_len = stream.len() as usize;
-        let mut input = Vec::with_capacity(stream_len);
-        stream.read_to_end(&mut input).unwrap();
-        let gameitem = gameitem::read(&input);
-        let mut gameitem_path = gameitems_path.clone();
-
-        // Simplified filename generation (mimics gameitem_filename_stem)
-        let mut name = gameitem.name().to_string();
-        if name.is_empty() {
-            name = "unnamed".to_string();
-        }
-        name = name.replace(|c: char| !c.is_alphanumeric(), "_");
-        let mut file_name = format!("{}.{}", gameitem.type_name(), name);
-
-        // Ensure uniqueness
-        let lower_name = file_name.to_lowercase();
-        if used_names_lowercase.contains(&lower_name) {
-            let mut counter = 1;
-            loop {
-                let unique_name = format!("{file_name}__{counter}");
-                let unique_lower = unique_name.to_lowercase();
-                if !used_names_lowercase.contains(&unique_lower) {
-                    used_names_lowercase.insert(unique_lower);
-                    file_name = unique_name;
-                    break;
-                }
-                counter += 1;
-            }
-        } else {
-            used_names_lowercase.insert(lower_name);
-        }
-
-        gameitem_path.push(format!("{file_name}.json"));
-        files.push(gameitem_path.to_string_lossy().to_string());
-    }
-
+    let mut files = fs.list_files();
     files.sort();
-
-    // These files are made by:
-
-    // -extract_script
-    files.push(
-        root_dir_path
-            .join("script.vbs")
-            .to_string_lossy()
-            .to_string(),
-    );
-    // -extract_collections
-    files.push(
-        root_dir_path
-            .join("collections.json")
-            .to_string_lossy()
-            .to_string(),
-    );
-    // -extract_info
-    files.push(
-        root_dir_path
-            .join("TableInfo.json")
-            .to_string_lossy()
-            .to_string(),
-    );
-
-    files = files
-        .into_iter()
-        .map(|file_path| {
-            if let Some(relative_path) = file_path.strip_prefix(&root_dir_parent) {
-                relative_path.to_string()
-            } else {
-                file_path.clone()
-            }
-        })
-        .collect::<Vec<String>>();
-
     files
-}
-
-fn retrieve_entries_from_compound_file(comp: &CompoundFile<File>) -> Vec<String> {
-    comp.walk()
-        .filter_map(|entry| {
-            if entry.is_stream() {
-                let path_string = entry.path().to_string_lossy().to_string();
-                if !path_string.starts_with("/GameStg/") && path_string != "/GameStg" {
-                    Some(path_string)
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        })
-        .collect()
 }
 
 #[cfg(test)]
@@ -748,5 +559,39 @@ mod tests {
 
         assert_eq!(&vpx, &read);
         Ok(())
+    }
+
+    #[test]
+    #[cfg(not(target_family = "wasm"))]
+    fn test_extract_directory_list() {
+        let vpx_path = Path::new("testdata/completely_blank_table_10_7_4.vpx");
+
+        let files = extract_directory_list(vpx_path);
+
+        let base = Path::new("completely_blank_table_10_7_4");
+
+        let first_4 = files.iter().take(4).cloned().collect::<Vec<String>>();
+        assert_eq!(
+            first_4,
+            vec![
+                base.join("collections.json"),
+                base.join("fonts.json"),
+                base.join("gamedata.json"),
+                base.join("gameitems.json"),
+            ]
+        );
+
+        let last_4 = files.iter().rev().take(4).cloned().collect::<Vec<String>>();
+        assert_eq!(
+            last_4,
+            vec![
+                base.join("version.txt"),
+                base.join("sounds.json"),
+                base.join("script.vbs"),
+                base.join("materials-physics-old.json"),
+            ]
+        );
+
+        assert_eq!(files.len(), 95);
     }
 }
