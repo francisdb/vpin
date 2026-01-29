@@ -268,7 +268,7 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
     let fs = MemoryFileSystem::default();
 
     // take the file name without extension as the directory name
-    let expanded_dir = Path::new("/").join(
+    let expanded_dir = Path::new(
         vpx_file_path
             .file_stem()
             .unwrap_or_else(|| std::ffi::OsStr::new("expanded")),
@@ -568,14 +568,16 @@ mod tests {
 
         let files = extract_directory_list(vpx_path);
 
+        let base = Path::new("completely_blank_table_10_7_4");
+
         let first_4 = files.iter().take(4).cloned().collect::<Vec<String>>();
         assert_eq!(
             first_4,
             vec![
-                "/completely_blank_table_10_7_4/collections.json",
-                "/completely_blank_table_10_7_4/fonts.json",
-                "/completely_blank_table_10_7_4/gamedata.json",
-                "/completely_blank_table_10_7_4/gameitems.json",
+                base.join("collections.json"),
+                base.join("fonts.json"),
+                base.join("gamedata.json"),
+                base.join("gameitems.json"),
             ]
         );
 
@@ -583,10 +585,10 @@ mod tests {
         assert_eq!(
             last_4,
             vec![
-                "/completely_blank_table_10_7_4/version.txt",
-                "/completely_blank_table_10_7_4/sounds.json",
-                "/completely_blank_table_10_7_4/script.vbs",
-                "/completely_blank_table_10_7_4/materials-physics-old.json",
+                base.join("version.txt"),
+                base.join("sounds.json"),
+                base.join("script.vbs"),
+                base.join("materials-physics-old.json"),
             ]
         );
 
