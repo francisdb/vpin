@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.15](https://github.com/francisdb/vpin/compare/v0.20.14...v0.20.15) - 2026-02-06
+
+### Other
+
+- log warn instead of tracing warn
+
 ## [0.20.14](https://github.com/francisdb/vpin/compare/v0.20.13...v0.20.14) - 2026-02-06
 
 ### Added
