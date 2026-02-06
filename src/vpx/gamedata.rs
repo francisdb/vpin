@@ -9,7 +9,7 @@ use crate::vpx::biff::{BiffRead, BiffWrite};
 use crate::vpx::color::Color;
 use crate::vpx::json::F32WithNanInf;
 use crate::vpx::material::{Material, SaveMaterial, SavePhysicsMaterial};
-use crate::vpx::math::{dequantize_u8, quantize_u8};
+use crate::vpx::math::{dequantize_u8, dequantize_unsigned, quantize_u8, quantize_unsigned};
 use crate::vpx::renderprobe::RenderProbeWithGarbage;
 use bytes::{Buf, BufMut, BytesMut};
 use log::warn;
@@ -1064,7 +1064,7 @@ impl Default for GameData {
             table_adaptive_vsync: None,     //-1,
             use_reflection_for_balls: None, //-1,
             brst: None,
-            playfield_reflection_strength: 0.2941177,
+            playfield_reflection_strength: 1.0,
             use_trail_for_balls: None, //-1,
             ball_decal_mode: false,
             ball_playfield_reflection_strength: None,
@@ -1385,7 +1385,10 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
     if let Some(brst) = gamedata.brst {
         writer.write_tagged_i32("BRST", brst);
     }
-    writer.write_tagged_f32("PLST", gamedata.playfield_reflection_strength);
+    writer.write_tagged_u32(
+        "PLST",
+        quantize_unsigned::<8>(gamedata.playfield_reflection_strength),
+    );
     if let Some(btst) = gamedata.use_trail_for_balls {
         writer.write_tagged_i32("BTRA", btst);
     }
@@ -1629,7 +1632,9 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             "AVSY" => gamedata.table_adaptive_vsync = Some(reader.get_i32()),
             "BREF" => gamedata.use_reflection_for_balls = Some(reader.get_i32()),
             "BRST" => gamedata.brst = Some(reader.get_i32()),
-            "PLST" => gamedata.playfield_reflection_strength = reader.get_f32(),
+            "PLST" => {
+                gamedata.playfield_reflection_strength = dequantize_unsigned::<8>(reader.get_u32())
+            }
             "BTRA" => gamedata.use_trail_for_balls = Some(reader.get_i32()),
             "BDMO" => gamedata.ball_decal_mode = reader.get_bool(),
             "BPRS" => gamedata.ball_playfield_reflection_strength = Some(reader.get_f32()),
@@ -1851,7 +1856,7 @@ mod tests {
             table_adaptive_vsync: Some(1),
             use_reflection_for_balls: Some(1),
             brst: Some(123),
-            playfield_reflection_strength: 0.02,
+            playfield_reflection_strength: 0.019607844,
             use_trail_for_balls: Some(-3),
             ball_decal_mode: true,
             ball_playfield_reflection_strength: Some(2.0),
