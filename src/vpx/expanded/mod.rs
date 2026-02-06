@@ -24,13 +24,12 @@ mod util;
 use crate::filesystem::{FileSystem, MemoryFileSystem, RealFileSystem};
 use crate::vpx::material::Material;
 use crate::vpx::{VPX, Version};
-use log::info;
+use log::{info, warn};
 pub use primitives::BytesMutExt;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::io::{self, Read, Write};
 use std::path::Path;
-use tracing::warn;
 
 /// Format for exporting primitive mesh data
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
