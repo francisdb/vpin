@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.14](https://github.com/francisdb/vpin/compare/v0.20.13...v0.20.14) - 2026-02-06
+
+### Added
+
+- add validation for material conversion and log discrepancies ([#224](https://github.com/francisdb/vpin/pull/224))
+
+### Other
+
+- update description to reflect removal of directb2s
+- remove unneeded dependencies ([#227](https://github.com/francisdb/vpin/pull/227))
+- directb2s code moved to separate repo ([#225](https://github.com/francisdb/vpin/pull/225))
+
 ## [0.20.13](https://github.com/francisdb/vpin/compare/v0.20.12...v0.20.13) - 2026-02-06
 
 ### Fixed
