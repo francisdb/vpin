@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.12](https://github.com/francisdb/vpin/compare/v0.20.11...v0.20.12) - 2026-02-06
+
+### Fixed
+
+- warn for invalid bool ([#220](https://github.com/francisdb/vpin/pull/220))
+- *(json)* correct type fields from type_ to type ([#218](https://github.com/francisdb/vpin/pull/218))
+
 ## [0.20.11](https://github.com/francisdb/vpin/compare/v0.20.10...v0.20.11) - 2026-01-29
 
 ### Added
