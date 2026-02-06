@@ -19,9 +19,8 @@ exclude = [
 ]
 
 [features]
-default = ["parallel", "directb2s"]
+default = ["parallel"]
 parallel = ["rayon"]
-directb2s = ["quick-xml"]
 wasm = ["wasm-bindgen", "js-sys", "console_error_panic_hook", "web-sys"]
 
 [lib]
@@ -37,7 +36,6 @@ nom = "8.0.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.145", features = ["preserve_order"] }
 utf16string = "0.2.0"
-quick-xml = { version = "0.39.0", features = ["serialize"], optional = true }
 serde_repr = "0.1.20"
 hex = "0.4.3"
 weezl = "0.1.12"
@@ -75,7 +73,6 @@ dirs = "6.0.0"
 pretty_assertions = "1.4.1"
 rand = { version = "0.9.2" }
 walkdir = "2.5.0"
-roxmltree = "0.21.1"
 testresult = "0.4.1"
 fake = { version = "4.4.0", features = ["derive"] }
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
