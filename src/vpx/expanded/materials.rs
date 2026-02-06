@@ -11,17 +11,15 @@ use std::path::Path;
 use super::WriteError;
 
 pub(super) fn write_materials<P: AsRef<Path>>(
-    materials: Option<&Vec<Material>>,
+    materials: &[Material],
     expanded_dir: &P,
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
-    if let Some(materials) = materials {
-        let materials_path = expanded_dir.as_ref().join("materials.json");
-        let mut materials_file = fs.create_file(&materials_path)?;
-        let materials_index: Vec<MaterialJson> =
-            materials.iter().map(MaterialJson::from_material).collect();
-        serde_json::to_writer_pretty(&mut materials_file, &materials_index)?;
-    }
+    let materials_path = expanded_dir.as_ref().join("materials.json");
+    let mut materials_file = fs.create_file(&materials_path)?;
+    let materials_index: Vec<MaterialJson> =
+        materials.iter().map(MaterialJson::from_material).collect();
+    serde_json::to_writer_pretty(&mut materials_file, &materials_index)?;
     Ok(())
 }
 
@@ -42,7 +40,17 @@ pub(super) fn read_materials<P: AsRef<Path>>(
     Ok(Some(materials))
 }
 
-pub(super) fn write_old_materials<P: AsRef<Path>>(
+pub(super) fn write_legacy_materials<P: AsRef<Path>>(
+    materials_old: &[SaveMaterial],
+    materials_physics_old: Option<&Vec<SavePhysicsMaterial>>,
+    expanded_dir: &P,
+    fs: &dyn FileSystem,
+) -> Result<(), WriteError> {
+    write_old_materials(materials_old, expanded_dir, fs)?;
+    write_old_materials_physics(materials_physics_old, expanded_dir, fs)
+}
+
+fn write_old_materials<P: AsRef<Path>>(
     materials_old: &[SaveMaterial],
     expanded_dir: &P,
     fs: &dyn FileSystem,
@@ -60,10 +68,10 @@ pub(super) fn write_old_materials<P: AsRef<Path>>(
 pub(super) fn read_old_materials<P: AsRef<Path>>(
     expanded_dir: &P,
     fs: &dyn FileSystem,
-) -> io::Result<Vec<SaveMaterial>> {
+) -> io::Result<Option<Vec<SaveMaterial>>> {
     let materials_path = expanded_dir.as_ref().join("materials-old.json");
     if !fs.exists(&materials_path) {
-        return Ok(vec![]);
+        return Ok(None);
     }
     let mut materials_file = fs.open_file(&materials_path)?;
     let materials_index: Vec<SaveMaterialJson> = serde_json::from_reader(&mut materials_file)?;
@@ -71,10 +79,10 @@ pub(super) fn read_old_materials<P: AsRef<Path>>(
         .into_iter()
         .map(|m| SaveMaterialJson::to_save_material(&m))
         .collect();
-    Ok(materials)
+    Ok(Some(materials))
 }
 
-pub(super) fn write_old_materials_physics<P: AsRef<Path>>(
+fn write_old_materials_physics<P: AsRef<Path>>(
     materials_physics_old: Option<&Vec<SavePhysicsMaterial>>,
     expanded_dir: &P,
     fs: &dyn FileSystem,
