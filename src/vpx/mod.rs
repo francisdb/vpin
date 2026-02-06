@@ -60,6 +60,8 @@ pub mod sound;
 pub mod tableinfo;
 pub mod version;
 
+pub(crate) mod utf16;
+
 pub mod material;
 
 pub mod renderprobe;
