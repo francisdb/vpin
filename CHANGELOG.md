@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.13](https://github.com/francisdb/vpin/compare/v0.20.12...v0.20.13) - 2026-02-06
+
+### Fixed
+
+- correct playfield reflection strength quantization ([#222](https://github.com/francisdb/vpin/pull/222))
+
 ## [0.20.12](https://github.com/francisdb/vpin/compare/v0.20.11...v0.20.12) - 2026-02-06
 
 ### Fixed
