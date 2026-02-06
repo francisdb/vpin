@@ -96,11 +96,14 @@ impl<'a> BiffReader<'a> {
 
     pub fn get_bool(&mut self) -> bool {
         let all = &self.data[self.pos..self.pos + 4];
-        // Any other value is suspicious as it is not a boolean
+        // Match VPX permissive behavior: log and treat nonzero as true.
         if all != [0, 0, 0, 0] && all != [1, 0, 0, 0] {
-            panic!("Unexpected bytes for bool: {all:?}");
+            warn!(
+                "Unexpected bytes for tag {} bool: {all:?}. Treating as nonzero=true. Probably caused by an uninitialized bool field in vpinball.",
+                self.tag
+            );
         }
-        let b = self.data[self.pos] != 0;
+        let b = all != [0, 0, 0, 0];
         self.pos += 4;
         self.bytes_in_record_remaining -= 4;
         b
@@ -161,7 +164,7 @@ impl<'a> BiffReader<'a> {
 
         let res = i.unwrap().1;
         if res.is_nan() {
-            warn!("NaN value found in f32 for tag {}: {:?}", self.tag, data);
+            warn!("NaN value found for tag {} f32: {:?}", self.tag, data);
         }
         res
     }
