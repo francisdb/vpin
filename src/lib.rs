@@ -5,8 +5,6 @@
 //!
 //! The main focus is on the Visual Pinball X (VPX) file format, but it also provides tools for backglass DirectB2S and Point of View POV files.
 
-#[cfg(feature = "directb2s")]
-pub mod directb2s;
 pub mod filesystem;
 pub mod vpx;
 pub(crate) mod wavefront_obj_io;
