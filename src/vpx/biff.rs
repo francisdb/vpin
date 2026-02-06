@@ -2,9 +2,9 @@ use encoding_rs::mem::{decode_latin1, encode_latin1_lossy};
 use log::warn;
 use nom::ToUsize;
 use nom::number::complete::{le_f32, le_f64, le_i16, le_i32, le_i64, le_u16, le_u32, le_u64};
-use utf16string::WStr;
 
 use super::model::{StringEncoding, StringWithEncoding};
+use super::utf16::{decode_utf16le, encode_utf16le};
 
 pub trait BiffRead {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self;
@@ -245,9 +245,7 @@ impl<'a> BiffReader<'a> {
     pub fn get_wide_string(&mut self) -> String {
         let count = self.get_u32().to_usize();
         let data = &self.data[self.pos..self.pos + count];
-        // hmm, this ? seems to be different for nom and utf16string
-        // see https://docs.rs/utf16string/latest/utf16string/
-        let i = WStr::from_utf16le(data).unwrap().to_utf8();
+        let i = decode_utf16le(data).unwrap();
         self.pos += count;
         self.bytes_in_record_remaining -= count;
         i
@@ -635,11 +633,7 @@ impl BiffWriter {
     }
 
     pub fn write_wide_string(&mut self, value: &str) {
-        // utf-16-le encode as u8
-        let d = value
-            .encode_utf16()
-            .flat_map(|c| c.to_le_bytes())
-            .collect::<Vec<u8>>();
+        let d = encode_utf16le(value);
         self.write_u32(d.len().try_into().unwrap());
         self.write_data(&d);
     }

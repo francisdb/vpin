@@ -2,7 +2,8 @@ use cfb::CompoundFile;
 use std::collections::HashMap;
 use std::io::{Read, Seek, Write};
 use std::path::{MAIN_SEPARATOR_STR, Path};
-use utf16string::{LittleEndian, WStr, WString};
+
+use crate::vpx::utf16::{decode_utf16le, encode_utf16le};
 
 // >    "/TableInfo/AuthorName",
 // >    "/TableInfo/Screenshot",
@@ -289,8 +290,8 @@ fn read_stream_string<F: Read + Seek>(
     let mut buffer = Vec::new();
     stream.read_to_end(&mut buffer).unwrap();
 
-    match WStr::from_utf16le(&buffer) {
-        Ok(str) => Ok(str.to_utf8()),
+    match decode_utf16le(&buffer) {
+        Ok(str) => Ok(str),
         Err(e) => Err(std::io::Error::other(
             "Error reading stream as utf16le for path: ".to_owned()
                 + path.to_str().unwrap_or("[not unicode]")
@@ -303,11 +304,11 @@ fn read_stream_string<F: Read + Seek>(
 fn write_stream_string<F: Read + Write + Seek>(
     comp: &mut CompoundFile<F>,
     path: &Path,
-    str: &String,
+    str: &str,
 ) -> std::io::Result<()> {
     let mut stream = comp.create_stream(path)?;
-    let wide: WString<LittleEndian> = WString::from(str);
-    stream.write_all(wide.as_bytes())
+    let wide = encode_utf16le(str);
+    stream.write_all(&wide)
 }
 
 fn read_stream_binary<F: Read + Seek>(
