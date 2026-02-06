@@ -164,7 +164,7 @@ impl<'a> BiffReader<'a> {
 
         let res = i.unwrap().1;
         if res.is_nan() {
-            warn!("NaN value found for tag {} f32: {:?}", self.tag, data);
+            warn!("NaN value found for tag {} f32: {data:?}", self.tag);
         }
         res
     }
