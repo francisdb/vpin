@@ -2,7 +2,7 @@
 name = "vpin"
 version = "0.20.13"
 edition = "2024"
-description = "Rust library for the virtual pinball ecosystem"
+description = "Rust library for working with Visual Pinball VPX files"
 repository = "https://github.com/francisdb/vpin"
 readme = "README.md"
 license = "MIT"

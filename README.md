@@ -1,6 +1,6 @@
 # vpin
 
-Rust library for the visual/virtual pinball ecosystem
+Rust library for working with Visual Pinball VPX files
 
 Find it on crates.io:
 https://crates.io/crates/vpin
@@ -19,7 +19,6 @@ https://docs.rs/vpin
 The library provides several optional features that can be enabled:
 
 - `parallel` (default): Enables parallel processing using rayon for better performance
-- `directb2s` (default): Enables support for DirectB2S backglass files (requires quick-xml)
 - `wasm`: Enables WebAssembly bindings for browser/Node.js usage
 
 To use only VPX functionality without DirectB2S support:
@@ -66,7 +65,7 @@ https://github.com/jsm174/vpx-editor
 
 ## Running the integration tests
 
-We expect a folder `~/vpinball/tables` to exist that contains a lot of `vpx` and `directb2s` files. The tests will
+We expect a folder `~/vpinball/tables` to exist that contains a lot of `vpx` files. The tests will
 recursively search for these files and run the tests on them.
 
 ```bash
