@@ -6,6 +6,7 @@ pub mod tracing_duration_filter;
 
 use cfb::CompoundFile;
 use flate2::read::ZlibDecoder;
+use log::warn;
 use std::ffi::OsStr;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io;
@@ -71,7 +72,16 @@ pub(crate) fn assert_equal_vpx(vpx_bytes: &[u8], test_vpx_bytes: &[u8], vpx_path
     let test_cursor = io::Cursor::new(test_vpx_bytes);
     let mut test_comp = CompoundFile::open_strict(test_cursor).unwrap();
 
-    assert_eq!(comp.version(), test_comp.version());
+    // vpx does not seem to update the version when starting with an old vpx file
+    // we always write in using the V4 format
+    if comp.version() != test_comp.version() {
+        warn!(
+            "Non equal Compound File Binary File Format versions for {} original:{:?} test:{:?}",
+            vpx_path.file_name().unwrap().to_string_lossy(),
+            comp.version(),
+            test_comp.version()
+        );
+    }
 
     // let version = version::read_version(&mut comp).unwrap();
     // println!("version: {:?}", version);

@@ -22,14 +22,15 @@ mod sounds;
 mod util;
 
 use crate::filesystem::{FileSystem, MemoryFileSystem, RealFileSystem};
+use crate::vpx::material::Material;
 use crate::vpx::{VPX, Version};
 use log::info;
+pub use primitives::BytesMutExt;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::io::{self, Read, Write};
 use std::path::Path;
-
-pub use primitives::BytesMutExt;
+use tracing::warn;
 
 /// Format for exporting primitive mesh data
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -143,14 +144,15 @@ pub fn write_fs<P: AsRef<Path>>(
     metadata::write_game_data(&vpx.gamedata, expanded_dir, fs)?;
     info!("✓ Game data written");
 
-    if vpx.gamedata.materials.is_some() {
+    if let Some(materials) = &vpx.gamedata.materials {
         info!("Writing materials...");
-        materials::write_materials(vpx.gamedata.materials.as_ref(), expanded_dir, fs)?;
+        materials::write_materials(materials, expanded_dir, fs)?;
         info!("✓ Materials written");
+        validate_material_conversion(&vpx, materials);
     } else {
         info!("Writing legacy materials...");
-        materials::write_old_materials(&vpx.gamedata.materials_old, expanded_dir, fs)?;
-        materials::write_old_materials_physics(
+        materials::write_legacy_materials(
+            &vpx.gamedata.materials_old,
             vpx.gamedata.materials_physics_old.as_ref(),
             expanded_dir,
             fs,
@@ -164,6 +166,33 @@ pub fn write_fs<P: AsRef<Path>>(
 
     info!("=== VPX extraction process completed successfully ===");
     Ok(())
+}
+
+/// Validate that materials in the old and new formats match, and log warnings for any discrepancies.
+///
+/// We have seen files edited by 10.8 and afterward by 10.7 to be messed up.
+fn validate_material_conversion(vpx: &&VPX, materials: &Vec<Material>) {
+    for old_material in &vpx.gamedata.materials_old {
+        if !materials.iter().any(|m| m.name == old_material.name) {
+            warn!(
+                "Material '{}' exists in the old format but not in the 10.8 format.",
+                old_material.name
+            );
+        }
+    }
+    for material in materials {
+        if !vpx
+            .gamedata
+            .materials_old
+            .iter()
+            .any(|m| m.name == material.name)
+        {
+            warn!(
+                "Material '{}' exists in the 10.8 format but not in the old format.",
+                material.name
+            );
+        }
+    }
 }
 
 pub fn read<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<VPX> {
@@ -239,10 +268,14 @@ pub fn read_fs<P: AsRef<Path>>(expanded_dir: &P, fs: &dyn FileSystem) -> io::Res
             gamedata.materials = Some(materials);
         }
         None => {
-            gamedata.materials_old = materials::read_old_materials(expanded_dir, fs)?;
-            gamedata.materials_physics_old =
-                materials::read_old_materials_physics(expanded_dir, fs)?;
-            gamedata.materials_size = gamedata.materials_old.len() as u32;
+            if let Some(old_materials) = materials::read_old_materials(expanded_dir, fs)? {
+                gamedata.materials_old = old_materials;
+                gamedata.materials_physics_old =
+                    materials::read_old_materials_physics(expanded_dir, fs)?;
+                gamedata.materials_size = gamedata.materials_old.len() as u32;
+            } else {
+                warn!("No materials found");
+            }
         }
     }
     gamedata.render_probes = metadata::read_renderprobes(expanded_dir, fs)?;
