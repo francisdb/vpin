@@ -484,6 +484,7 @@ pub struct Material {
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct MaterialJson {
     name: String,
+    #[serde(rename = "type", alias = "type_")]
     type_: MaterialType,
     wrap_lighting: f32,
     roughness: f32,
@@ -792,5 +793,13 @@ mod tests {
     fn test_material_type_json_fail() {
         let json = serde_json::Value::from("foo");
         let _: MaterialType = serde_json::from_value(json).unwrap();
+    }
+
+    #[test]
+    fn test_material_json_type_alias() {
+        // we used to not have the rename, so we should still accept the old name for backwards compatibility
+        let json = r##"{"name":"m","type_":"basic","wrap_lighting":0.0,"roughness":0.0,"glossy_image_lerp":1.0,"thickness":0.05,"edge":1.0,"edge_alpha":1.0,"opacity":1.0,"base_color":"#000000","glossy_color":"#000000","clearcoat_color":"#000000","opacity_active":false,"elasticity":0.0,"elasticity_falloff":0.0,"friction":0.0,"scatter_angle":0.0,"refraction_tint":"#ffffff"}"##;
+        let material: Material = serde_json::from_str(json).unwrap();
+        assert_eq!(material.type_, MaterialType::Basic);
     }
 }

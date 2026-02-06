@@ -252,6 +252,7 @@ pub struct RenderProbeWithGarbage {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct RenderProbeJson {
+    #[serde(rename = "type", alias = "type_")]
     type_: RenderProbeType,
     name: String,
     roughness: u32,
@@ -493,5 +494,13 @@ mod tests {
     fn test_render_probe_type_json_fail_string() {
         let json = serde_json::Value::from("foo");
         let _: RenderProbeType = serde_json::from_value(json).unwrap();
+    }
+
+    #[test]
+    fn test_render_probe_type_json_alias() {
+        // we used to not have the rename, so we should still accept the old name for backwards compatibility
+        let json = r#"{"type_":"plane_reflection","name":"test","roughness":1,"reflection_plane":[1.0,2.0,3.0,4.0],"reflection_mode":"none"}"#;
+        let render_probe: RenderProbeJson = serde_json::from_str(json).unwrap();
+        assert_eq!(render_probe.type_, RenderProbeType::PlaneReflection);
     }
 }
