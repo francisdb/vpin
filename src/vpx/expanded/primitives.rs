@@ -18,7 +18,7 @@ use crate::vpx::obj::{
 use bytes::{BufMut, BytesMut};
 use std::io;
 use std::iter::Zip;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::slice::Iter;
 use tracing::instrument;
 
@@ -297,7 +297,7 @@ fn read_obj(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<ReadObjResult> {
         .map_err(|e| io::Error::other(format!("Error reading obj {}: {}", obj_path.display(), e)))
 }
 
-fn read_obj_and_compress(fs: &dyn FileSystem, obj_path: &PathBuf) -> io::Result<MeshReadResult> {
+fn read_obj_and_compress(fs: &dyn FileSystem, obj_path: &Path) -> io::Result<MeshReadResult> {
     let read_result = read_obj(obj_path, fs)?;
     let vertices_len = read_result.vertices.len();
     let indices_len = read_result.indices.len() * 3;
