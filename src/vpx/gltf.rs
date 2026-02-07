@@ -21,36 +21,87 @@ use tracing::{info_span, instrument};
 // We have some issues where the data in the vpx file contains NaN values for normals.
 // We store the vpx normals data as extras in the gltf mesh primitive.
 
+const GLTF_MAGIC: &[u8; 4] = b"glTF";
+const GLTF_VERSION: u32 = 2;
+const GLB_HEADER_BYTES: u32 = 12;
+const GLB_CHUNK_HEADER_BYTES: u32 = 8;
+const GLB_JSON_CHUNK_TYPE: &[u8; 4] = b"JSON";
+const GLB_BIN_CHUNK_TYPE: &[u8; 4] = b"BIN\0";
+const GLTF_PRIMITIVE_MODE_TRIANGLES: u32 = 4;
+const GLTF_COMPONENT_TYPE_FLOAT: u32 = 5126;
+const GLTF_COMPONENT_TYPE_UNSIGNED_SHORT: u32 = 5123;
+const GLTF_COMPONENT_TYPE_UNSIGNED_INT: u32 = 5125;
+const GLTF_TARGET_ARRAY_BUFFER: u32 = 34962;
+const GLTF_TARGET_ELEMENT_ARRAY_BUFFER: u32 = 34963;
+
 #[allow(dead_code)]
 type VpxNormalBytes = [u8; 12];
 
-/// Writes a GLB file from the vertices and indices as they are stored in the
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GltfContainer {
+    Glb,
+    Gltf,
+}
+
+struct GltfPayload {
+    json: serde_json::Value,
+    bin_data: Vec<u8>,
+}
+
+/// Writes a GLTF/GLB file from the vertices and indices as they are stored in the
 /// m3cx and m3ci fields of the primitive.
 ///
 /// The z axis is inverted compared to the vpx file values.
-#[instrument(skip(vertices, indices, fs, glb_file_path), fields(path = ?glb_file_path, vertex_count = vertices.len(), index_count = indices.len()))]
-pub(crate) fn write_glb(
+#[instrument(skip(vertices, indices, fs, gltf_file_path), fields(path = ?gltf_file_path, vertex_count = vertices.len(), index_count = indices.len(), container = ?container))]
+pub(crate) fn write_gltf(
     name: &str,
     vertices: &[VertexWrapper],
     indices: &[VpxFace],
-    glb_file_path: &Path,
+    gltf_file_path: &Path,
+    container: GltfContainer,
     fs: &dyn FileSystem,
 ) -> Result<(), Box<dyn Error>> {
-    let mut buffer = Vec::new();
-    write_glb_to_writer(name, vertices, indices, &mut buffer)?;
+    match container {
+        GltfContainer::Glb => {
+            let payload = build_gltf_payload(name, vertices, indices, None)?;
+            let mut buffer = Vec::new();
+            write_glb_payload(&payload, &mut buffer)?;
 
-    let _span = info_span!("fs_write", bytes = buffer.len()).entered();
-    fs.write_file(glb_file_path, &buffer)?;
+            let _span = info_span!("fs_write", bytes = buffer.len()).entered();
+            fs.write_file(gltf_file_path, &buffer)?;
+        }
+        GltfContainer::Gltf => {
+            let bin_file_name = gltf_file_path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(|stem| format!("{stem}.bin"))
+                .unwrap_or_else(|| "buffer.bin".to_string());
+            let bin_path = gltf_file_path
+                .parent()
+                .unwrap_or_else(|| Path::new(""))
+                .join(&bin_file_name);
+
+            let payload = build_gltf_payload(name, vertices, indices, Some(&bin_file_name))?;
+            let json_string = serde_json::to_string(&payload.json)?;
+
+            let _span = info_span!("fs_write", bytes = json_string.len()).entered();
+            fs.write_file(gltf_file_path, json_string.as_bytes())?;
+            drop(_span);
+
+            let _span = info_span!("fs_write", bytes = payload.bin_data.len()).entered();
+            fs.write_file(&bin_path, &payload.bin_data)?;
+        }
+    }
 
     Ok(())
 }
 
-fn write_glb_to_writer<W: io::Write>(
+fn build_gltf_payload(
     name: &str,
     vertices: &[VertexWrapper],
     indices: &[VpxFace],
-    writer: &mut W,
-) -> Result<(), Box<dyn Error>> {
+    buffer_uri: Option<&str>,
+) -> Result<GltfPayload, Box<dyn Error>> {
     // Build binary buffer with all vertex data
     let mut bin_data = Vec::new();
 
@@ -116,7 +167,39 @@ fn write_glb_to_writer<W: io::Write>(
         bin_data.push(0);
     }
 
+    let buffers = if let Some(uri) = buffer_uri {
+        json!([{
+            "byteLength": bin_data.len(),
+            "uri": uri,
+        }])
+    } else {
+        json!([{
+            "byteLength": bin_data.len(),
+        }])
+    };
+
     // Create GLTF JSON structure
+    let (min_x, max_x, min_y, max_y, min_z, max_z) = vertices.iter().fold(
+        (
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+        ),
+        |(min_x, max_x, min_y, max_y, min_z, max_z), v| {
+            (
+                min_x.min(v.vertex.x),
+                max_x.max(v.vertex.x),
+                min_y.min(v.vertex.y),
+                max_y.max(v.vertex.y),
+                min_z.min(v.vertex.z),
+                max_z.max(v.vertex.z),
+            )
+        },
+    );
+
     let gltf_json = json!({
         "asset": {
             "version": "2.0",
@@ -134,7 +217,7 @@ fn write_glb_to_writer<W: io::Write>(
                     "TEXCOORD_0": 2,
                 },
                 "indices": 3,
-                "mode": 4, // TRIANGLES
+                "mode": GLTF_PRIMITIVE_MODE_TRIANGLES,
                 "extras": {
                     "vpx_normals": vpx_normals,
                 }
@@ -143,45 +226,59 @@ fn write_glb_to_writer<W: io::Write>(
         "accessors": [
             {
                 "bufferView": 0,
-                "componentType": 5126, // FLOAT
+                "componentType": GLTF_COMPONENT_TYPE_FLOAT,
                 "count": vertices.len(),
                 "type": "VEC3",
                 "byteOffset": 0,
+                "min": [min_x, min_y, min_z],
+                "max": [max_x, max_y, max_z],
             },
             {
                 "bufferView": 1,
-                "componentType": 5126, // FLOAT
+                "componentType": GLTF_COMPONENT_TYPE_FLOAT,
                 "count": vertices.len(),
                 "type": "VEC3",
                 "byteOffset": 0,
             },
             {
                 "bufferView": 2,
-                "componentType": 5126, // FLOAT
+                "componentType": GLTF_COMPONENT_TYPE_FLOAT,
                 "count": vertices.len(),
                 "type": "VEC2",
                 "byteOffset": 0,
             },
             {
                 "bufferView": 3,
-                "componentType": if use_u32 { 5125 } else { 5123 }, // UNSIGNED_INT or UNSIGNED_SHORT
+                "componentType": if use_u32 {
+                    GLTF_COMPONENT_TYPE_UNSIGNED_INT
+                } else {
+                    GLTF_COMPONENT_TYPE_UNSIGNED_SHORT
+                },
                 "count": indices.len() * 3,
                 "type": "SCALAR",
                 "byteOffset": 0,
             },
         ],
         "bufferViews": [
-            {"buffer": 0, "byteOffset": positions_offset, "byteLength": positions_length, "target": 34962}, // ARRAY_BUFFER
-            {"buffer": 0, "byteOffset": normals_offset, "byteLength": normals_length, "target": 34962},
-            {"buffer": 0, "byteOffset": texcoords_offset, "byteLength": texcoords_length, "target": 34962},
-            {"buffer": 0, "byteOffset": indices_offset, "byteLength": indices_length, "target": 34963}, // ELEMENT_ARRAY_BUFFER
+            {"buffer": 0, "byteOffset": positions_offset, "byteLength": positions_length, "target": GLTF_TARGET_ARRAY_BUFFER},
+            {"buffer": 0, "byteOffset": normals_offset, "byteLength": normals_length, "target": GLTF_TARGET_ARRAY_BUFFER},
+            {"buffer": 0, "byteOffset": texcoords_offset, "byteLength": texcoords_length, "target": GLTF_TARGET_ARRAY_BUFFER},
+            {"buffer": 0, "byteOffset": indices_offset, "byteLength": indices_length, "target": GLTF_TARGET_ELEMENT_ARRAY_BUFFER},
         ],
-        "buffers": [{
-            "byteLength": bin_data.len(),
-        }],
+        "buffers": buffers,
     });
 
-    let json_string = serde_json::to_string(&gltf_json)?;
+    Ok(GltfPayload {
+        json: gltf_json,
+        bin_data,
+    })
+}
+
+fn write_glb_payload<W: io::Write>(
+    payload: &GltfPayload,
+    writer: &mut W,
+) -> Result<(), Box<dyn Error>> {
+    let json_string = serde_json::to_string(&payload.json)?;
     let json_bytes = json_string.as_bytes();
 
     // Pad JSON to 4-byte alignment
@@ -189,38 +286,80 @@ fn write_glb_to_writer<W: io::Write>(
     let json_padded_length = json_bytes.len() + json_padding;
 
     // Write GLB header
-    writer.write_all(b"glTF")?; // magic
-    writer.write_u32::<LittleEndian>(2)?; // version
-    let total_length = 12 + 8 + json_padded_length + 8 + bin_data.len();
-    writer.write_u32::<LittleEndian>(total_length as u32)?; // length
+    writer.write_all(GLTF_MAGIC)?; // magic
+    writer.write_u32::<LittleEndian>(GLTF_VERSION)?; // version
+    let total_length = GLB_HEADER_BYTES
+        + GLB_CHUNK_HEADER_BYTES
+        + json_padded_length as u32
+        + GLB_CHUNK_HEADER_BYTES
+        + payload.bin_data.len() as u32;
+    writer.write_u32::<LittleEndian>(total_length)?; // length
 
     // Write JSON chunk
     writer.write_u32::<LittleEndian>(json_padded_length as u32)?; // chunk length
-    writer.write_all(b"JSON")?; // chunk type
+    writer.write_all(GLB_JSON_CHUNK_TYPE)?; // chunk type
     writer.write_all(json_bytes)?;
     for _ in 0..json_padding {
         writer.write_all(b" ")?; // space padding
     }
 
     // Write BIN chunk
-    writer.write_u32::<LittleEndian>(bin_data.len() as u32)?; // chunk length
-    writer.write_all(b"BIN\0")?; // chunk type
-    writer.write_all(&bin_data)?;
+    writer.write_u32::<LittleEndian>(payload.bin_data.len() as u32)?; // chunk length
+    writer.write_all(GLB_BIN_CHUNK_TYPE)?; // chunk type
+    writer.write_all(&payload.bin_data)?;
 
     Ok(())
 }
 
 #[instrument(skip(fs))]
-pub(crate) fn read_glb(
-    glb_path: &Path,
+pub(crate) fn read_gltf(
+    gltf_path: &Path,
+    container: GltfContainer,
     fs: &dyn FileSystem,
 ) -> io::Result<(Vec<VertexWrapper>, Vec<VpxFace>)> {
-    let _span = info_span!("fs_read").entered();
-    let glb_data = fs.read_file(glb_path)?;
-    drop(_span);
+    let (_name, vertices, indices) = match container {
+        GltfContainer::Glb => {
+            let _span = info_span!("fs_read").entered();
+            let glb_data = fs.read_file(gltf_path)?;
+            drop(_span);
 
-    let mut cursor = io::Cursor::new(&glb_data);
-    let (_name, vertices, indices) = read_glb_from_reader(&mut cursor)?;
+            let mut cursor = io::Cursor::new(&glb_data);
+            read_glb_from_reader(&mut cursor)?
+        }
+        GltfContainer::Gltf => {
+            let _span = info_span!("fs_read").entered();
+            let gltf_data = fs.read_file(gltf_path)?;
+            drop(_span);
+
+            let gltf_json: serde_json::Value = serde_json::from_slice(&gltf_data).map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Invalid GLTF JSON: {}", e),
+                )
+            })?;
+
+            let buffer_uri = gltf_json["buffers"][0]["uri"]
+                .as_str()
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Missing buffer uri"))?;
+            if buffer_uri.starts_with("data:") {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Embedded buffer URIs are not supported",
+                ));
+            }
+
+            let bin_path = gltf_path
+                .parent()
+                .unwrap_or_else(|| Path::new(""))
+                .join(buffer_uri);
+            let _span = info_span!("fs_read").entered();
+            let bin_data = fs.read_file(&bin_path)?;
+            drop(_span);
+
+            parse_gltf_payload(&gltf_json, &bin_data)?
+        }
+    };
+
     Ok((vertices, indices))
 }
 
@@ -233,7 +372,11 @@ pub(crate) fn read_glb(
 pub(crate) fn read_glb_from_reader<R: Read>(
     reader: &mut R,
 ) -> io::Result<(String, Vec<VertexWrapper>, Vec<VpxFace>)> {
-    use crate::vpx::model::Vertex3dNoTex2;
+    let payload = read_glb_payload_from_reader(reader)?;
+    parse_gltf_payload(&payload.json, &payload.bin_data)
+}
+
+fn read_glb_payload_from_reader<R: Read>(reader: &mut R) -> io::Result<GltfPayload> {
     use byteorder::{LittleEndian, ReadBytesExt};
 
     // Read all GLB data into memory for random access
@@ -245,7 +388,7 @@ pub(crate) fn read_glb_from_reader<R: Read>(
     // Read GLB header
     let mut magic = [0u8; 4];
     cursor.read_exact(&mut magic)?;
-    if &magic != b"glTF" {
+    if &magic != GLTF_MAGIC {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "Invalid GLB magic",
@@ -253,7 +396,7 @@ pub(crate) fn read_glb_from_reader<R: Read>(
     }
 
     let version = cursor.read_u32::<LittleEndian>()?;
-    if version != 2 {
+    if version != GLTF_VERSION {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             format!("Unsupported GLTF version: {}", version),
@@ -266,7 +409,7 @@ pub(crate) fn read_glb_from_reader<R: Read>(
     let json_length = cursor.read_u32::<LittleEndian>()? as usize;
     let mut chunk_type = [0u8; 4];
     cursor.read_exact(&mut chunk_type)?;
-    if &chunk_type != b"JSON" {
+    if &chunk_type != GLB_JSON_CHUNK_TYPE {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "Expected JSON chunk",
@@ -287,7 +430,7 @@ pub(crate) fn read_glb_from_reader<R: Read>(
     // Read BIN chunk
     let bin_length = cursor.read_u32::<LittleEndian>()? as usize;
     cursor.read_exact(&mut chunk_type)?;
-    if &chunk_type != b"BIN\0" {
+    if &chunk_type != GLB_BIN_CHUNK_TYPE {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "Expected BIN chunk",
@@ -295,7 +438,20 @@ pub(crate) fn read_glb_from_reader<R: Read>(
     }
 
     let bin_start = cursor.position() as usize;
-    let bin_data = &glb_data[bin_start..bin_start + bin_length];
+    let bin_data = glb_data[bin_start..bin_start + bin_length].to_vec();
+
+    Ok(GltfPayload {
+        json: gltf_json,
+        bin_data,
+    })
+}
+
+fn parse_gltf_payload(
+    gltf_json: &serde_json::Value,
+    bin_data: &[u8],
+) -> io::Result<(String, Vec<VertexWrapper>, Vec<VpxFace>)> {
+    use crate::vpx::model::Vertex3dNoTex2;
+    use byteorder::{LittleEndian, ReadBytesExt};
 
     // Parse GLTF structure
     let accessors = gltf_json["accessors"]
@@ -346,7 +502,7 @@ pub(crate) fn read_glb_from_reader<R: Read>(
     let idx_offset = idx_view["byteOffset"].as_u64().unwrap() as usize;
     let idx_count = idx_accessor["count"].as_u64().unwrap() as usize;
     let idx_component_type = idx_accessor["componentType"].as_u64().unwrap();
-    let use_u32 = idx_component_type == 5125; // UNSIGNED_INT
+    let use_u32 = idx_component_type == GLTF_COMPONENT_TYPE_UNSIGNED_INT as u64; // UNSIGNED_INT
 
     // Build vertex data in the same format as write_glb accepts
     let mut vertices = Vec::with_capacity(pos_count);
@@ -403,14 +559,14 @@ pub(crate) fn read_glb_from_reader<R: Read>(
         vertices.push(VertexWrapper::new(bytes, vertex));
     }
 
-    let indices = read_glb_indices(&bin_data, &idx_offset, idx_count, use_u32)?;
+    let indices = read_glb_indices(bin_data, idx_offset, idx_count, use_u32)?;
 
     Ok((name, vertices, indices))
 }
 
 fn read_glb_indices(
-    bin_data: &&[u8],
-    idx_offset: &usize,
+    bin_data: &[u8],
+    idx_offset: usize,
     idx_count: usize,
     use_u32: bool,
 ) -> io::Result<Vec<VpxFace>> {
@@ -492,10 +648,17 @@ mod test {
             .map(|v| VertexWrapper::new(v.as_vpx_bytes(), v.clone()))
             .collect::<Vec<VertexWrapper>>();
         // Write GLB
-        write_glb("TestMesh", &vertices_with_encoded, &indices, &path, &fs)?;
+        write_gltf(
+            "TestMesh",
+            &vertices_with_encoded,
+            &indices,
+            &path,
+            GltfContainer::Glb,
+            &fs,
+        )?;
 
         // Read it back
-        let (read_vertices, read_indices) = read_glb(&path, &fs)?;
+        let (read_vertices, read_indices) = read_gltf(&path, GltfContainer::Glb, &fs)?;
 
         assert_eq!(vertices_with_encoded, read_vertices);
         assert_eq!(indices, read_indices);
@@ -530,8 +693,15 @@ mod test {
         let indices = vec![VpxFace::new(0, 0, 0)];
 
         // Write and read back
-        write_glb("TestNaN", &vertices, &indices, &path, &fs)?;
-        let (read_vertices, _) = read_glb(&path, &fs)?;
+        write_gltf(
+            "TestNaN",
+            &vertices,
+            &indices,
+            &path,
+            GltfContainer::Glb,
+            &fs,
+        )?;
+        let (read_vertices, _) = read_gltf(&path, GltfContainer::Glb, &fs)?;
 
         assert_eq!(read_vertices.len(), 1);
 
@@ -565,17 +735,17 @@ mod test {
             .map(|(b, v)| VertexWrapper::new(*b, v.clone()))
             .collect::<Vec<VertexWrapper>>();
 
+        let fs = MemoryFileSystem::new();
+        let glb_path = PathBuf::from("/roundtrip.glb");
+
         // Step 2: Write to GLB
-        let mut glb_buffer = Vec::new();
-        write_glb_to_writer(
-            &read_result.name,
-            &vertices,
-            &read_result.indices,
-            &mut glb_buffer,
-        )?;
+        let name = &read_result.name;
+        let indices = &read_result.indices;
+        write_gltf(name, &vertices, indices, &glb_path, GltfContainer::Glb, &fs)?;
 
         // Step 3: Read back from GLB
-        let mut glb_cursor = Cursor::new(&glb_buffer);
+        let glb_data = fs.read_file(&glb_path)?;
+        let mut glb_cursor = Cursor::new(&glb_data);
         let (glb_name, glb_vertices, glb_indices) = read_glb_from_reader(&mut glb_cursor)?;
 
         // Verify the name was preserved
@@ -605,6 +775,43 @@ mod test {
 
         assert_eq!(original, after_roundtrip);
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_read_gltf() -> TestResult {
+        let fs = MemoryFileSystem::new();
+        let path = PathBuf::from("/test.gltf");
+
+        let vertices = [Vertex3dNoTex2 {
+            x: 0.25,
+            y: 0.5,
+            z: 0.75,
+            nx: 0.0,
+            ny: 1.0,
+            nz: 0.0,
+            tu: 0.1,
+            tv: 0.2,
+        }];
+        let indices = vec![VpxFace::new(0, 0, 0)];
+        let vertices_with_encoded = vertices
+            .iter()
+            .map(|v| VertexWrapper::new(v.as_vpx_bytes(), v.clone()))
+            .collect::<Vec<VertexWrapper>>();
+
+        write_gltf(
+            "TestMesh",
+            &vertices_with_encoded,
+            &indices,
+            &path,
+            GltfContainer::Gltf,
+            &fs,
+        )?;
+
+        let (read_vertices, read_indices) = read_gltf(&path, GltfContainer::Gltf, &fs)?;
+
+        assert_eq!(vertices_with_encoded, read_vertices);
+        assert_eq!(indices, read_indices);
         Ok(())
     }
 }

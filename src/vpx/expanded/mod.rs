@@ -8,6 +8,7 @@
 //! Primitive mesh data can be exported in two formats:
 //! - **OBJ** (default): Text-based Wavefront OBJ format, human-readable
 //! - **GLB**: Binary GLTF format, significantly faster for large meshes
+//! - **GLTF**: JSON + external BIN buffer for tooling-friendly workflows
 //!
 //! Use [`write_with_format`] to specify the format. Both formats are supported
 //! for reading, with OBJ checked first for backward compatibility.
@@ -41,6 +42,8 @@ pub enum PrimitiveMeshFormat {
     /// TODO: Consider packing animation frames into a single GLB using GLTF animations
     /// TODO: Consider adding compression support for GLB files
     Glb,
+    /// GLTF JSON + external BIN buffer
+    Gltf,
 }
 
 #[derive(Debug)]

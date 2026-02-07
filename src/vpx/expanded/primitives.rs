@@ -1,5 +1,6 @@
 //! Primitive mesh reading and writing for expanded VPX format
 
+use super::{PrimitiveMeshFormat, WriteError};
 use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::GameItemEnum;
 use crate::vpx::gameitem::primitive;
@@ -7,20 +8,26 @@ use crate::vpx::gameitem::primitive::{
     MAX_VERTICES_FOR_2_BYTE_INDEX, ReadMesh, VertData, VertexWrapper, read_vpx_animation_frame,
     write_animation_vertex_data,
 };
+use crate::vpx::gltf::{GltfContainer, read_gltf, write_gltf};
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::{
     ObjData, ReadObjResult, VpxFace, read_obj as obj_read_obj, read_obj_from_reader, write_obj,
     write_vertex_index_for_vpx,
 };
-use byteorder::{LittleEndian, ReadBytesExt};
+
 use bytes::{BufMut, BytesMut};
-use std::io::{self, Read};
+use std::io;
 use std::iter::Zip;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::slice::Iter;
 use tracing::instrument;
 
-use super::{PrimitiveMeshFormat, WriteError};
+struct MeshReadResult {
+    vertices_len: usize,
+    indices_len: usize,
+    compressed_vertices: Vec<u8>,
+    compressed_indices: Vec<u8>,
+}
 
 pub(super) fn write_gameitem_binaries(
     gameitems_dir: &Path,
@@ -40,8 +47,21 @@ pub(super) fn write_gameitem_binaries(
             }
             PrimitiveMeshFormat::Glb => {
                 let glb_path = gameitems_dir.join(format!("{json_file_name}.glb"));
-                crate::vpx::gltf::write_glb(gameitem.name(), vertices, indices, &glb_path, fs)
+                let name = gameitem.name();
+                write_gltf(name, vertices, indices, &glb_path, GltfContainer::Glb, fs)
                     .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
+            }
+            PrimitiveMeshFormat::Gltf => {
+                let gltf_path = gameitems_dir.join(format!("{json_file_name}.gltf"));
+                write_gltf(
+                    gameitem.name(),
+                    vertices,
+                    indices,
+                    &gltf_path,
+                    GltfContainer::Gltf,
+                    fs,
+                )
+                .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
             }
         }
 
@@ -94,8 +114,26 @@ fn write_animation_frames_to_meshes(
                     .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
             }
             PrimitiveMeshFormat::Glb => {
-                crate::vpx::gltf::write_glb(name, &full_vertices, vpx_indices, &mesh_path, fs)
-                    .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
+                write_gltf(
+                    name,
+                    &full_vertices,
+                    vpx_indices,
+                    &mesh_path,
+                    GltfContainer::Glb,
+                    fs,
+                )
+                .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
+            }
+            PrimitiveMeshFormat::Gltf => {
+                write_gltf(
+                    name,
+                    &full_vertices,
+                    vpx_indices,
+                    &mesh_path,
+                    GltfContainer::Gltf,
+                    fs,
+                )
+                .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
             }
         }
     }
@@ -154,58 +192,51 @@ pub(super) fn read_gameitem_binaries(
         // Check for OBJ first (backward compatibility), then GLB
         let obj_path = gameitems_dir.join(format!("{gameitem_file_name}.obj"));
         let glb_path = gameitems_dir.join(format!("{gameitem_file_name}.glb"));
+        let gltf_path = gameitems_dir.join(format!("{gameitem_file_name}.gltf"));
 
         let mesh_format = if fs.exists(&obj_path) {
             Some(PrimitiveMeshFormat::Obj)
         } else if fs.exists(&glb_path) {
             Some(PrimitiveMeshFormat::Glb)
+        } else if fs.exists(&gltf_path) {
+            Some(PrimitiveMeshFormat::Gltf)
         } else {
             None
         };
 
         if let Some(format) = mesh_format {
-            let (vertices_len, indices_len, compressed_vertices, compressed_indices) = match format
-            {
-                PrimitiveMeshFormat::Obj => {
-                    let read_result = read_obj(&obj_path, fs)?;
-                    let vertices_len = read_result.vertices.len();
-                    let serialized_indices_len = read_result.indices.len() * 3;
-
-                    let vpx_encoded_indices =
-                        vpx_encode_vertices(read_result.vertices.len(), &read_result.indices);
-
-                    let (compressed_vertices, compressed_indices) = compress_vertices_and_indices(
-                        &read_result.vpx_encoded_vertices,
-                        &vpx_encoded_indices,
-                    )?;
-
-                    (
-                        vertices_len,
-                        serialized_indices_len,
-                        compressed_vertices,
-                        compressed_indices,
-                    )
+            let result = match format {
+                PrimitiveMeshFormat::Obj => read_obj_and_compress(fs, &obj_path)?,
+                PrimitiveMeshFormat::Glb => {
+                    read_gltf_and_compress(&glb_path, fs, GltfContainer::Glb)?
                 }
-                PrimitiveMeshFormat::Glb => read_glb_and_compress(&glb_path, fs)?,
+                PrimitiveMeshFormat::Gltf => {
+                    read_gltf_and_compress(&gltf_path, fs, GltfContainer::Gltf)?
+                }
             };
-            primitive.num_vertices = Some(vertices_len as u32);
-            primitive.compressed_vertices_len = Some(compressed_vertices.len() as u32);
-            primitive.compressed_vertices_data = Some(compressed_vertices);
-            primitive.num_indices = Some(indices_len as u32);
-            primitive.compressed_indices_len = Some(compressed_indices.len() as u32);
-            primitive.compressed_indices_data = Some(compressed_indices);
+            primitive.num_vertices = Some(result.vertices_len as u32);
+            primitive.compressed_vertices_len = Some(result.compressed_vertices.len() as u32);
+            primitive.compressed_vertices_data = Some(result.compressed_vertices);
+            primitive.num_indices = Some(result.indices_len as u32);
+            primitive.compressed_indices_len = Some(result.compressed_indices.len() as u32);
+            primitive.compressed_indices_data = Some(result.compressed_indices);
         }
 
         // Check for animation frames - try OBJ first, then GLB
         let frame0_obj = animation_frame_file_name(gameitem_file_name, 0, PrimitiveMeshFormat::Obj);
         let frame0_glb = animation_frame_file_name(gameitem_file_name, 0, PrimitiveMeshFormat::Glb);
+        let frame0_gltf =
+            animation_frame_file_name(gameitem_file_name, 0, PrimitiveMeshFormat::Gltf);
         let frame0_obj_path = gameitems_dir.join(&frame0_obj);
         let frame0_glb_path = gameitems_dir.join(&frame0_glb);
+        let frame0_gltf_path = gameitems_dir.join(&frame0_gltf);
 
         let animation_format = if fs.exists(&frame0_obj_path) {
             Some(PrimitiveMeshFormat::Obj)
         } else if fs.exists(&frame0_glb_path) {
             Some(PrimitiveMeshFormat::Glb)
+        } else if fs.exists(&frame0_gltf_path) {
+            Some(PrimitiveMeshFormat::Gltf)
         } else {
             None
         };
@@ -253,6 +284,7 @@ fn animation_frame_file_name(
     let extension = match mesh_format {
         PrimitiveMeshFormat::Obj => "obj",
         PrimitiveMeshFormat::Glb => "glb",
+        PrimitiveMeshFormat::Gltf => "gltf",
     };
     format!("{gameitem_file_name}_anim_{index}.{extension}")
 }
@@ -265,14 +297,31 @@ fn read_obj(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<ReadObjResult> {
         .map_err(|e| io::Error::other(format!("Error reading obj {}: {}", obj_path.display(), e)))
 }
 
-fn read_glb_and_compress(
-    glb_path: &Path,
-    fs: &dyn FileSystem,
-) -> io::Result<(usize, usize, Vec<u8>, Vec<u8>)> {
-    // Read GLB file
-    let (vertices, indices) = crate::vpx::gltf::read_glb(glb_path, fs)?;
+fn read_obj_and_compress(fs: &dyn FileSystem, obj_path: &PathBuf) -> io::Result<MeshReadResult> {
+    let read_result = read_obj(obj_path, fs)?;
+    let vertices_len = read_result.vertices.len();
+    let indices_len = read_result.indices.len() * 3;
 
-    // Build BytesMut for vertices - just copy the 32-byte arrays
+    let vpx_encoded_indices = vpx_encode_vertices(read_result.vertices.len(), &read_result.indices);
+
+    let (compressed_vertices, compressed_indices) =
+        compress_vertices_and_indices(&read_result.vpx_encoded_vertices, &vpx_encoded_indices)?;
+
+    Ok(MeshReadResult {
+        vertices_len,
+        indices_len,
+        compressed_vertices,
+        compressed_indices,
+    })
+}
+
+fn read_gltf_and_compress(
+    gltf_path: &Path,
+    fs: &dyn FileSystem,
+    container: GltfContainer,
+) -> io::Result<MeshReadResult> {
+    let (vertices, indices) = read_gltf(gltf_path, container, fs)?;
+
     let mut vpx_vertices = BytesMut::with_capacity(vertices.len() * 32);
     for VertexWrapper {
         vpx_encoded_vertex, ..
@@ -281,7 +330,6 @@ fn read_glb_and_compress(
         vpx_vertices.put_slice(vpx_encoded_vertex);
     }
 
-    // Build BytesMut for indices
     let bytes_per_index: u8 = if vertices.len() > MAX_VERTICES_FOR_2_BYTE_INDEX {
         4
     } else {
@@ -299,12 +347,12 @@ fn read_glb_and_compress(
     let (compressed_vertices, compressed_indices) =
         compress_vertices_and_indices(&vpx_vertices, &vpx_indices)?;
 
-    Ok((
+    Ok(MeshReadResult {
         vertices_len,
         indices_len,
         compressed_vertices,
         compressed_indices,
-    ))
+    })
 }
 
 #[instrument(skip(vpx_vertices, vpx_indices), fields(
@@ -355,7 +403,8 @@ fn read_mesh_as_frame(
 ) -> io::Result<Vec<VertData>> {
     match mesh_format {
         PrimitiveMeshFormat::Obj => read_obj_as_frame(mesh_path, fs),
-        PrimitiveMeshFormat::Glb => read_glb_as_frame(mesh_path, fs),
+        PrimitiveMeshFormat::Glb => read_gltf_as_frame(mesh_path, GltfContainer::Glb, fs),
+        PrimitiveMeshFormat::Gltf => read_gltf_as_frame(mesh_path, GltfContainer::Gltf, fs),
     }
 }
 
@@ -389,87 +438,22 @@ fn read_obj_as_frame(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<Vec<Ver
     Ok(vertices)
 }
 
-fn read_glb_as_frame(glb_path: &Path, _fs: &dyn FileSystem) -> io::Result<Vec<VertData>> {
-    let glb_data = _fs.read_file(glb_path)?;
-    let mut cursor = io::Cursor::new(&glb_data);
-
-    // Read GLB header
-    let mut magic = [0u8; 4];
-    cursor.read_exact(&mut magic)?;
-    if &magic != b"glTF" {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Invalid GLB magic",
-        ));
-    }
-
-    cursor.set_position(cursor.position() + 8); // Skip version and length
-
-    // Read JSON chunk
-    let json_length = cursor.read_u32::<LittleEndian>()? as usize;
-    cursor.set_position(cursor.position() + 4); // Skip chunk type
-
-    let json_start = cursor.position() as usize;
-    let json_bytes = &glb_data[json_start..json_start + json_length];
-    let gltf_json: serde_json::Value = serde_json::from_slice(json_bytes).map_err(|e| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("Invalid GLTF JSON: {}", e),
-        )
-    })?;
-
-    cursor.set_position((json_start + json_length) as u64);
-
-    // Read BIN chunk
-    let bin_length = cursor.read_u32::<LittleEndian>()? as usize;
-    cursor.set_position(cursor.position() + 4); // Skip chunk type
-
-    let bin_start = cursor.position() as usize;
-    let bin_data = &glb_data[bin_start..bin_start + bin_length];
-
-    // Parse GLTF structure
-    let accessors = gltf_json["accessors"]
-        .as_array()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Missing accessors"))?;
-    let buffer_views = gltf_json["bufferViews"]
-        .as_array()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Missing bufferViews"))?;
-
-    // Read positions (accessor 0)
-    let pos_accessor = &accessors[0];
-    let pos_view_idx = pos_accessor["bufferView"].as_u64().unwrap() as usize;
-    let pos_view = &buffer_views[pos_view_idx];
-    let pos_offset = pos_view["byteOffset"].as_u64().unwrap() as usize;
-    let pos_count = pos_accessor["count"].as_u64().unwrap() as usize;
-
-    // Read normals (accessor 1)
-    let norm_view_idx = accessors[1]["bufferView"].as_u64().unwrap() as usize;
-    let norm_view = &buffer_views[norm_view_idx];
-    let norm_offset = norm_view["byteOffset"].as_u64().unwrap() as usize;
-
-    // Build VertData
-    let mut vertices: Vec<VertData> = Vec::with_capacity(pos_count);
-
-    for i in 0..pos_count {
-        let mut pos_cursor = io::Cursor::new(&bin_data[pos_offset + i * 12..]);
-        let x = pos_cursor.read_f32::<LittleEndian>()?;
-        let y = pos_cursor.read_f32::<LittleEndian>()?;
-        let z = pos_cursor.read_f32::<LittleEndian>()?;
-
-        let mut norm_cursor = io::Cursor::new(&bin_data[norm_offset + i * 12..]);
-        let nx = norm_cursor.read_f32::<LittleEndian>()?;
-        let ny = norm_cursor.read_f32::<LittleEndian>()?;
-        let nz = norm_cursor.read_f32::<LittleEndian>()?;
-
-        vertices.push(VertData {
-            x,
-            y,
-            z,
-            nx,
-            ny,
-            nz,
+fn read_gltf_as_frame(
+    gltf_path: &Path,
+    container: GltfContainer,
+    fs: &dyn FileSystem,
+) -> io::Result<Vec<VertData>> {
+    let (vertices, _) = read_gltf(gltf_path, container, fs)?;
+    let mut frames = Vec::with_capacity(vertices.len());
+    for vertex in vertices {
+        frames.push(VertData {
+            x: vertex.vertex.x,
+            y: vertex.vertex.y,
+            z: vertex.vertex.z,
+            nx: vertex.vertex.nx,
+            ny: vertex.vertex.ny,
+            nz: vertex.vertex.nz,
         });
     }
-
-    Ok(vertices)
+    Ok(frames)
 }
