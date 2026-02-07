@@ -17,10 +17,13 @@ mod fonts;
 mod gameitems;
 mod images;
 mod materials;
+mod mesh_common;
 mod metadata;
 mod primitives;
+mod ramps;
 mod sounds;
 mod util;
+mod walls;
 
 use crate::filesystem::{FileSystem, MemoryFileSystem, RealFileSystem};
 use crate::vpx::material::Material;
@@ -627,6 +630,6 @@ mod tests {
             ]
         );
 
-        assert_eq!(files.len(), 95);
+        assert_eq!(files.len(), 129);
     }
 }

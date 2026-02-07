@@ -159,7 +159,7 @@ pub struct Ramp {
     pub physics_material: Option<String>,    // MAPH 29 (added in 10.?)
     pub overwrite_physics: Option<bool>,     // OVPH 30 (added in 10.?)
 
-    drag_points: Vec<DragPoint>,
+    pub drag_points: Vec<DragPoint>,
 
     // these are shared between all items
     pub is_locked: bool,

@@ -4,7 +4,7 @@ use encoding_rs::mem::{decode_latin1, encode_latin1_lossy};
 /// <https://github.com/vpinball/vpinball/blob/9bb99ca92ff7e7eb37c9fb42dd4dcc206b814132/def.h#L165C7-L181>
 ///
 /// This struct is used for serializing and deserializing in the vpinball C++ code
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Vertex3dNoTex2 {
     pub x: f32,
     pub y: f32,
@@ -17,8 +17,7 @@ pub struct Vertex3dNoTex2 {
 }
 
 impl Vertex3dNoTex2 {
-    #[cfg(test)]
-    pub(crate) fn as_vpx_bytes(&self) -> [u8; 32] {
+    pub(crate) fn to_vpx_bytes(&self) -> [u8; 32] {
         let mut b = [0u8; 32];
         let mut offset = 0;
         for &value in &[
@@ -28,6 +27,11 @@ impl Vertex3dNoTex2 {
             offset += 4;
         }
         b
+    }
+
+    #[cfg(test)]
+    pub(crate) fn as_vpx_bytes(&self) -> [u8; 32] {
+        self.to_vpx_bytes()
     }
 
     #[cfg(test)]

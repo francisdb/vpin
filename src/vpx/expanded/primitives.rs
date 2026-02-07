@@ -1,5 +1,7 @@
 //! Primitive mesh reading and writing for expanded VPX format
 
+use super::ramps::write_ramp_meshes;
+use super::walls::write_wall_meshes;
 use super::{PrimitiveMeshFormat, WriteError};
 use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::GameItemEnum;
@@ -85,6 +87,12 @@ pub(super) fn write_gameitem_binaries(
                 )));
             }
         }
+    }
+    if let GameItemEnum::Wall(wall) = gameitem {
+        write_wall_meshes(gameitems_dir, wall, json_file_name, mesh_format, fs)?;
+    }
+    if let GameItemEnum::Ramp(ramp) = gameitem {
+        write_ramp_meshes(gameitems_dir, ramp, json_file_name, mesh_format, fs)?;
     }
     Ok(())
 }
