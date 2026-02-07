@@ -31,12 +31,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     vpx::expanded::write_with_format(&vpx, &glb_dir, PrimitiveMeshFormat::Glb)?;
     println!("✓ Extracted with GLB format to: {}", glb_dir.display());
 
+    // Extract with GLTF format (JSON + BIN)
+    let gltf_dir = PathBuf::from("extracted_gltf");
+    std::fs::create_dir_all(&gltf_dir)?;
+    vpx::expanded::write_with_format(&vpx, &gltf_dir, PrimitiveMeshFormat::Gltf)?;
+    println!("✓ Extracted with GLTF format to: {}", gltf_dir.display());
+
     // Read back from either format - both OBJ and GLB are supported
     let vpx_from_obj = vpx::expanded::read(&obj_dir)?;
     println!("✓ Read back from OBJ format");
 
     let _vpx_from_glb = vpx::expanded::read(&glb_dir)?;
     println!("✓ Read back from GLB format");
+
+    let _vpx_from_gltf = vpx::expanded::read(&gltf_dir)?;
+    println!("✓ Read back from GLTF format");
 
     println!("\nBoth formats produce identical VPX data:");
     println!("  Game items: {}", vpx_from_obj.gameitems.len());
