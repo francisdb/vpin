@@ -3,7 +3,10 @@
 //! This module ports the ramp mesh generation from Visual Pinball's ramp.cpp.
 //! Ramps can be either flat (with optional walls) or wire ramps (1-4 wire types).
 
-use super::mesh_common::{Vec2, Vec3, generated_mesh_file_name, write_mesh_to_file};
+use super::mesh_common::{
+    RenderVertex3D, Vec2, Vec3, compute_normals, generated_mesh_file_name, get_rotated_axis,
+    init_nonuniform_catmull_coeffs, write_mesh_to_file,
+};
 use super::{PrimitiveMeshFormat, WriteError};
 use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::dragpoint::DragPoint;
@@ -11,29 +14,7 @@ use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::gameitem::ramp::{Ramp, RampType};
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
-use std::f32::consts::PI;
 use std::path::Path;
-
-/// A 3D point used during curve generation
-#[derive(Debug, Clone, Copy)]
-struct RenderVertex3D {
-    x: f32,
-    y: f32,
-    z: f32,
-    #[allow(dead_code)]
-    smooth: bool,
-    #[allow(dead_code)]
-    control_point: bool,
-}
-
-impl RenderVertex3D {
-    #[allow(dead_code)]
-    fn set(&mut self, x: f32, y: f32, z: f32) {
-        self.x = x;
-        self.y = y;
-        self.z = z;
-    }
-}
 
 /// Catmull-Rom spline coefficients for cubic interpolation
 struct CatmullCurve3D {
@@ -129,36 +110,6 @@ impl CatmullCurve3D {
     }
 }
 
-/// Initialize cubic spline coefficients for p(s) = c0 + c1*s + c2*s^2 + c3*s^3
-fn init_cubic_spline_coeffs(x0: f32, x1: f32, t0: f32, t1: f32) -> (f32, f32, f32, f32) {
-    let c0 = x0;
-    let c1 = t0;
-    let c2 = -3.0 * x0 + 3.0 * x1 - 2.0 * t0 - t1;
-    let c3 = 2.0 * x0 - 2.0 * x1 + t0 + t1;
-    (c0, c1, c2, c3)
-}
-
-/// Initialize non-uniform Catmull-Rom spline coefficients
-fn init_nonuniform_catmull_coeffs(
-    x0: f32,
-    x1: f32,
-    x2: f32,
-    x3: f32,
-    dt0: f32,
-    dt1: f32,
-    dt2: f32,
-) -> (f32, f32, f32, f32) {
-    // Compute tangents when parameterized in [t1,t2]
-    let mut t1_tang = (x1 - x0) / dt0 - (x2 - x0) / (dt0 + dt1) + (x2 - x1) / dt1;
-    let mut t2_tang = (x2 - x1) / dt1 - (x3 - x1) / (dt1 + dt2) + (x3 - x2) / dt2;
-
-    // Rescale tangents for parametrization in [0,1]
-    t1_tang *= dt1;
-    t2_tang *= dt1;
-
-    init_cubic_spline_coeffs(x1, x2, t1_tang, t2_tang)
-}
-
 /// Check if three points are collinear within the given accuracy
 fn flat_with_accuracy(
     v1: &RenderVertex3D,
@@ -209,7 +160,7 @@ fn recurse_smooth_line(
         y,
         z,
         smooth: true,
-        control_point: false,
+        ..Default::default()
     };
 
     if flat_with_accuracy(vt1, vt2, &vmid, accuracy) {
@@ -261,6 +212,7 @@ fn get_central_curve(drag_points: &[DragPoint], accuracy: f32) -> Vec<RenderVert
             z: pdp0.z,
             smooth: pdp0.smooth,
             control_point: true,
+            ..Default::default()
         };
         let v1 = RenderVertex3D {
             x: pdp1.x,
@@ -268,6 +220,7 @@ fn get_central_curve(drag_points: &[DragPoint], accuracy: f32) -> Vec<RenderVert
             z: pdp1.z,
             smooth: pdp1.smooth,
             control_point: true,
+            ..Default::default()
         };
         let v2 = RenderVertex3D {
             x: pdp2.x,
@@ -275,6 +228,7 @@ fn get_central_curve(drag_points: &[DragPoint], accuracy: f32) -> Vec<RenderVert
             z: pdp2.z,
             smooth: pdp2.smooth,
             control_point: true,
+            ..Default::default()
         };
         let v3 = RenderVertex3D {
             x: pdp3.x,
@@ -282,6 +236,7 @@ fn get_central_curve(drag_points: &[DragPoint], accuracy: f32) -> Vec<RenderVert
             z: pdp3.z,
             smooth: pdp3.smooth,
             control_point: true,
+            ..Default::default()
         };
 
         let cc = CatmullCurve3D::new(&v0, &v1, &v2, &v3);
@@ -292,6 +247,7 @@ fn get_central_curve(drag_points: &[DragPoint], accuracy: f32) -> Vec<RenderVert
             z: v1.z,
             smooth: pdp1.smooth,
             control_point: true,
+            ..Default::default()
         };
 
         let rendv2 = RenderVertex3D {
@@ -300,6 +256,7 @@ fn get_central_curve(drag_points: &[DragPoint], accuracy: f32) -> Vec<RenderVert
             z: v2.z,
             smooth: pdp2.smooth,
             control_point: true,
+            ..Default::default()
         };
 
         recurse_smooth_line(&cc, 0.0, 1.0, &rendv1, &rendv2, &mut vv, accuracy);
@@ -313,6 +270,7 @@ fn get_central_curve(drag_points: &[DragPoint], accuracy: f32) -> Vec<RenderVert
             z: last.z,
             smooth: true,
             control_point: true,
+            ..Default::default()
         });
     }
 
@@ -657,63 +615,6 @@ fn build_flat_ramp_mesh(
     Some((wrapped, faces))
 }
 
-/// Compute normals for a mesh
-fn compute_normals(vertices: &mut [Vertex3dNoTex2], indices: &[u32]) {
-    // Reset all normals
-    for v in vertices.iter_mut() {
-        v.nx = 0.0;
-        v.ny = 0.0;
-        v.nz = 0.0;
-    }
-
-    // Accumulate face normals
-    for tri in indices.chunks_exact(3) {
-        let i0 = tri[0] as usize;
-        let i1 = tri[1] as usize;
-        let i2 = tri[2] as usize;
-
-        if i0 >= vertices.len() || i1 >= vertices.len() || i2 >= vertices.len() {
-            continue;
-        }
-
-        let v0 = &vertices[i0];
-        let v1 = &vertices[i1];
-        let v2 = &vertices[i2];
-
-        let e1 = Vec3 {
-            x: v1.x - v0.x,
-            y: v1.y - v0.y,
-            z: v1.z - v0.z,
-        };
-        let e2 = Vec3 {
-            x: v2.x - v0.x,
-            y: v2.y - v0.y,
-            z: v2.z - v0.z,
-        };
-        let n = Vec3::cross(&e1, &e2);
-
-        vertices[i0].nx += n.x;
-        vertices[i0].ny += n.y;
-        vertices[i0].nz += n.z;
-        vertices[i1].nx += n.x;
-        vertices[i1].ny += n.y;
-        vertices[i1].nz += n.z;
-        vertices[i2].nx += n.x;
-        vertices[i2].ny += n.y;
-        vertices[i2].nz += n.z;
-    }
-
-    // Normalize
-    for v in vertices.iter_mut() {
-        let len = (v.nx * v.nx + v.ny * v.ny + v.nz * v.nz).sqrt();
-        if len > 0.0 {
-            v.nx /= len;
-            v.ny /= len;
-            v.nz /= len;
-        }
-    }
-}
-
 /// Create a wire mesh for wire ramps
 fn create_wire(
     ramp: &Ramp,
@@ -812,37 +713,6 @@ fn create_wire(
     }
 
     vertices
-}
-
-/// Rotate a vector around an axis
-fn get_rotated_axis(angle_degrees: f32, axis: &Vec3, temp: &Vec3) -> Vec3 {
-    let u = axis.normalize();
-    let angle_rad = angle_degrees * PI / 180.0;
-    let sin_angle = angle_rad.sin();
-    let cos_angle = angle_rad.cos();
-    let one_minus_cos = 1.0 - cos_angle;
-
-    let rot_row0 = Vec3 {
-        x: u.x * u.x + cos_angle * (1.0 - u.x * u.x),
-        y: u.x * u.y * one_minus_cos - sin_angle * u.z,
-        z: u.x * u.z * one_minus_cos + sin_angle * u.y,
-    };
-    let rot_row1 = Vec3 {
-        x: u.x * u.y * one_minus_cos + sin_angle * u.z,
-        y: u.y * u.y + cos_angle * (1.0 - u.y * u.y),
-        z: u.y * u.z * one_minus_cos - sin_angle * u.x,
-    };
-    let rot_row2 = Vec3 {
-        x: u.x * u.z * one_minus_cos - sin_angle * u.y,
-        y: u.y * u.z * one_minus_cos + sin_angle * u.x,
-        z: u.z * u.z + cos_angle * (1.0 - u.z * u.z),
-    };
-
-    Vec3 {
-        x: temp.x * rot_row0.x + temp.y * rot_row0.y + temp.z * rot_row0.z,
-        y: temp.x * rot_row1.x + temp.y * rot_row1.y + temp.z * rot_row1.z,
-        z: temp.x * rot_row2.x + temp.y * rot_row2.y + temp.z * rot_row2.z,
-    }
 }
 
 /// Generate wire ramp mesh
@@ -1154,6 +1024,7 @@ mod tests {
             z: 0.0,
             smooth: false,
             control_point: true,
+            ..Default::default()
         };
         let v1 = RenderVertex3D {
             x: 1.0,
@@ -1161,6 +1032,7 @@ mod tests {
             z: 0.0,
             smooth: false,
             control_point: true,
+            ..Default::default()
         };
         let v2 = RenderVertex3D {
             x: 2.0,
@@ -1168,6 +1040,7 @@ mod tests {
             z: 0.0,
             smooth: false,
             control_point: true,
+            ..Default::default()
         };
         let v3 = RenderVertex3D {
             x: 3.0,
@@ -1175,6 +1048,7 @@ mod tests {
             z: 0.0,
             smooth: false,
             control_point: true,
+            ..Default::default()
         };
 
         let curve = CatmullCurve3D::new(&v0, &v1, &v2, &v3);

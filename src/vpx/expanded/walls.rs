@@ -1,4 +1,7 @@
 //! Wall mesh generation for expanded VPX export
+//!
+//! This module ports the rubber mesh generation from Visual Pinball's surface.cpp.
+//! Walls are represented as extruded polygons with optional smoothing and texture coordinates.
 
 use super::mesh_common::{Vec2, generated_mesh_file_name, write_mesh_to_file};
 use super::{PrimitiveMeshFormat, WriteError};
@@ -75,7 +78,15 @@ fn build_wall_mesh(wall: &Wall) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
     } else if wall.is_side_visible {
         (side_vertices, side_indices)
     } else {
-        return None;
+        // Generate mesh even when invisible (useful for tools that need to process all geometry)
+        // Include both top and sides
+        let side_count = side_vertices.len();
+        let mut vertices = side_vertices;
+        vertices.extend(top_vertices);
+
+        let mut indices = side_indices;
+        indices.extend(top_indices.into_iter().map(|idx| idx + side_count as u32));
+        (vertices, indices)
     };
 
     let wrapped = vertices

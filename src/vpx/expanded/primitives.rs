@@ -1,8 +1,9 @@
 //! Primitive mesh reading and writing for expanded VPX format
 
 use super::ramps::write_ramp_meshes;
+use super::rubbers::write_rubber_meshes;
 use super::walls::write_wall_meshes;
-use super::{PrimitiveMeshFormat, WriteError};
+use super::{ExpandOptions, PrimitiveMeshFormat, WriteError};
 use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::GameItemEnum;
 use crate::vpx::gameitem::primitive;
@@ -35,9 +36,10 @@ pub(super) fn write_gameitem_binaries(
     gameitems_dir: &Path,
     gameitem: &GameItemEnum,
     json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
+    options: &ExpandOptions,
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
+    let mesh_format = options.get_mesh_format();
     if let GameItemEnum::Primitive(primitive) = gameitem
         && let Some(ReadMesh { vertices, indices }) = &primitive.read_mesh()?
     {
@@ -88,11 +90,17 @@ pub(super) fn write_gameitem_binaries(
             }
         }
     }
-    if let GameItemEnum::Wall(wall) = gameitem {
-        write_wall_meshes(gameitems_dir, wall, json_file_name, mesh_format, fs)?;
-    }
-    if let GameItemEnum::Ramp(ramp) = gameitem {
-        write_ramp_meshes(gameitems_dir, ramp, json_file_name, mesh_format, fs)?;
+    // Generate derived meshes for walls, ramps, and rubbers (optional)
+    if options.should_generate_derived_meshes() {
+        if let GameItemEnum::Wall(wall) = gameitem {
+            write_wall_meshes(gameitems_dir, wall, json_file_name, mesh_format, fs)?;
+        }
+        if let GameItemEnum::Ramp(ramp) = gameitem {
+            write_ramp_meshes(gameitems_dir, ramp, json_file_name, mesh_format, fs)?;
+        }
+        if let GameItemEnum::Rubber(rubber) = gameitem {
+            write_rubber_meshes(gameitems_dir, rubber, json_file_name, mesh_format, fs)?;
+        }
     }
     Ok(())
 }
