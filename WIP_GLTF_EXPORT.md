@@ -43,6 +43,12 @@
 - [ ] **Per-primitive textures** - create separate materials like `{material}_{primitivename}` when textures are
   involved
 
+### Organization / Hierarchy
+
+- [ ] **Grouping by Collections** - group meshes under parent nodes based on VPX collections
+- [ ] **Grouping by Part Groups** - for newer tables (10.8+), group meshes by `part_group_name` field
+- [ ] **Nested node hierarchy** - use glTF node children to represent these groupings
+
 ### Architecture / Refactoring
 
 - [ ] **Separate mesh generation from GLTF export** - mesh generation code should be reusable
