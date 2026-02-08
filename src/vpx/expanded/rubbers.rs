@@ -4,8 +4,8 @@
 //! Rubbers are rendered as tubular shapes that follow a spline curve defined by drag points.
 
 use super::mesh_common::{
-    Vec2, Vec3, compute_normals, generated_mesh_file_name, get_rg_vertex_2d, get_rotated_axis,
-    write_mesh_to_file,
+    Vec2, Vec3, compute_normals, detail_level_to_accuracy, generated_mesh_file_name,
+    get_rg_vertex_2d, get_rotated_axis, write_mesh_to_file,
 };
 use super::{PrimitiveMeshFormat, WriteError};
 use crate::filesystem::FileSystem;
@@ -116,9 +116,11 @@ fn get_spline_vertex(
 /// Generate the rubber mesh
 /// This is a port of Rubber::GenerateMesh from rubber.cpp
 fn generate_mesh(rubber: &Rubber) -> Option<(Vec<Vertex3dNoTex2>, Vec<u32>)> {
-    // Use a fixed accuracy for the highest detail level
-    // This is 4.0 * 10^((10-10)/1.5) = 4.0 * 10^0 = 4.0
-    let accuracy = 4.0f32;
+    // From VPinball rubber.cpp GetCentralCurve():
+    // accuracy = 4.0f * powf(10.0f, (10.0f - accuracy) * (1.0f / 1.5f))
+    // where detail_level=10 gives 4.0 (highest detail), detail_level=0 gives ~18,000,000 (lowest detail)
+    // We use the highest detail level (10) which gives accuracy = 4.0
+    let accuracy = detail_level_to_accuracy(10.0);
 
     let (_, middle_points) =
         get_spline_vertex(&rubber.drag_points, rubber.thickness as f32, accuracy);

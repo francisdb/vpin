@@ -4,7 +4,8 @@
 //! Flashers are flat polygons defined by drag points, with optional rotation and height.
 
 use super::mesh_common::{
-    RenderVertex2D, generated_mesh_file_name, get_rg_vertex_2d, write_mesh_to_file,
+    RenderVertex2D, detail_level_to_accuracy, generated_mesh_file_name, get_rg_vertex_2d,
+    write_mesh_to_file,
 };
 use super::{PrimitiveMeshFormat, WriteError};
 use crate::filesystem::FileSystem;
@@ -260,8 +261,8 @@ fn build_flasher_mesh(flasher: &Flasher) -> Option<(Vec<VertexWrapper>, Vec<VpxF
         return None;
     }
 
-    // Use accuracy = 4.0 (maximum precision)
-    let accuracy = 4.0f32;
+    // From VPinball mesh.h GetRgVertex: detail_level=10 gives accuracy=4.0 (highest detail)
+    let accuracy = detail_level_to_accuracy(10.0);
     // Flashers always loop (closed polygon)
     let vvertex = get_rg_vertex_2d(&flasher.drag_points, accuracy, true);
 

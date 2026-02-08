@@ -7,6 +7,28 @@ use crate::vpx::gltf::{GltfContainer, write_gltf};
 use crate::vpx::obj::{VpxFace, write_obj};
 use std::path::Path;
 
+/// Static detail level used by VPinball to approximate ramps and rubbers for physics/collision code.
+/// From VPinball physconst.h: `#define HIT_SHAPE_DETAIL_LEVEL 7.0f`
+///
+/// This is a lower detail level than visual rendering (which uses 10.0) to improve
+/// physics performance while maintaining adequate collision accuracy.
+pub const HIT_SHAPE_DETAIL_LEVEL: f32 = 7.0;
+
+/// Convert a detail level (0-10) to an accuracy value for spline subdivision.
+///
+/// From VPinball rubber.cpp GetCentralCurve():
+/// `accuracy = 4.0f * powf(10.0f, (10.0f - detail_level) * (1.0f / 1.5f))`
+///
+/// - detail_level = 10 → accuracy = 4.0 (highest detail, most subdivision)
+/// - detail_level = 7  → accuracy ≈ 63.5 (HIT_SHAPE_DETAIL_LEVEL)
+/// - detail_level = 0  → accuracy ≈ 18,000,000 (lowest detail, least subdivision)
+///
+/// The accuracy value is used as a threshold in FlatWithAccuracy - smaller values
+/// mean more curve subdivision (higher visual detail).
+pub(super) fn detail_level_to_accuracy(detail_level: f32) -> f32 {
+    4.0 * 10.0_f32.powf((10.0 - detail_level) / 1.5)
+}
+
 /// A 2D vector helper used for geometry calculations
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct Vec2 {

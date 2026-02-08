@@ -4,8 +4,8 @@
 //! Ramps can be either flat (with optional walls) or wire ramps (1-4 wire types).
 
 use super::mesh_common::{
-    RenderVertex3D, Vec2, Vec3, compute_normals, generated_mesh_file_name, get_rotated_axis,
-    init_nonuniform_catmull_coeffs, write_mesh_to_file,
+    RenderVertex3D, Vec2, Vec3, compute_normals, detail_level_to_accuracy,
+    generated_mesh_file_name, get_rotated_axis, init_nonuniform_catmull_coeffs, write_mesh_to_file,
 };
 use super::{PrimitiveMeshFormat, WriteError};
 use crate::filesystem::FileSystem;
@@ -981,8 +981,9 @@ fn build_ramp_mesh(ramp: &Ramp) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
         return None;
     }
 
-    // Use accuracy = 4.0 (highest detail)
-    let accuracy = 4.0;
+    // From VPinball mesh.h GetRgVertex: accuracy = 4.0 is highest detail level
+    // detail_level_to_accuracy(10.0) = 4.0
+    let accuracy = detail_level_to_accuracy(10.0);
     let vvertex = get_central_curve(&ramp.drag_points, accuracy);
 
     if vvertex.len() < 2 {
