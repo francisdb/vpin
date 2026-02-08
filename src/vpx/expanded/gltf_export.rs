@@ -31,35 +31,37 @@ use crate::filesystem::FileSystem;
 use crate::vpx::VPX;
 use crate::vpx::gameitem::GameItemEnum;
 use crate::vpx::gameitem::primitive::VertexWrapper;
+use crate::vpx::gltf::{
+    GLB_BIN_CHUNK_TYPE, GLB_CHUNK_HEADER_BYTES, GLB_HEADER_BYTES, GLB_JSON_CHUNK_TYPE,
+    GLTF_COMPONENT_TYPE_FLOAT, GLTF_COMPONENT_TYPE_UNSIGNED_INT,
+    GLTF_COMPONENT_TYPE_UNSIGNED_SHORT, GLTF_FILTER_LINEAR, GLTF_FILTER_LINEAR_MIPMAP_LINEAR,
+    GLTF_MAGIC, GLTF_PRIMITIVE_MODE_TRIANGLES, GLTF_TARGET_ARRAY_BUFFER,
+    GLTF_TARGET_ELEMENT_ARRAY_BUFFER, GLTF_VERSION, GLTF_WRAP_REPEAT,
+};
+use crate::vpx::image::ImageData;
+use crate::vpx::material::MaterialType;
+use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 use byteorder::{LittleEndian, WriteBytesExt};
 use serde_json::json;
+use std::collections::HashMap;
 use std::io;
 use std::path::Path;
-
-const GLTF_MAGIC: &[u8; 4] = b"glTF";
-const GLTF_VERSION: u32 = 2;
-const GLB_HEADER_BYTES: u32 = 12;
-const GLB_CHUNK_HEADER_BYTES: u32 = 8;
-const GLB_JSON_CHUNK_TYPE: &[u8; 4] = b"JSON";
-const GLB_BIN_CHUNK_TYPE: &[u8; 4] = b"BIN\0";
-const GLTF_PRIMITIVE_MODE_TRIANGLES: u32 = 4;
-const GLTF_COMPONENT_TYPE_FLOAT: u32 = 5126;
-const GLTF_COMPONENT_TYPE_UNSIGNED_SHORT: u32 = 5123;
-const GLTF_COMPONENT_TYPE_UNSIGNED_INT: u32 = 5125;
-const GLTF_TARGET_ARRAY_BUFFER: u32 = 34962;
-const GLTF_TARGET_ELEMENT_ARRAY_BUFFER: u32 = 34963;
 
 /// Conversion factor from VP units to meters
 /// From VPinball def.h: 50 VPU = 1.0625 inches, 1 inch = 25.4mm
 /// So 1 VPU = (25.4 * 1.0625) / 50 mm = 0.539750 mm = 0.000539750 meters
 const VP_UNITS_TO_METERS: f32 = (25.4 * 1.0625) / (50.0 * 1000.0);
 
+/// Special material name for the playfield
+const PLAYFIELD_MATERIAL_NAME: &str = "__playfield__";
+
 /// A named mesh ready for GLTF export
 struct NamedMesh {
     name: String,
     vertices: Vec<VertexWrapper>,
     indices: Vec<VpxFace>,
+    material_name: Option<String>,
 }
 
 /// Apply primitive transformation (scale, rotation, translation) to vertices
@@ -218,9 +220,210 @@ fn transform_primitive_vertices(
         .collect()
 }
 
+/// A simple material representation for glTF export
+struct GltfMaterial {
+    name: String,
+    base_color: [f32; 4], // RGBA
+    metallic: f32,
+    roughness: f32,
+}
+
+/// Collect all materials from a VPX file
+fn collect_materials(vpx: &VPX) -> HashMap<String, GltfMaterial> {
+    let mut materials = HashMap::new();
+
+    // Try new format first (10.8+)
+    if let Some(ref mats) = vpx.gamedata.materials {
+        for mat in mats {
+            let gltf_mat = GltfMaterial {
+                name: mat.name.clone(),
+                base_color: [
+                    mat.base_color.r as f32 / 255.0,
+                    mat.base_color.g as f32 / 255.0,
+                    mat.base_color.b as f32 / 255.0,
+                    mat.opacity,
+                ],
+                metallic: if mat.type_ == MaterialType::Metal {
+                    1.0
+                } else {
+                    0.0
+                },
+                roughness: mat.roughness,
+            };
+            materials.insert(mat.name.clone(), gltf_mat);
+        }
+    } else {
+        // Fall back to old format
+        for mat in &vpx.gamedata.materials_old {
+            let gltf_mat = GltfMaterial {
+                name: mat.name.clone(),
+                base_color: [
+                    mat.base_color.r as f32 / 255.0,
+                    mat.base_color.g as f32 / 255.0,
+                    mat.base_color.b as f32 / 255.0,
+                    mat.opacity,
+                ],
+                metallic: if mat.is_metal { 1.0 } else { 0.0 },
+                roughness: mat.roughness,
+            };
+            materials.insert(mat.name.clone(), gltf_mat);
+        }
+    }
+
+    materials
+}
+
+/// Find the playfield image in the VPX
+fn find_playfield_image(vpx: &VPX) -> Option<&ImageData> {
+    let playfield_image_name = &vpx.gamedata.image;
+    if playfield_image_name.is_empty() {
+        return None;
+    }
+    vpx.images
+        .iter()
+        .find(|img| img.name.eq_ignore_ascii_case(playfield_image_name))
+}
+
+/// Get the image data bytes from an ImageData, converting bitmap to PNG if needed
+fn get_image_bytes(image: &ImageData) -> Option<Vec<u8>> {
+    // Prefer jpeg/png data over raw bitmap
+    if let Some(ref jpeg) = image.jpeg {
+        Some(jpeg.data.clone())
+    } else if let Some(ref bits) = image.bits {
+        // Convert bitmap to PNG
+        use crate::vpx::image::vpx_image_to_dynamic_image;
+        use std::io::Cursor;
+
+        let dynamic_image =
+            vpx_image_to_dynamic_image(&bits.lzw_compressed_data, image.width, image.height);
+
+        let mut png_bytes = Vec::new();
+        let mut cursor = Cursor::new(&mut png_bytes);
+        if dynamic_image
+            .write_to(&mut cursor, image::ImageFormat::Png)
+            .is_ok()
+        {
+            Some(png_bytes)
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+/// Build an implicit playfield mesh (quad at z=0) like VPinball does when no explicit playfield_mesh exists
+///
+/// From VPinball player.cpp:
+/// - 4 vertices at corners: (left,top), (right,top), (left,bottom), (right,bottom)
+/// - z = 0, normal = (0, 0, 1)
+/// - UV: (0,0), (1,0), (0,1), (1,1)
+/// - 6 indices: [0,1,2], [2,1,3]
+fn build_implicit_playfield_mesh(vpx: &VPX, playfield_material_name: &str) -> NamedMesh {
+    let left = vpx.gamedata.left;
+    let top = vpx.gamedata.top;
+    let right = vpx.gamedata.right;
+    let bottom = vpx.gamedata.bottom;
+
+    // Create 4 vertices matching VPinball's layout:
+    // offs = x + y * 2, so:
+    // (x=0,y=0) -> offs=0: left, top
+    // (x=1,y=0) -> offs=1: right, top
+    // (x=0,y=1) -> offs=2: left, bottom
+    // (x=1,y=1) -> offs=3: right, bottom
+    let vertices = vec![
+        // offs=0: (x=0, y=0) -> left, top
+        VertexWrapper::new(
+            [0u8; 32], // Not needed for export, just a placeholder
+            Vertex3dNoTex2 {
+                x: left,
+                y: top,
+                z: 0.0,
+                nx: 0.0,
+                ny: 0.0,
+                nz: 1.0,
+                tu: 0.0,
+                tv: 0.0,
+            },
+        ),
+        // offs=1: (x=1, y=0) -> right, top
+        VertexWrapper::new(
+            [0u8; 32],
+            Vertex3dNoTex2 {
+                x: right,
+                y: top,
+                z: 0.0,
+                nx: 0.0,
+                ny: 0.0,
+                nz: 1.0,
+                tu: 1.0,
+                tv: 0.0,
+            },
+        ),
+        // offs=2: (x=0, y=1) -> left, bottom
+        VertexWrapper::new(
+            [0u8; 32],
+            Vertex3dNoTex2 {
+                x: left,
+                y: bottom,
+                z: 0.0,
+                nx: 0.0,
+                ny: 0.0,
+                nz: 1.0,
+                tu: 0.0,
+                tv: 1.0,
+            },
+        ),
+        // offs=3: (x=1, y=1) -> right, bottom
+        VertexWrapper::new(
+            [0u8; 32],
+            Vertex3dNoTex2 {
+                x: right,
+                y: bottom,
+                z: 0.0,
+                nx: 0.0,
+                ny: 0.0,
+                nz: 1.0,
+                tu: 1.0,
+                tv: 1.0,
+            },
+        ),
+    ];
+
+    // Indices from VPinball: [0,1,2], [2,1,3]
+    let indices = vec![
+        VpxFace {
+            i0: 0,
+            i1: 1,
+            i2: 2,
+        },
+        VpxFace {
+            i0: 2,
+            i1: 1,
+            i2: 3,
+        },
+    ];
+
+    NamedMesh {
+        name: "playfield_mesh".to_string(),
+        vertices,
+        indices,
+        material_name: Some(playfield_material_name.to_string()),
+    }
+}
+
 /// Collect all meshes from a VPX file
 fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
     let mut meshes = Vec::new();
+    let mut has_explicit_playfield = false;
+
+    // Get the playfield material name to assign to playfield primitives
+    // VPinball uses the table's playfield material, or we use a special name
+    let playfield_material_name = if vpx.gamedata.playfield_material.is_empty() {
+        PLAYFIELD_MATERIAL_NAME.to_string()
+    } else {
+        vpx.gamedata.playfield_material.clone()
+    };
 
     for gameitem in &vpx.gameitems {
         match gameitem {
@@ -230,10 +433,30 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 }
                 if let Ok(Some(read_mesh)) = primitive.read_mesh() {
                     let transformed = transform_primitive_vertices(read_mesh.vertices, primitive);
+
+                    // If it's the playfield, VPinball assigns m_szMaterial and m_szImage from table settings
+                    let is_playfield = primitive.is_playfield();
+
+                    if is_playfield {
+                        has_explicit_playfield = true;
+                    }
+
+                    // Determine material name:
+                    // - If it's the playfield primitive, use the playfield material (which has the texture)
+                    // - Otherwise, use the primitive's material if set
+                    let material_name = if is_playfield {
+                        Some(playfield_material_name.clone())
+                    } else if !primitive.material.is_empty() {
+                        Some(primitive.material.clone())
+                    } else {
+                        None
+                    };
+
                     meshes.push(NamedMesh {
                         name: primitive.name.clone(),
                         vertices: transformed,
                         indices: read_mesh.indices,
+                        material_name,
                     });
                 }
             }
@@ -242,10 +465,16 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     continue; // Skip fully invisible walls
                 }
                 if let Some((vertices, indices)) = build_wall_mesh(wall) {
+                    let material_name = if wall.top_material.is_empty() {
+                        None
+                    } else {
+                        Some(wall.top_material.clone())
+                    };
                     meshes.push(NamedMesh {
                         name: wall.name.clone(),
                         vertices,
                         indices,
+                        material_name,
                     });
                 }
             }
@@ -254,10 +483,16 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     continue; // Skip invisible ramps
                 }
                 if let Some((vertices, indices)) = build_ramp_mesh(ramp) {
+                    let material_name = if ramp.material.is_empty() {
+                        None
+                    } else {
+                        Some(ramp.material.clone())
+                    };
                     meshes.push(NamedMesh {
                         name: ramp.name.clone(),
                         vertices,
                         indices,
+                        material_name,
                     });
                 }
             }
@@ -266,10 +501,16 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     continue; // Skip invisible rubbers
                 }
                 if let Some((vertices, indices)) = build_rubber_mesh(rubber) {
+                    let material_name = if rubber.material.is_empty() {
+                        None
+                    } else {
+                        Some(rubber.material.clone())
+                    };
                     meshes.push(NamedMesh {
                         name: rubber.name.clone(),
                         vertices,
                         indices,
+                        material_name,
                     });
                 }
             }
@@ -278,15 +519,23 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     continue; // Skip invisible flashers
                 }
                 if let Some((vertices, indices)) = build_flasher_mesh(flasher) {
+                    // Flashers don't have a material field
                     meshes.push(NamedMesh {
                         name: flasher.name.clone(),
                         vertices,
                         indices,
+                        material_name: None,
                     });
                 }
             }
             _ => {}
         }
+    }
+
+    // If no explicit playfield_mesh primitive was found, create an implicit one
+    // This matches VPinball's behavior in player.cpp
+    if !has_explicit_playfield {
+        meshes.push(build_implicit_playfield_mesh(vpx, &playfield_material_name));
     }
 
     meshes
@@ -295,6 +544,9 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
 /// Build a combined GLTF payload with all meshes
 fn build_combined_gltf_payload(
     meshes: &[NamedMesh],
+    materials: &HashMap<String, GltfMaterial>,
+    playfield_image: Option<&ImageData>,
+    playfield_material_name: &str,
 ) -> Result<(serde_json::Value, Vec<u8>), WriteError> {
     if meshes.is_empty() {
         return Err(WriteError::Io(io::Error::new(
@@ -303,11 +555,103 @@ fn build_combined_gltf_payload(
         )));
     }
 
+    // Build material name -> index map and create glTF materials array
+    let mut material_index_map: HashMap<String, usize> = HashMap::new();
+    let mut gltf_materials: Vec<serde_json::Value> = Vec::new();
+    let mut gltf_textures: Vec<serde_json::Value> = Vec::new();
+    let mut gltf_images: Vec<serde_json::Value> = Vec::new();
+    let mut gltf_samplers: Vec<serde_json::Value> = Vec::new();
+
+    // We'll store image data in the binary buffer, track where it starts
     let mut bin_data = Vec::new();
+    let mut buffer_views = Vec::new();
+
+    // Add playfield material with texture if available
+    if let Some(image) = playfield_image {
+        if let Some(image_bytes) = get_image_bytes(image) {
+            // Add sampler
+            let sampler_idx = gltf_samplers.len();
+            gltf_samplers.push(json!({
+                "magFilter": GLTF_FILTER_LINEAR,
+                "minFilter": GLTF_FILTER_LINEAR_MIPMAP_LINEAR,
+                "wrapS": GLTF_WRAP_REPEAT,
+                "wrapT": GLTF_WRAP_REPEAT
+            }));
+
+            // Write image data to binary buffer
+            let image_offset = bin_data.len();
+            bin_data.extend_from_slice(&image_bytes);
+            let image_length = image_bytes.len();
+
+            // Pad to 4-byte alignment for next data
+            while bin_data.len() % 4 != 0 {
+                bin_data.push(0);
+            }
+
+            // Add buffer view for image
+            let image_buffer_view_idx = buffer_views.len();
+            buffer_views.push(json!({
+                "buffer": 0,
+                "byteOffset": image_offset,
+                "byteLength": image_length
+            }));
+
+            // Add image referencing the buffer view
+            let image_idx = gltf_images.len();
+            let mime_type = if image.bits.is_some() {
+                "image/png"
+            } else if image.path.to_lowercase().ends_with(".png") {
+                "image/png"
+            } else {
+                "image/jpeg"
+            };
+            gltf_images.push(json!({
+                "bufferView": image_buffer_view_idx,
+                "mimeType": mime_type,
+                "name": image.name
+            }));
+
+            // Add texture
+            let texture_idx = gltf_textures.len();
+            gltf_textures.push(json!({
+                "sampler": sampler_idx,
+                "source": image_idx,
+                "name": format!("{}_texture", image.name)
+            }));
+
+            // Add playfield material with texture
+            material_index_map.insert(playfield_material_name.to_string(), gltf_materials.len());
+            gltf_materials.push(json!({
+                "name": playfield_material_name,
+                "pbrMetallicRoughness": {
+                    "baseColorTexture": {
+                        "index": texture_idx
+                    },
+                    "metallicFactor": 0.0,
+                    "roughnessFactor": 0.5
+                }
+            }));
+        }
+    }
+
+    for (name, mat) in materials {
+        // Skip if we already added a playfield material with texture
+        if material_index_map.contains_key(name) {
+            continue;
+        }
+        material_index_map.insert(name.clone(), gltf_materials.len());
+        gltf_materials.push(json!({
+            "name": mat.name,
+            "pbrMetallicRoughness": {
+                "baseColorFactor": mat.base_color,
+                "metallicFactor": mat.metallic,
+                "roughnessFactor": mat.roughness
+            }
+        }));
+    }
     let mut nodes = Vec::new();
     let mut mesh_json = Vec::new();
     let mut accessors = Vec::new();
-    let mut buffer_views = Vec::new();
     let mut node_indices: Vec<usize> = Vec::new();
 
     for (mesh_idx, mesh) in meshes.iter().enumerate() {
@@ -480,17 +824,26 @@ fn build_combined_gltf_payload(
         }));
 
         // Add mesh
+        let mut primitive = json!({
+            "attributes": {
+                "POSITION": accessor_base,
+                "NORMAL": accessor_base + 1,
+                "TEXCOORD_0": accessor_base + 2
+            },
+            "indices": accessor_base + 3,
+            "mode": GLTF_PRIMITIVE_MODE_TRIANGLES
+        });
+
+        // Add material reference if the mesh has a material
+        if let Some(ref mat_name) = mesh.material_name {
+            if let Some(&mat_idx) = material_index_map.get(mat_name) {
+                primitive["material"] = json!(mat_idx);
+            }
+        }
+
         mesh_json.push(json!({
             "name": mesh.name,
-            "primitives": [{
-                "attributes": {
-                    "POSITION": accessor_base,
-                    "NORMAL": accessor_base + 1,
-                    "TEXCOORD_0": accessor_base + 2
-                },
-                "indices": accessor_base + 3,
-                "mode": GLTF_PRIMITIVE_MODE_TRIANGLES
-            }]
+            "primitives": [primitive]
         }));
 
         // Add node
@@ -506,7 +859,7 @@ fn build_combined_gltf_payload(
         bin_data.push(0);
     }
 
-    let gltf_json = json!({
+    let mut gltf_json = json!({
         "asset": {
             "version": "2.0",
             "generator": "vpin"
@@ -523,6 +876,22 @@ fn build_combined_gltf_payload(
             "byteLength": bin_data.len()
         }]
     });
+
+    // Add materials array if there are any materials
+    if !gltf_materials.is_empty() {
+        gltf_json["materials"] = json!(gltf_materials);
+    }
+
+    // Add textures, images, and samplers if we have any
+    if !gltf_textures.is_empty() {
+        gltf_json["textures"] = json!(gltf_textures);
+    }
+    if !gltf_images.is_empty() {
+        gltf_json["images"] = json!(gltf_images);
+    }
+    if !gltf_samplers.is_empty() {
+        gltf_json["samplers"] = json!(gltf_samplers);
+    }
 
     Ok((gltf_json, bin_data))
 }
@@ -612,7 +981,25 @@ pub fn export_glb(vpx: &VPX, path: &Path, fs: &dyn FileSystem) -> Result<(), Wri
         )));
     }
 
-    let (json, bin_data) = build_combined_gltf_payload(&meshes)?;
+    // Collect materials from gamedata
+    let materials = collect_materials(vpx);
+
+    // Find playfield image
+    let playfield_image = find_playfield_image(vpx);
+
+    // Use the playfield material name from gamedata if set
+    let playfield_material_name = if vpx.gamedata.playfield_material.is_empty() {
+        PLAYFIELD_MATERIAL_NAME
+    } else {
+        &vpx.gamedata.playfield_material
+    };
+
+    let (json, bin_data) = build_combined_gltf_payload(
+        &meshes,
+        &materials,
+        playfield_image,
+        playfield_material_name,
+    )?;
 
     let mut buffer = Vec::new();
     write_glb(&json, &bin_data, &mut buffer)?;
@@ -627,17 +1014,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_collect_meshes_empty() {
+    fn test_collect_meshes_empty_vpx_has_implicit_playfield() {
         let vpx = VPX::default();
         let meshes = collect_meshes(&vpx);
-        assert!(meshes.is_empty());
+        // Even an empty VPX gets an implicit playfield mesh
+        assert_eq!(meshes.len(), 1);
+        assert_eq!(meshes[0].name, "playfield_mesh");
     }
 
     #[test]
-    fn test_export_glb_no_meshes() {
+    fn test_export_glb_empty_vpx_succeeds_with_playfield() {
         let vpx = VPX::default();
         let fs = crate::filesystem::MemoryFileSystem::default();
+        // Should succeed because we generate an implicit playfield
         let result = export_glb(&vpx, Path::new("test.glb"), &fs);
-        assert!(result.is_err());
+        assert!(result.is_ok());
     }
 }

@@ -288,6 +288,18 @@ impl Primitive {
             Ok(None)
         }
     }
+
+    /// Check if this primitive is the playfield mesh.
+    ///
+    /// From VPinball primitive.h:
+    /// ```cpp
+    /// bool IsPlayfield() const { return _wcsicmp(m_wzName, L"playfield_mesh") == 0; }
+    /// ```
+    ///
+    /// This is a case-insensitive comparison with "playfield_mesh".
+    pub fn is_playfield(&self) -> bool {
+        self.name.eq_ignore_ascii_case("playfield_mesh")
+    }
 }
 
 impl PrimitiveJson {
