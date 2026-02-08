@@ -4,7 +4,7 @@ use encoding_rs::mem::{decode_latin1, encode_latin1_lossy};
 /// <https://github.com/vpinball/vpinball/blob/9bb99ca92ff7e7eb37c9fb42dd4dcc206b814132/def.h#L165C7-L181>
 ///
 /// This struct is used for serializing and deserializing in the vpinball C++ code
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Vertex3dNoTex2 {
     pub x: f32,
     pub y: f32,

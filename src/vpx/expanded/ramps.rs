@@ -599,7 +599,7 @@ fn build_flat_ramp_mesh(
     if include_floor {
         let base = final_vertices.len() as u32;
         for v in &vertices[..num_vertices] {
-            final_vertices.push(*v);
+            final_vertices.push((*v).clone());
         }
         for &idx in &indices[..rgi_offset] {
             final_indices.push(base + idx);
@@ -609,7 +609,7 @@ fn build_flat_ramp_mesh(
     if include_right && include_left {
         let base = final_vertices.len() as u32;
         for v in &vertices[num_vertices..num_vertices * 2] {
-            final_vertices.push(*v);
+            final_vertices.push((*v).clone());
         }
         for i in 0..rgi_offset {
             final_indices.push(base + indices[rgi_offset + i] - num_vertices as u32);
@@ -617,7 +617,7 @@ fn build_flat_ramp_mesh(
 
         let base = final_vertices.len() as u32;
         for v in &vertices[num_vertices * 2..num_vertices * 3] {
-            final_vertices.push(*v);
+            final_vertices.push((*v).clone());
         }
         for i in 0..rgi_offset {
             final_indices.push(base + indices[rgi_offset * 2 + i] - (num_vertices * 2) as u32);
@@ -625,7 +625,7 @@ fn build_flat_ramp_mesh(
     } else if include_right {
         let base = final_vertices.len() as u32;
         for v in &vertices[num_vertices..num_vertices * 2] {
-            final_vertices.push(*v);
+            final_vertices.push((*v).clone());
         }
         for i in 0..rgi_offset {
             final_indices.push(base + indices[rgi_offset + i] - num_vertices as u32);
@@ -633,7 +633,7 @@ fn build_flat_ramp_mesh(
     } else if include_left {
         let base = final_vertices.len() as u32;
         for v in &vertices[num_vertices * 2..num_vertices * 3] {
-            final_vertices.push(*v);
+            final_vertices.push((*v).clone());
         }
         for i in 0..rgi_offset {
             final_indices.push(base + indices[rgi_offset * 2 + i] - (num_vertices * 2) as u32);
@@ -928,10 +928,7 @@ fn build_wire_ramp_mesh(
                 ramp,
                 num_rings,
                 num_segments,
-                &rgv_local[..num_rings]
-                    .iter()
-                    .map(|v| *v)
-                    .collect::<Vec<_>>(),
+                &rgv_local[..num_rings],
                 &rgheight,
             );
             let left_wire = create_wire(ramp, num_rings, num_segments, &left_points, &rgheight);
@@ -959,10 +956,7 @@ fn build_wire_ramp_mesh(
                 ramp,
                 num_rings,
                 num_segments,
-                &rgv_local[..num_rings]
-                    .iter()
-                    .map(|v| *v)
-                    .collect::<Vec<_>>(),
+                &rgv_local[..num_rings],
                 &rgheight,
             );
             let left_wire = create_wire(ramp, num_rings, num_segments, &left_points, &rgheight);
@@ -998,10 +992,7 @@ fn build_wire_ramp_mesh(
                 ramp,
                 num_rings,
                 num_segments,
-                &rgv_local[..num_rings]
-                    .iter()
-                    .map(|v| *v)
-                    .collect::<Vec<_>>(),
+                &rgv_local[..num_rings],
                 &rgheight,
             );
             let left_wire = create_wire(ramp, num_rings, num_segments, &left_points, &rgheight);
@@ -1009,10 +1000,7 @@ fn build_wire_ramp_mesh(
                 ramp,
                 num_rings,
                 num_segments,
-                &rgv_local[..num_rings]
-                    .iter()
-                    .map(|v| *v)
-                    .collect::<Vec<_>>(),
+                &rgv_local[..num_rings],
                 &rgheight,
             );
 
@@ -1046,10 +1034,7 @@ fn build_wire_ramp_mesh(
                 ramp,
                 num_rings,
                 num_segments,
-                &rgv_local[..num_rings]
-                    .iter()
-                    .map(|v| *v)
-                    .collect::<Vec<_>>(),
+                &rgv_local[..num_rings],
                 &rgheight,
             );
             let left_wire = create_wire(ramp, num_rings, num_segments, &left_points, &rgheight);
@@ -1057,10 +1042,7 @@ fn build_wire_ramp_mesh(
                 ramp,
                 num_rings,
                 num_segments,
-                &rgv_local[..num_rings]
-                    .iter()
-                    .map(|v| *v)
-                    .collect::<Vec<_>>(),
+                &rgv_local[..num_rings],
                 &rgheight,
             );
             let upper_left = create_wire(ramp, num_rings, num_segments, &left_points, &rgheight);

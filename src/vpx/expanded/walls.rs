@@ -125,7 +125,7 @@ fn compute_side_texture_coords(points: &[RenderVertex]) -> Vec<f32> {
 
     points
         .iter()
-        .zip(cumulative.into_iter())
+        .zip(cumulative)
         .map(|(point, dist)| {
             if point.has_auto_texture {
                 dist * inv_total
@@ -279,7 +279,7 @@ fn build_top_mesh(
     let triangles = triangulate_polygon(&coords);
 
     out_indices.clear();
-    out_indices.extend(triangles.into_iter().flat_map(|tri| tri));
+    out_indices.extend(triangles.into_iter().flatten());
 
     let (min_x, max_x, min_y, max_y) = bounds_xy(points);
     let inv_w = if max_x == min_x {

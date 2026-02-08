@@ -449,7 +449,7 @@ f 1/1/1 2/2/2 3/3/3
             .zip(read_result.final_vertices.iter())
             .map(|(b, v)| VertexWrapper {
                 vpx_encoded_vertex: *b,
-                vertex: v.clone(),
+                vertex: (*v).clone(),
             })
             .collect::<Vec<VertexWrapper>>();
 
@@ -636,7 +636,7 @@ f 1/1/1 1/1/1 1/1/1
             .iter()
             .map(|v| VertexWrapper {
                 vpx_encoded_vertex: [0; 32],
-                vertex: v.clone(),
+                vertex: (*v).clone(),
             })
             .collect::<Vec<VertexWrapper>>();
 
