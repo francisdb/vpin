@@ -973,7 +973,7 @@ fn build_wire_ramp_mesh(
 }
 
 /// Build the complete ramp mesh
-fn build_ramp_mesh(ramp: &Ramp) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
+pub(super) fn build_ramp_mesh(ramp: &Ramp) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
     // Generate meshes for all ramps, including invisible ones
     // This is useful for tools that need to visualize or process all geometry
 

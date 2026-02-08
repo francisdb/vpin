@@ -1,0 +1,643 @@
+//! Whole-table GLTF/GLB export
+//!
+//! This module provides functionality to export an entire VPX table as a single
+//! GLTF/GLB file containing all meshes (primitives, walls, ramps, rubbers, flashers).
+//!
+//! ## Coordinate System Transformation
+//!
+//! VPinball uses a left-handed coordinate system with Z-up:
+//! - X: right (across the playfield)
+//! - Y: towards the player (down the playfield)
+//! - Z: up (towards the glass)
+//!
+//! glTF uses a right-handed coordinate system with Y-up:
+//! - X: right
+//! - Y: up
+//! - Z: towards the viewer (forward)
+//!
+//! The export applies this transformation (table faces the camera):
+//! - VPX X → glTF X (origin stays at left back corner)
+//! - VPX Y → glTF Z (player side faces camera)
+//! - VPX Z → glTF Y (up)
+//!
+//! Triangle winding order is reversed to convert from left-handed to right-handed.
+
+use super::WriteError;
+use super::flashers::build_flasher_mesh;
+use super::ramps::build_ramp_mesh;
+use super::rubbers::build_rubber_mesh;
+use super::walls::build_wall_mesh;
+use crate::filesystem::FileSystem;
+use crate::vpx::VPX;
+use crate::vpx::gameitem::GameItemEnum;
+use crate::vpx::gameitem::primitive::VertexWrapper;
+use crate::vpx::obj::VpxFace;
+use byteorder::{LittleEndian, WriteBytesExt};
+use serde_json::json;
+use std::io;
+use std::path::Path;
+
+const GLTF_MAGIC: &[u8; 4] = b"glTF";
+const GLTF_VERSION: u32 = 2;
+const GLB_HEADER_BYTES: u32 = 12;
+const GLB_CHUNK_HEADER_BYTES: u32 = 8;
+const GLB_JSON_CHUNK_TYPE: &[u8; 4] = b"JSON";
+const GLB_BIN_CHUNK_TYPE: &[u8; 4] = b"BIN\0";
+const GLTF_PRIMITIVE_MODE_TRIANGLES: u32 = 4;
+const GLTF_COMPONENT_TYPE_FLOAT: u32 = 5126;
+const GLTF_COMPONENT_TYPE_UNSIGNED_SHORT: u32 = 5123;
+const GLTF_COMPONENT_TYPE_UNSIGNED_INT: u32 = 5125;
+const GLTF_TARGET_ARRAY_BUFFER: u32 = 34962;
+const GLTF_TARGET_ELEMENT_ARRAY_BUFFER: u32 = 34963;
+
+/// Conversion factor from VP units to meters
+/// From VPinball def.h: 50 VPU = 1.0625 inches, 1 inch = 25.4mm
+/// So 1 VPU = (25.4 * 1.0625) / 50 mm = 0.539750 mm = 0.000539750 meters
+const VP_UNITS_TO_METERS: f32 = (25.4 * 1.0625) / (50.0 * 1000.0);
+
+/// A named mesh ready for GLTF export
+struct NamedMesh {
+    name: String,
+    vertices: Vec<VertexWrapper>,
+    indices: Vec<VpxFace>,
+}
+
+/// Apply primitive transformation (scale, rotation, translation) to vertices
+/// All transformations are done in VPX coordinate space.
+/// The coordinate conversion to glTF happens when writing the GLB.
+///
+/// ## Rotation Order (Important!)
+///
+/// VPinball builds the transformation matrix as (from primitive.cpp):
+/// ```text
+/// RTmatrix = Translate(tra) * RotZ * RotY * RotX * ObjRotZ * ObjRotY * ObjRotX
+/// fullMatrix = Scale * RTmatrix * Translate(pos)
+/// ```
+///
+/// When this matrix is applied to a vertex via `fullMatrix * v`, the rightmost
+/// operation is applied first. So the actual order applied to vertices is:
+/// 1. Translate(pos)
+/// 2. ObjRotX, ObjRotY, ObjRotZ (in that order)
+/// 3. RotX, RotY, RotZ (in that order)
+/// 4. Translate(tra)
+/// 5. Scale
+///
+/// However, when applying rotations sequentially (not using matrix multiplication),
+/// we must apply them in **reverse order** (Z, Y, X) to achieve the same result.
+/// This is because matrix multiplication `A * B * v` means B is applied first,
+/// but sequential application must reverse this.
+///
+/// ## Transformation steps applied to each vertex:
+/// 1. Scale by size
+/// 2. Apply ObjRotZ, ObjRotY, ObjRotX (reverse order for sequential application)
+/// 3. Apply RotZ, RotY, RotX (reverse order for sequential application)
+/// 4. Translate by tra
+/// 5. Translate by position
+fn transform_primitive_vertices(
+    vertices: Vec<VertexWrapper>,
+    primitive: &crate::vpx::gameitem::primitive::Primitive,
+) -> Vec<VertexWrapper> {
+    use std::f32::consts::PI;
+
+    let pos = &primitive.position;
+    let size = &primitive.size;
+    let rot = &primitive.rot_and_tra;
+
+    // rot_and_tra indices:
+    // 0-2: RotX, RotY, RotZ (degrees)
+    // 3-5: TraX, TraY, TraZ
+    // 6-8: ObjRotX, ObjRotY, ObjRotZ (degrees)
+
+    let deg_to_rad = |deg: f32| deg * PI / 180.0;
+
+    vertices
+        .into_iter()
+        .map(|mut vw| {
+            let mut x = vw.vertex.x;
+            let mut y = vw.vertex.y;
+            let mut z = vw.vertex.z;
+
+            // 1. Apply scale first
+            x *= size.x;
+            y *= size.y;
+            z *= size.z;
+
+            // 2. Apply object rotation in reverse order: Z, Y, X
+            // ObjRotZ
+            let (sin_z, cos_z) = deg_to_rad(rot[8]).sin_cos();
+            let (x1, y1) = (x * cos_z - y * sin_z, x * sin_z + y * cos_z);
+            x = x1;
+            y = y1;
+            // ObjRotY
+            let (sin_y, cos_y) = deg_to_rad(rot[7]).sin_cos();
+            let (x1, z1) = (x * cos_y + z * sin_y, -x * sin_y + z * cos_y);
+            x = x1;
+            z = z1;
+            // ObjRotX
+            let (sin_x, cos_x) = deg_to_rad(rot[6]).sin_cos();
+            let (y1, z1) = (y * cos_x - z * sin_x, y * sin_x + z * cos_x);
+            y = y1;
+            z = z1;
+
+            // 3. Apply rotation in reverse order: Z, Y, X
+            // RotZ
+            let (sin_z, cos_z) = deg_to_rad(rot[2]).sin_cos();
+            let (x1, y1) = (x * cos_z - y * sin_z, x * sin_z + y * cos_z);
+            x = x1;
+            y = y1;
+            // RotY
+            let (sin_y, cos_y) = deg_to_rad(rot[1]).sin_cos();
+            let (x1, z1) = (x * cos_y + z * sin_y, -x * sin_y + z * cos_y);
+            x = x1;
+            z = z1;
+            // RotX
+            let (sin_x, cos_x) = deg_to_rad(rot[0]).sin_cos();
+            let (y1, z1) = (y * cos_x - z * sin_x, y * sin_x + z * cos_x);
+            y = y1;
+            z = z1;
+
+            // 4. Apply translation (TraX, TraY, TraZ) - indices 3, 4, 5
+            x += rot[3];
+            y += rot[4];
+            z += rot[5];
+
+            // 5. Apply position translation
+            x += pos.x;
+            y += pos.y;
+            z += pos.z;
+
+            vw.vertex.x = x;
+            vw.vertex.y = y;
+            vw.vertex.z = z;
+
+            // Transform normals (rotation only, no translation/scale)
+            let mut nx = vw.vertex.nx;
+            let mut ny = vw.vertex.ny;
+            let mut nz = vw.vertex.nz;
+
+            if !nx.is_nan() && !ny.is_nan() && !nz.is_nan() {
+                // Apply object rotation in reverse order: Z, Y, X
+                let (sin_z, cos_z) = deg_to_rad(rot[8]).sin_cos();
+                let (nx1, ny1) = (nx * cos_z - ny * sin_z, nx * sin_z + ny * cos_z);
+                nx = nx1;
+                ny = ny1;
+                let (sin_y, cos_y) = deg_to_rad(rot[7]).sin_cos();
+                let (nx1, nz1) = (nx * cos_y + nz * sin_y, -nx * sin_y + nz * cos_y);
+                nx = nx1;
+                nz = nz1;
+                let (sin_x, cos_x) = deg_to_rad(rot[6]).sin_cos();
+                let (ny1, nz1) = (ny * cos_x - nz * sin_x, ny * sin_x + nz * cos_x);
+                ny = ny1;
+                nz = nz1;
+
+                // Apply rotation in reverse order: Z, Y, X
+                let (sin_z, cos_z) = deg_to_rad(rot[2]).sin_cos();
+                let (nx1, ny1) = (nx * cos_z - ny * sin_z, nx * sin_z + ny * cos_z);
+                nx = nx1;
+                ny = ny1;
+                let (sin_y, cos_y) = deg_to_rad(rot[1]).sin_cos();
+                let (nx1, nz1) = (nx * cos_y + nz * sin_y, -nx * sin_y + nz * cos_y);
+                nx = nx1;
+                nz = nz1;
+                let (sin_x, cos_x) = deg_to_rad(rot[0]).sin_cos();
+                let (ny1, nz1) = (ny * cos_x - nz * sin_x, ny * sin_x + nz * cos_x);
+                ny = ny1;
+                nz = nz1;
+
+                // Normalize
+                let len = (nx * nx + ny * ny + nz * nz).sqrt();
+                if len > 0.0 {
+                    vw.vertex.nx = nx / len;
+                    vw.vertex.ny = ny / len;
+                    vw.vertex.nz = nz / len;
+                }
+            }
+
+            vw
+        })
+        .collect()
+}
+
+/// Collect all meshes from a VPX file
+fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
+    let mut meshes = Vec::new();
+
+    for gameitem in &vpx.gameitems {
+        match gameitem {
+            GameItemEnum::Primitive(primitive) => {
+                if !primitive.is_visible {
+                    continue; // Skip invisible primitives
+                }
+                if let Ok(Some(read_mesh)) = primitive.read_mesh() {
+                    let transformed = transform_primitive_vertices(read_mesh.vertices, primitive);
+                    meshes.push(NamedMesh {
+                        name: primitive.name.clone(),
+                        vertices: transformed,
+                        indices: read_mesh.indices,
+                    });
+                }
+            }
+            GameItemEnum::Wall(wall) => {
+                if !wall.is_top_bottom_visible && !wall.is_side_visible {
+                    continue; // Skip fully invisible walls
+                }
+                if let Some((vertices, indices)) = build_wall_mesh(wall) {
+                    meshes.push(NamedMesh {
+                        name: wall.name.clone(),
+                        vertices,
+                        indices,
+                    });
+                }
+            }
+            GameItemEnum::Ramp(ramp) => {
+                if !ramp.is_visible {
+                    continue; // Skip invisible ramps
+                }
+                if let Some((vertices, indices)) = build_ramp_mesh(ramp) {
+                    meshes.push(NamedMesh {
+                        name: ramp.name.clone(),
+                        vertices,
+                        indices,
+                    });
+                }
+            }
+            GameItemEnum::Rubber(rubber) => {
+                if !rubber.is_visible {
+                    continue; // Skip invisible rubbers
+                }
+                if let Some((vertices, indices)) = build_rubber_mesh(rubber) {
+                    meshes.push(NamedMesh {
+                        name: rubber.name.clone(),
+                        vertices,
+                        indices,
+                    });
+                }
+            }
+            GameItemEnum::Flasher(flasher) => {
+                if !flasher.is_visible {
+                    continue; // Skip invisible flashers
+                }
+                if let Some((vertices, indices)) = build_flasher_mesh(flasher) {
+                    meshes.push(NamedMesh {
+                        name: flasher.name.clone(),
+                        vertices,
+                        indices,
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    meshes
+}
+
+/// Build a combined GLTF payload with all meshes
+fn build_combined_gltf_payload(
+    meshes: &[NamedMesh],
+) -> Result<(serde_json::Value, Vec<u8>), WriteError> {
+    if meshes.is_empty() {
+        return Err(WriteError::Io(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "No meshes to export",
+        )));
+    }
+
+    let mut bin_data = Vec::new();
+    let mut nodes = Vec::new();
+    let mut mesh_json = Vec::new();
+    let mut accessors = Vec::new();
+    let mut buffer_views = Vec::new();
+    let mut node_indices: Vec<usize> = Vec::new();
+
+    for (mesh_idx, mesh) in meshes.iter().enumerate() {
+        let accessor_base = accessors.len();
+        let buffer_view_base = buffer_views.len();
+
+        // Write positions (VEC3 float)
+        // Transform from VPinball coordinates (left-handed, Z-up) to glTF (right-handed, Y-up):
+        //   VPX X → glTF X (keep origin at left)
+        //   VPX Y → glTF Z (towards viewer, so player side faces camera)
+        //   VPX Z → glTF Y (up)
+        // Also scale from VP units to meters
+        // Winding order is reversed to change handedness
+        let positions_offset = bin_data.len();
+        for VertexWrapper { vertex, .. } in &mesh.vertices {
+            bin_data
+                .write_f32::<LittleEndian>(vertex.x * VP_UNITS_TO_METERS)
+                .map_err(WriteError::Io)?;
+            bin_data
+                .write_f32::<LittleEndian>(vertex.z * VP_UNITS_TO_METERS)
+                .map_err(WriteError::Io)?;
+            bin_data
+                .write_f32::<LittleEndian>(vertex.y * VP_UNITS_TO_METERS)
+                .map_err(WriteError::Io)?;
+        }
+        let positions_length = bin_data.len() - positions_offset;
+
+        // Write normals (VEC3 float) - same transformation as positions
+        let normals_offset = bin_data.len();
+        for VertexWrapper { vertex, .. } in &mesh.vertices {
+            let nx = if vertex.nx.is_nan() { 0.0 } else { vertex.nx };
+            let ny = if vertex.ny.is_nan() { 0.0 } else { vertex.ny };
+            let nz = if vertex.nz.is_nan() { 0.0 } else { vertex.nz };
+            bin_data
+                .write_f32::<LittleEndian>(nx)
+                .map_err(WriteError::Io)?;
+            bin_data
+                .write_f32::<LittleEndian>(nz)
+                .map_err(WriteError::Io)?;
+            bin_data
+                .write_f32::<LittleEndian>(ny)
+                .map_err(WriteError::Io)?;
+        }
+        let normals_length = bin_data.len() - normals_offset;
+
+        // Write texcoords (VEC2 float)
+        let texcoords_offset = bin_data.len();
+        for VertexWrapper { vertex, .. } in &mesh.vertices {
+            bin_data
+                .write_f32::<LittleEndian>(vertex.tu)
+                .map_err(WriteError::Io)?;
+            bin_data
+                .write_f32::<LittleEndian>(vertex.tv)
+                .map_err(WriteError::Io)?;
+        }
+        let texcoords_length = bin_data.len() - texcoords_offset;
+
+        // Write indices (SCALAR uint16 or uint32)
+        // Reverse winding order (swap i1 and i2) to convert from left-handed to right-handed
+        let indices_offset = bin_data.len();
+        let use_u32 = mesh.vertices.len() > 65535;
+        for face in &mesh.indices {
+            if use_u32 {
+                bin_data
+                    .write_u32::<LittleEndian>(face.i0 as u32)
+                    .map_err(WriteError::Io)?;
+                bin_data
+                    .write_u32::<LittleEndian>(face.i2 as u32)
+                    .map_err(WriteError::Io)?;
+                bin_data
+                    .write_u32::<LittleEndian>(face.i1 as u32)
+                    .map_err(WriteError::Io)?;
+            } else {
+                bin_data
+                    .write_u16::<LittleEndian>(face.i0 as u16)
+                    .map_err(WriteError::Io)?;
+                bin_data
+                    .write_u16::<LittleEndian>(face.i2 as u16)
+                    .map_err(WriteError::Io)?;
+                bin_data
+                    .write_u16::<LittleEndian>(face.i1 as u16)
+                    .map_err(WriteError::Io)?;
+            }
+        }
+        let indices_length = bin_data.len() - indices_offset;
+
+        // Calculate bounds in glTF coordinate space (after transformation and scaling)
+        // VPX (x, y, z) → glTF (x * scale, z * scale, y * scale)
+        let (min_x, max_x, min_y, max_y, min_z, max_z) = mesh.vertices.iter().fold(
+            (
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+            ),
+            |(min_x, max_x, min_y, max_y, min_z, max_z), v| {
+                // Transform: glTF_x = vpx_x, glTF_y = vpx_z, glTF_z = vpx_y (all scaled)
+                let gltf_x = v.vertex.x * VP_UNITS_TO_METERS;
+                let gltf_y = v.vertex.z * VP_UNITS_TO_METERS;
+                let gltf_z = v.vertex.y * VP_UNITS_TO_METERS;
+                (
+                    min_x.min(gltf_x),
+                    max_x.max(gltf_x),
+                    min_y.min(gltf_y),
+                    max_y.max(gltf_y),
+                    min_z.min(gltf_z),
+                    max_z.max(gltf_z),
+                )
+            },
+        );
+
+        // Add buffer views for this mesh
+        buffer_views.push(json!({
+            "buffer": 0,
+            "byteOffset": positions_offset,
+            "byteLength": positions_length,
+            "target": GLTF_TARGET_ARRAY_BUFFER
+        }));
+        buffer_views.push(json!({
+            "buffer": 0,
+            "byteOffset": normals_offset,
+            "byteLength": normals_length,
+            "target": GLTF_TARGET_ARRAY_BUFFER
+        }));
+        buffer_views.push(json!({
+            "buffer": 0,
+            "byteOffset": texcoords_offset,
+            "byteLength": texcoords_length,
+            "target": GLTF_TARGET_ARRAY_BUFFER
+        }));
+        buffer_views.push(json!({
+            "buffer": 0,
+            "byteOffset": indices_offset,
+            "byteLength": indices_length,
+            "target": GLTF_TARGET_ELEMENT_ARRAY_BUFFER
+        }));
+
+        // Add accessors for this mesh
+        accessors.push(json!({
+            "bufferView": buffer_view_base,
+            "componentType": GLTF_COMPONENT_TYPE_FLOAT,
+            "count": mesh.vertices.len(),
+            "type": "VEC3",
+            "min": [min_x, min_y, min_z],
+            "max": [max_x, max_y, max_z]
+        }));
+        accessors.push(json!({
+            "bufferView": buffer_view_base + 1,
+            "componentType": GLTF_COMPONENT_TYPE_FLOAT,
+            "count": mesh.vertices.len(),
+            "type": "VEC3"
+        }));
+        accessors.push(json!({
+            "bufferView": buffer_view_base + 2,
+            "componentType": GLTF_COMPONENT_TYPE_FLOAT,
+            "count": mesh.vertices.len(),
+            "type": "VEC2"
+        }));
+        accessors.push(json!({
+            "bufferView": buffer_view_base + 3,
+            "componentType": if use_u32 {
+                GLTF_COMPONENT_TYPE_UNSIGNED_INT
+            } else {
+                GLTF_COMPONENT_TYPE_UNSIGNED_SHORT
+            },
+            "count": mesh.indices.len() * 3,
+            "type": "SCALAR"
+        }));
+
+        // Add mesh
+        mesh_json.push(json!({
+            "name": mesh.name,
+            "primitives": [{
+                "attributes": {
+                    "POSITION": accessor_base,
+                    "NORMAL": accessor_base + 1,
+                    "TEXCOORD_0": accessor_base + 2
+                },
+                "indices": accessor_base + 3,
+                "mode": GLTF_PRIMITIVE_MODE_TRIANGLES
+            }]
+        }));
+
+        // Add node
+        nodes.push(json!({
+            "mesh": mesh_idx,
+            "name": mesh.name
+        }));
+        node_indices.push(mesh_idx);
+    }
+
+    // Pad binary data to 4-byte alignment
+    while bin_data.len() % 4 != 0 {
+        bin_data.push(0);
+    }
+
+    let gltf_json = json!({
+        "asset": {
+            "version": "2.0",
+            "generator": "vpin"
+        },
+        "scene": 0,
+        "scenes": [{
+            "nodes": node_indices
+        }],
+        "nodes": nodes,
+        "meshes": mesh_json,
+        "accessors": accessors,
+        "bufferViews": buffer_views,
+        "buffers": [{
+            "byteLength": bin_data.len()
+        }]
+    });
+
+    Ok((gltf_json, bin_data))
+}
+
+/// Write GLB file
+fn write_glb<W: io::Write>(
+    json: &serde_json::Value,
+    bin_data: &[u8],
+    writer: &mut W,
+) -> Result<(), WriteError> {
+    let json_string = serde_json::to_string(json).map_err(WriteError::Json)?;
+    let json_bytes = json_string.as_bytes();
+
+    // Pad JSON to 4-byte alignment
+    let json_padding = (4 - (json_bytes.len() % 4)) % 4;
+    let json_padded_length = json_bytes.len() + json_padding;
+
+    // Write GLB header
+    writer.write_all(GLTF_MAGIC).map_err(WriteError::Io)?;
+    writer
+        .write_u32::<LittleEndian>(GLTF_VERSION)
+        .map_err(WriteError::Io)?;
+    let total_length = GLB_HEADER_BYTES
+        + GLB_CHUNK_HEADER_BYTES
+        + json_padded_length as u32
+        + GLB_CHUNK_HEADER_BYTES
+        + bin_data.len() as u32;
+    writer
+        .write_u32::<LittleEndian>(total_length)
+        .map_err(WriteError::Io)?;
+
+    // Write JSON chunk
+    writer
+        .write_u32::<LittleEndian>(json_padded_length as u32)
+        .map_err(WriteError::Io)?;
+    writer
+        .write_all(GLB_JSON_CHUNK_TYPE)
+        .map_err(WriteError::Io)?;
+    writer.write_all(json_bytes).map_err(WriteError::Io)?;
+    for _ in 0..json_padding {
+        writer.write_all(b" ").map_err(WriteError::Io)?;
+    }
+
+    // Write BIN chunk
+    writer
+        .write_u32::<LittleEndian>(bin_data.len() as u32)
+        .map_err(WriteError::Io)?;
+    writer
+        .write_all(GLB_BIN_CHUNK_TYPE)
+        .map_err(WriteError::Io)?;
+    writer.write_all(bin_data).map_err(WriteError::Io)?;
+
+    Ok(())
+}
+
+/// Export the entire VPX table as a GLB file
+///
+/// This creates a single GLB file containing all meshes from the table:
+/// - Primitives (with their embedded mesh data)
+/// - Walls (generated from drag points)
+/// - Ramps (generated from drag points)
+/// - Rubbers (generated from drag points)
+/// - Flashers (generated from drag points)
+///
+/// # Arguments
+/// * `vpx` - The VPX table to export
+/// * `path` - The output path for the GLB file
+/// * `fs` - The filesystem to write to
+///
+/// # Example
+/// ```no_run
+/// use vpin::vpx;
+/// use vpin::vpx::expanded::export_glb;
+/// use vpin::filesystem::RealFileSystem;
+/// use std::path::Path;
+///
+/// let vpx = vpx::read(Path::new("table.vpx")).unwrap();
+/// export_glb(&vpx, Path::new("table.glb"), &RealFileSystem).unwrap();
+/// ```
+pub fn export_glb(vpx: &VPX, path: &Path, fs: &dyn FileSystem) -> Result<(), WriteError> {
+    let meshes = collect_meshes(vpx);
+
+    if meshes.is_empty() {
+        return Err(WriteError::Io(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "No meshes found in table",
+        )));
+    }
+
+    let (json, bin_data) = build_combined_gltf_payload(&meshes)?;
+
+    let mut buffer = Vec::new();
+    write_glb(&json, &bin_data, &mut buffer)?;
+
+    fs.write_file(path, &buffer)?;
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_collect_meshes_empty() {
+        let vpx = VPX::default();
+        let meshes = collect_meshes(&vpx);
+        assert!(meshes.is_empty());
+    }
+
+    #[test]
+    fn test_export_glb_no_meshes() {
+        let vpx = VPX::default();
+        let fs = crate::filesystem::MemoryFileSystem::default();
+        let result = export_glb(&vpx, Path::new("test.glb"), &fs);
+        assert!(result.is_err());
+    }
+}

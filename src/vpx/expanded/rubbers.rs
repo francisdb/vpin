@@ -344,7 +344,7 @@ fn apply_rotation(
 }
 
 /// Build the complete rubber mesh
-fn build_rubber_mesh(rubber: &Rubber) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
+pub(super) fn build_rubber_mesh(rubber: &Rubber) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
     if rubber.thickness == 0 {
         return None;
     }

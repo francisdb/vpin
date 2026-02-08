@@ -256,7 +256,7 @@ fn apply_rotation(
 }
 
 /// Build the complete flasher mesh
-fn build_flasher_mesh(flasher: &Flasher) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
+pub(super) fn build_flasher_mesh(flasher: &Flasher) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
     if flasher.drag_points.len() < 3 {
         return None;
     }
@@ -312,7 +312,7 @@ fn build_flasher_mesh(flasher: &Flasher) -> Option<(Vec<VertexWrapper>, Vec<VpxF
                 z: 0.0, // Will be set by rotation
                 nx: 0.0,
                 ny: 0.0,
-                nz: 1.0, // Flat surface, normal pointing up
+                nz: -1.0, // Flat surface, normal pointing down (visible from above after winding reversal)
                 tu: (v.x - minx) * inv_width,
                 tv: (v.y - miny) * inv_height,
             }

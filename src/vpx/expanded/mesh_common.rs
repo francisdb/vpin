@@ -12,6 +12,7 @@ use std::path::Path;
 ///
 /// This is a lower detail level than visual rendering (which uses 10.0) to improve
 /// physics performance while maintaining adequate collision accuracy.
+#[allow(dead_code)]
 pub const HIT_SHAPE_DETAIL_LEVEL: f32 = 7.0;
 
 /// Convert a detail level (0-10) to an accuracy value for spline subdivision.

@@ -35,7 +35,7 @@ pub(super) fn write_wall_meshes(
     write_mesh_to_file(&mesh_path, &wall.name, &vertices, &indices, mesh_format, fs)
 }
 
-fn build_wall_mesh(wall: &Wall) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
+pub(super) fn build_wall_mesh(wall: &Wall) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
     let render_vertices = build_render_vertices(wall);
     if render_vertices.len() < 3 {
         return None;

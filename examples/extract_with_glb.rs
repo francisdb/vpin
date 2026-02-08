@@ -1,14 +1,31 @@
 // Example showing how to extract a VPX file with GLB format for primitive meshes
 //
 // GLB format provides significantly better performance for large meshes compared to OBJ format.
+//
+// Usage: cargo run --example extract_with_glb -- <path_to_vpx_file>
 
+use std::env;
 use std::path::PathBuf;
 use vpin::vpx::expanded::ExpandOptions;
 use vpin::vpx::{self, expanded::PrimitiveMeshFormat};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Get VPX file path from command line argument
+    let args: Vec<String> = env::args().collect();
+    let vpx_path = if args.len() > 1 {
+        PathBuf::from(&args[1])
+    } else {
+        eprintln!("Usage: {} <path_to_vpx_file>", args[0]);
+        eprintln!("Example: cargo run --example extract_with_glb -- /path/to/table.vpx");
+        std::process::exit(1);
+    };
+
+    if !vpx_path.exists() {
+        eprintln!("Error: File not found: {}", vpx_path.display());
+        std::process::exit(1);
+    }
+
     // Read a VPX file
-    let vpx_path = PathBuf::from("testdata/completely_blank_table_10_7_4.vpx");
     let vpx = vpx::read(&vpx_path)?;
 
     println!("Extracting VPX file: {}", vpx_path.display());

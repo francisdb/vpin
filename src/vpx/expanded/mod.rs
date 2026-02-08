@@ -16,6 +16,7 @@
 mod flashers;
 mod fonts;
 mod gameitems;
+mod gltf_export;
 mod images;
 mod materials;
 mod mesh_common;
@@ -30,6 +31,7 @@ mod walls;
 use crate::filesystem::{FileSystem, MemoryFileSystem, RealFileSystem};
 use crate::vpx::material::Material;
 use crate::vpx::{VPX, Version};
+pub use gltf_export::export_glb;
 use log::{info, warn};
 pub use primitives::BytesMutExt;
 use std::error::Error;
