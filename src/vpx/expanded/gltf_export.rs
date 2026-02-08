@@ -567,71 +567,70 @@ fn build_combined_gltf_payload(
     let mut buffer_views = Vec::new();
 
     // Add playfield material with texture if available
-    if let Some(image) = playfield_image {
-        if let Some(image_bytes) = get_image_bytes(image) {
-            // Add sampler
-            let sampler_idx = gltf_samplers.len();
-            gltf_samplers.push(json!({
-                "magFilter": GLTF_FILTER_LINEAR,
-                "minFilter": GLTF_FILTER_LINEAR_MIPMAP_LINEAR,
-                "wrapS": GLTF_WRAP_REPEAT,
-                "wrapT": GLTF_WRAP_REPEAT
-            }));
+    if let Some(image) = playfield_image
+        && let Some(image_bytes) = get_image_bytes(image)
+    {
+        // Add sampler
+        let sampler_idx = gltf_samplers.len();
+        gltf_samplers.push(json!({
+            "magFilter": GLTF_FILTER_LINEAR,
+            "minFilter": GLTF_FILTER_LINEAR_MIPMAP_LINEAR,
+            "wrapS": GLTF_WRAP_REPEAT,
+            "wrapT": GLTF_WRAP_REPEAT
+        }));
 
-            // Write image data to binary buffer
-            let image_offset = bin_data.len();
-            bin_data.extend_from_slice(&image_bytes);
-            let image_length = image_bytes.len();
+        // Write image data to binary buffer
+        let image_offset = bin_data.len();
+        bin_data.extend_from_slice(&image_bytes);
+        let image_length = image_bytes.len();
 
-            // Pad to 4-byte alignment for next data
-            while bin_data.len() % 4 != 0 {
-                bin_data.push(0);
-            }
-
-            // Add buffer view for image
-            let image_buffer_view_idx = buffer_views.len();
-            buffer_views.push(json!({
-                "buffer": 0,
-                "byteOffset": image_offset,
-                "byteLength": image_length
-            }));
-
-            // Add image referencing the buffer view
-            let image_idx = gltf_images.len();
-            let mime_type = if image.bits.is_some() {
-                "image/png"
-            } else if image.path.to_lowercase().ends_with(".png") {
-                "image/png"
-            } else {
-                "image/jpeg"
-            };
-            gltf_images.push(json!({
-                "bufferView": image_buffer_view_idx,
-                "mimeType": mime_type,
-                "name": image.name
-            }));
-
-            // Add texture
-            let texture_idx = gltf_textures.len();
-            gltf_textures.push(json!({
-                "sampler": sampler_idx,
-                "source": image_idx,
-                "name": format!("{}_texture", image.name)
-            }));
-
-            // Add playfield material with texture
-            material_index_map.insert(playfield_material_name.to_string(), gltf_materials.len());
-            gltf_materials.push(json!({
-                "name": playfield_material_name,
-                "pbrMetallicRoughness": {
-                    "baseColorTexture": {
-                        "index": texture_idx
-                    },
-                    "metallicFactor": 0.0,
-                    "roughnessFactor": 0.5
-                }
-            }));
+        // Pad to 4-byte alignment for next data
+        while bin_data.len() % 4 != 0 {
+            bin_data.push(0);
         }
+
+        // Add buffer view for image
+        let image_buffer_view_idx = buffer_views.len();
+        buffer_views.push(json!({
+            "buffer": 0,
+            "byteOffset": image_offset,
+            "byteLength": image_length
+        }));
+
+        // Add image referencing the buffer view
+        let image_idx = gltf_images.len();
+        // Determine MIME type: bitmap is converted to PNG, otherwise check the file extension
+        let mime_type = if image.bits.is_some() || image.path.to_lowercase().ends_with(".png") {
+            "image/png"
+        } else {
+            "image/jpeg"
+        };
+        gltf_images.push(json!({
+            "bufferView": image_buffer_view_idx,
+            "mimeType": mime_type,
+            "name": image.name
+        }));
+
+        // Add texture
+        let texture_idx = gltf_textures.len();
+        gltf_textures.push(json!({
+            "sampler": sampler_idx,
+            "source": image_idx,
+            "name": format!("{}_texture", image.name)
+        }));
+
+        // Add playfield material with texture
+        material_index_map.insert(playfield_material_name.to_string(), gltf_materials.len());
+        gltf_materials.push(json!({
+            "name": playfield_material_name,
+            "pbrMetallicRoughness": {
+                "baseColorTexture": {
+                    "index": texture_idx
+                },
+                "metallicFactor": 0.0,
+                "roughnessFactor": 0.5
+            }
+        }));
     }
 
     for (name, mat) in materials {
@@ -835,10 +834,10 @@ fn build_combined_gltf_payload(
         });
 
         // Add material reference if the mesh has a material
-        if let Some(ref mat_name) = mesh.material_name {
-            if let Some(&mat_idx) = material_index_map.get(mat_name) {
-                primitive["material"] = json!(mat_idx);
-            }
+        if let Some(ref mat_name) = mesh.material_name
+            && let Some(&mat_idx) = material_index_map.get(mat_name)
+        {
+            primitive["material"] = json!(mat_idx);
         }
 
         mesh_json.push(json!({
