@@ -38,6 +38,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::fs::remove_dir_all(&glb_dir)?;
     }
     std::fs::create_dir_all(&glb_dir)?;
+    let expand_options = ExpandOptions::new()
+        .mesh_format(PrimitiveMeshFormat::Glb)
+        .generate_derived_meshes(true);
     vpx::expanded::write(&vpx, &glb_dir, &expand_options)?;
     println!("✓ Extracted with GLB format to: {}", glb_dir.display());
 
@@ -47,6 +50,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::fs::remove_dir_all(&gltf_dir)?;
     }
     std::fs::create_dir_all(&gltf_dir)?;
+    let expand_options = ExpandOptions::new()
+        .mesh_format(PrimitiveMeshFormat::Gltf)
+        .generate_derived_meshes(true);
     vpx::expanded::write(&vpx, &gltf_dir, &expand_options)?;
     println!("✓ Extracted with GLTF format to: {}", gltf_dir.display());
 

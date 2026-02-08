@@ -1,5 +1,6 @@
 //! Primitive mesh reading and writing for expanded VPX format
 
+use super::flashers::write_flasher_meshes;
 use super::ramps::write_ramp_meshes;
 use super::rubbers::write_rubber_meshes;
 use super::walls::write_wall_meshes;
@@ -90,7 +91,7 @@ pub(super) fn write_gameitem_binaries(
             }
         }
     }
-    // Generate derived meshes for walls, ramps, and rubbers (optional)
+    // Generate derived meshes for walls, ramps, rubbers, and flashers (optional)
     if options.should_generate_derived_meshes() {
         if let GameItemEnum::Wall(wall) = gameitem {
             write_wall_meshes(gameitems_dir, wall, json_file_name, mesh_format, fs)?;
@@ -100,6 +101,9 @@ pub(super) fn write_gameitem_binaries(
         }
         if let GameItemEnum::Rubber(rubber) = gameitem {
             write_rubber_meshes(gameitems_dir, rubber, json_file_name, mesh_format, fs)?;
+        }
+        if let GameItemEnum::Flasher(flasher) = gameitem {
+            write_flasher_meshes(gameitems_dir, flasher, json_file_name, mesh_format, fs)?;
         }
     }
     Ok(())
