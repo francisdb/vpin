@@ -14,12 +14,14 @@
 //! Both formats are supported for reading, with OBJ checked first for backward compatibility.
 
 mod flashers;
+mod flippers;
 mod fonts;
 mod gameitems;
 mod gltf_export;
 mod images;
 mod materials;
 mod mesh_common;
+mod mesh_validation;
 mod metadata;
 mod primitives;
 mod ramps;
@@ -387,8 +389,10 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
             .unwrap_or_else(|| std::ffi::OsStr::new("expanded")),
     );
 
-    // Use options with generate_derived_meshes enabled for testing
-    let options = ExpandOptions::new().generate_derived_meshes(true);
+    // default options with no derived meshes and OBJ format
+    let options = ExpandOptions::new()
+        .generate_derived_meshes(false)
+        .mesh_format(PrimitiveMeshFormat::Obj);
     write_fs(&vpx, &expanded_dir, &options, &fs).unwrap();
 
     let mut files = fs.list_files();
@@ -707,7 +711,7 @@ mod tests {
             ]
         );
 
-        assert_eq!(files.len(), 141);
+        assert_eq!(files.len(), 95);
     }
 
     #[test]

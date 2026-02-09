@@ -24,6 +24,7 @@
 
 use super::WriteError;
 use super::flashers::build_flasher_mesh;
+use super::flippers::build_flipper_meshes;
 use super::ramps::build_ramp_mesh;
 use super::rubbers::build_rubber_mesh;
 use super::walls::build_wall_mesh;
@@ -526,6 +527,42 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         indices,
                         material_name: None,
                     });
+                }
+            }
+            GameItemEnum::Flipper(flipper) => {
+                if !flipper.is_visible {
+                    continue; // Skip invisible flippers
+                }
+                // TODO: get surface height from the table
+                if let Some(flipper_meshes) = build_flipper_meshes(flipper, 0.0) {
+                    // Add base flipper mesh
+                    let (base_vertices, base_indices) = flipper_meshes.base;
+                    let base_material = if flipper.material.is_empty() {
+                        None
+                    } else {
+                        Some(flipper.material.clone())
+                    };
+                    meshes.push(NamedMesh {
+                        name: format!("{}Base", flipper.name),
+                        vertices: base_vertices,
+                        indices: base_indices,
+                        material_name: base_material,
+                    });
+
+                    // Add rubber mesh if present
+                    if let Some((rubber_vertices, rubber_indices)) = flipper_meshes.rubber {
+                        let rubber_material = if flipper.rubber_material.is_empty() {
+                            None
+                        } else {
+                            Some(flipper.rubber_material.clone())
+                        };
+                        meshes.push(NamedMesh {
+                            name: format!("{}Rubber", flipper.name),
+                            vertices: rubber_vertices,
+                            indices: rubber_indices,
+                            material_name: rubber_material,
+                        });
+                    }
                 }
             }
             _ => {}

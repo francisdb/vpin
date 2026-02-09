@@ -157,6 +157,38 @@ impl Vec3 {
     }
 }
 
+/// A simple 3x3 matrix for rotations
+/// Used for flipper and other mesh transformations
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Matrix3D {
+    pub m: [[f32; 3]; 3],
+}
+
+impl Matrix3D {
+    /// Create a rotation matrix around the Z axis
+    pub fn rotate_z(angle: f32) -> Self {
+        let (sin, cos) = angle.sin_cos();
+        Matrix3D {
+            m: [[cos, -sin, 0.0], [sin, cos, 0.0], [0.0, 0.0, 1.0]],
+        }
+    }
+
+    /// Multiply a vector by this matrix (applies rotation and translation)
+    pub fn multiply_vector(&self, v: Vec3) -> Vec3 {
+        Vec3 {
+            x: self.m[0][0] * v.x + self.m[0][1] * v.y + self.m[0][2] * v.z,
+            y: self.m[1][0] * v.x + self.m[1][1] * v.y + self.m[1][2] * v.z,
+            z: self.m[2][0] * v.x + self.m[2][1] * v.y + self.m[2][2] * v.z,
+        }
+    }
+
+    /// Multiply a vector by this matrix without translation (for normals)
+    pub fn multiply_vector_no_translate(&self, v: Vec3) -> Vec3 {
+        // For a 3x3 rotation matrix, this is the same as multiply_vector
+        self.multiply_vector(v)
+    }
+}
+
 /// A 2D render vertex used during spline generation
 /// Mirrors VPinball's RenderVertex from mesh.h
 #[derive(Debug, Clone, Copy, Default)]

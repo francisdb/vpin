@@ -4,11 +4,19 @@
 
 ### Mesh Generation
 
+### Mesh Generation
+
+### Mesh Generation
+
 - **Primitives** - with full transformation (scale, rotation, translation)
 - **Walls** - generated from drag points
 - **Ramps** - generated from drag points
 - **Rubbers** - generated from drag points
 - **Flashers** - generated from drag points
+- **Flippers** - generated from pre-defined base mesh with scaling/transformation
+    - Uses `ApplyFix()` algorithm to scale base and tip radii
+    - Supports rubber overlay mesh when `rubber_thickness > 0`
+    - Applies 180° Z rotation, height scaling, start angle rotation, and center translation
 - **Playfield** - explicit `playfield_mesh` detection + implicit playfield generation
 
 ### Materials & Textures
@@ -27,7 +35,8 @@
 
 ### Mesh Generation (game items)
 
-- [ ] **Flippers**
+### Mesh Generation (game items)
+
 - [ ] **Bumpers**
 - [ ] **Plunger**
 - [ ] **Kickers**
@@ -45,7 +54,7 @@
 
 ### Organization / Hierarchy
 
-- [ ] **Grouping by Collections** - group meshes under parent nodes based on VPX collections
+- [ ] **Grouping by Layer** - group meshes by `editor_layer_name` field
 - [ ] **Grouping by Part Groups** - for newer tables (10.8+), group meshes by `part_group_name` field
 - [ ] **Nested node hierarchy** - use glTF node children to represent these groupings
 

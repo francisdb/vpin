@@ -1,6 +1,7 @@
 //! Primitive mesh reading and writing for expanded VPX format
 
 use super::flashers::write_flasher_meshes;
+use super::flippers::write_flipper_meshes;
 use super::ramps::write_ramp_meshes;
 use super::rubbers::write_rubber_meshes;
 use super::walls::write_wall_meshes;
@@ -104,6 +105,9 @@ pub(super) fn write_gameitem_binaries(
         }
         if let GameItemEnum::Flasher(flasher) = gameitem {
             write_flasher_meshes(gameitems_dir, flasher, json_file_name, mesh_format, fs)?;
+        }
+        if let GameItemEnum::Flipper(flipper) = gameitem {
+            write_flipper_meshes(gameitems_dir, flipper, json_file_name, mesh_format, fs)?;
         }
     }
     Ok(())
