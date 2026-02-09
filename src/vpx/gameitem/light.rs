@@ -207,8 +207,15 @@ pub struct Light {
     /// 0..1 is modulated from off to on, 2 is blinking
     /// STTF added in 10.8
     pub state: Option<f32>,
-    pub color: Color,                       // COLR
-    pub color2: Color,                      // COL2
+    /// Light color at the center/near the light source.
+    /// The shader interpolates between this color and color2 based on distance.
+    /// COLR
+    pub color: Color,
+    /// Light color at the falloff edge/far from the light source (also called "ColorFull").
+    /// The shader interpolates between color and this color based on distance,
+    /// creating a color gradient effect from the center outward.
+    /// COL2
+    pub color2: Color,
     is_timer_enabled: bool,                 // TMON
     timer_interval: i32,                    // TMIN
     pub blink_pattern: String,              // BPAT
@@ -279,6 +286,7 @@ struct LightJson {
     mesh_radius: f32,
     bulb_modulate_vs_add: f32,
     bulb_halo_height: f32,
+
     shadows: Option<ShadowMode>,
     fader: Option<Fader>,
     visible: Option<bool>,

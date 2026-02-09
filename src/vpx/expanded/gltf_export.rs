@@ -31,6 +31,7 @@ use super::walls::{TableDimensions, build_wall_meshes};
 use crate::filesystem::FileSystem;
 use crate::vpx::VPX;
 use crate::vpx::gameitem::GameItemEnum;
+use crate::vpx::gameitem::light::Light;
 use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::gltf::{
     GLB_BIN_CHUNK_TYPE, GLB_CHUNK_HEADER_BYTES, GLB_HEADER_BYTES, GLB_JSON_CHUNK_TYPE,
@@ -50,6 +51,7 @@ use std::io;
 use std::path::Path;
 
 /// Conversion factor from VP units to meters
+/// This is based on the size of a typical pinball (1.0625 inches/27mm/50 VPU)
 /// From VPinball def.h: 50 VPU = 1.0625 inches, 1 inch = 25.4mm
 /// So 1 VPU = (25.4 * 1.0625) / 50 mm = 0.539750 mm = 0.000539750 meters
 const VP_UNITS_TO_METERS: f32 = (25.4 * 1.0625) / (50.0 * 1000.0);
@@ -68,6 +70,8 @@ struct NamedMesh {
     /// Optional color tint for the texture (RGBA, 0-1 range)
     /// Used for flashers to apply their color and alpha
     color_tint: Option<[f32; 4]>,
+    /// Layer name for organizing meshes in the scene hierarchy
+    layer_name: Option<String>,
 }
 
 /// Apply primitive transformation (scale, rotation, translation) to vertices
@@ -424,6 +428,49 @@ fn build_implicit_playfield_mesh(vpx: &VPX, playfield_material_name: &str) -> Na
         material_name: Some(playfield_material_name.to_string()),
         texture_name: None,
         color_tint: None,
+        layer_name: None,
+    }
+}
+
+/// Get the effective layer name for a game item
+/// Uses editor_layer_name if set (prefixed with "Layer_"), otherwise falls back to "Layer_{editor_layer + 1}"
+fn get_layer_name(editor_layer_name: &Option<String>, editor_layer: Option<u32>) -> Option<String> {
+    if let Some(name) = editor_layer_name
+        && !name.is_empty()
+    {
+        // Prefix custom layer names with "Layer_" for consistency
+        return Some(format!("Layer_{}", name));
+    }
+    // Fall back to layer number if available
+    editor_layer.map(|layer| format!("Layer_{}", layer + 1))
+}
+
+/// Calculate the effective range for a light in meters.
+///
+/// The range is determined in the following priority:
+/// 1. Calculate the maximum distance from the center to any drag point
+/// 2. Fall back to `falloff_radius` if no drag points are defined
+///
+/// This range represents the light's area of effect. For lights with drag points
+/// (polygon-shaped lights), the range approximates the polygon boundary since
+/// glTF's KHR_lights_punctual extension only supports point lights.
+#[allow(unused)]
+fn calculate_light_range(light: &Light) -> f32 {
+    if !light.drag_points.is_empty() {
+        // Calculate maximum distance from center to any drag point
+        let max_dist_sq = light
+            .drag_points
+            .iter()
+            .map(|dp| {
+                let dx = dp.x - light.center.x;
+                let dy = dp.y - light.center.y;
+                dx * dx + dy * dy
+            })
+            .fold(0.0f32, |a, b| a.max(b));
+        max_dist_sq.sqrt() * VP_UNITS_TO_METERS
+    } else {
+        // Fall back to falloff_radius if no drag points
+        light.falloff_radius * VP_UNITS_TO_METERS
     }
 }
 
@@ -485,6 +532,10 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         material_name,
                         texture_name,
                         color_tint: None,
+                        layer_name: get_layer_name(
+                            &primitive.editor_layer_name,
+                            primitive.editor_layer,
+                        ),
                     });
                 }
             }
@@ -514,6 +565,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             material_name,
                             texture_name,
                             color_tint: None,
+                            layer_name: get_layer_name(&wall.editor_layer_name, wall.editor_layer),
                         });
                     }
 
@@ -538,6 +590,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             material_name,
                             texture_name,
                             color_tint: None,
+                            layer_name: get_layer_name(&wall.editor_layer_name, wall.editor_layer),
                         });
                     }
                 }
@@ -563,6 +616,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         material_name,
                         texture_name,
                         color_tint: None,
+                        layer_name: get_layer_name(&ramp.editor_layer_name, ramp.editor_layer),
                     });
                 }
             }
@@ -583,6 +637,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         material_name,
                         texture_name: None,
                         color_tint: None,
+                        layer_name: get_layer_name(&rubber.editor_layer_name, rubber.editor_layer),
                     });
                 }
             }
@@ -612,6 +667,10 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         material_name: None,
                         texture_name,
                         color_tint,
+                        layer_name: get_layer_name(
+                            &flasher.editor_layer_name,
+                            flasher.editor_layer,
+                        ),
                     });
                 }
             }
@@ -635,6 +694,10 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         material_name: base_material,
                         texture_name: None,
                         color_tint: None,
+                        layer_name: get_layer_name(
+                            &flipper.editor_layer_name,
+                            flipper.editor_layer,
+                        ),
                     });
 
                     // Add rubber mesh if present
@@ -651,6 +714,10 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             material_name: rubber_material,
                             texture_name: None,
                             color_tint: None,
+                            layer_name: get_layer_name(
+                                &flipper.editor_layer_name,
+                                flipper.editor_layer,
+                            ),
                         });
                     }
                 }
@@ -670,6 +737,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
 
 /// Build a combined GLTF payload with all meshes
 fn build_combined_gltf_payload(
+    vpx: &VPX,
     meshes: &[NamedMesh],
     materials: &HashMap<String, GltfMaterial>,
     images: &[ImageData],
@@ -984,10 +1052,14 @@ fn build_combined_gltf_payload(
         }
     }
 
-    let mut nodes = Vec::new();
+    let mut nodes: Vec<serde_json::Value> = Vec::new();
     let mut mesh_json = Vec::new();
     let mut accessors = Vec::new();
-    let mut node_indices: Vec<usize> = Vec::new();
+
+    // Track layer groups: layer_name -> (layer_node_index, child_node_indices)
+    let mut layer_groups: HashMap<String, (usize, Vec<usize>)> = HashMap::new();
+    // Track meshes without a layer (will be at root level)
+    let mut root_node_indices: Vec<usize> = Vec::new();
 
     for (mesh_idx, mesh) in meshes.iter().enumerate() {
         let accessor_base = accessors.len();
@@ -1190,17 +1262,212 @@ fn build_combined_gltf_payload(
             "primitives": [primitive]
         }));
 
-        // Add node
+        // Add node for this mesh
+        let node_idx = nodes.len();
         nodes.push(json!({
             "mesh": mesh_idx,
             "name": mesh.name
         }));
-        node_indices.push(mesh_idx);
+
+        // Organize nodes into layer groups
+        if let Some(ref layer_name) = mesh.layer_name {
+            if let Some((_, children)) = layer_groups.get_mut(layer_name) {
+                // Layer already exists, add this node to its children
+                children.push(node_idx);
+            } else {
+                // Create a new layer group (node will be added later)
+                layer_groups.insert(layer_name.clone(), (usize::MAX, vec![node_idx]));
+            }
+        } else {
+            // No layer, add to root level
+            root_node_indices.push(node_idx);
+        }
     }
+
+    // Don't create layer group nodes yet - wait until after lights are processed
+    // so that lights can be added to their layers
 
     // Pad binary data to 4-byte alignment
     while bin_data.len() % 4 != 0 {
         bin_data.push(0);
+    }
+
+    // Create light nodes for the two default VPinball lights
+    // VPinball has two point lights (MAX_LIGHT_SOURCES = 2), both at the same position
+    // Default position is (0, 0, 400) in VPX units
+    // Convert to glTF coordinates: X stays, Y->Z, Z->Y, all scaled
+    let light_height = vpx.gamedata.light_height * VP_UNITS_TO_METERS;
+    let table_center_x = (vpx.gamedata.left + vpx.gamedata.right) / 2.0 * VP_UNITS_TO_METERS;
+    let table_center_z = (vpx.gamedata.top + vpx.gamedata.bottom) / 2.0 * VP_UNITS_TO_METERS;
+
+    // Light emission color (normalized to 0-1)
+    let light_color = [
+        vpx.gamedata.light0_emission.r as f32 / 255.0,
+        vpx.gamedata.light0_emission.g as f32 / 255.0,
+        vpx.gamedata.light0_emission.b as f32 / 255.0,
+    ];
+
+    // Light intensity - VPinball uses light_emission_scale which is typically very large (e.g., 1000000+)
+    // glTF KHR_lights_punctual uses candelas where typical values are much lower
+    // Scale down significantly for reasonable Blender rendering
+    let light_intensity = (vpx.gamedata.light_emission_scale / 1000000.0).clamp(0.01, 10.0);
+
+    // Light range in meters - cap to reasonable value for glTF
+    // VPinball light_range is often very large (e.g., 4000000 VPX units)
+    let light_range = (vpx.gamedata.light_range * VP_UNITS_TO_METERS).min(100.0);
+
+    // Build lights array for KHR_lights_punctual extension
+    // Start with the two default VPinball table lights
+    let gltf_lights = vec![
+        json!({
+            "name": "TableLight0",
+            "type": "point",
+            "color": light_color,
+            "intensity": light_intensity,
+            "range": light_range
+        }),
+        json!({
+            "name": "TableLight1",
+            "type": "point",
+            "color": light_color,
+            "intensity": light_intensity,
+            "range": light_range
+        }),
+    ];
+
+    // // Collect game item lights and add them
+    // // Track light info for creating nodes later: (name, x, y, z, layer_name)
+    // // NOTE: VPinball lights can have a polygon shape defined by drag_points,
+    // // constraining the light to that area. glTF only supports point/spot/directional
+    // // lights, so we export as point lights positioned at the center. The polygon
+    // // shape information is lost in the export. However, we calculate the range
+    // // based on the furthest drag point from the center to approximate the light's reach.
+    // let mut game_lights: Vec<(String, f32, f32, f32, Option<String>)> = Vec::new();
+    //
+    // for gameitem in &vpx.gameitems {
+    //     if let GameItemEnum::Light(light) = gameitem {
+    //         // Skip backglass lights
+    //         if light.is_backglass {
+    //             continue;
+    //         }
+    //
+    //         // Get light height (use provided height or default to 0)
+    //         let light_z = light.height.unwrap_or(0.0);
+    //
+    //         // Light color (normalized to 0-1)
+    //         let color = [
+    //             light.color.r as f32 / 255.0,
+    //             light.color.g as f32 / 255.0,
+    //             light.color.b as f32 / 255.0,
+    //         ];
+    //
+    //         // Light intensity - VPinball intensity values are typically 1-10+
+    //         // Scale down for glTF/Blender where intensity is in candelas
+    //         let intensity = (light.intensity * 0.1).clamp(0.01, 10.0);
+    //
+    //         // Calculate light range using the helper function
+    //         let range = calculate_light_range(light);
+    //
+    //         gltf_lights.push(json!({
+    //             "name": light.name,
+    //             "type": "point",
+    //             "color": color,
+    //             "intensity": intensity,
+    //             "range": range
+    //         }));
+    //
+    //         // Store position info for node creation
+    //         game_lights.push((
+    //             light.name.clone(),
+    //             light.center.x,
+    //             light.center.y,
+    //             light_z,
+    //             get_layer_name(&light.editor_layer_name, light.editor_layer),
+    //         ));
+    //     }
+    // }
+
+    // // Create light nodes
+    // // Position table lights above the table center
+    //
+    // Collect all scene root nodes - start with root-level meshes (no layer)
+    let mut scene_root_nodes: Vec<usize> = root_node_indices.clone();
+
+    #[allow(unused_variables)]
+    let light_node_0 = json!({
+        "name": "TableLight0",
+        "translation": [table_center_x, light_height, table_center_z],
+        "extensions": {
+            "KHR_lights_punctual": {
+                "light": 0
+            }
+        }
+    });
+    #[allow(unused_variables)]
+    let light_node_1 = json!({
+        "name": "TableLight1",
+        "translation": [table_center_x, light_height, table_center_z],
+        "extensions": {
+            "KHR_lights_punctual": {
+                "light": 1
+            }
+        }
+    });
+
+    // // Add light nodes to the nodes array
+    // let light_node_0_idx = nodes.len();
+    // nodes.push(light_node_0);
+    // scene_root_nodes.push(light_node_0_idx);
+    //
+    // let light_node_1_idx = nodes.len();
+    // nodes.push(light_node_1);
+    // scene_root_nodes.push(light_node_1_idx);
+
+    // // Add game item light nodes
+    // // Light indices start at 2 (after TableLight0 and TableLight1)
+    // for (i, (name, x, y, z, layer_name)) in game_lights.into_iter().enumerate() {
+    //     let light_idx = i + 2; // Offset by 2 for table lights
+    //
+    //     // Convert position from VPX to glTF coordinates
+    //     let gltf_x = x * VP_UNITS_TO_METERS;
+    //     let gltf_y = z * VP_UNITS_TO_METERS; // VPX Z -> glTF Y
+    //     let gltf_z = y * VP_UNITS_TO_METERS; // VPX Y -> glTF Z
+    //
+    //     let light_node = json!({
+    //         "name": name,
+    //         "translation": [gltf_x, gltf_y, gltf_z],
+    //         "extensions": {
+    //             "KHR_lights_punctual": {
+    //                 "light": light_idx
+    //             }
+    //         }
+    //     });
+    //
+    //     let node_idx = nodes.len();
+    //     nodes.push(light_node);
+    //
+    //     // Add to layer group if it has a layer, otherwise to root
+    //     if let Some(ref layer) = layer_name {
+    //         if let Some((_, children)) = layer_groups.get_mut(layer) {
+    //             children.push(node_idx);
+    //         } else {
+    //             // Layer doesn't exist yet, create it
+    //             layer_groups.insert(layer.clone(), (usize::MAX, vec![node_idx]));
+    //         }
+    //     } else {
+    //         scene_root_nodes.push(node_idx);
+    //     }
+    // }
+
+    // Create any new layer group nodes that were added by lights
+    for (layer_name, (layer_node_idx, children)) in layer_groups.iter_mut() {
+        // Create the layer group node (all layer groups now need to be created here)
+        *layer_node_idx = nodes.len();
+        nodes.push(json!({
+            "name": layer_name,
+            "children": children
+        }));
+        scene_root_nodes.push(*layer_node_idx);
     }
 
     let mut gltf_json = json!({
@@ -1208,9 +1475,15 @@ fn build_combined_gltf_payload(
             "version": "2.0",
             "generator": "vpin"
         },
+        "extensionsUsed": ["KHR_lights_punctual"],
+        "extensions": {
+            "KHR_lights_punctual": {
+                "lights": gltf_lights
+            }
+        },
         "scene": 0,
         "scenes": [{
-            "nodes": node_indices
+            "nodes": scene_root_nodes
         }],
         "nodes": nodes,
         "meshes": mesh_json,
@@ -1299,6 +1572,11 @@ fn write_glb<W: io::Write>(
 /// - Ramps (generated from drag points)
 /// - Rubbers (generated from drag points)
 /// - Flashers (generated from drag points)
+/// - Playfield (generated from table bounds if no explicit playfield mesh is defined)
+/// - Materials
+///
+/// Ignored for now
+/// - Lights (from game items and default table lights)
 ///
 /// # Arguments
 /// * `vpx` - The VPX table to export
@@ -1339,6 +1617,7 @@ pub fn export_glb(vpx: &VPX, path: &Path, fs: &dyn FileSystem) -> Result<(), Wri
     };
 
     let (json, bin_data) = build_combined_gltf_payload(
+        vpx,
         &meshes,
         &materials,
         &vpx.images,
