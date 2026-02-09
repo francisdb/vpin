@@ -479,49 +479,49 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 }
                 if let Some(wall_meshes) = build_wall_meshes(wall, &table_dims) {
                     // Add top mesh if visible
-                    if wall.is_top_bottom_visible {
-                        if let Some((vertices, indices)) = wall_meshes.top {
-                            // Top surface: use image (texture) or top_material
-                            // Note: display_texture only affects editor preview, not runtime rendering
-                            let (material_name, texture_name) = if !wall.image.is_empty() {
-                                // Use texture for top surface
-                                (None, Some(wall.image.clone()))
-                            } else if !wall.top_material.is_empty() {
-                                (Some(wall.top_material.clone()), None)
-                            } else {
-                                (None, None)
-                            };
-                            meshes.push(NamedMesh {
-                                name: format!("{}Top", wall.name),
-                                vertices,
-                                indices,
-                                material_name,
-                                texture_name,
-                            });
-                        }
+                    if wall.is_top_bottom_visible
+                        && let Some((vertices, indices)) = wall_meshes.top
+                    {
+                        // Top surface: use image (texture) or top_material
+                        // Note: display_texture only affects editor preview, not runtime rendering
+                        let (material_name, texture_name) = if !wall.image.is_empty() {
+                            // Use texture for top surface
+                            (None, Some(wall.image.clone()))
+                        } else if !wall.top_material.is_empty() {
+                            (Some(wall.top_material.clone()), None)
+                        } else {
+                            (None, None)
+                        };
+                        meshes.push(NamedMesh {
+                            name: format!("{}Top", wall.name),
+                            vertices,
+                            indices,
+                            material_name,
+                            texture_name,
+                        });
                     }
 
                     // Add side mesh if visible
-                    if wall.is_side_visible {
-                        if let Some((vertices, indices)) = wall_meshes.side {
-                            // Side surface: use side_image (texture) or side_material
-                            // Note: display_texture only affects editor preview, not runtime rendering
-                            let (material_name, texture_name) = if !wall.side_image.is_empty() {
-                                // Use texture for side surface
-                                (None, Some(wall.side_image.clone()))
-                            } else if !wall.side_material.is_empty() {
-                                (Some(wall.side_material.clone()), None)
-                            } else {
-                                (None, None)
-                            };
-                            meshes.push(NamedMesh {
-                                name: format!("{}Side", wall.name),
-                                vertices,
-                                indices,
-                                material_name,
-                                texture_name,
-                            });
-                        }
+                    if wall.is_side_visible
+                        && let Some((vertices, indices)) = wall_meshes.side
+                    {
+                        // Side surface: use side_image (texture) or side_material
+                        // Note: display_texture only affects editor preview, not runtime rendering
+                        let (material_name, texture_name) = if !wall.side_image.is_empty() {
+                            // Use texture for side surface
+                            (None, Some(wall.side_image.clone()))
+                        } else if !wall.side_material.is_empty() {
+                            (Some(wall.side_material.clone()), None)
+                        } else {
+                            (None, None)
+                        };
+                        meshes.push(NamedMesh {
+                            name: format!("{}Side", wall.name),
+                            vertices,
+                            indices,
+                            material_name,
+                            texture_name,
+                        });
                     }
                 }
             }
