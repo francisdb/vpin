@@ -27,7 +27,7 @@ use super::flashers::build_flasher_mesh;
 use super::flippers::build_flipper_meshes;
 use super::ramps::build_ramp_mesh;
 use super::rubbers::build_rubber_mesh;
-use super::walls::build_wall_mesh;
+use super::walls::{TableDimensions, build_wall_meshes};
 use crate::filesystem::FileSystem;
 use crate::vpx::VPX;
 use crate::vpx::gameitem::GameItemEnum;
@@ -429,6 +429,14 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
         vpx.gamedata.playfield_material.clone()
     };
 
+    // Table dimensions for UV calculation (wall tops use table-space UVs)
+    let table_dims = TableDimensions::new(
+        vpx.gamedata.left,
+        vpx.gamedata.top,
+        vpx.gamedata.right,
+        vpx.gamedata.bottom,
+    );
+
     for gameitem in &vpx.gameitems {
         match gameitem {
             GameItemEnum::Primitive(primitive) => {
@@ -469,19 +477,52 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 if !wall.is_top_bottom_visible && !wall.is_side_visible {
                     continue; // Skip fully invisible walls
                 }
-                if let Some((vertices, indices)) = build_wall_mesh(wall) {
-                    let material_name = if wall.top_material.is_empty() {
-                        None
-                    } else {
-                        Some(wall.top_material.clone())
-                    };
-                    meshes.push(NamedMesh {
-                        name: wall.name.clone(),
-                        vertices,
-                        indices,
-                        material_name,
-                        texture_name: None,
-                    });
+                if let Some(wall_meshes) = build_wall_meshes(wall, &table_dims) {
+                    // Add top mesh if visible
+                    if wall.is_top_bottom_visible {
+                        if let Some((vertices, indices)) = wall_meshes.top {
+                            // Top surface: use image (texture) or top_material
+                            // Note: display_texture only affects editor preview, not runtime rendering
+                            let (material_name, texture_name) = if !wall.image.is_empty() {
+                                // Use texture for top surface
+                                (None, Some(wall.image.clone()))
+                            } else if !wall.top_material.is_empty() {
+                                (Some(wall.top_material.clone()), None)
+                            } else {
+                                (None, None)
+                            };
+                            meshes.push(NamedMesh {
+                                name: format!("{}Top", wall.name),
+                                vertices,
+                                indices,
+                                material_name,
+                                texture_name,
+                            });
+                        }
+                    }
+
+                    // Add side mesh if visible
+                    if wall.is_side_visible {
+                        if let Some((vertices, indices)) = wall_meshes.side {
+                            // Side surface: use side_image (texture) or side_material
+                            // Note: display_texture only affects editor preview, not runtime rendering
+                            let (material_name, texture_name) = if !wall.side_image.is_empty() {
+                                // Use texture for side surface
+                                (None, Some(wall.side_image.clone()))
+                            } else if !wall.side_material.is_empty() {
+                                (Some(wall.side_material.clone()), None)
+                            } else {
+                                (None, None)
+                            };
+                            meshes.push(NamedMesh {
+                                name: format!("{}Side", wall.name),
+                                vertices,
+                                indices,
+                                material_name,
+                                texture_name,
+                            });
+                        }
+                    }
                 }
             }
             GameItemEnum::Ramp(ramp) => {

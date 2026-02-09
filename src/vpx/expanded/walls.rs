@@ -35,6 +35,116 @@ pub(super) fn write_wall_meshes(
     write_mesh_to_file(&mesh_path, &wall.name, &vertices, &indices, mesh_format, fs)
 }
 
+/// Table dimensions for UV coordinate calculation
+/// UVs for wall tops are normalized to table space, not item space
+#[derive(Debug, Clone, Copy)]
+pub struct TableDimensions {
+    pub left: f32,
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+}
+
+impl TableDimensions {
+    pub fn new(left: f32, top: f32, right: f32, bottom: f32) -> Self {
+        Self {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
+}
+
+/// Separate wall meshes for top and sides, each with their own material/texture
+pub(super) struct WallMeshes {
+    /// Top surface mesh (may be None if not visible)
+    pub top: Option<(Vec<VertexWrapper>, Vec<VpxFace>)>,
+    /// Side surface mesh (may be None if not visible)
+    pub side: Option<(Vec<VertexWrapper>, Vec<VpxFace>)>,
+}
+
+/// Build separate wall meshes for top and sides
+/// This is useful for GLTF export where each surface can have its own material/texture
+///
+/// `table_dims` is required for proper UV calculation - wall top textures use table-space UVs
+pub(super) fn build_wall_meshes(wall: &Wall, table_dims: &TableDimensions) -> Option<WallMeshes> {
+    let render_vertices = build_render_vertices(wall);
+    if render_vertices.len() < 3 {
+        return None;
+    }
+
+    let texture_coords = if wall.side_image.is_empty() && wall.image.is_empty() {
+        None
+    } else {
+        Some(compute_side_texture_coords(&render_vertices))
+    };
+
+    // Build side mesh
+    let side_mesh = {
+        let mut side_vertices = Vec::new();
+        let mut side_indices = Vec::new();
+        build_side_mesh(
+            wall,
+            &render_vertices,
+            texture_coords.as_ref(),
+            &mut side_vertices,
+            &mut side_indices,
+        );
+
+        if !side_vertices.is_empty() {
+            let wrapped = side_vertices
+                .into_iter()
+                .map(|vertex| VertexWrapper::new(vertex.to_vpx_bytes(), vertex))
+                .collect::<Vec<_>>();
+            let faces = side_indices
+                .chunks_exact(3)
+                .map(|tri| VpxFace::new(tri[0] as i64, tri[1] as i64, tri[2] as i64))
+                .collect::<Vec<_>>();
+            Some((wrapped, faces))
+        } else {
+            None
+        }
+    };
+
+    // Build top mesh
+    let top_mesh = {
+        let mut top_vertices = Vec::new();
+        let mut top_indices = Vec::new();
+        build_top_mesh(
+            &render_vertices,
+            wall,
+            table_dims,
+            &mut top_vertices,
+            &mut top_indices,
+        );
+
+        if !top_indices.is_empty() {
+            let wrapped = top_vertices
+                .into_iter()
+                .map(|vertex| VertexWrapper::new(vertex.to_vpx_bytes(), vertex))
+                .collect::<Vec<_>>();
+            let faces = top_indices
+                .chunks_exact(3)
+                .map(|tri| VpxFace::new(tri[0] as i64, tri[1] as i64, tri[2] as i64))
+                .collect::<Vec<_>>();
+            Some((wrapped, faces))
+        } else {
+            None
+        }
+    };
+
+    // Return None only if both meshes are empty
+    if side_mesh.is_none() && top_mesh.is_none() {
+        return None;
+    }
+
+    Some(WallMeshes {
+        top: top_mesh,
+        side: side_mesh,
+    })
+}
+
 pub(super) fn build_wall_mesh(wall: &Wall) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
     let render_vertices = build_render_vertices(wall);
     if render_vertices.len() < 3 {
@@ -59,7 +169,7 @@ pub(super) fn build_wall_mesh(wall: &Wall) -> Option<(Vec<VertexWrapper>, Vec<Vp
 
     let mut top_vertices = Vec::new();
     let mut top_indices = Vec::new();
-    build_top_mesh(&render_vertices, wall, &mut top_vertices, &mut top_indices);
+    build_top_mesh_item_space(&render_vertices, wall, &mut top_vertices, &mut top_indices);
 
     if top_indices.is_empty() {
         return None;
@@ -280,7 +390,9 @@ fn build_side_mesh(
     }
 }
 
-fn build_top_mesh(
+/// Build top mesh with item-space UVs (normalized to wall bounding box)
+/// Used for single item mesh export
+fn build_top_mesh_item_space(
     points: &[RenderVertex],
     wall: &Wall,
     out_vertices: &mut Vec<Vertex3dNoTex2>,
@@ -332,6 +444,53 @@ fn bounds_xy(points: &[RenderVertex]) -> (f32, f32, f32, f32) {
         max_y = max_y.max(point.y);
     }
     (min_x, max_x, min_y, max_y)
+}
+
+/// Build top mesh with table-space UVs (normalized to table dimensions)
+/// Used for full table GLTF export where textures span the entire playfield
+fn build_top_mesh(
+    points: &[RenderVertex],
+    wall: &Wall,
+    table_dims: &TableDimensions,
+    out_vertices: &mut Vec<Vertex3dNoTex2>,
+    out_indices: &mut Vec<u32>,
+) {
+    let coords = points.iter().map(|v| (v.x, v.y)).collect::<Vec<_>>();
+    let triangles = triangulate_polygon(&coords);
+
+    out_indices.clear();
+    out_indices.extend(triangles.into_iter().flatten());
+
+    // VPinball uses table-space UV coordinates for wall tops
+    // See surface.cpp: tu = pv0->x * inv_tablewidth, tv = pv0->y * inv_tableheight
+    let table_width = table_dims.right - table_dims.left;
+    let table_height = table_dims.bottom - table_dims.top;
+    let inv_table_width = if table_width == 0.0 {
+        0.0
+    } else {
+        1.0 / table_width
+    };
+    let inv_table_height = if table_height == 0.0 {
+        0.0
+    } else {
+        1.0 / table_height
+    };
+
+    out_vertices.clear();
+    out_vertices.reserve(points.len());
+    for point in points {
+        out_vertices.push(Vertex3dNoTex2 {
+            x: point.x,
+            y: point.y,
+            z: wall.height_top,
+            // Table-space UV coordinates (matching VPinball behavior)
+            tu: (point.x - table_dims.left) * inv_table_width,
+            tv: (point.y - table_dims.top) * inv_table_height,
+            nx: 0.0,
+            ny: 0.0,
+            nz: 1.0,
+        });
+    }
 }
 
 fn triangulate_polygon(points: &[(f32, f32)]) -> Vec<[u32; 3]> {

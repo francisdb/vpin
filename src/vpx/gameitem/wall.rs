@@ -27,6 +27,9 @@ pub struct Wall {
     pub height_bottom: f32,
     pub height_top: f32,
     pub name: String,
+    /// Whether to display the top image texture in the VPinball editor preview.
+    /// This does NOT affect runtime rendering - textures are always rendered if set.
+    /// See: https://github.com/vpinball/vpinball/blob/master/src/parts/surface.h
     pub display_texture: bool,
     pub slingshot_force: f32,
     pub slingshot_threshold: f32,
