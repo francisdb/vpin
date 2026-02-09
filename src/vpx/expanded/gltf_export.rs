@@ -63,6 +63,8 @@ struct NamedMesh {
     vertices: Vec<VertexWrapper>,
     indices: Vec<VpxFace>,
     material_name: Option<String>,
+    /// Optional texture name (image_a for flashers)
+    texture_name: Option<String>,
 }
 
 /// Apply primitive transformation (scale, rotation, translation) to vertices
@@ -410,6 +412,7 @@ fn build_implicit_playfield_mesh(vpx: &VPX, playfield_material_name: &str) -> Na
         vertices,
         indices,
         material_name: Some(playfield_material_name.to_string()),
+        texture_name: None,
     }
 }
 
@@ -458,6 +461,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         vertices: transformed,
                         indices: read_mesh.indices,
                         material_name,
+                        texture_name: None,
                     });
                 }
             }
@@ -476,6 +480,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         vertices,
                         indices,
                         material_name,
+                        texture_name: None,
                     });
                 }
             }
@@ -494,6 +499,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         vertices,
                         indices,
                         material_name,
+                        texture_name: None,
                     });
                 }
             }
@@ -512,6 +518,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         vertices,
                         indices,
                         material_name,
+                        texture_name: None,
                     });
                 }
             }
@@ -520,12 +527,18 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     continue; // Skip invisible flashers
                 }
                 if let Some((vertices, indices)) = build_flasher_mesh(flasher) {
-                    // Flashers don't have a material field
+                    // Flashers use image_a as their texture
+                    let texture_name = if flasher.image_a.is_empty() {
+                        None
+                    } else {
+                        Some(flasher.image_a.clone())
+                    };
                     meshes.push(NamedMesh {
                         name: flasher.name.clone(),
                         vertices,
                         indices,
                         material_name: None,
+                        texture_name,
                     });
                 }
             }
@@ -547,6 +560,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         vertices: base_vertices,
                         indices: base_indices,
                         material_name: base_material,
+                        texture_name: None,
                     });
 
                     // Add rubber mesh if present
@@ -561,6 +575,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             vertices: rubber_vertices,
                             indices: rubber_indices,
                             material_name: rubber_material,
+                            texture_name: None,
                         });
                     }
                 }
@@ -582,6 +597,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
 fn build_combined_gltf_payload(
     meshes: &[NamedMesh],
     materials: &HashMap<String, GltfMaterial>,
+    images: &[ImageData],
     playfield_image: Option<&ImageData>,
     playfield_material_name: &str,
 ) -> Result<(serde_json::Value, Vec<u8>), WriteError> {
@@ -685,6 +701,105 @@ fn build_combined_gltf_payload(
             }
         }));
     }
+
+    // Build a map of image name -> ImageData for quick lookup
+    let image_map: HashMap<String, &ImageData> = images
+        .iter()
+        .map(|img| (img.name.to_lowercase(), img))
+        .collect();
+
+    // Track which textures we've already added (by lowercase name)
+    let mut texture_material_map: HashMap<String, usize> = HashMap::new();
+
+    // Pre-process meshes with textures to create their materials
+    for mesh in meshes {
+        if let Some(ref texture_name) = mesh.texture_name {
+            let texture_key = texture_name.to_lowercase();
+
+            // Skip if we already created a material for this texture
+            if texture_material_map.contains_key(&texture_key) {
+                continue;
+            }
+
+            // Find the image data
+            if let Some(image) = image_map.get(&texture_key)
+                && let Some(image_bytes) = get_image_bytes(image)
+            {
+                // Add sampler (reuse if we already have one)
+                let sampler_idx = if gltf_samplers.is_empty() {
+                    gltf_samplers.push(json!({
+                        "magFilter": GLTF_FILTER_LINEAR,
+                        "minFilter": GLTF_FILTER_LINEAR_MIPMAP_LINEAR,
+                        "wrapS": GLTF_WRAP_REPEAT,
+                        "wrapT": GLTF_WRAP_REPEAT
+                    }));
+                    0
+                } else {
+                    0 // Reuse the first sampler
+                };
+
+                // Write image data to binary buffer
+                let image_offset = bin_data.len();
+                bin_data.extend_from_slice(&image_bytes);
+                let image_length = image_bytes.len();
+
+                // Pad to 4-byte alignment for next data
+                while bin_data.len() % 4 != 0 {
+                    bin_data.push(0);
+                }
+
+                // Add buffer view for image
+                let image_buffer_view_idx = buffer_views.len();
+                buffer_views.push(json!({
+                    "buffer": 0,
+                    "byteOffset": image_offset,
+                    "byteLength": image_length
+                }));
+
+                // Add image referencing the buffer view
+                let image_idx = gltf_images.len();
+                let mime_type =
+                    if image.bits.is_some() || image.path.to_lowercase().ends_with(".png") {
+                        "image/png"
+                    } else {
+                        "image/jpeg"
+                    };
+                gltf_images.push(json!({
+                    "bufferView": image_buffer_view_idx,
+                    "mimeType": mime_type,
+                    "name": image.name
+                }));
+
+                // Add texture
+                let texture_idx = gltf_textures.len();
+                gltf_textures.push(json!({
+                    "sampler": sampler_idx,
+                    "source": image_idx,
+                    "name": format!("{}_texture", image.name)
+                }));
+
+                // Create a material with this texture
+                // Use material name based on texture name
+                let material_name = format!("__texture__{}", texture_name);
+                let material_idx = gltf_materials.len();
+                texture_material_map.insert(texture_key, material_idx);
+
+                gltf_materials.push(json!({
+                    "name": material_name,
+                    "pbrMetallicRoughness": {
+                        "baseColorTexture": {
+                            "index": texture_idx
+                        },
+                        "metallicFactor": 0.0,
+                        "roughnessFactor": 0.5
+                    },
+                    "alphaMode": "BLEND",  // Enable alpha blending for transparency
+                    "doubleSided": true  // Flashers are often double-sided
+                }));
+            }
+        }
+    }
+
     let mut nodes = Vec::new();
     let mut mesh_json = Vec::new();
     let mut accessors = Vec::new();
@@ -870,11 +985,17 @@ fn build_combined_gltf_payload(
             "mode": GLTF_PRIMITIVE_MODE_TRIANGLES
         });
 
-        // Add material reference if the mesh has a material
+        // Add material reference if the mesh has a material or texture
         if let Some(ref mat_name) = mesh.material_name
             && let Some(&mat_idx) = material_index_map.get(mat_name)
         {
             primitive["material"] = json!(mat_idx);
+        } else if let Some(ref texture_name) = mesh.texture_name {
+            // Check for texture-based material
+            let texture_key = texture_name.to_lowercase();
+            if let Some(&mat_idx) = texture_material_map.get(&texture_key) {
+                primitive["material"] = json!(mat_idx);
+            }
         }
 
         mesh_json.push(json!({
@@ -1033,6 +1154,7 @@ pub fn export_glb(vpx: &VPX, path: &Path, fs: &dyn FileSystem) -> Result<(), Wri
     let (json, bin_data) = build_combined_gltf_payload(
         &meshes,
         &materials,
+        &vpx.images,
         playfield_image,
         playfield_material_name,
     )?;

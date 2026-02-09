@@ -10,14 +10,24 @@ use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
+/// Blend mode used when combining image_a and image_b on flashers.
+///
+/// When a flasher has both `image_a` and `image_b` set, this filter determines
+/// how the two textures are blended together. The blend intensity is controlled
+/// by `filter_amount` (0-100).
 #[derive(Debug, PartialEq, Clone, Default)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum Filter {
+    /// No filtering/blending applied
     None = 0,
+    /// Additive blending - adds the color values together, creating a brightening effect
     Additive = 1,
+    /// Overlay blending - combines Multiply and Screen modes based on the base color
     #[default]
     Overlay = 2,
+    /// Multiply blending - multiplies the color values, creating a darkening effect
     Multiply = 3,
+    /// Screen blending - inverts, multiplies, and inverts again, creating a brightening effect
     Screen = 4,
 }
 
@@ -206,9 +216,22 @@ pub struct Flasher {
     is_timer_enabled: bool,
     timer_interval: i32,
     pub name: String,
+    /// Primary texture for the flasher.
+    /// When only image_a is set (no image_b), this texture is displayed directly.
+    /// When both image_a and image_b are set, they are blended together using
+    /// the `filter` and `modulate_vs_add` settings.
     pub image_a: String,
+    /// Secondary texture for blending with image_a.
+    /// When set along with image_a, both textures are blended together in the shader
+    /// based on `filter` (None, Additive, Overlay, Multiply, Screen) and
+    /// `modulate_vs_add` settings. If only image_b is set (no image_a), it acts
+    /// as the primary texture.
     pub image_b: String,
+    /// Overall alpha/opacity of the flasher (0-100).
     pub alpha: i32,
+    /// Controls blending between image_a and image_b when both are set.
+    /// Range: 0.0 to 1.0. Values close to 0 favor image_a, values close to 1 favor image_b.
+    /// Clamped internally to avoid 0 (disables blend) and 1 (looks bad with day/night changes).
     pub modulate_vs_add: f32,
     pub is_visible: bool,
     pub add_blend: bool,
@@ -235,7 +258,10 @@ pub struct Flasher {
     pub display_texture: bool,
     pub depth_bias: f32,
     pub image_alignment: RampImageAlignment,
+    /// Blend mode used when combining image_a and image_b.
+    /// See [`Filter`] for available modes.
     pub filter: Filter,
+    /// Intensity of the filter effect (0-100).
     pub filter_amount: u32,
     // FIAM
     pub light_map: Option<String>,
