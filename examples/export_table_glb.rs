@@ -9,14 +9,15 @@ use vpin::vpx::expanded::export_glb;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Read a VPX file
-    let vpx_path = PathBuf::from(
-        std::env::args()
-            .nth(1)
-            .unwrap_or_else(|| "table.vpx".to_string()),
-    );
+    let vpx_path = match std::env::args().nth(1) {
+        Some(path) => PathBuf::from(path),
+        None => {
+            eprintln!("Usage: cargo run --example export_table_glb <path_to_vpx>");
+            std::process::exit(1);
+        }
+    };
 
     if !vpx_path.exists() {
-        eprintln!("Usage: cargo run --example export_table_glb <path_to_vpx>");
         eprintln!("Error: File not found: {}", vpx_path.display());
         std::process::exit(1);
     }
