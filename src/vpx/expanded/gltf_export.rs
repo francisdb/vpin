@@ -65,6 +65,9 @@ struct NamedMesh {
     material_name: Option<String>,
     /// Optional texture name (image_a for flashers)
     texture_name: Option<String>,
+    /// Optional color tint for the texture (RGBA, 0-1 range)
+    /// Used for flashers to apply their color and alpha
+    color_tint: Option<[f32; 4]>,
 }
 
 /// Apply primitive transformation (scale, rotation, translation) to vertices
@@ -229,6 +232,9 @@ struct GltfMaterial {
     base_color: [f32; 4], // RGBA
     metallic: f32,
     roughness: f32,
+    /// Whether opacity/alpha blending is active
+    /// When false, the material is fully opaque regardless of the opacity value
+    opacity_active: bool,
 }
 
 /// Collect all materials from a VPX file
@@ -244,7 +250,7 @@ fn collect_materials(vpx: &VPX) -> HashMap<String, GltfMaterial> {
                     mat.base_color.r as f32 / 255.0,
                     mat.base_color.g as f32 / 255.0,
                     mat.base_color.b as f32 / 255.0,
-                    mat.opacity,
+                    if mat.opacity_active { mat.opacity } else { 1.0 },
                 ],
                 metallic: if mat.type_ == MaterialType::Metal {
                     1.0
@@ -252,22 +258,26 @@ fn collect_materials(vpx: &VPX) -> HashMap<String, GltfMaterial> {
                     0.0
                 },
                 roughness: mat.roughness,
+                opacity_active: mat.opacity_active,
             };
             materials.insert(mat.name.clone(), gltf_mat);
         }
     } else {
         // Fall back to old format
         for mat in &vpx.gamedata.materials_old {
+            // opacity_active is encoded in the lowest bit of opacity_active_edge_alpha
+            let opacity_active = (mat.opacity_active_edge_alpha & 1) != 0;
             let gltf_mat = GltfMaterial {
                 name: mat.name.clone(),
                 base_color: [
                     mat.base_color.r as f32 / 255.0,
                     mat.base_color.g as f32 / 255.0,
                     mat.base_color.b as f32 / 255.0,
-                    mat.opacity,
+                    if opacity_active { mat.opacity } else { 1.0 },
                 ],
                 metallic: if mat.is_metal { 1.0 } else { 0.0 },
                 roughness: mat.roughness,
+                opacity_active,
             };
             materials.insert(mat.name.clone(), gltf_mat);
         }
@@ -413,6 +423,7 @@ fn build_implicit_playfield_mesh(vpx: &VPX, playfield_material_name: &str) -> Na
         indices,
         material_name: Some(playfield_material_name.to_string()),
         texture_name: None,
+        color_tint: None,
     }
 }
 
@@ -453,15 +464,18 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         has_explicit_playfield = true;
                     }
 
-                    // Determine material name:
+                    // Determine material and texture:
                     // - If it's the playfield primitive, use the playfield material (which has the texture)
-                    // - Otherwise, use the primitive's material if set
-                    let material_name = if is_playfield {
-                        Some(playfield_material_name.clone())
+                    // - Otherwise, use the primitive's image as texture if set, or material
+                    let (material_name, texture_name) = if is_playfield {
+                        (Some(playfield_material_name.clone()), None)
+                    } else if !primitive.image.is_empty() {
+                        // Primitive has a texture image - use it
+                        (None, Some(primitive.image.clone()))
                     } else if !primitive.material.is_empty() {
-                        Some(primitive.material.clone())
+                        (Some(primitive.material.clone()), None)
                     } else {
-                        None
+                        (None, None)
                     };
 
                     meshes.push(NamedMesh {
@@ -469,7 +483,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         vertices: transformed,
                         indices: read_mesh.indices,
                         material_name,
-                        texture_name: None,
+                        texture_name,
+                        color_tint: None,
                     });
                 }
             }
@@ -498,6 +513,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             indices,
                             material_name,
                             texture_name,
+                            color_tint: None,
                         });
                     }
 
@@ -521,6 +537,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             indices,
                             material_name,
                             texture_name,
+                            color_tint: None,
                         });
                     }
                 }
@@ -530,17 +547,22 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     continue; // Skip invisible ramps
                 }
                 if let Some((vertices, indices)) = build_ramp_mesh(ramp) {
-                    let material_name = if ramp.material.is_empty() {
-                        None
+                    // Ramps use image as texture, or material if no image
+                    let (material_name, texture_name) = if !ramp.image.is_empty() {
+                        // Ramp has a texture image - use it
+                        (None, Some(ramp.image.clone()))
+                    } else if !ramp.material.is_empty() {
+                        (Some(ramp.material.clone()), None)
                     } else {
-                        Some(ramp.material.clone())
+                        (None, None)
                     };
                     meshes.push(NamedMesh {
                         name: ramp.name.clone(),
                         vertices,
                         indices,
                         material_name,
-                        texture_name: None,
+                        texture_name,
+                        color_tint: None,
                     });
                 }
             }
@@ -560,6 +582,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         indices,
                         material_name,
                         texture_name: None,
+                        color_tint: None,
                     });
                 }
             }
@@ -574,12 +597,21 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     } else {
                         Some(flasher.image_a.clone())
                     };
+                    // Flashers have color tint and alpha (0-100)
+                    // VPinball applies: color * (alpha * intensity_scale / 100.0)
+                    let color_tint = Some([
+                        flasher.color.r as f32 / 255.0,
+                        flasher.color.g as f32 / 255.0,
+                        flasher.color.b as f32 / 255.0,
+                        flasher.alpha as f32 / 100.0,
+                    ]);
                     meshes.push(NamedMesh {
                         name: flasher.name.clone(),
                         vertices,
                         indices,
                         material_name: None,
                         texture_name,
+                        color_tint,
                     });
                 }
             }
@@ -602,6 +634,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         indices: base_indices,
                         material_name: base_material,
                         texture_name: None,
+                        color_tint: None,
                     });
 
                     // Add rubber mesh if present
@@ -617,6 +650,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             indices: rubber_indices,
                             material_name: rubber_material,
                             texture_name: None,
+                            color_tint: None,
                         });
                     }
                 }
@@ -697,6 +731,7 @@ fn build_combined_gltf_payload(
         let mime_type = if image.bits.is_some() || image.path.to_lowercase().ends_with(".png") {
             "image/png"
         } else {
+            // FIXME this is wrong, we should check the file extension
             "image/jpeg"
         };
         gltf_images.push(json!({
@@ -724,6 +759,7 @@ fn build_combined_gltf_payload(
                 "metallicFactor": 0.0,
                 "roughnessFactor": 0.5
             }
+            // Note: No alphaMode - playfield should be opaque (default is OPAQUE)
         }));
     }
 
@@ -733,14 +769,29 @@ fn build_combined_gltf_payload(
             continue;
         }
         material_index_map.insert(name.clone(), gltf_materials.len());
-        gltf_materials.push(json!({
-            "name": mat.name,
-            "pbrMetallicRoughness": {
-                "baseColorFactor": mat.base_color,
-                "metallicFactor": mat.metallic,
-                "roughnessFactor": mat.roughness
-            }
-        }));
+
+        // Only enable alpha blending if opacity_active is true
+        if mat.opacity_active {
+            gltf_materials.push(json!({
+                "name": mat.name,
+                "pbrMetallicRoughness": {
+                    "baseColorFactor": mat.base_color,
+                    "metallicFactor": mat.metallic,
+                    "roughnessFactor": mat.roughness
+                },
+                "alphaMode": "BLEND"
+            }));
+        } else {
+            gltf_materials.push(json!({
+                "name": mat.name,
+                "pbrMetallicRoughness": {
+                    "baseColorFactor": mat.base_color,
+                    "metallicFactor": mat.metallic,
+                    "roughnessFactor": mat.roughness
+                }
+                // No alphaMode = OPAQUE (default)
+            }));
+        }
     }
 
     // Build a map of image name -> ImageData for quick lookup
@@ -749,16 +800,24 @@ fn build_combined_gltf_payload(
         .map(|img| (img.name.to_lowercase(), img))
         .collect();
 
-    // Track which textures we've already added (by lowercase name)
+    // Track which textures we've already added (by lowercase name) -> texture index
+    let mut texture_index_map: HashMap<String, usize> = HashMap::new();
+
+    // Track materials for meshes without color tint (can be shared)
+    // Key: texture name (lowercase), Value: material index
     let mut texture_material_map: HashMap<String, usize> = HashMap::new();
 
-    // Pre-process meshes with textures to create their materials
-    for mesh in meshes {
+    // Track per-mesh material indices for meshes with color tint (unique materials)
+    // Key: mesh index, Value: material index
+    let mut mesh_material_map: HashMap<usize, usize> = HashMap::new();
+
+    // First pass: create textures for all unique images
+    for mesh in meshes.iter() {
         if let Some(ref texture_name) = mesh.texture_name {
             let texture_key = texture_name.to_lowercase();
 
-            // Skip if we already created a material for this texture
-            if texture_material_map.contains_key(&texture_key) {
+            // Skip if we already created a texture for this image
+            if texture_index_map.contains_key(&texture_key) {
                 continue;
             }
 
@@ -819,24 +878,108 @@ fn build_combined_gltf_payload(
                     "name": format!("{}_texture", image.name)
                 }));
 
-                // Create a material with this texture
-                // Use material name based on texture name
-                let material_name = format!("__texture__{}", texture_name);
-                let material_idx = gltf_materials.len();
-                texture_material_map.insert(texture_key, material_idx);
+                texture_index_map.insert(texture_key, texture_idx);
+            }
+        }
+    }
 
-                gltf_materials.push(json!({
-                    "name": material_name,
-                    "pbrMetallicRoughness": {
-                        "baseColorTexture": {
-                            "index": texture_idx
+    // Second pass: create materials for meshes
+    for (mesh_idx, mesh) in meshes.iter().enumerate() {
+        // Case 1: Mesh has color_tint - needs unique material
+        if let Some(color_tint) = mesh.color_tint {
+            let material_idx = gltf_materials.len();
+            mesh_material_map.insert(mesh_idx, material_idx);
+
+            if let Some(ref texture_name) = mesh.texture_name {
+                let texture_key = texture_name.to_lowercase();
+                if let Some(&texture_idx) = texture_index_map.get(&texture_key) {
+                    // Material with texture and color tint
+                    gltf_materials.push(json!({
+                        "name": format!("{}_{}", mesh.name, texture_name),
+                        "pbrMetallicRoughness": {
+                            "baseColorTexture": {
+                                "index": texture_idx
+                            },
+                            "baseColorFactor": color_tint,
+                            "metallicFactor": 0.0,
+                            "roughnessFactor": 0.5
                         },
+                        "alphaMode": "BLEND",
+                        "doubleSided": true
+                    }));
+                } else {
+                    // Texture not found, use color only
+                    gltf_materials.push(json!({
+                        "name": format!("{}_color", mesh.name),
+                        "pbrMetallicRoughness": {
+                            "baseColorFactor": color_tint,
+                            "metallicFactor": 0.0,
+                            "roughnessFactor": 0.5
+                        },
+                        "alphaMode": "BLEND",
+                        "doubleSided": true
+                    }));
+                }
+            } else {
+                // No texture, color only (e.g., shadow flashers)
+                gltf_materials.push(json!({
+                    "name": format!("{}_color", mesh.name),
+                    "pbrMetallicRoughness": {
+                        "baseColorFactor": color_tint,
                         "metallicFactor": 0.0,
                         "roughnessFactor": 0.5
                     },
-                    "alphaMode": "BLEND",  // Enable alpha blending for transparency
-                    "doubleSided": true  // Flashers are often double-sided
+                    "alphaMode": "BLEND",
+                    "doubleSided": true
                 }));
+            }
+        }
+        // Case 2: Mesh has texture but no color_tint - can share material
+        else if let Some(ref texture_name) = mesh.texture_name {
+            let texture_key = texture_name.to_lowercase();
+
+            // Skip if material already exists for this texture
+            if texture_material_map.contains_key(&texture_key) {
+                continue;
+            }
+
+            if let Some(&texture_idx) = texture_index_map.get(&texture_key) {
+                let material_idx = gltf_materials.len();
+                texture_material_map.insert(texture_key.clone(), material_idx);
+
+                // Check if the image has transparency (is_opaque == Some(false))
+                // If is_opaque is None or Some(true), the texture is opaque
+                let needs_alpha = image_map
+                    .get(&texture_key)
+                    .is_some_and(|img| img.is_opaque == Some(false));
+
+                if needs_alpha {
+                    gltf_materials.push(json!({
+                        "name": format!("__texture__{}", texture_name),
+                        "pbrMetallicRoughness": {
+                            "baseColorTexture": {
+                                "index": texture_idx
+                            },
+                            "metallicFactor": 0.0,
+                            "roughnessFactor": 0.5
+                        },
+                        "alphaMode": "BLEND",
+                        "doubleSided": true
+                    }));
+                } else {
+                    gltf_materials.push(json!({
+                        "name": format!("__texture__{}", texture_name),
+                        "pbrMetallicRoughness": {
+                            "baseColorTexture": {
+                                "index": texture_idx
+                            },
+                            "metallicFactor": 0.0,
+                            "roughnessFactor": 0.5
+                        },
+                        // No alphaMode = OPAQUE (default)
+                        "doubleSided": true
+                    }));
+                }
             }
         }
     }
@@ -1027,12 +1170,15 @@ fn build_combined_gltf_payload(
         });
 
         // Add material reference if the mesh has a material or texture
-        if let Some(ref mat_name) = mesh.material_name
+        // Check mesh_material_map first (for meshes with color tint - unique materials)
+        if let Some(&mat_idx) = mesh_material_map.get(&mesh_idx) {
+            primitive["material"] = json!(mat_idx);
+        } else if let Some(ref mat_name) = mesh.material_name
             && let Some(&mat_idx) = material_index_map.get(mat_name)
         {
             primitive["material"] = json!(mat_idx);
         } else if let Some(ref texture_name) = mesh.texture_name {
-            // Check for texture-based material
+            // Check for texture-based material (shared, no color tint)
             let texture_key = texture_name.to_lowercase();
             if let Some(&mat_idx) = texture_material_map.get(&texture_key) {
                 primitive["material"] = json!(mat_idx);
