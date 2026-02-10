@@ -71,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✓ Export complete!");
     println!("  File size: {:.2} MB", size_mb);
     println!(
-        "\nYou can now open {} in Blender or any other 3D viewer.",
+        "\nYou can now open \"{}\" in Blender or any other 3D viewer.",
         glb_path.display()
     );
 

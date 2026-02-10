@@ -76,6 +76,9 @@ struct NamedMesh {
     layer_name: Option<String>,
 }
 
+// Re-export camera types from the camera module
+use super::camera::GltfCamera;
+
 /// Apply primitive transformation (scale, rotation, translation) to vertices
 /// All transformations are done in VPX coordinate space.
 /// The coordinate conversion to glTF happens when writing the GLB.
@@ -1269,7 +1272,7 @@ fn build_combined_gltf_payload(
         let indices_length = bin_data.len() - indices_offset;
 
         // Calculate bounds in glTF coordinate space (after transformation and scaling)
-        // VPX (x, y, z) → glTF (x * scale, z * scale, y * scale)
+        // VPX (x, y, z) → glTF (x * scale, gltf_y = z * scale, y * scale)
         let (min_x, max_x, min_y, max_y, min_z, max_z) = mesh.vertices.iter().fold(
             (
                 f32::INFINITY,
@@ -1595,6 +1598,18 @@ fn build_combined_gltf_payload(
         scene_root_nodes.push(*layer_node_idx);
     }
 
+    // Create cameras for all three view modes (Desktop, Fullscreen, FSS)
+    // Each provides a different view of the table based on VPinball's view settings
+    let cameras = GltfCamera::all_from_vpx(vpx);
+
+    // Add all cameras to glTF
+    let gltf_cameras: Vec<_> = cameras.iter().map(|c| c.to_gltf_camera_json()).collect();
+    for (i, camera) in cameras.iter().enumerate() {
+        let camera_node_idx = nodes.len();
+        nodes.push(camera.to_gltf_node_json(i));
+        scene_root_nodes.push(camera_node_idx);
+    }
+
     let mut gltf_json = json!({
         "asset": {
             "version": "2.0",
@@ -1612,6 +1627,7 @@ fn build_combined_gltf_payload(
         }],
         "nodes": nodes,
         "meshes": mesh_json,
+        "cameras": gltf_cameras,
         "accessors": accessors,
         "bufferViews": buffer_views,
         "buffers": [{

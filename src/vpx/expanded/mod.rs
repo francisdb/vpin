@@ -14,6 +14,7 @@
 //! Both formats are supported for reading, with OBJ checked first for backward compatibility.
 
 mod bumpers;
+mod camera;
 mod flashers;
 mod flippers;
 mod fonts;
