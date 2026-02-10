@@ -23,6 +23,7 @@
 //! Triangle winding order is reversed to convert from left-handed to right-handed.
 
 use super::WriteError;
+use super::bumpers::build_bumper_meshes;
 use super::flashers::build_flasher_mesh;
 use super::flippers::build_flipper_meshes;
 use super::ramps::build_ramp_mesh;
@@ -720,6 +721,81 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             ),
                         });
                     }
+                }
+            }
+            GameItemEnum::Bumper(bumper) => {
+                // TODO: get surface height from the table
+                let bumper_meshes = build_bumper_meshes(bumper, 0.0);
+
+                // Add base mesh if visible
+                if let Some((base_vertices, base_indices)) = bumper_meshes.base {
+                    let base_material = if bumper.base_material.is_empty() {
+                        None
+                    } else {
+                        Some(bumper.base_material.clone())
+                    };
+                    meshes.push(NamedMesh {
+                        name: format!("{}Base", bumper.name),
+                        vertices: base_vertices,
+                        indices: base_indices,
+                        material_name: base_material,
+                        texture_name: None,
+                        color_tint: None,
+                        layer_name: get_layer_name(&bumper.editor_layer_name, bumper.editor_layer),
+                    });
+                }
+
+                // Add socket mesh if visible
+                if let Some((socket_vertices, socket_indices)) = bumper_meshes.socket {
+                    let socket_material = if bumper.socket_material.is_empty() {
+                        None
+                    } else {
+                        Some(bumper.socket_material.clone())
+                    };
+                    meshes.push(NamedMesh {
+                        name: format!("{}Socket", bumper.name),
+                        vertices: socket_vertices,
+                        indices: socket_indices,
+                        material_name: socket_material,
+                        texture_name: None,
+                        color_tint: None,
+                        layer_name: get_layer_name(&bumper.editor_layer_name, bumper.editor_layer),
+                    });
+                }
+
+                // Add ring mesh if visible
+                if let Some((ring_vertices, ring_indices)) = bumper_meshes.ring {
+                    let ring_material = bumper
+                        .ring_material
+                        .as_ref()
+                        .and_then(|m| if m.is_empty() { None } else { Some(m.clone()) });
+                    meshes.push(NamedMesh {
+                        name: format!("{}Ring", bumper.name),
+                        vertices: ring_vertices,
+                        indices: ring_indices,
+                        material_name: ring_material,
+                        texture_name: None,
+                        color_tint: None,
+                        layer_name: get_layer_name(&bumper.editor_layer_name, bumper.editor_layer),
+                    });
+                }
+
+                // Add cap mesh if visible
+                if let Some((cap_vertices, cap_indices)) = bumper_meshes.cap {
+                    let cap_material = if bumper.cap_material.is_empty() {
+                        None
+                    } else {
+                        Some(bumper.cap_material.clone())
+                    };
+                    meshes.push(NamedMesh {
+                        name: format!("{}Cap", bumper.name),
+                        vertices: cap_vertices,
+                        indices: cap_indices,
+                        material_name: cap_material,
+                        texture_name: None,
+                        color_tint: None,
+                        layer_name: get_layer_name(&bumper.editor_layer_name, bumper.editor_layer),
+                    });
                 }
             }
             _ => {}
