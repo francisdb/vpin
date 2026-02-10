@@ -28,6 +28,7 @@ use super::flashers::build_flasher_mesh;
 use super::flippers::build_flipper_meshes;
 use super::ramps::build_ramp_mesh;
 use super::rubbers::build_rubber_mesh;
+use super::spinners::build_spinner_meshes;
 use super::walls::{TableDimensions, build_wall_meshes};
 use crate::filesystem::FileSystem;
 use crate::vpx::VPX;
@@ -798,6 +799,52 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     });
                 }
             }
+            GameItemEnum::Spinner(spinner) => {
+                if !spinner.is_visible {
+                    continue; // Skip invisible spinners
+                }
+                // TODO: get surface height from the table
+                let spinner_meshes = build_spinner_meshes(spinner, 0.0);
+
+                // Add bracket mesh if visible
+                if let Some((bracket_vertices, bracket_indices)) = spinner_meshes.bracket {
+                    // Bracket uses a default metal material (no material property in VPX)
+                    meshes.push(NamedMesh {
+                        name: format!("{}Bracket", spinner.name),
+                        vertices: bracket_vertices,
+                        indices: bracket_indices,
+                        material_name: None,
+                        texture_name: None,
+                        color_tint: None,
+                        layer_name: get_layer_name(
+                            &spinner.editor_layer_name,
+                            spinner.editor_layer,
+                        ),
+                    });
+                }
+
+                // Add plate mesh
+                let (plate_vertices, plate_indices) = spinner_meshes.plate;
+                let plate_material = if spinner.material.is_empty() {
+                    None
+                } else {
+                    Some(spinner.material.clone())
+                };
+                let plate_texture = if spinner.image.is_empty() {
+                    None
+                } else {
+                    Some(spinner.image.clone())
+                };
+                meshes.push(NamedMesh {
+                    name: format!("{}Plate", spinner.name),
+                    vertices: plate_vertices,
+                    indices: plate_indices,
+                    material_name: plate_material,
+                    texture_name: plate_texture,
+                    color_tint: None,
+                    layer_name: get_layer_name(&spinner.editor_layer_name, spinner.editor_layer),
+                });
+            }
             _ => {}
         }
     }
@@ -1321,16 +1368,18 @@ fn build_combined_gltf_payload(
         // Check mesh_material_map first (for meshes with color tint - unique materials)
         if let Some(&mat_idx) = mesh_material_map.get(&mesh_idx) {
             primitive["material"] = json!(mat_idx);
-        } else if let Some(ref mat_name) = mesh.material_name
-            && let Some(&mat_idx) = material_index_map.get(mat_name)
-        {
-            primitive["material"] = json!(mat_idx);
         } else if let Some(ref texture_name) = mesh.texture_name {
-            // Check for texture-based material (shared, no color tint)
+            // Prioritize texture-based material when mesh has a texture
+            // This ensures the texture is applied even if the mesh also has a material_name
             let texture_key = texture_name.to_lowercase();
             if let Some(&mat_idx) = texture_material_map.get(&texture_key) {
                 primitive["material"] = json!(mat_idx);
             }
+        } else if let Some(ref mat_name) = mesh.material_name
+            && let Some(&mat_idx) = material_index_map.get(mat_name)
+        {
+            // Fall back to VPX material only if there's no texture
+            primitive["material"] = json!(mat_idx);
         }
 
         mesh_json.push(json!({

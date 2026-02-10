@@ -28,6 +28,7 @@ mod primitives;
 mod ramps;
 mod rubbers;
 mod sounds;
+mod spinners;
 mod util;
 mod walls;
 
