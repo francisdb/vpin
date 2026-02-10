@@ -352,6 +352,7 @@ pub struct GameData {
     /// Look-at / inclination setting (INCL)
     /// - Legacy mode: look-at as percent of table height from top 0% to table front 100%
     /// - Camera mode: look-at as percent of table height from bottom (0.25 = around slingshots)
+    ///
     /// Default: 0 degrees (legacy mode)
     pub bg_inclination_desktop: f32,
     /// Layback angle in degrees (LAYB)
@@ -365,16 +366,19 @@ pub struct GameData {
     /// Camera X position in VPU (XLTX)
     /// - Legacy mode: offset from fitted camera position
     /// - Camera/Window mode: position relative to table bottom center
+    ///
     /// Default: 0 VPU
     pub bg_offset_x_desktop: f32,
     /// Camera Y position in VPU (XLTY)
     /// - Legacy mode: offset from fitted camera position
     /// - Camera/Window mode: position relative to table bottom center
+    ///
     /// Default: 30 VPU (about 1.6 cm)
     pub bg_offset_y_desktop: f32,
     /// Camera Z position in VPU (XLTZ)
     /// - Legacy mode: offset from fitted camera position (negative moves camera back)
     /// - Camera/Window mode: height relative to table playfield
+    ///
     /// Default: -200 VPU (about -10.8 cm)
     pub bg_offset_z_desktop: f32,
     /// Scene scale X (SCLX) - multiplier
@@ -439,6 +443,7 @@ pub struct GameData {
     /// Look-at / inclination setting (INCF)
     /// - Legacy mode: look-at as percent of table height from top 0% to table front 100%
     /// - Camera mode: look-at as percent of table height from bottom
+    ///
     /// Default: 0 degrees
     pub bg_inclination_fullscreen: f32,
     /// Layback angle in degrees (LAYF) - Legacy mode only
@@ -520,7 +525,8 @@ pub struct GameData {
     /// Look-at / inclination setting (INFS, added in 10.?)
     /// - Legacy mode:look-at as percent of table height from top 0% to table front 100%
     /// - Camera mode: look-at as percent of table height from bottom
-    /// Default: 0.25 (legacy file default was 52 degrees)
+    ///
+    /// Default: 0.25 (legacy file default was 52 percent)
     pub bg_inclination_full_single_screen: Option<f32>,
     /// Layback angle in degrees (LAFS, added in 10.?) - Legacy mode only
     /// Default: 0 degrees
@@ -534,11 +540,12 @@ pub struct GameData {
     /// Camera Y position in VPU (XLYS, added in 10.?)
     /// - Legacy mode: offset from fitted camera position
     /// - Camera/Window mode: position relative to table bottom center
-    /// Default: 20 cm → ~370.6 VPU (legacy file default was 30 VPU)
+    ///   Default: 20 cm → ~370.6 VPU (legacy file default was 30 VPU)
     pub bg_offset_y_full_single_screen: Option<f32>,
     /// Camera Z position in VPU (XLZS, added in 10.?)
     /// - Legacy mode: offset from fitted camera position (negative moves back)
     /// - Camera/Window mode: height relative to playfield
+    ///
     /// Default: 70 cm → ~1297 VPU (legacy file default was -50 VPU)
     pub bg_offset_z_full_single_screen: Option<f32>,
     /// Scene scale X (SCXS, added in 10.?) - multiplier

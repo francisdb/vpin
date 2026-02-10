@@ -56,6 +56,7 @@ struct FittedCamera {
 /// * `xlatez` - Z offset (mViewZ from VPX)
 /// * `layback` - Layback angle in degrees
 /// * `table_height_z` - Height of table elements in VPU (typically glass_top_height)
+#[allow(clippy::too_many_arguments)]
 fn fit_camera_to_vertices(
     bounds: &TableBounds,
     aspect: f32,
