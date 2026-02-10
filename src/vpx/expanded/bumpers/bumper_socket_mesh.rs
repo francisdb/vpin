@@ -14,7 +14,7 @@ pub const BUMPER_SOCKET_NUM_INDICES: usize = 2232;
 /// Pre-defined bumper socket mesh vertices
 /// From VPinball src/meshes/bumperSocketMesh.h
 #[rustfmt::skip]
-#[allow(clippy::approx_constant)]
+#[allow(clippy::approx_constant, clippy::excessive_precision)]
 pub static BUMPER_SOCKET_MESH: [Vertex3dNoTex2; BUMPER_SOCKET_NUM_VERTICES] = [
     Vertex3dNoTex2 { x: -1.240720, y: 0.016772, z: -0.000981, nx: -0.816400, ny: 0.011400, nz: -0.577400, tu: 0.149940, tv: 0.076168 },
     Vertex3dNoTex2 { x: -1.227809, y: 0.178769, z: -0.000981, nx: -0.816400, ny: 0.011400, nz: -0.577400, tu: 0.149942, tv: 0.085237 },

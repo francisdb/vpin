@@ -14,7 +14,7 @@ pub const BUMPER_RING_NUM_INDICES: usize = 2367;
 /// Pre-defined bumper ring mesh vertices
 /// From VPinball src/meshes/bumperRingMesh.h
 #[rustfmt::skip]
-#[allow(clippy::approx_constant)]
+#[allow(clippy::approx_constant, clippy::excessive_precision)]
 pub static BUMPER_RING_MESH: [Vertex3dNoTex2; BUMPER_RING_NUM_VERTICES] = [
     Vertex3dNoTex2 { x: 0.008260, y: 0.599155, z: 0.543984, nx: 0.050900, ny: -0.784800, nz: -0.617700, tu: 0.901094, tv: 0.977991 },
     Vertex3dNoTex2 { x: 0.008260, y: 0.599155, z: -0.122016, nx: 0.057000, ny: -0.998400, nz: -0.000000, tu: 0.543477, tv: 0.995757 },
