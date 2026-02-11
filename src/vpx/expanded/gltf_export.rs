@@ -1225,6 +1225,11 @@ fn build_combined_gltf_payload(
                     let texture_key = texture_name.to_lowercase();
                     if let Some(&texture_idx) = texture_index_map.get(&texture_key) {
                         // Material with texture AND transmission
+                        // Reduce transmission for textured surfaces since printed decals/stickers
+                        // block light - only clear/unprinted areas would transmit light
+                        // Use 30% of the original transmission as an approximation
+                        let reduced_transmission = transmission * 0.3;
+
                         let mut material = json!({
                             "name": format!("{}_transmission", mesh.name),
                             "pbrMetallicRoughness": {
@@ -1237,7 +1242,7 @@ fn build_combined_gltf_payload(
                             },
                             "extensions": {
                                 "KHR_materials_transmission": {
-                                    "transmissionFactor": transmission
+                                    "transmissionFactor": reduced_transmission
                                 }
                             },
                             "doubleSided": true
