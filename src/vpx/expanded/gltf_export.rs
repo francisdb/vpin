@@ -1170,6 +1170,8 @@ fn build_combined_gltf_payload(
                     .is_some_and(|img| img.is_opaque == Some(false));
 
                 if needs_alpha {
+                    // Use MASK mode instead of BLEND to avoid making the entire mesh translucent
+                    // MASK mode makes pixels below alphaCutoff fully transparent, above it fully opaque
                     gltf_materials.push(json!({
                         "name": format!("__texture__{}", texture_name),
                         "pbrMetallicRoughness": {
@@ -1179,7 +1181,8 @@ fn build_combined_gltf_payload(
                             "metallicFactor": 0.0,
                             "roughnessFactor": 0.5
                         },
-                        "alphaMode": "BLEND",
+                        "alphaMode": "MASK",
+                        "alphaCutoff": 0.5,
                         "doubleSided": true
                     }));
                 } else {
