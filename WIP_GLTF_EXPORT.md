@@ -16,12 +16,21 @@
 - **Spinners** - generated with plate and bracket meshes
 - **Bumpers** - generated with base, socket, ring, and cap meshes
 - **Hit Targets** - all 9 target types (drop targets and hit targets)
+- **Gates** - generated with bracket and wire/plate meshes (4 gate types)
+- **Triggers** - generated with 5 mesh types for 7 trigger shapes
+    - WireA/B/C use simple mesh with shape-specific X rotation
+    - WireD, Star, Button, Inder have dedicated meshes
+    - Supports wire thickness, radius/scale, and Z offset per shape
 - **Playfield** - explicit `playfield_mesh` detection + implicit playfield generation
 
 ### Materials & Textures
 
 - **Basic materials** - color, metallic, roughness from VPX materials
 - **Playfield texture** - embedded in GLB binary buffer
+- **Light transmission** - `KHR_materials_transmission` extension for plastics/inserts
+    - Maps VPinball's `disable_lighting_below` to glTF transmission factor
+    - Walls with `disable_lighting_below < 1.0` get unique materials with transmission
+    - Supported in Blender 2.93+
 
 ### Cameras
 
@@ -46,9 +55,7 @@
 - [ ] **Plunger**
 - [ ] **Kickers**
 - [ ] **Decals**
-- [ ] **Triggers**
 - [ ] **Lights**
-- [ ] **Gates**
 
 ### Cameras
 

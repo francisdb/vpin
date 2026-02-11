@@ -72,6 +72,10 @@ struct NamedMesh {
     color_tint: Option<[f32; 4]>,
     /// Layer name for organizing meshes in the scene hierarchy
     layer_name: Option<String>,
+    /// Optional light transmission factor (0.0 = opaque, 1.0 = fully transmissive)
+    /// Used for KHR_materials_transmission extension.
+    /// Derived from VPinball's disable_lighting_below: transmission = 1.0 - disable_lighting_below
+    transmission_factor: Option<f32>,
 }
 
 // Re-export camera types from the camera module
@@ -357,6 +361,7 @@ fn build_implicit_playfield_mesh(vpx: &VPX, playfield_material_name: &str) -> Na
         texture_name: None,
         color_tint: None,
         layer_name: None,
+        transmission_factor: None,
     }
 }
 
@@ -453,6 +458,15 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         (None, None)
                     };
 
+                    // Calculate transmission factor from disable_lighting_below
+                    // VPinball: disable_lighting_below 0.0 = fully transmits light, 1.0 = blocks light
+                    // glTF KHR_materials_transmission: 0.0 = opaque, 1.0 = fully transmissive
+                    // So: transmission = 1.0 - disable_lighting_below
+                    let transmission_factor = primitive
+                        .disable_lighting_below
+                        .filter(|&v| v < 1.0) // Only set if < 1.0 (i.e., some transmission)
+                        .map(|v| 1.0 - v);
+
                     meshes.push(NamedMesh {
                         name: primitive.name.clone(),
                         vertices: transformed,
@@ -464,6 +478,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             &primitive.editor_layer_name,
                             primitive.editor_layer,
                         ),
+                        transmission_factor,
                     });
                 }
             }
@@ -486,6 +501,16 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         } else {
                             (None, None)
                         };
+
+                        // Calculate transmission factor from disable_lighting_below
+                        // VPinball: disable_lighting_below 0.0 = fully transmits light, 1.0 = blocks light
+                        // glTF KHR_materials_transmission: 0.0 = opaque, 1.0 = fully transmissive
+                        // So: transmission = 1.0 - disable_lighting_below
+                        let transmission_factor = wall
+                            .disable_lighting_below
+                            .filter(|&v| v < 1.0) // Only set if < 1.0 (i.e., some transmission)
+                            .map(|v| 1.0 - v);
+
                         meshes.push(NamedMesh {
                             name: format!("{}Top", wall.name),
                             vertices,
@@ -494,6 +519,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             texture_name,
                             color_tint: None,
                             layer_name: get_layer_name(&wall.editor_layer_name, wall.editor_layer),
+                            transmission_factor,
                         });
                     }
 
@@ -511,6 +537,13 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         } else {
                             (None, None)
                         };
+
+                        // Side surfaces also use the same disable_lighting_below value
+                        let transmission_factor = wall
+                            .disable_lighting_below
+                            .filter(|&v| v < 1.0)
+                            .map(|v| 1.0 - v);
+
                         meshes.push(NamedMesh {
                             name: format!("{}Side", wall.name),
                             vertices,
@@ -519,6 +552,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             texture_name,
                             color_tint: None,
                             layer_name: get_layer_name(&wall.editor_layer_name, wall.editor_layer),
+                            transmission_factor,
                         });
                     }
                 }
@@ -545,6 +579,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         texture_name,
                         color_tint: None,
                         layer_name: get_layer_name(&ramp.editor_layer_name, ramp.editor_layer),
+                        transmission_factor: None,
                     });
                 }
             }
@@ -566,6 +601,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         texture_name: None,
                         color_tint: None,
                         layer_name: get_layer_name(&rubber.editor_layer_name, rubber.editor_layer),
+                        transmission_factor: None,
                     });
                 }
             }
@@ -599,6 +635,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             &flasher.editor_layer_name,
                             flasher.editor_layer,
                         ),
+                        transmission_factor: None,
                     });
                 }
             }
@@ -626,6 +663,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             &flipper.editor_layer_name,
                             flipper.editor_layer,
                         ),
+                        transmission_factor: None,
                     });
 
                     // Add rubber mesh if present
@@ -646,6 +684,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                                 &flipper.editor_layer_name,
                                 flipper.editor_layer,
                             ),
+                            transmission_factor: None,
                         });
                     }
                 }
@@ -669,6 +708,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         texture_name: None,
                         color_tint: None,
                         layer_name: get_layer_name(&bumper.editor_layer_name, bumper.editor_layer),
+                        transmission_factor: None,
                     });
                 }
 
@@ -687,6 +727,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         texture_name: None,
                         color_tint: None,
                         layer_name: get_layer_name(&bumper.editor_layer_name, bumper.editor_layer),
+                        transmission_factor: None,
                     });
                 }
 
@@ -704,6 +745,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         texture_name: None,
                         color_tint: None,
                         layer_name: get_layer_name(&bumper.editor_layer_name, bumper.editor_layer),
+                        transmission_factor: None,
                     });
                 }
 
@@ -722,6 +764,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         texture_name: None,
                         color_tint: None,
                         layer_name: get_layer_name(&bumper.editor_layer_name, bumper.editor_layer),
+                        transmission_factor: None,
                     });
                 }
             }
@@ -746,6 +789,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             &spinner.editor_layer_name,
                             spinner.editor_layer,
                         ),
+                        transmission_factor: None,
                     });
                 }
 
@@ -769,6 +813,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     texture_name: plate_texture,
                     color_tint: None,
                     layer_name: get_layer_name(&spinner.editor_layer_name, spinner.editor_layer),
+                    transmission_factor: None,
                 });
             }
             GameItemEnum::HitTarget(hit_target) => {
@@ -794,6 +839,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             &hit_target.editor_layer_name,
                             hit_target.editor_layer,
                         ),
+                        transmission_factor: None,
                     });
                 }
             }
@@ -816,6 +862,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             texture_name: None,
                             color_tint: None,
                             layer_name: get_layer_name(&gate.editor_layer_name, gate.editor_layer),
+                            transmission_factor: None,
                         });
                     }
 
@@ -829,6 +876,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         texture_name: None,
                         color_tint: None,
                         layer_name: get_layer_name(&gate.editor_layer_name, gate.editor_layer),
+                        transmission_factor: None,
                     });
                 }
             }
@@ -855,6 +903,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             &trigger.editor_layer_name,
                             trigger.editor_layer,
                         ),
+                        transmission_factor: None,
                     });
                 }
             }
@@ -974,8 +1023,17 @@ fn build_combined_gltf_payload(
         }
         material_index_map.insert(name.clone(), gltf_materials.len());
 
-        // Only enable alpha blending if opacity_active is true
-        if mat.opacity_active {
+        // VPinball only enables alpha blending when:
+        // 1. opacity_active is true, AND
+        // 2. opacity < 0.999 (the VPinball threshold)
+        //
+        // Values >= 0.999 with opacity_active=true are a special mode that enables
+        // light-from-below transmission without actual visual transparency.
+        // See VPinball Shader.cpp: "alpha blending is only performed if there is
+        // an alpha channel or a 'meaningful' (not 0.999) alpha value"
+        let needs_alpha_blend = mat.opacity_active && mat.base_color[3] < 0.999;
+
+        if needs_alpha_blend {
             gltf_materials.push(json!({
                 "name": mat.name,
                 "pbrMetallicRoughness": {
@@ -1010,6 +1068,9 @@ fn build_combined_gltf_payload(
     // Track materials for meshes without color tint (can be shared)
     // Key: texture name (lowercase), Value: material index
     let mut texture_material_map: HashMap<String, usize> = HashMap::new();
+
+    // Track whether we use the KHR_materials_transmission extension
+    let mut uses_transmission_extension = false;
 
     // Track per-mesh material indices for meshes with color tint (unique materials)
     // Key: mesh index, Value: material index
@@ -1187,6 +1248,39 @@ fn build_combined_gltf_payload(
                         "doubleSided": true
                     }));
                 }
+            }
+        }
+        // Case 3: Mesh has transmission_factor - needs unique material with KHR_materials_transmission
+        else if let Some(transmission) = mesh.transmission_factor {
+            // Only create unique material if transmission > 0
+            if transmission > 0.0 {
+                let material_idx = gltf_materials.len();
+                mesh_material_map.insert(mesh_idx, material_idx);
+                uses_transmission_extension = true;
+
+                // Get base material properties if available
+                let (base_color, metallic, roughness) = if let Some(ref mat_name) =
+                    mesh.material_name
+                    && let Some(mat) = materials.get(mat_name)
+                {
+                    (mat.base_color, mat.metallic, mat.roughness)
+                } else {
+                    ([1.0, 1.0, 1.0, 1.0], 0.0, 0.5)
+                };
+
+                gltf_materials.push(json!({
+                    "name": format!("{}_transmission", mesh.name),
+                    "pbrMetallicRoughness": {
+                        "baseColorFactor": base_color,
+                        "metallicFactor": metallic,
+                        "roughnessFactor": roughness
+                    },
+                    "extensions": {
+                        "KHR_materials_transmission": {
+                            "transmissionFactor": transmission
+                        }
+                    }
+                }));
             }
         }
     }
@@ -1622,12 +1716,18 @@ fn build_combined_gltf_payload(
         scene_root_nodes.push(camera_node_idx);
     }
 
+    // Build list of extensions used
+    let mut extensions_used = vec!["KHR_lights_punctual"];
+    if uses_transmission_extension {
+        extensions_used.push("KHR_materials_transmission");
+    }
+
     let mut gltf_json = json!({
         "asset": {
             "version": "2.0",
             "generator": "vpin"
         },
-        "extensionsUsed": ["KHR_lights_punctual"],
+        "extensionsUsed": extensions_used,
         "extensions": {
             "KHR_lights_punctual": {
                 "lights": gltf_lights
