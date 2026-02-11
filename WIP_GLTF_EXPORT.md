@@ -15,6 +15,7 @@
     - Applies 180° Z rotation, height scaling, start angle rotation, and center translation
 - **Spinners** - generated with plate and bracket meshes
 - **Bumpers** - generated with base, socket, ring, and cap meshes
+- **Hit Targets** - all 9 target types (drop targets and hit targets)
 - **Playfield** - explicit `playfield_mesh` detection + implicit playfield generation
 
 ### Materials & Textures
@@ -44,7 +45,6 @@
 
 - [ ] **Plunger**
 - [ ] **Kickers**
-- [ ] **Hit targets**
 - [ ] **Decals**
 - [ ] **Triggers**
 - [ ] **Lights**

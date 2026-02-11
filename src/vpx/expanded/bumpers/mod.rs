@@ -17,12 +17,15 @@ mod bumper_cap_mesh;
 mod bumper_ring_mesh;
 mod bumper_socket_mesh;
 
-use super::mesh_common::{Matrix3D, Vec3};
+use super::mesh_common::{Matrix3D, Vec3, generated_mesh_file_name, write_mesh_to_file};
+use super::{PrimitiveMeshFormat, WriteError};
+use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::bumper::Bumper;
 use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 use std::f32::consts::PI;
+use std::path::Path;
 
 pub use bumper_base_mesh::*;
 pub use bumper_cap_mesh::*;
@@ -79,6 +82,84 @@ pub fn build_bumper_meshes(bumper: &Bumper, base_height: f32) -> BumperMeshes {
             None
         },
     }
+}
+
+/// Write bumper meshes to individual files
+pub(super) fn write_bumper_meshes(
+    gameitems_dir: &Path,
+    bumper: &Bumper,
+    json_file_name: &str,
+    mesh_format: PrimitiveMeshFormat,
+    fs: &dyn FileSystem,
+) -> Result<(), WriteError> {
+    let bumper_meshes = build_bumper_meshes(bumper, 0.0);
+    let file_name_base = json_file_name.trim_end_matches(".json");
+
+    // Write base mesh
+    if let Some((vertices, indices)) = bumper_meshes.base {
+        let mesh_path = gameitems_dir.join(generated_mesh_file_name(
+            &format!("{file_name_base}-base.json"),
+            mesh_format,
+        ));
+        write_mesh_to_file(
+            &mesh_path,
+            &format!("{}Base", bumper.name),
+            &vertices,
+            &indices,
+            mesh_format,
+            fs,
+        )?;
+    }
+
+    // Write socket mesh
+    if let Some((vertices, indices)) = bumper_meshes.socket {
+        let mesh_path = gameitems_dir.join(generated_mesh_file_name(
+            &format!("{file_name_base}-socket.json"),
+            mesh_format,
+        ));
+        write_mesh_to_file(
+            &mesh_path,
+            &format!("{}Socket", bumper.name),
+            &vertices,
+            &indices,
+            mesh_format,
+            fs,
+        )?;
+    }
+
+    // Write ring mesh
+    if let Some((vertices, indices)) = bumper_meshes.ring {
+        let mesh_path = gameitems_dir.join(generated_mesh_file_name(
+            &format!("{file_name_base}-ring.json"),
+            mesh_format,
+        ));
+        write_mesh_to_file(
+            &mesh_path,
+            &format!("{}Ring", bumper.name),
+            &vertices,
+            &indices,
+            mesh_format,
+            fs,
+        )?;
+    }
+
+    // Write cap mesh
+    if let Some((vertices, indices)) = bumper_meshes.cap {
+        let mesh_path = gameitems_dir.join(generated_mesh_file_name(
+            &format!("{file_name_base}-cap.json"),
+            mesh_format,
+        ));
+        write_mesh_to_file(
+            &mesh_path,
+            &format!("{}Cap", bumper.name),
+            &vertices,
+            &indices,
+            mesh_format,
+            fs,
+        )?;
+    }
+
+    Ok(())
 }
 
 /// Generate the base mesh

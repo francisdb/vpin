@@ -26,6 +26,7 @@ use super::WriteError;
 use super::bumpers::build_bumper_meshes;
 use super::flashers::build_flasher_mesh;
 use super::flippers::build_flipper_meshes;
+use super::hittargets::build_hit_target_mesh;
 use super::ramps::build_ramp_mesh;
 use super::rubbers::build_rubber_mesh;
 use super::spinners::build_spinner_meshes;
@@ -842,6 +843,32 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     color_tint: None,
                     layer_name: get_layer_name(&spinner.editor_layer_name, spinner.editor_layer),
                 });
+            }
+            GameItemEnum::HitTarget(hit_target) => {
+                if let Some((vertices, indices)) = build_hit_target_mesh(hit_target) {
+                    let material_name = if hit_target.material.is_empty() {
+                        None
+                    } else {
+                        Some(hit_target.material.clone())
+                    };
+                    let texture_name = if hit_target.image.is_empty() {
+                        None
+                    } else {
+                        Some(hit_target.image.clone())
+                    };
+                    meshes.push(NamedMesh {
+                        name: hit_target.name.clone(),
+                        vertices,
+                        indices,
+                        material_name,
+                        texture_name,
+                        color_tint: None,
+                        layer_name: get_layer_name(
+                            &hit_target.editor_layer_name,
+                            hit_target.editor_layer,
+                        ),
+                    });
+                }
             }
             _ => {}
         }

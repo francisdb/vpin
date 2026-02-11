@@ -20,6 +20,7 @@ mod flippers;
 mod fonts;
 mod gameitems;
 mod gltf_export;
+mod hittargets;
 mod images;
 mod materials;
 mod mesh_common;

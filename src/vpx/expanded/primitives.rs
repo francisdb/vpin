@@ -1,7 +1,9 @@
 //! Primitive mesh reading and writing for expanded VPX format
 
+use super::bumpers::write_bumper_meshes;
 use super::flashers::write_flasher_meshes;
 use super::flippers::write_flipper_meshes;
+use super::hittargets::write_hit_target_meshes;
 use super::ramps::write_ramp_meshes;
 use super::rubbers::write_rubber_meshes;
 use super::spinners::write_spinner_meshes;
@@ -95,23 +97,38 @@ pub(super) fn write_gameitem_binaries(
     }
     // Generate derived meshes for walls, ramps, rubbers, and flashers (optional)
     if options.should_generate_derived_meshes() {
-        if let GameItemEnum::Wall(wall) = gameitem {
-            write_wall_meshes(gameitems_dir, wall, json_file_name, mesh_format, fs)?;
-        }
-        if let GameItemEnum::Ramp(ramp) = gameitem {
-            write_ramp_meshes(gameitems_dir, ramp, json_file_name, mesh_format, fs)?;
-        }
-        if let GameItemEnum::Rubber(rubber) = gameitem {
-            write_rubber_meshes(gameitems_dir, rubber, json_file_name, mesh_format, fs)?;
-        }
-        if let GameItemEnum::Flasher(flasher) = gameitem {
-            write_flasher_meshes(gameitems_dir, flasher, json_file_name, mesh_format, fs)?;
-        }
-        if let GameItemEnum::Flipper(flipper) = gameitem {
-            write_flipper_meshes(gameitems_dir, flipper, json_file_name, mesh_format, fs)?;
-        }
-        if let GameItemEnum::Spinner(spinner) = gameitem {
-            write_spinner_meshes(gameitems_dir, spinner, json_file_name, mesh_format, fs)?;
+        match gameitem {
+            GameItemEnum::Wall(wall) => {
+                write_wall_meshes(gameitems_dir, wall, json_file_name, mesh_format, fs)?;
+            }
+            GameItemEnum::Ramp(ramp) => {
+                write_ramp_meshes(gameitems_dir, ramp, json_file_name, mesh_format, fs)?;
+            }
+            GameItemEnum::Rubber(rubber) => {
+                write_rubber_meshes(gameitems_dir, rubber, json_file_name, mesh_format, fs)?;
+            }
+            GameItemEnum::Flasher(flasher) => {
+                write_flasher_meshes(gameitems_dir, flasher, json_file_name, mesh_format, fs)?;
+            }
+            GameItemEnum::Flipper(flipper) => {
+                write_flipper_meshes(gameitems_dir, flipper, json_file_name, mesh_format, fs)?;
+            }
+            GameItemEnum::Spinner(spinner) => {
+                write_spinner_meshes(gameitems_dir, spinner, json_file_name, mesh_format, fs)?;
+            }
+            GameItemEnum::Bumper(bumper) => {
+                write_bumper_meshes(gameitems_dir, bumper, json_file_name, mesh_format, fs)?;
+            }
+            GameItemEnum::HitTarget(hit_target) => {
+                write_hit_target_meshes(
+                    gameitems_dir,
+                    hit_target,
+                    json_file_name,
+                    mesh_format,
+                    fs,
+                )?;
+            }
+            _ => {}
         }
     }
     Ok(())
