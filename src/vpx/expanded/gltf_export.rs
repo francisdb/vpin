@@ -907,6 +907,53 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     });
                 }
             }
+            GameItemEnum::Light(light) => {
+                // Only generate bulb meshes for lights with show_bulb_mesh enabled
+                // Skip backglass lights
+                if light.is_backglass || !light.show_bulb_mesh {
+                    continue;
+                }
+
+                // TODO: Get actual surface height from the table
+                let surface_height = 0.0;
+
+                if let Some(light_meshes) = super::lights::build_light_meshes(light, surface_height)
+                {
+                    // Add bulb mesh
+                    if let Some((vertices, indices)) = light_meshes.bulb {
+                        meshes.push(NamedMesh {
+                            name: format!("{}_bulb", light.name),
+                            vertices,
+                            indices,
+                            material_name: None, // Bulb uses a glass-like material
+                            texture_name: None,
+                            color_tint: None,
+                            layer_name: get_layer_name(
+                                &light.editor_layer_name,
+                                light.editor_layer,
+                            ),
+                            transmission_factor: Some(0.9), // Glass-like transmission
+                        });
+                    }
+
+                    // Add socket mesh
+                    if let Some((vertices, indices)) = light_meshes.socket {
+                        meshes.push(NamedMesh {
+                            name: format!("{}_socket", light.name),
+                            vertices,
+                            indices,
+                            material_name: None, // Socket uses a metallic material
+                            texture_name: None,
+                            color_tint: None,
+                            layer_name: get_layer_name(
+                                &light.editor_layer_name,
+                                light.editor_layer,
+                            ),
+                            transmission_factor: None,
+                        });
+                    }
+                }
+            }
             _ => {}
         }
     }

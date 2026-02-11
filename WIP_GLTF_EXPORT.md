@@ -21,6 +21,10 @@
     - WireA/B/C use simple mesh with shape-specific X rotation
     - WireD, Star, Button, Inder have dedicated meshes
     - Supports wire thickness, radius/scale, and Z offset per shape
+- **Lights** - bulb and socket meshes for lights with `show_bulb_mesh` enabled
+    - Bulb mesh has glass-like transmission (0.9)
+    - Socket mesh is rendered as metallic
+    - Supports mesh_radius scaling and height positioning
 - **Playfield** - explicit `playfield_mesh` detection + implicit playfield generation
 
 ### Materials & Textures
@@ -55,7 +59,6 @@
 - [ ] **Plunger**
 - [ ] **Kickers**
 - [ ] **Decals**
-- [ ] **Lights**
 
 ### Cameras
 
