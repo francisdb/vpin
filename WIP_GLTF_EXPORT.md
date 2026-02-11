@@ -4,10 +4,6 @@
 
 ### Mesh Generation
 
-### Mesh Generation
-
-### Mesh Generation
-
 - **Primitives** - with full transformation (scale, rotation, translation)
 - **Walls** - generated from drag points
 - **Ramps** - generated from drag points
@@ -17,6 +13,8 @@
     - Uses `ApplyFix()` algorithm to scale base and tip radii
     - Supports rubber overlay mesh when `rubber_thickness > 0`
     - Applies 180° Z rotation, height scaling, start angle rotation, and center translation
+- **Spinners** - generated with plate and bracket meshes
+- **Bumpers** - generated with base, socket, ring, and cap meshes
 - **Playfield** - explicit `playfield_mesh` detection + implicit playfield generation
 
 ### Materials & Textures
@@ -24,27 +22,38 @@
 - **Basic materials** - color, metallic, roughness from VPX materials
 - **Playfield texture** - embedded in GLB binary buffer
 
+### Cameras
+
+- **Three view cameras** - Desktop, Fullscreen, and FSS cameras
+- **Legacy mode support** - inclination as percentage (0%=down, 100%=horizontal)
+- **Camera mode support** - look-at percentage with screen-space offsets
+- **Scene scale applied** - X/Y scale affects camera distance
+- **FitCameraToVertices** - ported from VPinball (simplified bounds approximation)
+
 ### Other Features
 
 - **Visibility filtering** - invisible items are skipped
 - **Coordinate transformation** - VPX left-handed Z-up → glTF right-handed Y-up
 - **Unit scaling** - VP units to meters
 - **`is_playfield()` method** - on Primitive struct, matching VPinball's `IsPlayfield()`
+- **Grouping by Layer** - meshes grouped by `editor_layer_name` field
 
 ## 🔲 TODO
 
 ### Mesh Generation (game items)
 
-### Mesh Generation (game items)
-
-- [ ] **Bumpers**
 - [ ] **Plunger**
 - [ ] **Kickers**
 - [ ] **Hit targets**
 - [ ] **Decals**
-- [ ] **Spinners**
 - [ ] **Triggers**
 - [ ] **Lights**
+- [ ] **Gates**
+
+### Cameras
+
+- [ ] **Accurate FitCameraToVertices** - currently uses simplified table bounds instead of actual object bounds
+- [ ] **Remove FIT_CAMERA_DISTANCE_SCALE hack** - collect actual object bounds from table instead
 
 ### Textures
 
@@ -54,7 +63,6 @@
 
 ### Organization / Hierarchy
 
-- [ ] **Grouping by Layer** - group meshes by `editor_layer_name` field
 - [ ] **Grouping by Part Groups** - for newer tables (10.8+), group meshes by `part_group_name` field
 - [ ] **Nested node hierarchy** - use glTF node children to represent these groupings
 

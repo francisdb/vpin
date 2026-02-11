@@ -46,17 +46,12 @@ use crate::vpx::image::ImageData;
 use crate::vpx::material::MaterialType;
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
+use crate::vpx::units::vpu_to_m;
 use byteorder::{LittleEndian, WriteBytesExt};
 use serde_json::json;
 use std::collections::HashMap;
 use std::io;
 use std::path::Path;
-
-/// Conversion factor from VP units to meters
-/// This is based on the size of a typical pinball (1.0625 inches/27mm/50 VPU)
-/// From VPinball def.h: 50 VPU = 1.0625 inches, 1 inch = 25.4mm
-/// So 1 VPU = (25.4 * 1.0625) / 50 mm = 0.539750 mm = 0.000539750 meters
-const VP_UNITS_TO_METERS: f32 = (25.4 * 1.0625) / (50.0 * 1000.0);
 
 /// Special material name for the playfield
 const PLAYFIELD_MATERIAL_NAME: &str = "__playfield__";
@@ -472,10 +467,10 @@ fn calculate_light_range(light: &Light) -> f32 {
                 dx * dx + dy * dy
             })
             .fold(0.0f32, |a, b| a.max(b));
-        max_dist_sq.sqrt() * VP_UNITS_TO_METERS
+        vpu_to_m(max_dist_sq.sqrt())
     } else {
         // Fall back to falloff_radius if no drag points
-        light.falloff_radius * VP_UNITS_TO_METERS
+        vpu_to_m(light.falloff_radius)
     }
 }
 
@@ -1201,13 +1196,13 @@ fn build_combined_gltf_payload(
         let positions_offset = bin_data.len();
         for VertexWrapper { vertex, .. } in &mesh.vertices {
             bin_data
-                .write_f32::<LittleEndian>(vertex.x * VP_UNITS_TO_METERS)
+                .write_f32::<LittleEndian>(vpu_to_m(vertex.x))
                 .map_err(WriteError::Io)?;
             bin_data
-                .write_f32::<LittleEndian>(vertex.z * VP_UNITS_TO_METERS)
+                .write_f32::<LittleEndian>(vpu_to_m(vertex.z))
                 .map_err(WriteError::Io)?;
             bin_data
-                .write_f32::<LittleEndian>(vertex.y * VP_UNITS_TO_METERS)
+                .write_f32::<LittleEndian>(vpu_to_m(vertex.y))
                 .map_err(WriteError::Io)?;
         }
         let positions_length = bin_data.len() - positions_offset;
@@ -1284,9 +1279,9 @@ fn build_combined_gltf_payload(
             ),
             |(min_x, max_x, min_y, max_y, min_z, max_z), v| {
                 // Transform: glTF_x = vpx_x, glTF_y = vpx_z, glTF_z = vpx_y (all scaled)
-                let gltf_x = v.vertex.x * VP_UNITS_TO_METERS;
-                let gltf_y = v.vertex.z * VP_UNITS_TO_METERS;
-                let gltf_z = v.vertex.y * VP_UNITS_TO_METERS;
+                let gltf_x = vpu_to_m(v.vertex.x);
+                let gltf_y = vpu_to_m(v.vertex.z);
+                let gltf_z = vpu_to_m(v.vertex.y);
                 (
                     min_x.min(gltf_x),
                     max_x.max(gltf_x),
@@ -1424,9 +1419,9 @@ fn build_combined_gltf_payload(
     // VPinball has two point lights (MAX_LIGHT_SOURCES = 2), both at the same position
     // Default position is (0, 0, 400) in VPX units
     // Convert to glTF coordinates: X stays, Y->Z, Z->Y, all scaled
-    let light_height = vpx.gamedata.light_height * VP_UNITS_TO_METERS;
-    let table_center_x = (vpx.gamedata.left + vpx.gamedata.right) / 2.0 * VP_UNITS_TO_METERS;
-    let table_center_z = (vpx.gamedata.top + vpx.gamedata.bottom) / 2.0 * VP_UNITS_TO_METERS;
+    let light_height = vpu_to_m(vpx.gamedata.light_height);
+    let table_center_x = vpu_to_m((vpx.gamedata.left + vpx.gamedata.right) / 2.0);
+    let table_center_z = vpu_to_m((vpx.gamedata.top + vpx.gamedata.bottom) / 2.0);
 
     // Light emission color (normalized to 0-1)
     let light_color = [
@@ -1442,7 +1437,7 @@ fn build_combined_gltf_payload(
 
     // Light range in meters - cap to reasonable value for glTF
     // VPinball light_range is often very large (e.g., 4000000 VPX units)
-    let light_range = (vpx.gamedata.light_range * VP_UNITS_TO_METERS).min(100.0);
+    let light_range = vpu_to_m(vpx.gamedata.light_range).min(100.0);
 
     // Build lights array for KHR_lights_punctual extension
     // Start with the two default VPinball table lights
@@ -1556,10 +1551,9 @@ fn build_combined_gltf_payload(
     // for (i, (name, x, y, z, layer_name)) in game_lights.into_iter().enumerate() {
     //     let light_idx = i + 2; // Offset by 2 for table lights
     //
-    //     // Convert position from VPX to glTF coordinates
-    //     let gltf_x = x * VP_UNITS_TO_METERS;
-    //     let gltf_y = z * VP_UNITS_TO_METERS; // VPX Z -> glTF Y
-    //     let gltf_z = y * VP_UNITS_TO_METERS; // VPX Y -> glTF Z
+    //     let gltf_x = vpu_to_m(x);
+    //     let gltf_y = vpu_to_m(z); // VPX Z -> glTF Y
+    //     let gltf_z = vpu_to_m(y); // VPX Y -> glTF Z
     //
     //     let light_node = json!({
     //         "name": name,

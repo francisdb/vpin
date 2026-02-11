@@ -9,13 +9,8 @@
 
 use crate::vpx::VPX;
 use crate::vpx::gamedata::ViewLayoutMode;
+use crate::vpx::units::vpu_to_m;
 use serde_json::json;
-
-/// Conversion factor from VP units to meters
-/// This is based on the size of a typical pinball (1.0625 inches/27mm/50 VPU)
-/// From VPinball def.h: 50 VPU = 1.0625 inches, 1 inch = 25.4mm
-/// So 1 VPU = (25.4 * 1.0625) / 50 mm = 0.539750 mm = 0.000539750 meters
-const VP_UNITS_TO_METERS: f32 = (25.4 * 1.0625) / (50.0 * 1000.0);
 
 /// TODO: This scaling factor compensates for using simplified table bounds (8 corner vertices)
 /// instead of actual object bounding vertices like VPinball does. VPinball collects bounds from
@@ -466,16 +461,16 @@ impl GltfCamera {
                     println!("  final vpx: ({}, {}, {})", vpx_x, vpx_y, vpx_z);
                     println!(
                         "  final meters: x={:.3}, y(height)={:.3}, z(depth)={:.3}",
-                        vpx_x * VP_UNITS_TO_METERS,
-                        vpx_z * VP_UNITS_TO_METERS,
-                        vpx_y * VP_UNITS_TO_METERS
+                        vpu_to_m(vpx_x),
+                        vpu_to_m(vpx_z),
+                        vpu_to_m(vpx_y)
                     );
                 }
 
                 // Transform VPX -> glTF: (x, y, z) -> (x, z, y)
-                let camera_x = vpx_x * VP_UNITS_TO_METERS;
-                let camera_y = vpx_z * VP_UNITS_TO_METERS; // VPX Z (height) -> glTF Y
-                let camera_z = vpx_y * VP_UNITS_TO_METERS; // VPX Y (depth) -> glTF Z
+                let camera_x = vpu_to_m(vpx_x);
+                let camera_y = vpu_to_m(vpx_z); // VPX Z (height) -> glTF Y
+                let camera_z = vpu_to_m(vpx_y); // VPX Y (depth) -> glTF Z
 
                 let position = [camera_x, camera_y, camera_z];
 
@@ -605,9 +600,9 @@ impl GltfCamera {
                 }
 
                 // Transform VPX -> glTF: (x, y, z) -> (x, z, y)
-                let camera_x = vpx_x * VP_UNITS_TO_METERS;
-                let camera_y = vpx_z * VP_UNITS_TO_METERS; // VPX Z (height) -> glTF Y
-                let camera_z = vpx_y * VP_UNITS_TO_METERS; // VPX Y (depth) -> glTF Z
+                let camera_x = vpu_to_m(vpx_x);
+                let camera_y = vpu_to_m(vpx_z); // VPX Z (height) -> glTF Y
+                let camera_z = vpu_to_m(vpx_y); // VPX Y (depth) -> glTF Z
 
                 let position = [camera_x, camera_y, camera_z];
 

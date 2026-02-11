@@ -58,6 +58,7 @@ pub mod math;
 pub mod model;
 pub mod sound;
 pub mod tableinfo;
+pub mod units;
 pub mod version;
 
 pub(crate) mod utf16;
@@ -73,30 +74,6 @@ mod gltf;
 pub mod lzw;
 mod obj;
 pub(crate) mod wav;
-
-/// Convert from visual pinball units to millimeters
-#[inline(always)]
-pub fn mm_to_vpu(x: f32) -> f32 {
-    x * (50.0 / (25.4 * 1.0625))
-}
-
-/// Convert from visual pinball units to millimeters
-#[inline(always)]
-pub fn vpu_to_mm(x: f32) -> f32 {
-    x * (25.4 * 1.0625 / 50.0)
-}
-
-/// Convert from meters to visual pinball units
-#[inline(always)]
-pub fn m_to_vpu(x: f32) -> f32 {
-    x * 50.0 / (0.0254 * 1.0625)
-}
-
-/// Convert from visual pinball units to meters
-#[inline(always)]
-pub fn vpu_to_m(x: f32) -> f32 {
-    x * 0.0254 * 1.0625 / 50.0
-}
 
 /// In-memory representation of a VPX file
 ///
