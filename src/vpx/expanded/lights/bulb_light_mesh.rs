@@ -1,3 +1,4 @@
+#![allow(clippy::excessive_precision, clippy::approx_constant)]
 //! Bulb light mesh data
 //!
 //! Ported from VPinball src/meshes/bulbLightMesh.h
