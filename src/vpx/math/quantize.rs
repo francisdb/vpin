@@ -1,17 +1,30 @@
-// __forceinline float dequantizeUnsignedPercent(const unsigned int i)
-// {
-//     enum { N = 100 };
-//     return min(precise_divide((float)i, (float)N), 1.f); //!! test: optimize div or does this break precision?
-// }
+//! Quantization utilities for converting between float and integer representations.
+//!
+//! These functions are used for compressing/decompressing values in VPX file formats,
+//! particularly for color values, opacity, and other normalized data.
+//!
+//! Ported from VPinball's `src/math/math.h`
 
-// __forceinline unsigned int quantizeUnsignedPercent(const float x)
-// {
-//     enum { N = 100, Np1 = 101 };
-//     assert(x >= 0.f);
-//     return min((unsigned int)(x * (float)Np1), (unsigned int)N);
-// }
-
-// We don't have precise_divide, it's using sse
+/// Perform a precise floating-point division.
+///
+/// VPinball uses SSE intrinsics for this when available (`_mm_div_ss`),
+/// otherwise falls back to regular division. We use f64 intermediate
+/// precision to approximate the SSE behavior.
+///
+/// From VPinball `src/math/math.h`:
+/// ```cpp
+/// #ifdef ENABLE_SSE_OPTIMIZATIONS
+/// __forceinline float precise_divide(const float a, const float b)
+/// {
+///     return _mm_cvtss_f32(_mm_div_ss(_mm_set_ss(a), _mm_set_ss(b)));
+/// }
+/// #else
+/// #define precise_divide(a,b) ((a)/(b))
+/// #endif
+/// ```
+///
+/// TODO we might want to also implement an SSE version of this for x86 targets,
+///   but for now the f64 approach should be sufficient.
 #[inline(always)]
 fn precise_divide(a: f32, b: f32) -> f32 {
     (a as f64 / b as f64) as f32
@@ -30,21 +43,6 @@ pub fn quantize_unsigned_percent(x: f32) -> u32 {
     assert!(x >= 0.0);
     (x * NP1).min(N) as u32
 }
-
-// template <unsigned char bits> // bits to map to
-// __forceinline float dequantizeUnsigned(const unsigned int i)
-// {
-//     enum { N = (1 << bits) - 1 };
-//     return min(precise_divide((float)i, (float)N), 1.f); //!! test: optimize div or does this break precision?
-// }
-
-// template <unsigned char bits> // bits to map to
-// __forceinline unsigned int quantizeUnsigned(const float x)
-// {
-//     enum { N = (1 << bits) - 1, Np1 = (1 << bits) };
-//     assert(x >= 0.f);
-//     return min((unsigned int)(x * (float)Np1), (unsigned int)N);
-// }
 
 #[inline]
 pub fn quantize_u8(bits: u8, x: f32) -> u8 {

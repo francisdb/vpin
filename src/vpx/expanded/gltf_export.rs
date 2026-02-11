@@ -75,42 +75,22 @@ struct NamedMesh {
 // Re-export camera types from the camera module
 use super::camera::GltfCamera;
 
-/// Apply primitive transformation (scale, rotation, translation) to vertices
+/// Transform primitive vertices using the primitive's transformation matrix.
+///
 /// All transformations are done in VPX coordinate space.
 /// The coordinate conversion to glTF happens when writing the GLB.
 ///
-/// ## Rotation Order (Important!)
-///
-/// VPinball builds the transformation matrix as (from primitive.cpp):
-/// ```text
-/// RTmatrix = Translate(tra) * RotZ * RotY * RotX * ObjRotZ * ObjRotY * ObjRotX
-/// fullMatrix = Scale * RTmatrix * Translate(pos)
+/// Ported from VPinball's Primitive::RecalculateMatrices() in primitive.cpp:
+/// ```cpp
+/// RTmatrix = ((MatrixTranslate(tra) * MatrixRotateZ(rot[2])) * MatrixRotateY(rot[1])) * MatrixRotateX(rot[0]);
+/// RTmatrix = ((RTmatrix * MatrixRotateZ(obj_rot[8])) * MatrixRotateY(obj_rot[7])) * MatrixRotateX(obj_rot[6]);
+/// fullMatrix = (MatrixScale(size) * RTmatrix) * MatrixTranslate(position);
 /// ```
-///
-/// When this matrix is applied to a vertex via `fullMatrix * v`, the rightmost
-/// operation is applied first. So the actual order applied to vertices is:
-/// 1. Translate(pos)
-/// 2. ObjRotX, ObjRotY, ObjRotZ (in that order)
-/// 3. RotX, RotY, RotZ (in that order)
-/// 4. Translate(tra)
-/// 5. Scale
-///
-/// However, when applying rotations sequentially (not using matrix multiplication),
-/// we must apply them in **reverse order** (Z, Y, X) to achieve the same result.
-/// This is because matrix multiplication `A * B * v` means B is applied first,
-/// but sequential application must reverse this.
-///
-/// ## Transformation steps applied to each vertex:
-/// 1. Scale by size
-/// 2. Apply ObjRotZ, ObjRotY, ObjRotX (reverse order for sequential application)
-/// 3. Apply RotZ, RotY, RotX (reverse order for sequential application)
-/// 4. Translate by tra
-/// 5. Translate by position
 fn transform_primitive_vertices(
     vertices: Vec<VertexWrapper>,
     primitive: &crate::vpx::gameitem::primitive::Primitive,
 ) -> Vec<VertexWrapper> {
-    use std::f32::consts::PI;
+    use crate::vpx::math::{Matrix3D, Vertex3D, deg_to_rad};
 
     let pos = &primitive.position;
     let size = &primitive.size;
@@ -121,108 +101,47 @@ fn transform_primitive_vertices(
     // 3-5: TraX, TraY, TraZ
     // 6-8: ObjRotX, ObjRotY, ObjRotZ (degrees)
 
-    let deg_to_rad = |deg: f32| deg * PI / 180.0;
+    // Build the transformation matrix matching VPinball's RecalculateMatrices()
+    // RTmatrix = Translate(tra) * RotZ * RotY * RotX
+    let rt_matrix = Matrix3D::translate(rot[3], rot[4], rot[5])
+        * Matrix3D::rotate_z(deg_to_rad(rot[2]))
+        * Matrix3D::rotate_y(deg_to_rad(rot[1]))
+        * Matrix3D::rotate_x(deg_to_rad(rot[0]));
+
+    // RTmatrix = RTmatrix * ObjRotZ * ObjRotY * ObjRotX
+    let rt_matrix = rt_matrix
+        * Matrix3D::rotate_z(deg_to_rad(rot[8]))
+        * Matrix3D::rotate_y(deg_to_rad(rot[7]))
+        * Matrix3D::rotate_x(deg_to_rad(rot[6]));
+
+    // fullMatrix = Scale * RTmatrix * Translate(position)
+    let full_matrix = Matrix3D::scale(size.x, size.y, size.z)
+        * rt_matrix
+        * Matrix3D::translate(pos.x, pos.y, pos.z);
 
     vertices
         .into_iter()
         .map(|mut vw| {
-            let mut x = vw.vertex.x;
-            let mut y = vw.vertex.y;
-            let mut z = vw.vertex.z;
-
-            // 1. Apply scale first
-            x *= size.x;
-            y *= size.y;
-            z *= size.z;
-
-            // 2. Apply object rotation in reverse order: Z, Y, X
-            // ObjRotZ
-            let (sin_z, cos_z) = deg_to_rad(rot[8]).sin_cos();
-            let (x1, y1) = (x * cos_z - y * sin_z, x * sin_z + y * cos_z);
-            x = x1;
-            y = y1;
-            // ObjRotY
-            let (sin_y, cos_y) = deg_to_rad(rot[7]).sin_cos();
-            let (x1, z1) = (x * cos_y + z * sin_y, -x * sin_y + z * cos_y);
-            x = x1;
-            z = z1;
-            // ObjRotX
-            let (sin_x, cos_x) = deg_to_rad(rot[6]).sin_cos();
-            let (y1, z1) = (y * cos_x - z * sin_x, y * sin_x + z * cos_x);
-            y = y1;
-            z = z1;
-
-            // 3. Apply rotation in reverse order: Z, Y, X
-            // RotZ
-            let (sin_z, cos_z) = deg_to_rad(rot[2]).sin_cos();
-            let (x1, y1) = (x * cos_z - y * sin_z, x * sin_z + y * cos_z);
-            x = x1;
-            y = y1;
-            // RotY
-            let (sin_y, cos_y) = deg_to_rad(rot[1]).sin_cos();
-            let (x1, z1) = (x * cos_y + z * sin_y, -x * sin_y + z * cos_y);
-            x = x1;
-            z = z1;
-            // RotX
-            let (sin_x, cos_x) = deg_to_rad(rot[0]).sin_cos();
-            let (y1, z1) = (y * cos_x - z * sin_x, y * sin_x + z * cos_x);
-            y = y1;
-            z = z1;
-
-            // 4. Apply translation (TraX, TraY, TraZ) - indices 3, 4, 5
-            x += rot[3];
-            y += rot[4];
-            z += rot[5];
-
-            // 5. Apply position translation
-            x += pos.x;
-            y += pos.y;
-            z += pos.z;
-
-            vw.vertex.x = x;
-            vw.vertex.y = y;
-            vw.vertex.z = z;
+            // Transform position
+            let v = Vertex3D::new(vw.vertex.x, vw.vertex.y, vw.vertex.z);
+            let transformed = full_matrix.transform_vertex(v);
+            vw.vertex.x = transformed.x;
+            vw.vertex.y = transformed.y;
+            vw.vertex.z = transformed.z;
 
             // Transform normals (rotation only, no translation/scale)
-            let mut nx = vw.vertex.nx;
-            let mut ny = vw.vertex.ny;
-            let mut nz = vw.vertex.nz;
+            let nx = vw.vertex.nx;
+            let ny = vw.vertex.ny;
+            let nz = vw.vertex.nz;
 
             if !nx.is_nan() && !ny.is_nan() && !nz.is_nan() {
-                // Apply object rotation in reverse order: Z, Y, X
-                let (sin_z, cos_z) = deg_to_rad(rot[8]).sin_cos();
-                let (nx1, ny1) = (nx * cos_z - ny * sin_z, nx * sin_z + ny * cos_z);
-                nx = nx1;
-                ny = ny1;
-                let (sin_y, cos_y) = deg_to_rad(rot[7]).sin_cos();
-                let (nx1, nz1) = (nx * cos_y + nz * sin_y, -nx * sin_y + nz * cos_y);
-                nx = nx1;
-                nz = nz1;
-                let (sin_x, cos_x) = deg_to_rad(rot[6]).sin_cos();
-                let (ny1, nz1) = (ny * cos_x - nz * sin_x, ny * sin_x + nz * cos_x);
-                ny = ny1;
-                nz = nz1;
-
-                // Apply rotation in reverse order: Z, Y, X
-                let (sin_z, cos_z) = deg_to_rad(rot[2]).sin_cos();
-                let (nx1, ny1) = (nx * cos_z - ny * sin_z, nx * sin_z + ny * cos_z);
-                nx = nx1;
-                ny = ny1;
-                let (sin_y, cos_y) = deg_to_rad(rot[1]).sin_cos();
-                let (nx1, nz1) = (nx * cos_y + nz * sin_y, -nx * sin_y + nz * cos_y);
-                nx = nx1;
-                nz = nz1;
-                let (sin_x, cos_x) = deg_to_rad(rot[0]).sin_cos();
-                let (ny1, nz1) = (ny * cos_x - nz * sin_x, ny * sin_x + nz * cos_x);
-                ny = ny1;
-                nz = nz1;
-
+                let normal = full_matrix.transform_normal(nx, ny, nz);
                 // Normalize
-                let len = (nx * nx + ny * ny + nz * nz).sqrt();
+                let len = normal.length();
                 if len > 0.0 {
-                    vw.vertex.nx = nx / len;
-                    vw.vertex.ny = ny / len;
-                    vw.vertex.nz = nz / len;
+                    vw.vertex.nx = normal.x / len;
+                    vw.vertex.ny = normal.y / len;
+                    vw.vertex.nz = normal.z / len;
                 }
             }
 
