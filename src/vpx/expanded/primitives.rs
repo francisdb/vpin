@@ -3,10 +3,12 @@
 use super::bumpers::write_bumper_meshes;
 use super::flashers::write_flasher_meshes;
 use super::flippers::write_flipper_meshes;
+use super::gates::write_gate_meshes;
 use super::hittargets::write_hit_target_meshes;
 use super::ramps::write_ramp_meshes;
 use super::rubbers::write_rubber_meshes;
 use super::spinners::write_spinner_meshes;
+use super::triggers::write_trigger_mesh;
 use super::walls::write_wall_meshes;
 use super::{ExpandOptions, PrimitiveMeshFormat, WriteError};
 use crate::filesystem::FileSystem;
@@ -127,6 +129,12 @@ pub(super) fn write_gameitem_binaries(
                     mesh_format,
                     fs,
                 )?;
+            }
+            GameItemEnum::Gate(gate) => {
+                write_gate_meshes(gameitems_dir, gate, json_file_name, mesh_format, fs)?;
+            }
+            GameItemEnum::Trigger(trigger) => {
+                write_trigger_mesh(gameitems_dir, trigger, json_file_name, mesh_format, fs)?;
             }
             _ => {}
         }

@@ -26,10 +26,12 @@ use super::WriteError;
 use super::bumpers::build_bumper_meshes;
 use super::flashers::build_flasher_mesh;
 use super::flippers::build_flipper_meshes;
+use super::gates::build_gate_meshes;
 use super::hittargets::build_hit_target_mesh;
 use super::ramps::build_ramp_mesh;
 use super::rubbers::build_rubber_mesh;
 use super::spinners::build_spinner_meshes;
+use super::triggers::build_trigger_mesh;
 use super::walls::{TableDimensions, build_wall_meshes};
 use crate::filesystem::FileSystem;
 use crate::vpx::VPX;
@@ -181,7 +183,10 @@ fn collect_materials(vpx: &VPX) -> HashMap<String, GltfMaterial> {
                 } else {
                     0.0
                 },
-                roughness: mat.roughness,
+                // VPinball roughness: 0=diffuse(matte)..1=specular(shiny)
+                // glTF roughness: 0=specular(shiny)..1=diffuse(matte)
+                // So we invert: glTF_roughness = 1.0 - VPX_roughness
+                roughness: 1.0 - mat.roughness,
                 opacity_active: mat.opacity_active,
             };
             materials.insert(mat.name.clone(), gltf_mat);
@@ -200,7 +205,10 @@ fn collect_materials(vpx: &VPX) -> HashMap<String, GltfMaterial> {
                     if opacity_active { mat.opacity } else { 1.0 },
                 ],
                 metallic: if mat.is_metal { 1.0 } else { 0.0 },
-                roughness: mat.roughness,
+                // VPinball roughness: 0=diffuse(matte)..1=specular(shiny)
+                // glTF roughness: 0=specular(shiny)..1=diffuse(matte)
+                // So we invert: glTF_roughness = 1.0 - VPX_roughness
+                roughness: 1.0 - mat.roughness,
                 opacity_active,
             };
             materials.insert(mat.name.clone(), gltf_mat);
@@ -785,6 +793,67 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         layer_name: get_layer_name(
                             &hit_target.editor_layer_name,
                             hit_target.editor_layer,
+                        ),
+                    });
+                }
+            }
+            GameItemEnum::Gate(gate) => {
+                // TODO: get surface height from the table
+                if let Some(gate_meshes) = build_gate_meshes(gate, 0.0) {
+                    let material_name = if gate.material.is_empty() {
+                        None
+                    } else {
+                        Some(gate.material.clone())
+                    };
+
+                    // Add bracket mesh if visible
+                    if let Some((bracket_vertices, bracket_indices)) = gate_meshes.bracket {
+                        meshes.push(NamedMesh {
+                            name: format!("{}Bracket", gate.name),
+                            vertices: bracket_vertices,
+                            indices: bracket_indices,
+                            material_name: material_name.clone(),
+                            texture_name: None,
+                            color_tint: None,
+                            layer_name: get_layer_name(&gate.editor_layer_name, gate.editor_layer),
+                        });
+                    }
+
+                    // Add wire/plate mesh
+                    let (wire_vertices, wire_indices) = gate_meshes.wire;
+                    meshes.push(NamedMesh {
+                        name: format!("{}Wire", gate.name),
+                        vertices: wire_vertices,
+                        indices: wire_indices,
+                        material_name,
+                        texture_name: None,
+                        color_tint: None,
+                        layer_name: get_layer_name(&gate.editor_layer_name, gate.editor_layer),
+                    });
+                }
+            }
+            GameItemEnum::Trigger(trigger) => {
+                if !trigger.is_visible {
+                    continue; // Skip invisible triggers
+                }
+                // TODO: get surface height from the table
+                if let Some((vertices, indices)) = build_trigger_mesh(trigger, 0.0) {
+                    let material_name = if trigger.material.is_empty() {
+                        None
+                    } else {
+                        Some(trigger.material.clone())
+                    };
+
+                    meshes.push(NamedMesh {
+                        name: trigger.name.clone(),
+                        vertices,
+                        indices,
+                        material_name,
+                        texture_name: None,
+                        color_tint: None,
+                        layer_name: get_layer_name(
+                            &trigger.editor_layer_name,
+                            trigger.editor_layer,
                         ),
                     });
                 }

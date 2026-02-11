@@ -19,6 +19,7 @@ mod flashers;
 mod flippers;
 mod fonts;
 mod gameitems;
+mod gates;
 mod gltf_export;
 mod hittargets;
 mod images;
@@ -31,6 +32,7 @@ mod ramps;
 mod rubbers;
 mod sounds;
 mod spinners;
+mod triggers;
 mod util;
 mod walls;
 

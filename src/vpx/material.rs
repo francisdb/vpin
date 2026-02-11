@@ -120,7 +120,11 @@ pub struct SaveMaterial {
      */
     pub is_metal: bool,
     /**
-     * Roughness of glossy layer (0(diffuse)..1(specular))
+     * Roughness of glossy layer (0(diffuse/matte)..1(specular/shiny))
+     *
+     * NOTE: This is the INVERSE of standard PBR roughness!
+     * In glTF/Blender: 0=specular(shiny), 1=diffuse(matte)
+     * In VPinball:     0=diffuse(matte), 1=specular(shiny)
      */
     pub roughness: f32,
     /**
