@@ -1199,7 +1199,96 @@ fn build_combined_gltf_payload(
                 }));
             }
         }
-        // Case 2: Mesh has texture but no color_tint - can share material
+        // Case 2: Mesh has transmission_factor - needs unique material with KHR_materials_transmission
+        // This must come before texture-only case because transmission requires unique materials
+        else if let Some(transmission) = mesh.transmission_factor {
+            // Only create unique material if transmission > 0
+            if transmission > 0.0 {
+                let material_idx = gltf_materials.len();
+                mesh_material_map.insert(mesh_idx, material_idx);
+                uses_transmission_extension = true;
+
+                // Get base material properties if available
+                let (base_color, metallic, roughness, needs_alpha_blend) = if let Some(ref mat_name) =
+                    mesh.material_name
+                    && let Some(mat) = materials.get(mat_name)
+                {
+                    // Check if material needs alpha blending (opacity_active and opacity < 0.999)
+                    let needs_blend = mat.opacity_active && mat.base_color[3] < 0.999;
+                    (mat.base_color, mat.metallic, mat.roughness, needs_blend)
+                } else {
+                    ([1.0, 1.0, 1.0, 1.0], 0.0, 0.5, false)
+                };
+
+                // Check if mesh also has a texture
+                if let Some(ref texture_name) = mesh.texture_name {
+                    let texture_key = texture_name.to_lowercase();
+                    if let Some(&texture_idx) = texture_index_map.get(&texture_key) {
+                        // Material with texture AND transmission
+                        let mut material = json!({
+                            "name": format!("{}_transmission", mesh.name),
+                            "pbrMetallicRoughness": {
+                                "baseColorTexture": {
+                                    "index": texture_idx
+                                },
+                                "baseColorFactor": base_color,
+                                "metallicFactor": metallic,
+                                "roughnessFactor": roughness
+                            },
+                            "extensions": {
+                                "KHR_materials_transmission": {
+                                    "transmissionFactor": transmission
+                                }
+                            },
+                            "doubleSided": true
+                        });
+                        if needs_alpha_blend {
+                            material["alphaMode"] = json!("BLEND");
+                        }
+                        gltf_materials.push(material);
+                    } else {
+                        // Texture not found, use color only with transmission
+                        let mut material = json!({
+                            "name": format!("{}_transmission", mesh.name),
+                            "pbrMetallicRoughness": {
+                                "baseColorFactor": base_color,
+                                "metallicFactor": metallic,
+                                "roughnessFactor": roughness
+                            },
+                            "extensions": {
+                                "KHR_materials_transmission": {
+                                    "transmissionFactor": transmission
+                                }
+                            }
+                        });
+                        if needs_alpha_blend {
+                            material["alphaMode"] = json!("BLEND");
+                        }
+                        gltf_materials.push(material);
+                    }
+                } else {
+                    // No texture, just transmission
+                    let mut material = json!({
+                        "name": format!("{}_transmission", mesh.name),
+                        "pbrMetallicRoughness": {
+                            "baseColorFactor": base_color,
+                            "metallicFactor": metallic,
+                            "roughnessFactor": roughness
+                        },
+                        "extensions": {
+                            "KHR_materials_transmission": {
+                                "transmissionFactor": transmission
+                            }
+                        }
+                    });
+                    if needs_alpha_blend {
+                        material["alphaMode"] = json!("BLEND");
+                    }
+                    gltf_materials.push(material);
+                }
+            }
+        }
+        // Case 3: Mesh has texture but no color_tint and no transmission - can share material
         else if let Some(ref texture_name) = mesh.texture_name {
             let texture_key = texture_name.to_lowercase();
 
@@ -1248,39 +1337,6 @@ fn build_combined_gltf_payload(
                         "doubleSided": true
                     }));
                 }
-            }
-        }
-        // Case 3: Mesh has transmission_factor - needs unique material with KHR_materials_transmission
-        else if let Some(transmission) = mesh.transmission_factor {
-            // Only create unique material if transmission > 0
-            if transmission > 0.0 {
-                let material_idx = gltf_materials.len();
-                mesh_material_map.insert(mesh_idx, material_idx);
-                uses_transmission_extension = true;
-
-                // Get base material properties if available
-                let (base_color, metallic, roughness) = if let Some(ref mat_name) =
-                    mesh.material_name
-                    && let Some(mat) = materials.get(mat_name)
-                {
-                    (mat.base_color, mat.metallic, mat.roughness)
-                } else {
-                    ([1.0, 1.0, 1.0, 1.0], 0.0, 0.5)
-                };
-
-                gltf_materials.push(json!({
-                    "name": format!("{}_transmission", mesh.name),
-                    "pbrMetallicRoughness": {
-                        "baseColorFactor": base_color,
-                        "metallicFactor": metallic,
-                        "roughnessFactor": roughness
-                    },
-                    "extensions": {
-                        "KHR_materials_transmission": {
-                            "transmissionFactor": transmission
-                        }
-                    }
-                }));
             }
         }
     }
@@ -1553,7 +1609,7 @@ fn build_combined_gltf_payload(
 
     // Build lights array for KHR_lights_punctual extension
     // Start with the two default VPinball table lights
-    let gltf_lights = vec![
+    let mut gltf_lights = vec![
         json!({
             "name": "TableLight0",
             "type": "point",
@@ -1572,63 +1628,68 @@ fn build_combined_gltf_payload(
 
     // // Collect game item lights and add them
     // // Track light info for creating nodes later: (name, x, y, z, layer_name)
-    // // NOTE: VPinball lights can have a polygon shape defined by drag_points,
-    // // constraining the light to that area. glTF only supports point/spot/directional
-    // // lights, so we export as point lights positioned at the center. The polygon
-    // // shape information is lost in the export. However, we calculate the range
-    // // based on the furthest drag point from the center to approximate the light's reach.
-    // let mut game_lights: Vec<(String, f32, f32, f32, Option<String>)> = Vec::new();
+    // NOTE: VPinball lights can have a polygon shape defined by drag_points,
+    // constraining the light to that area. glTF only supports point/spot/directional
+    // lights, so we export as point lights positioned at the center. The polygon
+    // shape information is lost in the export. However, we calculate the range
+    // based on the furthest drag point from the center to approximate the light's reach.
     //
-    // for gameitem in &vpx.gameitems {
-    //     if let GameItemEnum::Light(light) = gameitem {
-    //         // Skip backglass lights
-    //         if light.is_backglass {
-    //             continue;
-    //         }
-    //
-    //         // Get light height (use provided height or default to 0)
-    //         let light_z = light.height.unwrap_or(0.0);
-    //
-    //         // Light color (normalized to 0-1)
-    //         let color = [
-    //             light.color.r as f32 / 255.0,
-    //             light.color.g as f32 / 255.0,
-    //             light.color.b as f32 / 255.0,
-    //         ];
-    //
-    //         // Light intensity - VPinball intensity values are typically 1-10+
-    //         // Scale down for glTF/Blender where intensity is in candelas
-    //         let intensity = (light.intensity * 0.1).clamp(0.01, 10.0);
-    //
-    //         // Calculate light range using the helper function
-    //         let range = calculate_light_range(light);
-    //
-    //         gltf_lights.push(json!({
-    //             "name": light.name,
-    //             "type": "point",
-    //             "color": color,
-    //             "intensity": intensity,
-    //             "range": range
-    //         }));
-    //
-    //         // Store position info for node creation
-    //         game_lights.push((
-    //             light.name.clone(),
-    //             light.center.x,
-    //             light.center.y,
-    //             light_z,
-    //             get_layer_name(&light.editor_layer_name, light.editor_layer),
-    //         ));
-    //     }
-    // }
+    // We only export lights whose names start with "GI" (case insensitive) to avoid
+    // cluttering the scene with too many lights. GI lights are typically the general
+    // illumination lights that provide ambient lighting to the table.
+    let mut game_lights: Vec<(String, f32, f32, f32, Option<String>)> = Vec::new();
 
-    // // Create light nodes
-    // // Position table lights above the table center
-    //
+    for gameitem in &vpx.gameitems {
+        if let GameItemEnum::Light(light) = gameitem {
+            // Skip backglass lights
+            if light.is_backglass {
+                continue;
+            }
+
+            // Only include lights whose names start with "gi" (case insensitive)
+            if !light.name.to_lowercase().starts_with("gi") {
+                continue;
+            }
+
+            // Get light height (use provided height or default to 0)
+            let light_z = light.height.unwrap_or(0.0);
+
+            // Light color (normalized to 0-1)
+            let color = [
+                light.color.r as f32 / 255.0,
+                light.color.g as f32 / 255.0,
+                light.color.b as f32 / 255.0,
+            ];
+
+            // Light intensity - VPinball intensity values are typically 1-10+
+            // Scale down for glTF/Blender where intensity is in candelas
+            let intensity = (light.intensity * 0.1).clamp(0.01, 10.0);
+
+            // Calculate light range using the helper function
+            let range = calculate_light_range(light);
+
+            gltf_lights.push(json!({
+                "name": light.name,
+                "type": "point",
+                "color": color,
+                "intensity": intensity,
+                "range": range
+            }));
+
+            // Store position info for node creation
+            game_lights.push((
+                light.name.clone(),
+                light.center.x,
+                light.center.y,
+                light_z,
+                get_layer_name(&light.editor_layer_name, light.editor_layer),
+            ));
+        }
+    }
+
     // Collect all scene root nodes - start with root-level meshes (no layer)
     let mut scene_root_nodes: Vec<usize> = root_node_indices.clone();
 
-    #[allow(unused_variables)]
     let light_node_0 = json!({
         "name": "TableLight0",
         "translation": [table_center_x, light_height, table_center_z],
@@ -1638,7 +1699,6 @@ fn build_combined_gltf_payload(
             }
         }
     });
-    #[allow(unused_variables)]
     let light_node_1 = json!({
         "name": "TableLight1",
         "translation": [table_center_x, light_height, table_center_z],
@@ -1649,49 +1709,49 @@ fn build_combined_gltf_payload(
         }
     });
 
-    // // Add light nodes to the nodes array
-    // let light_node_0_idx = nodes.len();
-    // nodes.push(light_node_0);
-    // scene_root_nodes.push(light_node_0_idx);
-    //
-    // let light_node_1_idx = nodes.len();
-    // nodes.push(light_node_1);
-    // scene_root_nodes.push(light_node_1_idx);
+    // Add light nodes to the nodes array
+    let light_node_0_idx = nodes.len();
+    nodes.push(light_node_0);
+    scene_root_nodes.push(light_node_0_idx);
 
-    // // Add game item light nodes
-    // // Light indices start at 2 (after TableLight0 and TableLight1)
-    // for (i, (name, x, y, z, layer_name)) in game_lights.into_iter().enumerate() {
-    //     let light_idx = i + 2; // Offset by 2 for table lights
-    //
-    //     let gltf_x = vpu_to_m(x);
-    //     let gltf_y = vpu_to_m(z); // VPX Z -> glTF Y
-    //     let gltf_z = vpu_to_m(y); // VPX Y -> glTF Z
-    //
-    //     let light_node = json!({
-    //         "name": name,
-    //         "translation": [gltf_x, gltf_y, gltf_z],
-    //         "extensions": {
-    //             "KHR_lights_punctual": {
-    //                 "light": light_idx
-    //             }
-    //         }
-    //     });
-    //
-    //     let node_idx = nodes.len();
-    //     nodes.push(light_node);
-    //
-    //     // Add to layer group if it has a layer, otherwise to root
-    //     if let Some(ref layer) = layer_name {
-    //         if let Some((_, children)) = layer_groups.get_mut(layer) {
-    //             children.push(node_idx);
-    //         } else {
-    //             // Layer doesn't exist yet, create it
-    //             layer_groups.insert(layer.clone(), (usize::MAX, vec![node_idx]));
-    //         }
-    //     } else {
-    //         scene_root_nodes.push(node_idx);
-    //     }
-    // }
+    let light_node_1_idx = nodes.len();
+    nodes.push(light_node_1);
+    scene_root_nodes.push(light_node_1_idx);
+
+    // Add game item light nodes (GI lights only)
+    // Light indices start at 2 (after TableLight0 and TableLight1)
+    for (i, (name, x, y, z, layer_name)) in game_lights.into_iter().enumerate() {
+        let light_idx = i + 2; // Offset by 2 for table lights
+
+        let gltf_x = vpu_to_m(x);
+        let gltf_y = vpu_to_m(z); // VPX Z -> glTF Y
+        let gltf_z = vpu_to_m(y); // VPX Y -> glTF Z
+
+        let light_node = json!({
+            "name": name,
+            "translation": [gltf_x, gltf_y, gltf_z],
+            "extensions": {
+                "KHR_lights_punctual": {
+                    "light": light_idx
+                }
+            }
+        });
+
+        let node_idx = nodes.len();
+        nodes.push(light_node);
+
+        // Add to layer group if it has a layer, otherwise to root
+        if let Some(ref layer) = layer_name {
+            if let Some((_, children)) = layer_groups.get_mut(layer) {
+                children.push(node_idx);
+            } else {
+                // Layer doesn't exist yet, create it
+                layer_groups.insert(layer.clone(), (usize::MAX, vec![node_idx]));
+            }
+        } else {
+            scene_root_nodes.push(node_idx);
+        }
+    }
 
     // Create any new layer group nodes that were added by lights
     for (layer_name, (layer_node_idx, children)) in layer_groups.iter_mut() {
