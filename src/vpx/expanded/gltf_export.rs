@@ -1,5 +1,9 @@
 //! Whole-table GLTF/GLB export
 //!
+//! Reference implementations and resources:
+//! https://github.com/vpinball/vpinball
+//! https://github.com/vbousquet/vpx_lightmapper
+//!
 //! This module provides functionality to export an entire VPX table as a single
 //! GLTF/GLB file containing all meshes (primitives, walls, ramps, rubbers, flashers).
 //!
@@ -1636,12 +1640,16 @@ fn build_combined_gltf_payload(
     }
 
     // Create light nodes for the two default VPinball lights
-    // VPinball has two point lights (MAX_LIGHT_SOURCES = 2), both at the same position
-    // Default position is (0, 0, 400) in VPX units
-    // Convert to glTF coordinates: X stays, Y->Z, Z->Y, all scaled
+    // VPinball has two point lights (MAX_LIGHT_SOURCES = 2) positioned at:
+    //   Light 0: X = center, Y = bottom * 1/3, Z = light_height
+    //   Light 1: X = center, Y = bottom * 2/3, Z = light_height
+    // (see Renderer.cpp lines 1029-1033)
+    // Convert to glTF coordinates: X stays, VPX Y -> glTF Z, VPX Z -> glTF Y
     let light_height = vpu_to_m(vpx.gamedata.light_height);
     let table_center_x = vpu_to_m((vpx.gamedata.left + vpx.gamedata.right) / 2.0);
-    let table_center_z = vpu_to_m((vpx.gamedata.top + vpx.gamedata.bottom) / 2.0);
+    // VPX Y positions for the two lights (1/3 and 2/3 of table depth)
+    let light0_z = vpu_to_m(vpx.gamedata.bottom * (1.0 / 3.0)); // VPX Y -> glTF Z
+    let light1_z = vpu_to_m(vpx.gamedata.bottom * (2.0 / 3.0)); // VPX Y -> glTF Z
 
     // Light emission color (normalized to 0-1)
     let light_color = [
@@ -1650,10 +1658,19 @@ fn build_combined_gltf_payload(
         vpx.gamedata.light0_emission.b as f32 / 255.0,
     ];
 
-    // Light intensity - VPinball uses light_emission_scale which is typically very large (e.g., 1000000+)
-    // glTF KHR_lights_punctual uses candelas where typical values are much lower
-    // Scale down significantly for reasonable Blender rendering
-    let light_intensity = (vpx.gamedata.light_emission_scale / 1000000.0).clamp(0.01, 10.0);
+    // Light intensity in candelas for glTF KHR_lights_punctual
+    // VPinball's light_emission_scale is a multiplier applied to the emission color
+    // to produce HDR values (default is 1,000,000). This doesn't map directly to candelas.
+    //
+    // For reasonable Blender rendering, we calculate intensity as:
+    // - Scale down the VPinball emission scale to a reasonable candela range
+    // - Multiply by the emission color brightness to account for colored lights
+    //
+    // Typical indoor point light: 100-1000 candelas
+    // Typical pinball table overhead light: ~500-2000 candelas
+    let color_brightness = (light_color[0] + light_color[1] + light_color[2]) / 3.0;
+    let base_intensity = (vpx.gamedata.light_emission_scale / 100000.0).clamp(1.0, 100.0);
+    let light_intensity = base_intensity * color_brightness * 500.0; // Scale to reasonable candela range
 
     // Light range in meters - cap to reasonable value for glTF
     // VPinball light_range is often very large (e.g., 4000000 VPX units)
@@ -1686,7 +1703,7 @@ fn build_combined_gltf_payload(
     // shape information is lost in the export. However, we calculate the range
     // based on the furthest drag point from the center to approximate the light's reach.
     //
-    // We only export lights whose names start with "GI" (case insensitive) to avoid
+    // We only export lights whose names start with "GI" (case-insensitive) to avoid
     // cluttering the scene with too many lights. GI lights are typically the general
     // illumination lights that provide ambient lighting to the table.
     let mut game_lights: Vec<(String, f32, f32, f32, Option<String>)> = Vec::new();
@@ -1698,7 +1715,7 @@ fn build_combined_gltf_payload(
                 continue;
             }
 
-            // Only include lights whose names start with "gi" (case insensitive)
+            // Only include lights whose names start with "gi" (case-insensitive)
             if !light.name.to_lowercase().starts_with("gi") {
                 continue;
             }
@@ -1744,7 +1761,7 @@ fn build_combined_gltf_payload(
 
     let light_node_0 = json!({
         "name": "TableLight0",
-        "translation": [table_center_x, light_height, table_center_z],
+        "translation": [table_center_x, light_height, light0_z],
         "extensions": {
             "KHR_lights_punctual": {
                 "light": 0
@@ -1753,7 +1770,7 @@ fn build_combined_gltf_payload(
     });
     let light_node_1 = json!({
         "name": "TableLight1",
-        "translation": [table_center_x, light_height, table_center_z],
+        "translation": [table_center_x, light_height, light1_z],
         "extensions": {
             "KHR_lights_punctual": {
                 "light": 1

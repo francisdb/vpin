@@ -133,5 +133,61 @@ All glTF-related constants are centralized in `src/vpx/gltf.rs`:
 - `GLTF_PRIMITIVE_MODE_TRIANGLES`
 - `GLTF_COMPONENT_TYPE_*`
 - `GLTF_TARGET_*`
+
+### VPinball Scene Lighting & Day/Night Cycle
+
+VPinball has a sophisticated lighting system with ambient light and a day/night cycle feature.
+
+#### Default Light Values (from `pintable.cpp`):
+
+| Property                | Default         | Description                                |
+|-------------------------|-----------------|--------------------------------------------|
+| `light_ambient`         | RGB(25, 25, 25) | Ambient light color (10% gray)             |
+| `light_height`          | 1000.0          | Height of table lights in VPX units        |
+| `light_range`           | 3000.0          | Light falloff range in VPX units           |
+| `light_emission_scale`  | 1,000,000.0     | Multiplier for light emission HDR values   |
+| `env_emission_scale`    | 10.0            | Environment map emission scale             |
+| `global_emission_scale` | 1.0             | Day/night global emission scale (0.15-1.0) |
+
+#### Day/Night Cycle Modes (`SceneLighting::Mode`):
+
+1. **Table** - Uses table's `global_emission_scale` directly
+2. **User** - Uses user-defined light level setting
+3. **DayNight** - Calculates emission scale based on:
+    - Current local time
+    - Geographic latitude/longitude (configurable)
+    - Sun position (sunrise/sunset calculations)
+    - Theoretic solar radiation
+    - Result clamped between 0.15 (night) and 1.0 (day)
+
+#### How Lights Are Affected:
+
+The `global_emission_scale` multiplies all light sources:
+
+- **Ambient light**: `light_ambient * global_emission_scale`
+- **Point lights**: `light_emission_scale * global_emission_scale`
+- **Environment**: `env_emission_scale * global_emission_scale`
+
+#### Current glTF Export Approach:
+
+We export two point lights (TableLight0, TableLight1) positioned at:
+
+- X: center of table
+- Y: 1/3 and 2/3 of table depth
+- Z: `light_height`
+
+Light intensity is calculated as:
+
+```rust
+let color_brightness = (r + g + b) / 3.0;
+let base_intensity = (light_emission_scale / 100000.0).clamp(1.0, 100.0);
+let intensity = base_intensity * color_brightness * 500.0; // ~73W for typical tables
+```
+
+**Not currently exported:**
+
+- Ambient light (could be added as hemisphere light)
+- Day/night cycle (static export at full brightness)
+- Environment map emission
 - `GLTF_FILTER_*` (sampler filters)
 - `GLTF_WRAP_*` (sampler wrap modes)
