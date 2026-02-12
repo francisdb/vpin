@@ -5,6 +5,7 @@ use super::flashers::write_flasher_meshes;
 use super::flippers::write_flipper_meshes;
 use super::gates::write_gate_meshes;
 use super::hittargets::write_hit_target_meshes;
+use super::plungers::write_plunger_meshes;
 use super::ramps::write_ramp_meshes;
 use super::rubbers::write_rubber_meshes;
 use super::spinners::write_spinner_meshes;
@@ -135,6 +136,9 @@ pub(super) fn write_gameitem_binaries(
             }
             GameItemEnum::Trigger(trigger) => {
                 write_trigger_mesh(gameitems_dir, trigger, json_file_name, mesh_format, fs)?;
+            }
+            GameItemEnum::Plunger(plunger) => {
+                write_plunger_meshes(gameitems_dir, plunger, json_file_name, mesh_format, fs)?;
             }
             _ => {}
         }

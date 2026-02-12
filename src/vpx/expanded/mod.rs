@@ -28,6 +28,7 @@ mod materials;
 mod mesh_common;
 mod mesh_validation;
 mod metadata;
+mod plungers;
 mod primitives;
 mod ramps;
 mod rubbers;

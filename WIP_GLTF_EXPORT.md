@@ -25,6 +25,10 @@
     - Bulb mesh has glass-like transmission (0.9)
     - Socket mesh is rendered as metallic
     - Supports mesh_radius scaling and height positioning
+- **Plungers** - generated with rod, spring, and tip meshes
+    - Flat type: simple cylindrical rod
+    - Modern/Custom types: rod + helical spring coil + custom tip shape
+    - Tip shape parsed from `tip_shape` string format (e.g., "0 .34; 2 .6; ...")
 - **Playfield** - explicit `playfield_mesh` detection + implicit playfield generation
 
 ### Materials & Textures
@@ -56,7 +60,6 @@
 
 ### Mesh Generation (game items)
 
-- [ ] **Plunger**
 - [ ] **Kickers**
 - [ ] **Decals**
 

@@ -32,6 +32,7 @@ use super::flashers::build_flasher_mesh;
 use super::flippers::build_flipper_meshes;
 use super::gates::build_gate_meshes;
 use super::hittargets::build_hit_target_mesh;
+use super::plungers::build_plunger_meshes;
 use super::ramps::build_ramp_mesh;
 use super::rubbers::build_rubber_mesh;
 use super::spinners::build_spinner_meshes;
@@ -956,6 +957,94 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             transmission_factor: None,
                         });
                     }
+                }
+            }
+            GameItemEnum::Plunger(plunger) => {
+                if !plunger.is_visible {
+                    continue; // Skip invisible plungers
+                }
+                // TODO: get surface height from the table
+                let plunger_meshes = build_plunger_meshes(plunger, 0.0);
+                let material_name = if plunger.material.is_empty() {
+                    None
+                } else {
+                    Some(plunger.material.clone())
+                };
+                let texture_name = if plunger.image.is_empty() {
+                    None
+                } else {
+                    Some(plunger.image.clone())
+                };
+                let layer_name = get_layer_name(&plunger.editor_layer_name, plunger.editor_layer);
+
+                // Add flat rod mesh (for Flat type)
+                if let Some((vertices, indices)) = plunger_meshes.flat_rod {
+                    meshes.push(NamedMesh {
+                        name: format!("{}Flat", plunger.name),
+                        vertices,
+                        indices,
+                        material_name: material_name.clone(),
+                        texture_name: texture_name.clone(),
+                        color_tint: None,
+                        layer_name: layer_name.clone(),
+                        transmission_factor: None,
+                    });
+                }
+
+                // Add rod mesh (for Modern/Custom types)
+                if let Some((vertices, indices)) = plunger_meshes.rod {
+                    meshes.push(NamedMesh {
+                        name: format!("{}Rod", plunger.name),
+                        vertices,
+                        indices,
+                        material_name: material_name.clone(),
+                        texture_name: texture_name.clone(),
+                        color_tint: None,
+                        layer_name: layer_name.clone(),
+                        transmission_factor: None,
+                    });
+                }
+
+                // Add spring mesh (for Modern/Custom types)
+                if let Some((vertices, indices)) = plunger_meshes.spring {
+                    meshes.push(NamedMesh {
+                        name: format!("{}Spring", plunger.name),
+                        vertices,
+                        indices,
+                        material_name: material_name.clone(),
+                        texture_name: texture_name.clone(),
+                        color_tint: None,
+                        layer_name: layer_name.clone(),
+                        transmission_factor: None,
+                    });
+                }
+
+                // Add ring mesh (for Modern/Custom types)
+                if let Some((vertices, indices)) = plunger_meshes.ring {
+                    meshes.push(NamedMesh {
+                        name: format!("{}Ring", plunger.name),
+                        vertices,
+                        indices,
+                        material_name: material_name.clone(),
+                        texture_name: texture_name.clone(),
+                        color_tint: None,
+                        layer_name: layer_name.clone(),
+                        transmission_factor: None,
+                    });
+                }
+
+                // Add tip mesh (for Modern/Custom types)
+                if let Some((vertices, indices)) = plunger_meshes.tip {
+                    meshes.push(NamedMesh {
+                        name: format!("{}Tip", plunger.name),
+                        vertices,
+                        indices,
+                        material_name,
+                        texture_name,
+                        color_tint: None,
+                        layer_name,
+                        transmission_factor: None,
+                    });
                 }
             }
             _ => {}
