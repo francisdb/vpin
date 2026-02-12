@@ -123,11 +123,11 @@ fn parse_tip_shape(tip_shape: &str) -> Vec<TipShapePoint> {
         }
 
         let parts: Vec<&str> = segment.split_whitespace().collect();
-        if parts.len() >= 2 {
-            if let (Ok(y), Ok(r)) = (parts[0].parse::<f32>(), parts[1].parse::<f32>()) {
-                // Multiply r by 0.5 as VPinball does during parsing
-                points.push(TipShapePoint { y, r: r * 0.5 });
-            }
+        if parts.len() >= 2
+            && let (Ok(y), Ok(r)) = (parts[0].parse::<f32>(), parts[1].parse::<f32>())
+        {
+            // Multiply r by 0.5 as VPinball does during parsing
+            points.push(TipShapePoint { y, r: r * 0.5 });
         }
     }
 
@@ -204,6 +204,7 @@ fn generate_ring_normals(
 ///   const float stepU = 1.0f / (float)circlePoints;
 ///   tu += stepU;  // each step around the circle
 ///   if (tu > 1.0f) tu -= 1.0f;  // wrap around
+#[allow(clippy::too_many_arguments)]
 fn connect_rings(
     vertices: &mut Vec<VertexWrapper>,
     indices: &mut Vec<VpxFace>,
@@ -1154,7 +1155,7 @@ mod tests {
         for vertex in tip_vertices {
             let tv = vertex.vertex.tv;
             assert!(
-                tv >= 0.0 && tv <= 0.25,
+                (0.0..=0.25).contains(&tv),
                 "Tip vertex TV {} is outside tip texture range 0.00-0.25",
                 tv
             );
@@ -1165,7 +1166,7 @@ mod tests {
         for vertex in ring_vertices {
             let tv = vertex.vertex.tv;
             assert!(
-                tv >= 0.25 && tv <= 0.50,
+                (0.25..=0.50).contains(&tv),
                 "Ring vertex TV {} is outside ring texture range 0.25-0.50",
                 tv
             );
@@ -1176,7 +1177,7 @@ mod tests {
         for vertex in rod_vertices {
             let tv = vertex.vertex.tv;
             assert!(
-                tv >= 0.50 && tv <= 0.75,
+                (0.50..=0.75).contains(&tv),
                 "Rod vertex TV {} is outside rod texture range 0.50-0.75",
                 tv
             );
@@ -1187,7 +1188,7 @@ mod tests {
         for vertex in spring_vertices {
             let tv = vertex.vertex.tv;
             assert!(
-                tv >= 0.75 && tv <= 1.0,
+                (0.75..=1.0).contains(&tv),
                 "Spring vertex TV {} is outside spring texture range 0.75-1.0",
                 tv
             );
