@@ -357,6 +357,7 @@ impl VpxObjNormal {
 /// but in vpx files these are always the same as the vertex indices.
 ///
 /// *I do wonder if these indices can be negative?*
+/// TODO do these really need to be i64?
 #[derive(Debug, PartialEq)]
 pub struct VpxFace {
     pub i0: i64,

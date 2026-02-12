@@ -23,6 +23,7 @@ mod gates;
 mod gltf_export;
 mod hittargets;
 mod images;
+mod kickers;
 mod lights;
 mod materials;
 mod mesh_common;

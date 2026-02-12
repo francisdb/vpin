@@ -32,6 +32,7 @@ use super::flashers::build_flasher_mesh;
 use super::flippers::build_flipper_meshes;
 use super::gates::build_gate_meshes;
 use super::hittargets::build_hit_target_mesh;
+use super::kickers::build_kicker_meshes;
 use super::mesh_common::TableDimensions;
 use super::plungers::build_plunger_meshes;
 use super::ramps::build_ramp_mesh;
@@ -1078,6 +1079,97 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         material_name,
                         texture_name,
                         color_tint: None,
+                        layer_name,
+                        transmission_factor: None,
+                    });
+                }
+            }
+            GameItemEnum::Kicker(kicker) => {
+                // Invisible kickers have no mesh
+                if matches!(
+                    kicker.kicker_type,
+                    crate::vpx::gameitem::kicker::KickerType::Invisible
+                ) {
+                    continue;
+                }
+
+                // NOTE: VPinball Kicker Hole Rendering
+                //
+                // In VPinball, kickers appear to create holes in the playfield, but this is
+                // achieved via a depth buffer trick rather than actual geometry holes:
+                //
+                // 1. The plate mesh is rendered with Z_ALWAYS depth function using the
+                //    "kickerBoolean" shader technique
+                // 2. The kicker vertex shader (vs_kicker) offsets the depth by -30 units:
+                //    `P2.z -= 30.0; Out.pos.z = mul(P2, matWorldViewProj).z;`
+                // 3. This makes the kicker appear "above" the playfield in depth, creating
+                //    the illusion of a hole without modifying playfield geometry
+                //
+                // For glTF export, we cannot replicate this shader trick. We export both the
+                // plate and kicker body meshes. Users can use the plate mesh as a boolean
+                // cutter to create actual holes in their playfield mesh in 3D software like
+                // Blender (using boolean modifier with "Difference" operation).
+                //
+                // Kicker textures: VPinball loads built-in textures from its Assets folder:
+                // - KickerCup.webp, KickerWilliams.webp, KickerGottlieb.webp, KickerT1.webp,
+                //   KickerHoleWood.webp
+                // These are not part of the VPX file, so we use approximate default colors.
+
+                // TODO: get surface height from the table
+                let kicker_meshes = build_kicker_meshes(kicker, 0.0);
+                let material_name = if kicker.material.is_empty() {
+                    None
+                } else {
+                    Some(kicker.material.clone())
+                };
+                let layer_name = get_layer_name(&kicker.editor_layer_name, kicker.editor_layer);
+
+                // Default colors based on kicker type to approximate VPinball's built-in textures
+                // These are rough approximations since we don't have access to the actual textures
+                use crate::vpx::gameitem::kicker::KickerType;
+                let kicker_color: Option<[f32; 4]> = match kicker.kicker_type {
+                    KickerType::Cup | KickerType::Cup2 => {
+                        // Chrome/metallic cup - silver color
+                        Some([0.75, 0.75, 0.78, 1.0])
+                    }
+                    KickerType::Williams => {
+                        // Williams kicker - brass/gold color
+                        Some([0.72, 0.53, 0.25, 1.0])
+                    }
+                    KickerType::Gottlieb => {
+                        // Gottlieb kicker - darker metallic
+                        Some([0.45, 0.42, 0.40, 1.0])
+                    }
+                    KickerType::Hole | KickerType::HoleSimple => {
+                        // Wood hole - brown color
+                        Some([0.36, 0.25, 0.15, 1.0])
+                    }
+                    KickerType::Invisible => None,
+                };
+
+                // Add plate mesh - use dark color for the plate (depth mask area)
+                if let Some((vertices, indices)) = kicker_meshes.plate {
+                    meshes.push(NamedMesh {
+                        name: format!("{}Plate", kicker.name),
+                        vertices,
+                        indices,
+                        material_name: material_name.clone(),
+                        texture_name: None,
+                        color_tint: Some([0.02, 0.02, 0.02, 1.0]), // Near-black for hole effect
+                        layer_name: layer_name.clone(),
+                        transmission_factor: None,
+                    });
+                }
+
+                // Add kicker body mesh
+                if let Some((vertices, indices)) = kicker_meshes.kicker {
+                    meshes.push(NamedMesh {
+                        name: format!("{}Kicker", kicker.name),
+                        vertices,
+                        indices,
+                        material_name,
+                        texture_name: None,
+                        color_tint: kicker_color,
                         layer_name,
                         transmission_factor: None,
                     });
