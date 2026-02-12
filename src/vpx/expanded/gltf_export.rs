@@ -32,12 +32,13 @@ use super::flashers::build_flasher_mesh;
 use super::flippers::build_flipper_meshes;
 use super::gates::build_gate_meshes;
 use super::hittargets::build_hit_target_mesh;
+use super::mesh_common::TableDimensions;
 use super::plungers::build_plunger_meshes;
 use super::ramps::build_ramp_mesh;
 use super::rubbers::build_rubber_mesh;
 use super::spinners::build_spinner_meshes;
 use super::triggers::build_trigger_mesh;
-use super::walls::{TableDimensions, build_wall_meshes};
+use super::walls::build_wall_meshes;
 use crate::filesystem::FileSystem;
 use crate::vpx::VPX;
 use crate::vpx::gameitem::GameItemEnum;
@@ -56,6 +57,7 @@ use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 use crate::vpx::units::vpu_to_m;
 use byteorder::{LittleEndian, WriteBytesExt};
+use log::warn;
 use serde_json::json;
 use std::collections::HashMap;
 use std::io;
@@ -227,15 +229,76 @@ fn collect_materials(vpx: &VPX) -> HashMap<String, GltfMaterial> {
     materials
 }
 
-/// Find the playfield image in the VPX
-fn find_playfield_image(vpx: &VPX) -> Option<&ImageData> {
-    let playfield_image_name = &vpx.gamedata.image;
-    if playfield_image_name.is_empty() {
+/// Find an image by name (case-insensitive)
+///
+/// VPinball image references are case-insensitive, so this function
+/// performs a case-insensitive comparison when looking up images.
+fn find_image_by_name<'a>(images: &'a [ImageData], name: &str) -> Option<&'a ImageData> {
+    if name.is_empty() {
         return None;
     }
-    vpx.images
+    images
         .iter()
-        .find(|img| img.name.eq_ignore_ascii_case(playfield_image_name))
+        .find(|img| img.name.eq_ignore_ascii_case(name))
+}
+
+/// Find the playfield image in the VPX
+fn find_playfield_image(vpx: &VPX) -> Option<&ImageData> {
+    find_image_by_name(&vpx.images, &vpx.gamedata.image)
+}
+
+/// Check if an image has any transparent pixels
+///
+/// VPinball dynamically scans the actual pixel data to determine transparency
+/// (see Texture.cpp UpdateOpaque). We do the same here.
+///
+/// Note: In VPX files:
+/// - `bits` = BMP (bitmap) data, always BGRA format
+/// - `jpeg` = can be JPEG, PNG, or other formats (the field name is misleading)
+///
+/// TODO we probably want to move this method elsewhere
+fn image_has_transparency(image: &ImageData) -> bool {
+    // If is_opaque is explicitly set, use it
+    if let Some(is_opaque) = image.is_opaque {
+        return !is_opaque;
+    }
+
+    // Check jpeg field - this can contain JPEG, PNG, or other formats
+    if let Some(ref jpeg) = image.jpeg {
+        // Try to decode the image to check for alpha
+        if let Ok(img) = image::load_from_memory(&jpeg.data) {
+            // Check if the image has an alpha channel with any non-opaque pixels
+            if let Some(rgba) = img.as_rgba8() {
+                for pixel in rgba.pixels() {
+                    if pixel[3] != 255 {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    // Check bitmap data - scan for any non-opaque pixels
+    if let Some(ref bits) = image.bits {
+        use crate::vpx::image::vpx_image_to_dynamic_image;
+
+        let dynamic_image =
+            vpx_image_to_dynamic_image(&bits.lzw_compressed_data, image.width, image.height);
+
+        // Check if the image has an alpha channel and any pixel is not fully opaque
+        if let Some(rgba) = dynamic_image.as_rgba8() {
+            for pixel in rgba.pixels() {
+                if pixel[3] != 255 {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // Default to opaque if we can't determine
+    false
 }
 
 /// Get the image data bytes from an ImageData, converting bitmap to PNG if needed
@@ -363,7 +426,11 @@ fn build_implicit_playfield_mesh(vpx: &VPX, playfield_material_name: &str) -> Na
         vertices,
         indices,
         material_name: Some(playfield_material_name.to_string()),
-        texture_name: None,
+        texture_name: if vpx.gamedata.image.is_empty() {
+            None
+        } else {
+            Some(vpx.gamedata.image.clone())
+        },
         color_tint: None,
         layer_name: None,
         transmission_factor: None,
@@ -450,10 +517,17 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     }
 
                     // Determine material and texture:
-                    // - If it's the playfield primitive, use the playfield material (which has the texture)
+                    // - If it's the playfield primitive, use the playfield material and playfield image
                     // - Otherwise, use the primitive's image as texture if set, or material
                     let (material_name, texture_name) = if is_playfield {
-                        (Some(playfield_material_name.clone()), None)
+                        // Use both playfield material and playfield image
+                        // The texture_name is needed for transmission materials to find the texture
+                        let playfield_texture = if vpx.gamedata.image.is_empty() {
+                            None
+                        } else {
+                            Some(vpx.gamedata.image.clone())
+                        };
+                        (Some(playfield_material_name.clone()), playfield_texture)
                     } else if !primitive.image.is_empty() {
                         // Primitive has a texture image - use it
                         (None, Some(primitive.image.clone()))
@@ -566,15 +640,17 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 if !ramp.is_visible {
                     continue; // Skip invisible ramps
                 }
-                if let Some((vertices, indices)) = build_ramp_mesh(ramp) {
-                    // Ramps use image as texture, or material if no image
-                    let (material_name, texture_name) = if !ramp.image.is_empty() {
-                        // Ramp has a texture image - use it
-                        (None, Some(ramp.image.clone()))
-                    } else if !ramp.material.is_empty() {
-                        (Some(ramp.material.clone()), None)
+                if let Some((vertices, indices)) = build_ramp_mesh(ramp, &table_dims) {
+                    // Ramps can have both material (for opacity settings) and texture
+                    let material_name = if !ramp.material.is_empty() {
+                        Some(ramp.material.clone())
                     } else {
-                        (None, None)
+                        None
+                    };
+                    let texture_name = if !ramp.image.is_empty() {
+                        Some(ramp.image.clone())
+                    } else {
+                        None
                     };
                     meshes.push(NamedMesh {
                         name: ramp.name.clone(),
@@ -614,7 +690,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 if !flasher.is_visible {
                     continue; // Skip invisible flashers
                 }
-                if let Some((vertices, indices)) = build_flasher_mesh(flasher) {
+                if let Some((vertices, indices)) = build_flasher_mesh(flasher, &table_dims) {
                     // Flashers use image_a as their texture
                     let texture_name = if flasher.image_a.is_empty() {
                         None
@@ -1197,6 +1273,7 @@ fn build_combined_gltf_payload(
     }
 
     // Build a map of image name -> ImageData for quick lookup
+    // Use lowercase keys for case-insensitive matching (VPinball image references are case-insensitive)
     let image_map: HashMap<String, &ImageData> = images
         .iter()
         .map(|img| (img.name.to_lowercase(), img))
@@ -1284,6 +1361,11 @@ fn build_combined_gltf_payload(
                 }));
 
                 texture_index_map.insert(texture_key, texture_idx);
+            } else {
+                warn!(
+                    "Image '{}' not found for mesh '{}', texture will not be applied",
+                    texture_name, mesh.name
+                );
             }
         }
     }
@@ -1446,11 +1528,20 @@ fn build_combined_gltf_payload(
                 let material_idx = gltf_materials.len();
                 texture_material_map.insert(texture_key.clone(), material_idx);
 
-                // Check if the image has transparency (is_opaque == Some(false))
-                // If is_opaque is None or Some(true), the texture is opaque
-                let needs_alpha = image_map
+                // Check if alpha blending is needed:
+                // 1. Image has transparent pixels (scan actual pixel data like VPinball does), OR
+                // 2. Mesh has a material with opacity_active enabled and opacity < 0.999
+                let image_has_alpha = image_map
                     .get(&texture_key)
-                    .is_some_and(|img| img.is_opaque == Some(false));
+                    .is_some_and(|img| image_has_transparency(img));
+
+                let material_has_alpha = mesh
+                    .material_name
+                    .as_ref()
+                    .and_then(|mat_name| materials.get(mat_name))
+                    .is_some_and(|mat| mat.opacity_active && mat.base_color[3] < 0.999);
+
+                let needs_alpha = image_has_alpha || material_has_alpha;
 
                 if needs_alpha {
                     // Use MASK mode instead of BLEND to avoid making the entire mesh translucent
@@ -1685,12 +1776,22 @@ fn build_combined_gltf_payload(
             let texture_key = texture_name.to_lowercase();
             if let Some(&mat_idx) = texture_material_map.get(&texture_key) {
                 primitive["material"] = json!(mat_idx);
+            } else {
+                warn!(
+                    "Texture material for '{}' not found for mesh '{}', no material will be applied",
+                    texture_name, mesh.name
+                );
             }
-        } else if let Some(ref mat_name) = mesh.material_name
-            && let Some(&mat_idx) = material_index_map.get(mat_name)
-        {
-            // Fall back to VPX material only if there's no texture
-            primitive["material"] = json!(mat_idx);
+        } else if let Some(ref mat_name) = mesh.material_name {
+            if let Some(&mat_idx) = material_index_map.get(mat_name) {
+                // Fall back to VPX material only if there's no texture
+                primitive["material"] = json!(mat_idx);
+            } else {
+                warn!(
+                    "Material '{}' not found for mesh '{}', no material will be applied",
+                    mat_name, mesh.name
+                );
+            }
         }
 
         mesh_json.push(json!({

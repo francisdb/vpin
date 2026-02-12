@@ -3,7 +3,7 @@
 //! This module ports the rubber mesh generation from Visual Pinball's surface.cpp.
 //! Walls are represented as extruded polygons with optional smoothing and texture coordinates.
 
-use super::mesh_common::{Vec2, generated_mesh_file_name, write_mesh_to_file};
+use super::mesh_common::{TableDimensions, Vec2, generated_mesh_file_name, write_mesh_to_file};
 use super::{PrimitiveMeshFormat, WriteError};
 use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::primitive::VertexWrapper;
@@ -33,27 +33,6 @@ pub(super) fn write_wall_meshes(
 
     let mesh_path = gameitems_dir.join(generated_mesh_file_name(json_file_name, mesh_format));
     write_mesh_to_file(&mesh_path, &wall.name, &vertices, &indices, mesh_format, fs)
-}
-
-/// Table dimensions for UV coordinate calculation
-/// UVs for wall tops are normalized to table space, not item space
-#[derive(Debug, Clone, Copy)]
-pub struct TableDimensions {
-    pub left: f32,
-    pub top: f32,
-    pub right: f32,
-    pub bottom: f32,
-}
-
-impl TableDimensions {
-    pub fn new(left: f32, top: f32, right: f32, bottom: f32) -> Self {
-        Self {
-            left,
-            top,
-            right,
-            bottom,
-        }
-    }
 }
 
 /// Separate wall meshes for top and sides, each with their own material/texture

@@ -5,6 +5,7 @@ use super::flashers::write_flasher_meshes;
 use super::flippers::write_flipper_meshes;
 use super::gates::write_gate_meshes;
 use super::hittargets::write_hit_target_meshes;
+use super::mesh_common::TableDimensions;
 use super::plungers::write_plunger_meshes;
 use super::ramps::write_ramp_meshes;
 use super::rubbers::write_rubber_meshes;
@@ -100,18 +101,36 @@ pub(super) fn write_gameitem_binaries(
     }
     // Generate derived meshes for walls, ramps, rubbers, and flashers (optional)
     if options.should_generate_derived_meshes() {
+        // TODO: Pass actual table dimensions for correct world-aligned textures
+        // For now, use a default that works for most tables (standard playfield size)
+        let default_table_dims = TableDimensions::new(0.0, 0.0, 952.0, 2162.0);
+
         match gameitem {
             GameItemEnum::Wall(wall) => {
                 write_wall_meshes(gameitems_dir, wall, json_file_name, mesh_format, fs)?;
             }
             GameItemEnum::Ramp(ramp) => {
-                write_ramp_meshes(gameitems_dir, ramp, json_file_name, mesh_format, fs)?;
+                write_ramp_meshes(
+                    gameitems_dir,
+                    ramp,
+                    json_file_name,
+                    mesh_format,
+                    &default_table_dims,
+                    fs,
+                )?;
             }
             GameItemEnum::Rubber(rubber) => {
                 write_rubber_meshes(gameitems_dir, rubber, json_file_name, mesh_format, fs)?;
             }
             GameItemEnum::Flasher(flasher) => {
-                write_flasher_meshes(gameitems_dir, flasher, json_file_name, mesh_format, fs)?;
+                write_flasher_meshes(
+                    gameitems_dir,
+                    flasher,
+                    json_file_name,
+                    mesh_format,
+                    &default_table_dims,
+                    fs,
+                )?;
             }
             GameItemEnum::Flipper(flipper) => {
                 write_flipper_meshes(gameitems_dir, flipper, json_file_name, mesh_format, fs)?;

@@ -4,7 +4,7 @@
 //! Ramps can be either flat (with optional walls) or wire ramps (1-4 wire types).
 
 use super::mesh_common::{
-    RenderVertex3D, Vec2, Vec3, compute_normals, detail_level_to_accuracy,
+    RenderVertex3D, TableDimensions, Vec2, Vec3, compute_normals, detail_level_to_accuracy,
     generated_mesh_file_name, get_rotated_axis, init_nonuniform_catmull_coeffs, write_mesh_to_file,
 };
 use super::{PrimitiveMeshFormat, WriteError};
@@ -12,6 +12,7 @@ use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::dragpoint::DragPoint;
 use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::gameitem::ramp::{Ramp, RampType};
+use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 use std::path::Path;
@@ -412,6 +413,7 @@ fn is_habitrail(ramp: &Ramp) -> bool {
 fn build_flat_ramp_mesh(
     ramp: &Ramp,
     vvertex: &[RenderVertex3D],
+    table_dims: &TableDimensions,
 ) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
     let (rgv_local, rgheight, rgratio) = get_ramp_vertex(ramp, vvertex, true);
     let ramp_vertex = vvertex.len();
@@ -441,6 +443,13 @@ fn build_flat_ramp_mesh(
 
     let has_image = !ramp.image.is_empty();
 
+    // For world-aligned textures, we need to normalize coordinates to table dimensions
+    // VPinball: rgv3D[0].tu = rgv3D[0].x * inv_tablewidth
+    //           rgv3D[0].tv = rgv3D[0].y * inv_tableheight
+    let inv_table_width = 1.0 / (table_dims.right - table_dims.left);
+    let inv_table_height = 1.0 / (table_dims.bottom - table_dims.top);
+    let use_world_coords = ramp.image_alignment == RampImageAlignment::World;
+
     // Generate floor vertices
     for i in 0..ramp_vertex {
         let offset = i * 2;
@@ -453,11 +462,19 @@ fn build_flat_ramp_mesh(
         vertices[offset + 1].z = rgheight[i];
 
         if has_image {
-            // Use ramp-aligned texture coordinates
-            vertices[offset].tu = 1.0;
-            vertices[offset].tv = rgratio[i];
-            vertices[offset + 1].tu = 0.0;
-            vertices[offset + 1].tv = rgratio[i];
+            if use_world_coords {
+                // World-aligned texture coordinates (VPinball ramp.cpp line 2175-2180)
+                vertices[offset].tu = vertices[offset].x * inv_table_width;
+                vertices[offset].tv = vertices[offset].y * inv_table_height;
+                vertices[offset + 1].tu = vertices[offset + 1].x * inv_table_width;
+                vertices[offset + 1].tv = vertices[offset + 1].y * inv_table_height;
+            } else {
+                // Ramp-aligned (wrap) texture coordinates
+                vertices[offset].tu = 1.0;
+                vertices[offset].tv = rgratio[i];
+                vertices[offset + 1].tu = 0.0;
+                vertices[offset + 1].tv = rgratio[i];
+            }
         }
 
         if i < ramp_vertex - 1 {
@@ -973,7 +990,10 @@ fn build_wire_ramp_mesh(
 }
 
 /// Build the complete ramp mesh
-pub(super) fn build_ramp_mesh(ramp: &Ramp) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
+pub(super) fn build_ramp_mesh(
+    ramp: &Ramp,
+    table_dims: &TableDimensions,
+) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
     // Generate meshes for all ramps, including invisible ones
     // This is useful for tools that need to visualize or process all geometry
 
@@ -993,7 +1013,7 @@ pub(super) fn build_ramp_mesh(ramp: &Ramp) -> Option<(Vec<VertexWrapper>, Vec<Vp
     if is_habitrail(ramp) {
         build_wire_ramp_mesh(ramp, &vvertex)
     } else {
-        build_flat_ramp_mesh(ramp, &vvertex)
+        build_flat_ramp_mesh(ramp, &vvertex, table_dims)
     }
 }
 
@@ -1003,9 +1023,10 @@ pub(super) fn write_ramp_meshes(
     ramp: &Ramp,
     json_file_name: &str,
     mesh_format: PrimitiveMeshFormat,
+    table_dims: &TableDimensions,
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
-    let Some((vertices, indices)) = build_ramp_mesh(ramp) else {
+    let Some((vertices, indices)) = build_ramp_mesh(ramp, table_dims) else {
         return Ok(());
     };
 
@@ -1084,7 +1105,7 @@ mod tests {
             },
         ];
 
-        let result = build_ramp_mesh(&ramp);
+        let result = build_ramp_mesh(&ramp, &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0));
         assert!(result.is_some());
 
         let (vertices, indices) = result.unwrap();

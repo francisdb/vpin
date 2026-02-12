@@ -4,13 +4,14 @@
 //! Flashers are flat polygons defined by drag points, with optional rotation and height.
 
 use super::mesh_common::{
-    RenderVertex2D, detail_level_to_accuracy, generated_mesh_file_name, get_rg_vertex_2d,
-    write_mesh_to_file,
+    RenderVertex2D, TableDimensions, detail_level_to_accuracy, generated_mesh_file_name,
+    get_rg_vertex_2d, write_mesh_to_file,
 };
 use super::{PrimitiveMeshFormat, WriteError};
 use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::flasher::Flasher;
 use crate::vpx::gameitem::primitive::VertexWrapper;
+use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 use std::f32::consts::PI;
@@ -256,7 +257,10 @@ fn apply_rotation(
 }
 
 /// Build the complete flasher mesh
-pub(super) fn build_flasher_mesh(flasher: &Flasher) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
+pub(super) fn build_flasher_mesh(
+    flasher: &Flasher,
+    table_dims: &TableDimensions,
+) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
     if flasher.drag_points.len() < 3 {
         return None;
     }
@@ -270,7 +274,7 @@ pub(super) fn build_flasher_mesh(flasher: &Flasher) -> Option<(Vec<VertexWrapper
         return None;
     }
 
-    // Calculate bounds for texture coordinates
+    // Calculate bounds for texture coordinates (used for Wrap mode)
     let mut minx = f32::MAX;
     let mut miny = f32::MAX;
     let mut maxx = f32::MIN;
@@ -291,13 +295,30 @@ pub(super) fn build_flasher_mesh(flasher: &Flasher) -> Option<(Vec<VertexWrapper
         }
     }
 
-    let inv_width = if (maxx - minx).abs() > 1e-6 {
-        1.0 / (maxx - minx)
+    // Determine UV mapping based on image_alignment
+    // VPinball flasher.cpp lines 150-169:
+    // - ImageModeWrap: uses local bounding box (minx, miny, maxx, maxy)
+    // - ImageModeWorld: uses table coordinates (m_left, m_top, m_right, m_bottom)
+    let use_world_coords = flasher.image_alignment == RampImageAlignment::World;
+
+    let (uv_minx, uv_miny, uv_maxx, uv_maxy) = if use_world_coords {
+        (
+            table_dims.left,
+            table_dims.top,
+            table_dims.right,
+            table_dims.bottom,
+        )
+    } else {
+        (minx, miny, maxx, maxy)
+    };
+
+    let inv_width = if (uv_maxx - uv_minx).abs() > 1e-6 {
+        1.0 / (uv_maxx - uv_minx)
     } else {
         1.0
     };
-    let inv_height = if (maxy - miny).abs() > 1e-6 {
-        1.0 / (maxy - miny)
+    let inv_height = if (uv_maxy - uv_miny).abs() > 1e-6 {
+        1.0 / (uv_maxy - uv_miny)
     } else {
         1.0
     };
@@ -313,8 +334,8 @@ pub(super) fn build_flasher_mesh(flasher: &Flasher) -> Option<(Vec<VertexWrapper
                 nx: 0.0,
                 ny: 0.0,
                 nz: -1.0, // Flat surface, normal pointing down (visible from above after winding reversal)
-                tu: (v.x - minx) * inv_width,
-                tv: (v.y - miny) * inv_height,
+                tu: (v.x - uv_minx) * inv_width,
+                tv: (v.y - uv_miny) * inv_height,
             }
         })
         .collect();
@@ -360,9 +381,10 @@ pub(super) fn write_flasher_meshes(
     flasher: &Flasher,
     json_file_name: &str,
     mesh_format: PrimitiveMeshFormat,
+    table_dims: &TableDimensions,
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
-    let Some((vertices, indices)) = build_flasher_mesh(flasher) else {
+    let Some((vertices, indices)) = build_flasher_mesh(flasher, table_dims) else {
         return Ok(());
     };
 
@@ -417,7 +439,7 @@ mod tests {
             },
         ];
 
-        let result = build_flasher_mesh(&flasher);
+        let result = build_flasher_mesh(&flasher, &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0));
         assert!(result.is_some());
 
         let (vertices, indices) = result.unwrap();
@@ -463,7 +485,7 @@ mod tests {
             },
         ];
 
-        let result = build_flasher_mesh(&flasher);
+        let result = build_flasher_mesh(&flasher, &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0));
         assert!(result.is_some());
 
         let (vertices, _indices) = result.unwrap();
@@ -502,7 +524,7 @@ mod tests {
             },
         ];
 
-        let result = build_flasher_mesh(&flasher);
+        let result = build_flasher_mesh(&flasher, &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0));
         assert!(result.is_some());
 
         let (vertices, indices) = result.unwrap();
@@ -546,7 +568,7 @@ mod tests {
             },
         ];
 
-        let result = build_flasher_mesh(&flasher);
+        let result = build_flasher_mesh(&flasher, &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0));
         assert!(
             result.is_some(),
             "Clockwise winding flasher should generate a mesh"
