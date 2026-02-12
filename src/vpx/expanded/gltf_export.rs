@@ -1806,18 +1806,33 @@ fn build_combined_gltf_payload(
     ];
 
     // Light intensity in candelas for glTF KHR_lights_punctual
-    // VPinball's light_emission_scale is a multiplier applied to the emission color
-    // to produce HDR values (default is 1,000,000). This doesn't map directly to candelas.
     //
-    // For reasonable Blender rendering, we calculate intensity as:
-    // - Scale down the VPinball emission scale to a reasonable candela range
-    // - Multiply by the emission color brightness to account for colored lights
+    // VPinball calculates light emission as:
+    //   emission = light0_emission * light_emission_scale * global_emission_scale
     //
-    // Typical indoor point light: 100-1000 candelas
-    // Typical pinball table overhead light: ~500-2000 candelas
+    // Where:
+    //   - light_emission_scale: typically 1,000,000 to 4,000,000 (HDR multiplier)
+    //   - global_emission_scale: typically 0.1 to 1.0 (overall brightness control)
+    //
+    // For example with the given table:
+    //   light_emission_scale = 4,000,000
+    //   global_emission_scale = 0.22
+    //   Combined = 880,000
+    //
+    // To convert to glTF candelas (where typical indoor light is 100-1000 cd):
+    // We normalize VPinball's HDR scale to a reasonable physical range.
+    // VPinball's default light_emission_scale is 1,000,000, so we use that as our baseline.
+    //
+    // A typical pinball table has overhead lights at ~500-2000 candelas equivalent.
+    // We map VPinball's combined emission scale to this range.
+    let combined_emission_scale =
+        vpx.gamedata.light_emission_scale * vpx.gamedata.global_emission_scale;
+
+    // Normalize: VPinball default (1,000,000 * 1.0 = 1,000,000) maps to ~1000 candelas
+    // This gives us a scale factor of 1000 / 1,000,000 = 0.001
+    // But we also consider color brightness
     let color_brightness = (light_color[0] + light_color[1] + light_color[2]) / 3.0;
-    let base_intensity = (vpx.gamedata.light_emission_scale / 100000.0).clamp(1.0, 100.0);
-    let light_intensity = base_intensity * color_brightness * 500.0; // Scale to reasonable candela range
+    let light_intensity = combined_emission_scale * 0.001 * color_brightness;
 
     // Light range in meters - cap to reasonable value for glTF
     // VPinball light_range is often very large (e.g., 4000000 VPX units)
@@ -1841,6 +1856,18 @@ fn build_combined_gltf_payload(
             "range": light_range
         }),
     ];
+
+    // NOTE: VPinball also has environment lighting (env_emission_scale) and ambient
+    // lighting (light_ambient) that affect the overall scene brightness. These are
+    // applied to the environment map and ambient term in VPinball's shaders.
+    // glTF doesn't have a direct equivalent - environment lighting would require
+    // an HDR environment map with the correct brightness, and ambient lighting
+    // isn't directly supported. Users may need to adjust these in their 3D software.
+    //
+    // For reference, the VPinball values are:
+    //   - env_emission_scale: multiplier for environment map brightness
+    //   - light_ambient: ambient light color (usually black or very dark)
+    //   - global_emission_scale: overall multiplier applied to everything
 
     // // Collect game item lights and add them
     // // Track light info for creating nodes later: (name, x, y, z, layer_name)

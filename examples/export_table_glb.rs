@@ -58,6 +58,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Rubbers: {}", rubber_count);
     println!("  Flashers: {}", flasher_count);
 
+    // Print lighting info
+    println!("\nLighting settings:");
+    println!(
+        "  Light emission scale: {} (VPinball HDR multiplier)",
+        vpx.gamedata.light_emission_scale
+    );
+    println!(
+        "  Global emission scale: {} (overall brightness)",
+        vpx.gamedata.global_emission_scale
+    );
+    println!(
+        "  Env emission scale: {} (environment map brightness)",
+        vpx.gamedata.env_emission_scale
+    );
+    let combined = vpx.gamedata.light_emission_scale * vpx.gamedata.global_emission_scale;
+    let light_intensity = combined * 0.001; // Scale factor to candelas
+    println!(
+        "  -> Combined: {} -> ~{:.0} candelas in glTF",
+        combined, light_intensity
+    );
+
     // Export to GLB
     let glb_path = vpx_path.with_extension("glb");
     println!("\nExporting to: {}", glb_path.display());
