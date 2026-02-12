@@ -51,7 +51,7 @@ use crate::vpx::gltf::{
     GLTF_MAGIC, GLTF_PRIMITIVE_MODE_TRIANGLES, GLTF_TARGET_ARRAY_BUFFER,
     GLTF_TARGET_ELEMENT_ARRAY_BUFFER, GLTF_VERSION, GLTF_WRAP_REPEAT,
 };
-use crate::vpx::image::ImageData;
+use crate::vpx::image::{ImageData, image_has_transparency};
 use crate::vpx::material::MaterialType;
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
@@ -245,60 +245,6 @@ fn find_image_by_name<'a>(images: &'a [ImageData], name: &str) -> Option<&'a Ima
 /// Find the playfield image in the VPX
 fn find_playfield_image(vpx: &VPX) -> Option<&ImageData> {
     find_image_by_name(&vpx.images, &vpx.gamedata.image)
-}
-
-/// Check if an image has any transparent pixels
-///
-/// VPinball dynamically scans the actual pixel data to determine transparency
-/// (see Texture.cpp UpdateOpaque). We do the same here.
-///
-/// Note: In VPX files:
-/// - `bits` = BMP (bitmap) data, always BGRA format
-/// - `jpeg` = can be JPEG, PNG, or other formats (the field name is misleading)
-///
-/// TODO we probably want to move this method elsewhere
-fn image_has_transparency(image: &ImageData) -> bool {
-    // If is_opaque is explicitly set, use it
-    if let Some(is_opaque) = image.is_opaque {
-        return !is_opaque;
-    }
-
-    // Check jpeg field - this can contain JPEG, PNG, or other formats
-    if let Some(ref jpeg) = image.jpeg {
-        // Try to decode the image to check for alpha
-        if let Ok(img) = image::load_from_memory(&jpeg.data) {
-            // Check if the image has an alpha channel with any non-opaque pixels
-            if let Some(rgba) = img.as_rgba8() {
-                for pixel in rgba.pixels() {
-                    if pixel[3] != 255 {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
-    }
-
-    // Check bitmap data - scan for any non-opaque pixels
-    if let Some(ref bits) = image.bits {
-        use crate::vpx::image::vpx_image_to_dynamic_image;
-
-        let dynamic_image =
-            vpx_image_to_dynamic_image(&bits.lzw_compressed_data, image.width, image.height);
-
-        // Check if the image has an alpha channel and any pixel is not fully opaque
-        if let Some(rgba) = dynamic_image.as_rgba8() {
-            for pixel in rgba.pixels() {
-                if pixel[3] != 255 {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    // Default to opaque if we can't determine
-    false
 }
 
 /// Get the image data bytes from an ImageData, converting bitmap to PNG if needed
@@ -570,15 +516,17 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     if wall.is_top_bottom_visible
                         && let Some((vertices, indices)) = wall_meshes.top
                     {
-                        // Top surface: use image (texture) or top_material
+                        // Top surface: use image (texture) AND top_material (for opacity settings)
                         // Note: display_texture only affects editor preview, not runtime rendering
-                        let (material_name, texture_name) = if !wall.image.is_empty() {
-                            // Use texture for top surface
-                            (None, Some(wall.image.clone()))
-                        } else if !wall.top_material.is_empty() {
-                            (Some(wall.top_material.clone()), None)
+                        let material_name = if !wall.top_material.is_empty() {
+                            Some(wall.top_material.clone())
                         } else {
-                            (None, None)
+                            None
+                        };
+                        let texture_name = if !wall.image.is_empty() {
+                            Some(wall.image.clone())
+                        } else {
+                            None
                         };
 
                         // Calculate transmission factor from disable_lighting_below
@@ -606,15 +554,17 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     if wall.is_side_visible
                         && let Some((vertices, indices)) = wall_meshes.side
                     {
-                        // Side surface: use side_image (texture) or side_material
+                        // Side surface: use side_image (texture) AND side_material (for opacity settings)
                         // Note: display_texture only affects editor preview, not runtime rendering
-                        let (material_name, texture_name) = if !wall.side_image.is_empty() {
-                            // Use texture for side surface
-                            (None, Some(wall.side_image.clone()))
-                        } else if !wall.side_material.is_empty() {
-                            (Some(wall.side_material.clone()), None)
+                        let material_name = if !wall.side_material.is_empty() {
+                            Some(wall.side_material.clone())
                         } else {
-                            (None, None)
+                            None
+                        };
+                        let texture_name = if !wall.side_image.is_empty() {
+                            Some(wall.side_image.clone())
+                        } else {
+                            None
                         };
 
                         // Side surfaces also use the same disable_lighting_below value
@@ -1446,6 +1396,11 @@ fn build_combined_gltf_payload(
                 if let Some(ref texture_name) = mesh.texture_name {
                     let texture_key = texture_name.to_lowercase();
                     if let Some(&texture_idx) = texture_index_map.get(&texture_key) {
+                        // Check if the image has transparent pixels
+                        let image_has_alpha = image_map
+                            .get(&texture_key)
+                            .is_some_and(|img| image_has_transparency(img));
+
                         // Material with texture AND transmission
                         // Reduce transmission for textured surfaces since printed decals/stickers
                         // block light - only clear/unprinted areas would transmit light
@@ -1469,8 +1424,10 @@ fn build_combined_gltf_payload(
                             },
                             "doubleSided": true
                         });
-                        if needs_alpha_blend {
-                            material["alphaMode"] = json!("BLEND");
+                        // Enable alpha if material or image has transparency
+                        if needs_alpha_blend || image_has_alpha {
+                            material["alphaMode"] = json!("MASK");
+                            material["alphaCutoff"] = json!(0.5);
                         }
                         gltf_materials.push(material);
                     } else {
