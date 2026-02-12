@@ -951,31 +951,41 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 if let Some(light_meshes) = super::lights::build_light_meshes(light, surface_height)
                 {
                     // Add bulb mesh
+                    // VPinball bulb material (light.cpp lines 679-691):
+                    //   m_bOpacityActive = true, m_fOpacity = 0.2f (20% opacity = 80% transparent)
+                    //   m_cBase = 0 (black base), m_cGlossy = 0xFFFFFF, m_fRoughness = 0.9f
+                    //   m_cClearcoat = 0xFFFFFF (glass effect)
+                    // We use color_tint with alpha=0.2 to achieve the transparency effect
                     if let Some((vertices, indices)) = light_meshes.bulb {
                         meshes.push(NamedMesh {
                             name: format!("{}_bulb", light.name),
                             vertices,
                             indices,
-                            material_name: None, // Bulb uses a glass-like material
+                            material_name: None,
                             texture_name: None,
-                            color_tint: None,
+                            // VPinball: m_fOpacity = 0.2f (20% opacity, 80% transparent)
+                            // Using a white tint with low alpha to match VPinball's glass effect
+                            color_tint: Some([1.0, 1.0, 1.0, 0.2]),
                             layer_name: get_layer_name(
                                 &light.editor_layer_name,
                                 light.editor_layer,
                             ),
-                            transmission_factor: Some(0.9), // Glass-like transmission
+                            transmission_factor: None,
                         });
                     }
 
                     // Add socket mesh
+                    // VPinball socket material (light.cpp lines 662-677):
+                    //   m_cBase = 0x181818 (dark gray), metallic appearance
                     if let Some((vertices, indices)) = light_meshes.socket {
                         meshes.push(NamedMesh {
                             name: format!("{}_socket", light.name),
                             vertices,
                             indices,
-                            material_name: None, // Socket uses a metallic material
+                            material_name: None,
                             texture_name: None,
-                            color_tint: None,
+                            // Dark metallic socket - VPinball uses m_cBase = 0x181818
+                            color_tint: Some([0.094, 0.094, 0.094, 1.0]), // 0x18/0xFF ≈ 0.094
                             layer_name: get_layer_name(
                                 &light.editor_layer_name,
                                 light.editor_layer,
