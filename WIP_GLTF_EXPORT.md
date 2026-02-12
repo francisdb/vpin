@@ -1,6 +1,6 @@
 # GLB/GLTF Export - Work in Progress
 
-## ✅ Implemented
+## Implemented
 
 ### Mesh Generation
 
@@ -22,13 +22,20 @@
     - WireD, Star, Button, Inder have dedicated meshes
     - Supports wire thickness, radius/scale, and Z offset per shape
 - **Lights** - bulb and socket meshes for lights with `show_bulb_mesh` enabled
-    - Bulb mesh has glass-like transmission (0.9)
-    - Socket mesh is rendered as metallic
+    - Bulb uses alpha blending with 20% opacity (matching VPinball's `m_fOpacity = 0.2f`)
+    - Socket mesh uses dark metallic color (`0x181818`)
     - Supports mesh_radius scaling and height positioning
+    - GI lights with bulb mesh and Z=0 are moved up ~1cm so light appears inside bulb
 - **Plungers** - generated with rod, spring, and tip meshes
     - Flat type: simple cylindrical rod
     - Modern/Custom types: rod + helical spring coil + custom tip shape
     - Tip shape parsed from `tip_shape` string format (e.g., "0 .34; 2 .6; ...")
+- **Kickers** - generated with plate and body meshes (7 kicker types)
+    - Cup, Cup2/T1, Williams, Gottlieb, Hole, HoleSimple, Invisible
+    - Plate mesh can be used as boolean cutter in 3D software to create playfield holes
+    - Default colors approximate VPinball's built-in textures (KickerCup.webp, etc.)
+    - Note: VPinball uses depth buffer trick (`Z_ALWAYS` + `kickerBoolean` shader with -30 Z offset)
+      to create hole illusion without actual geometry - this doesn't translate to glTF
 - **Playfield** - explicit `playfield_mesh` detection + implicit playfield generation
 
 ### Materials & Textures
@@ -60,7 +67,6 @@
 
 ### Mesh Generation (game items)
 
-- [ ] **Kickers**
 - [ ] **Decals**
 
 ### Cameras
@@ -70,9 +76,10 @@
 
 ### Textures
 
-- [ ] **Additional textures** - currently only playfield texture is supported
-- [ ] **Per-primitive textures** - create separate materials like `{material}_{primitivename}` when textures are
-  involved
+- [ ] **Bumper built-in textures** - VPinball loads from Assets folder: BumperBase.webp, BumperCap.webp,
+  BumperRing.webp, BumperSocket.webp
+- [ ] **Kicker built-in textures** - VPinball loads from Assets folder: KickerCup.webp, KickerWilliams.webp,
+  KickerGottlieb.webp, KickerT1.webp, KickerHoleWood.webp
 
 ### Organization / Hierarchy
 
@@ -179,18 +186,22 @@ We export two point lights (TableLight0, TableLight1) positioned at:
 - Y: 1/3 and 2/3 of table depth
 - Z: `light_height`
 
-Light intensity is calculated as:
+Light intensity is calculated using VPinball's formula:
 
 ```rust
+// VPinball calculates: emission = light0_emission * light_emission_scale * global_emission_scale
+let combined_emission_scale = light_emission_scale * global_emission_scale;
 let color_brightness = (r + g + b) / 3.0;
-let base_intensity = (light_emission_scale / 100000.0).clamp(1.0, 100.0);
-let intensity = base_intensity * color_brightness * 500.0; // ~73W for typical tables
+// Normalize to candelas: VPinball default (1,000,000) maps to ~1000 candelas
+let light_intensity = combined_emission_scale * 0.001 * color_brightness;
 ```
+
+For example with `light_emission_scale = 4,000,000` and `global_emission_scale = 0.22`:
+
+- Combined = 880,000 → ~880 candelas in glTF
 
 **Not currently exported:**
 
 - Ambient light (could be added as hemisphere light)
 - Day/night cycle (static export at full brightness)
 - Environment map emission
-- `GLTF_FILTER_*` (sampler filters)
-- `GLTF_WRAP_*` (sampler wrap modes)
