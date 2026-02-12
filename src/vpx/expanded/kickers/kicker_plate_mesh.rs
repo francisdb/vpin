@@ -1,3 +1,4 @@
+#![allow(clippy::excessive_precision, clippy::approx_constant)]
 //! kicker_plate mesh data
 //!
 //! Ported from VPinball src/meshes/kickerCupMesh.h
@@ -12,7 +13,6 @@ pub const KICKER_PLATE_NUM_INDICES: usize = 72;
 
 /// kicker_plate mesh vertices
 #[rustfmt::skip]
-#[allow(clippy::approx_constant)]
 pub static KICKER_PLATE_VERTICES: [Vertex3dNoTex2; KICKER_PLATE_NUM_VERTICES] = [
     Vertex3dNoTex2 { x: -1.160550, y: 0.001521, z: 0.002516, nx: 0.000000, ny: 0.000000, nz: 1.000000, tu: 0.500000, tv: 0.001500 },
     Vertex3dNoTex2 { x: -1.121706, y: -0.293496, z: 0.002516, nx: 0.000000, ny: 0.000000, nz: 1.000000, tu: 0.458338, tv: 0.001500 },

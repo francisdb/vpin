@@ -1,3 +1,4 @@
+#![allow(clippy::excessive_precision, clippy::approx_constant)]
 //! kicker_williams mesh data
 //!
 //! Ported from VPinball src/meshes/kickerWilliams.h
@@ -12,7 +13,6 @@ pub const KICKER_WILLIAMS_NUM_INDICES: usize = 3582;
 
 /// kicker_williams mesh vertices
 #[rustfmt::skip]
-#[allow(clippy::approx_constant)]
 pub static KICKER_WILLIAMS_VERTICES: [Vertex3dNoTex2; KICKER_WILLIAMS_NUM_VERTICES] = [
     Vertex3dNoTex2 { x: 0.850209, y: 0.044229, z: -1.008723, nx: 0.567700, ny: 0.770200, nz: -0.290700, tu: 0.973700, tv: 0.575000 },
     Vertex3dNoTex2 { x: 0.841814, y: -0.045924, z: -1.044879, nx: 0.624000, ny: -0.780500, nz: 0.038100, tu: 0.997600, tv: 0.588200 },

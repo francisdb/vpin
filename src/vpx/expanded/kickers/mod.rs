@@ -101,9 +101,7 @@ fn generate_plate_mesh(kicker: &Kicker, base_height: f32) -> (Vec<VertexWrapper>
 
     // Transform vertices
     // From kicker.cpp lines 219-229
-    for i in 0..num_vertices {
-        let src = &KICKER_PLATE_VERTICES[i];
-
+    for src in &KICKER_PLATE_VERTICES {
         let x = src.x * rad + kicker.center.x;
         let y = src.y * rad + kicker.center.y;
         let z = src.z * rad + base_height;

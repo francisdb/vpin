@@ -1,3 +1,4 @@
+#![allow(clippy::excessive_precision, clippy::approx_constant)]
 //! kicker_t1 mesh data
 //!
 //! Ported from VPinball src/meshes/kickerT1Mesh.h
@@ -12,7 +13,6 @@ pub const KICKER_T1_NUM_INDICES: usize = 2094;
 
 /// kicker_t1 mesh vertices
 #[rustfmt::skip]
-#[allow(clippy::approx_constant)]
 pub static KICKER_T1_VERTICES: [Vertex3dNoTex2; KICKER_T1_NUM_VERTICES] = [
     Vertex3dNoTex2 { x: 0.137120, y: 0.005193, z: -0.610953, nx: -0.967600, ny: -0.242200, nz: 0.071900, tu: 0.656300, tv: 0.393000 },
     Vertex3dNoTex2 { x: 0.140158, y: -0.019940, z: -0.636120, nx: -0.999000, ny: 0.022700, nz: -0.037700, tu: 0.655700, tv: 0.409600 },

@@ -1,3 +1,4 @@
+#![allow(clippy::excessive_precision, clippy::approx_constant)]
 //! kicker_simple_hole mesh data
 //!
 //! Ported from VPinball src/meshes/kickerSimpleHoleMesh.h
@@ -12,7 +13,6 @@ pub const KICKER_SIMPLE_HOLE_NUM_INDICES: usize = 126;
 
 /// kicker_simple_hole mesh vertices
 #[rustfmt::skip]
-#[allow(clippy::approx_constant)]
 pub static KICKER_SIMPLE_HOLE_VERTICES: [Vertex3dNoTex2; KICKER_SIMPLE_HOLE_NUM_VERTICES] = [
     Vertex3dNoTex2 { x: -0.300698, y: 0.871887, z: -0.623927, nx: 0.312300, ny: -0.950000, nz: 0.000000, tu: 0.497836, tv: 0.036364 },
     Vertex3dNoTex2 { x: -0.583629, y: 0.720173, z: -0.006035, nx: 0.618400, ny: -0.785800, nz: 0.000000, tu: 0.331702, tv: 0.985736 },

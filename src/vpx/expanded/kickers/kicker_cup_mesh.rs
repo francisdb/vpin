@@ -1,3 +1,4 @@
+#![allow(clippy::excessive_precision, clippy::approx_constant)]
 //! kicker_cup mesh data
 //!
 //! Ported from VPinball src/meshes/kickerCupMesh.h
@@ -12,7 +13,6 @@ pub const KICKER_CUP_NUM_INDICES: usize = 774;
 
 /// kicker_cup mesh vertices
 #[rustfmt::skip]
-#[allow(clippy::approx_constant)]
 pub static KICKER_CUP_VERTICES: [Vertex3dNoTex2; KICKER_CUP_NUM_VERTICES] = [
     Vertex3dNoTex2 { x: 0.160498, y: -0.969978, z: -0.437316, nx: -0.132000, ny: 0.991300, nz: -0.000000, tu: 0.473903, tv: 0.120135 },
     Vertex3dNoTex2 { x: 0.000000, y: -0.991344, z: -1.023521, nx: -0.132000, ny: 0.991300, nz: -0.000000, tu: 0.500000, tv: 0.403981 },

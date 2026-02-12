@@ -1,3 +1,4 @@
+#![allow(clippy::excessive_precision, clippy::approx_constant)]
 //! kicker_gottlieb mesh data
 //!
 //! Ported from VPinball src/meshes/kickerGottlieb.h
@@ -12,7 +13,6 @@ pub const KICKER_GOTTLIEB_NUM_INDICES: usize = 6300;
 
 /// kicker_gottlieb mesh vertices
 #[rustfmt::skip]
-#[allow(clippy::approx_constant)]
 pub static KICKER_GOTTLIEB_VERTICES: [Vertex3dNoTex2; KICKER_GOTTLIEB_NUM_VERTICES] = [
     Vertex3dNoTex2 { x: 0.351690, y: 0.921975, z: 0.017020, nx: -0.249400, ny: -0.649900, nz: 0.717900, tu: 0.679600, tv: 0.317800 },
     Vertex3dNoTex2 { x: 0.239993, y: 0.958323, z: 0.017014, nx: -0.172200, ny: -0.671700, nz: 0.720500, tu: 0.678500, tv: 0.298400 },
