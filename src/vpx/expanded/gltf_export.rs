@@ -55,7 +55,7 @@ use crate::vpx::image::{ImageData, image_has_transparency};
 use crate::vpx::material::MaterialType;
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
-use crate::vpx::units::vpu_to_m;
+use crate::vpx::units::{mm_to_vpu, vpu_to_m};
 use byteorder::{LittleEndian, WriteBytesExt};
 use log::warn;
 use serde_json::json;
@@ -1905,7 +1905,15 @@ fn build_combined_gltf_payload(
             }
 
             // Get light height (use provided height or default to 0)
-            let light_z = light.height.unwrap_or(0.0);
+            let mut light_z = light.height.unwrap_or(0.0);
+
+            // If a GI light has Z 0, move the light up ~1cm
+            // so it appears inside the bulb rather than at the base
+            // We might want to filter later on to only be for lights that have a bulb mesh.
+            // TODO we might want to let the user configure these tweaks
+            if light_z.abs() < 0.001 {
+                light_z = mm_to_vpu(10.0);
+            }
 
             // Light color (normalized to 0-1)
             let color = [
