@@ -13,10 +13,8 @@
 //! Use [`write_with_options`] to specify the format and other options.
 //! Both formats are supported for reading, with OBJ checked first for backward compatibility.
 
-mod camera;
 mod fonts;
 mod gameitems;
-mod gltf_export;
 mod images;
 mod materials;
 mod metadata;
@@ -30,7 +28,6 @@ use crate::vpx::gltf::{GltfContainer, write_gltf};
 use crate::vpx::material::Material;
 use crate::vpx::obj::{VpxFace, write_obj};
 use crate::vpx::{VPX, Version};
-pub use gltf_export::export_glb;
 use log::{info, warn};
 pub use primitives::BytesMutExt;
 use std::error::Error;

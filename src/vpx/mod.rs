@@ -70,6 +70,7 @@ pub mod renderprobe;
 pub(crate) mod json;
 
 // we have to make this public for the integration tests
+pub mod export;
 mod gltf;
 pub mod lzw;
 mod mesh;

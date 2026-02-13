@@ -89,7 +89,6 @@
 // - Day/night cycle (static export at full brightness)
 // - Environment map emission
 
-use super::WriteError;
 use crate::filesystem::FileSystem;
 use crate::vpx;
 use crate::vpx::gameitem::GameItemEnum;
@@ -1382,12 +1381,12 @@ fn build_combined_gltf_payload(
     images: &[ImageData],
     playfield_image: Option<&ImageData>,
     playfield_material_name: &str,
-) -> Result<(serde_json::Value, Vec<u8>), WriteError> {
+) -> io::Result<(serde_json::Value, Vec<u8>)> {
     if meshes.is_empty() {
-        return Err(WriteError::Io(io::Error::new(
+        return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "No meshes to export",
-        )));
+        ));
     }
 
     // Build material name -> index map and create glTF materials array
@@ -2043,15 +2042,9 @@ fn build_combined_gltf_payload(
         // Winding order is reversed to change handedness
         let positions_offset = bin_data.len();
         for VertexWrapper { vertex, .. } in &mesh.vertices {
-            bin_data
-                .write_f32::<LittleEndian>(vpu_to_m(vertex.x))
-                .map_err(WriteError::Io)?;
-            bin_data
-                .write_f32::<LittleEndian>(vpu_to_m(vertex.z))
-                .map_err(WriteError::Io)?;
-            bin_data
-                .write_f32::<LittleEndian>(vpu_to_m(vertex.y))
-                .map_err(WriteError::Io)?;
+            bin_data.write_f32::<LittleEndian>(vpu_to_m(vertex.x))?;
+            bin_data.write_f32::<LittleEndian>(vpu_to_m(vertex.z))?;
+            bin_data.write_f32::<LittleEndian>(vpu_to_m(vertex.y))?;
         }
         let positions_length = bin_data.len() - positions_offset;
 
@@ -2061,27 +2054,17 @@ fn build_combined_gltf_payload(
             let nx = if vertex.nx.is_nan() { 0.0 } else { vertex.nx };
             let ny = if vertex.ny.is_nan() { 0.0 } else { vertex.ny };
             let nz = if vertex.nz.is_nan() { 0.0 } else { vertex.nz };
-            bin_data
-                .write_f32::<LittleEndian>(nx)
-                .map_err(WriteError::Io)?;
-            bin_data
-                .write_f32::<LittleEndian>(nz)
-                .map_err(WriteError::Io)?;
-            bin_data
-                .write_f32::<LittleEndian>(ny)
-                .map_err(WriteError::Io)?;
+            bin_data.write_f32::<LittleEndian>(nx)?;
+            bin_data.write_f32::<LittleEndian>(nz)?;
+            bin_data.write_f32::<LittleEndian>(ny)?;
         }
         let normals_length = bin_data.len() - normals_offset;
 
         // Write texcoords (VEC2 float)
         let texcoords_offset = bin_data.len();
         for VertexWrapper { vertex, .. } in &mesh.vertices {
-            bin_data
-                .write_f32::<LittleEndian>(vertex.tu)
-                .map_err(WriteError::Io)?;
-            bin_data
-                .write_f32::<LittleEndian>(vertex.tv)
-                .map_err(WriteError::Io)?;
+            bin_data.write_f32::<LittleEndian>(vertex.tu)?;
+            bin_data.write_f32::<LittleEndian>(vertex.tv)?;
         }
         let texcoords_length = bin_data.len() - texcoords_offset;
 
@@ -2091,25 +2074,13 @@ fn build_combined_gltf_payload(
         let use_u32 = mesh.vertices.len() > 65535;
         for face in &mesh.indices {
             if use_u32 {
-                bin_data
-                    .write_u32::<LittleEndian>(face.i0 as u32)
-                    .map_err(WriteError::Io)?;
-                bin_data
-                    .write_u32::<LittleEndian>(face.i2 as u32)
-                    .map_err(WriteError::Io)?;
-                bin_data
-                    .write_u32::<LittleEndian>(face.i1 as u32)
-                    .map_err(WriteError::Io)?;
+                bin_data.write_u32::<LittleEndian>(face.i0 as u32)?;
+                bin_data.write_u32::<LittleEndian>(face.i2 as u32)?;
+                bin_data.write_u32::<LittleEndian>(face.i1 as u32)?;
             } else {
-                bin_data
-                    .write_u16::<LittleEndian>(face.i0 as u16)
-                    .map_err(WriteError::Io)?;
-                bin_data
-                    .write_u16::<LittleEndian>(face.i2 as u16)
-                    .map_err(WriteError::Io)?;
-                bin_data
-                    .write_u16::<LittleEndian>(face.i1 as u16)
-                    .map_err(WriteError::Io)?;
+                bin_data.write_u16::<LittleEndian>(face.i0 as u16)?;
+                bin_data.write_u16::<LittleEndian>(face.i2 as u16)?;
+                bin_data.write_u16::<LittleEndian>(face.i1 as u16)?;
             }
         }
         let indices_length = bin_data.len() - indices_offset;
@@ -2569,8 +2540,13 @@ fn write_glb<W: io::Write>(
     json: &serde_json::Value,
     bin_data: &[u8],
     writer: &mut W,
-) -> Result<(), WriteError> {
-    let json_string = serde_json::to_string(json).map_err(WriteError::Json)?;
+) -> io::Result<()> {
+    let json_string = serde_json::to_string(json).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::Other,
+            format!("JSON serialization error: {}", e),
+        )
+    })?;
     let json_bytes = json_string.as_bytes();
 
     // Pad JSON to 4-byte alignment
@@ -2578,39 +2554,27 @@ fn write_glb<W: io::Write>(
     let json_padded_length = json_bytes.len() + json_padding;
 
     // Write GLB header
-    writer.write_all(GLTF_MAGIC).map_err(WriteError::Io)?;
-    writer
-        .write_u32::<LittleEndian>(GLTF_VERSION)
-        .map_err(WriteError::Io)?;
+    writer.write_all(GLTF_MAGIC)?;
+    writer.write_u32::<LittleEndian>(GLTF_VERSION)?;
     let total_length = GLB_HEADER_BYTES
         + GLB_CHUNK_HEADER_BYTES
         + json_padded_length as u32
         + GLB_CHUNK_HEADER_BYTES
         + bin_data.len() as u32;
-    writer
-        .write_u32::<LittleEndian>(total_length)
-        .map_err(WriteError::Io)?;
+    writer.write_u32::<LittleEndian>(total_length)?;
 
     // Write JSON chunk
-    writer
-        .write_u32::<LittleEndian>(json_padded_length as u32)
-        .map_err(WriteError::Io)?;
-    writer
-        .write_all(GLB_JSON_CHUNK_TYPE)
-        .map_err(WriteError::Io)?;
-    writer.write_all(json_bytes).map_err(WriteError::Io)?;
+    writer.write_u32::<LittleEndian>(json_padded_length as u32)?;
+    writer.write_all(GLB_JSON_CHUNK_TYPE)?;
+    writer.write_all(json_bytes)?;
     for _ in 0..json_padding {
-        writer.write_all(b" ").map_err(WriteError::Io)?;
+        writer.write_all(b" ")?;
     }
 
     // Write BIN chunk
-    writer
-        .write_u32::<LittleEndian>(bin_data.len() as u32)
-        .map_err(WriteError::Io)?;
-    writer
-        .write_all(GLB_BIN_CHUNK_TYPE)
-        .map_err(WriteError::Io)?;
-    writer.write_all(bin_data).map_err(WriteError::Io)?;
+    writer.write_u32::<LittleEndian>(bin_data.len() as u32)?;
+    writer.write_all(GLB_BIN_CHUNK_TYPE)?;
+    writer.write_all(bin_data)?;
 
     Ok(())
 }
@@ -2637,21 +2601,21 @@ fn write_glb<W: io::Write>(
 /// # Example
 /// ```no_run
 /// use vpin::vpx;
-/// use vpin::vpx::expanded::export_glb;
+/// use vpin::vpx::export::gltf_export::export_glb;
 /// use vpin::filesystem::RealFileSystem;
 /// use std::path::Path;
 ///
 /// let vpx = vpx::read(Path::new("table.vpx")).unwrap();
 /// export_glb(&vpx, Path::new("table.glb"), &RealFileSystem).unwrap();
 /// ```
-pub fn export_glb(vpx: &VPX, path: &Path, fs: &dyn FileSystem) -> Result<(), WriteError> {
+pub fn export_glb(vpx: &VPX, path: &Path, fs: &dyn FileSystem) -> io::Result<()> {
     let meshes = collect_meshes(vpx);
 
     if meshes.is_empty() {
-        return Err(WriteError::Io(io::Error::new(
+        return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "No meshes found in table",
-        )));
+        ));
     }
 
     // Collect materials from gamedata

@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use vpin::filesystem::RealFileSystem;
 use vpin::vpx;
-use vpin::vpx::expanded::export_glb;
+use vpin::vpx::export::gltf_export::export_glb;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logger - set RUST_LOG=warn (or info, debug) to see warnings
