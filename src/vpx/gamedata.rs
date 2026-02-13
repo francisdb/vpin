@@ -614,56 +614,115 @@ pub struct GameData {
     pub backglass_image_full_single_screen: Option<String>, // BIMS 62 (added in 10.?)
     pub image_backdrop_night_day: bool,                     // BIMN 63
     pub image_color_grade: String,                          // IMCG 64
-    pub ball_image: String,                                 // BLIM 65
-    pub ball_spherical_mapping: Option<bool>,               // BLSM (added in 10.8)
-    pub ball_image_front: String,                           // BLIF 66
-    pub env_image: Option<String>,                          // EIMG 67 (was missing in 10.01)
-    pub notes: Option<String>,                              // NOTX 67.5 (added in 10.7)
-    pub screen_shot: String,                                // SSHT 68
-    pub display_backdrop: bool,                             // FBCK 69
-    pub glass_top_height: f32,                              // GLAS 70
-    pub glass_bottom_height: Option<f32>,                   // GLAB 70.5 (added in 10.8)
-    pub table_height: Option<f32>,                          // TBLH 71 (optional in 10.8)
-    pub playfield_material: String,                         // PLMA 72
-    pub backdrop_color: Color,                              // BCLR 73 (color bgr)
-    pub global_difficulty: f32,                             // TDFT 74
+    /// Default ball texture (typically HDR environment map for reflections).
+    ///
+    /// Used as fallback when `Ball::image` is empty. This is the base texture
+    /// for all balls, usually an HDR environment map for realistic reflections.
+    /// See [`crate::vpx::gameitem::ball::Ball`] for texture/decal handling details.
+    ///
+    /// BIFF tag: `BLIM`
+    pub ball_image: String,
+    /// Whether to use spherical UV mapping for ball textures.
+    ///
+    /// - `false`: Equirectangular mapping (standard HDR environment map layout)
+    /// - `true`: Spherical UV mapping (direct sphere projection)
+    ///
+    /// BIFF tag: `BLSM` (added in 10.8)
+    pub ball_spherical_mapping: Option<bool>,
+    /// Default ball decal/overlay texture.
+    ///
+    /// Used as fallback when `Ball::image_decal` is empty. This texture is
+    /// overlaid on top of `ball_image`. How it's blended depends on `ball_decal_mode`:
+    /// - `false` (scratches mode): Additive blend using alpha for surface wear
+    /// - `true` (decal mode): Screen blend for logos/artwork
+    ///
+    /// See [`crate::vpx::gameitem::ball::Ball`] for detailed blending behavior.
+    ///
+    /// BIFF tag: `BLIF`
+    pub ball_image_front: String,
+    pub env_image: Option<String>, // EIMG 67 (was missing in 10.01)
+    pub notes: Option<String>,     // NOTX 67.5 (added in 10.7)
+    pub screen_shot: String,       // SSHT 68
+    pub display_backdrop: bool,    // FBCK 69
+    pub glass_top_height: f32,     // GLAS 70
+    pub glass_bottom_height: Option<f32>, // GLAB 70.5 (added in 10.8)
+    pub table_height: Option<f32>, // TBLH 71 (optional in 10.8)
+    pub playfield_material: String, // PLMA 72
+    pub backdrop_color: Color,     // BCLR 73 (color bgr)
+    pub global_difficulty: f32,    // TDFT 74
     /// changes the ambient light contribution for each material, please always try to keep this at full Black
     pub light_ambient: Color, // LZAM 75 (color)
     /// changes the light contribution for each material (currently light0 emission is copied to light1, too)
     pub light0_emission: Color, // LZDI 76 (color)
-    pub light_height: f32,                                  // LZHI 77
-    pub light_range: f32,                                   // LZRA 78
-    pub light_emission_scale: f32,                          // LIES 79
-    pub env_emission_scale: f32,                            // ENES 80
-    pub global_emission_scale: f32,                         // GLES 81
-    pub ao_scale: f32,                                      // AOSC 82
-    pub ssr_scale: Option<f32>,                             // SSSC 83 (added in 10.?)
-    pub ground_to_lockbar_height: Option<f32>,              // CLBH (added in 10.8.x)
-    pub table_sound_volume: f32,                            // SVOL 84
-    pub table_music_volume: f32,                            // MVOL 85
-    pub table_adaptive_vsync: Option<i32>,                  // AVSY 86 (became optional in 10.8)
-    pub use_reflection_for_balls: Option<i32>,              // BREF 87 (became optional in 10.8)
-    pub brst: Option<i32>,                                  // BRST (in use in 10.01)
-    pub playfield_reflection_strength: f32,                 // PLST 88
-    pub use_trail_for_balls: Option<i32>,                   // BTRA 89 (became optional in 10.8)
-    pub ball_decal_mode: bool,                              // BDMO 90
-    pub ball_playfield_reflection_strength: Option<f32>,    // BPRS 91 (was missing in 10.01)
-    pub default_bulb_intensity_scale_on_ball: Option<f32>,  // DBIS 92 (added in 10.?)
+    pub light_height: f32,         // LZHI 77
+    pub light_range: f32,          // LZRA 78
+    pub light_emission_scale: f32, // LIES 79
+    pub env_emission_scale: f32,   // ENES 80
+    pub global_emission_scale: f32, // GLES 81
+    pub ao_scale: f32,             // AOSC 82
+    pub ssr_scale: Option<f32>,    // SSSC 83 (added in 10.?)
+    pub ground_to_lockbar_height: Option<f32>, // CLBH (added in 10.8.x)
+    pub table_sound_volume: f32,   // SVOL 84
+    pub table_music_volume: f32,   // MVOL 85
+    pub table_adaptive_vsync: Option<i32>, // AVSY 86 (became optional in 10.8)
+    pub use_reflection_for_balls: Option<i32>, // BREF 87 (became optional in 10.8)
+    pub brst: Option<i32>,         // BRST (in use in 10.01)
+    /// Default playfield reflection strength for objects.
+    ///
+    /// Controls how strongly objects reflect on the playfield surface.
+    /// Range: 0.0 (no reflections) to 1.0 (full reflection strength).
+    /// Default is 0.2 (20%).
+    ///
+    /// Note: This is used to initialize `Primitive::reflection_strength` for
+    /// the playfield mesh. Individual objects can override with their own
+    /// `reflection_strength` setting.
+    ///
+    /// BIFF tag: `PLST`
+    pub playfield_reflection_strength: f32,
+    pub use_trail_for_balls: Option<i32>, // BTRA 89 (became optional in 10.8)
+    /// Default decal mode for all balls.
+    ///
+    /// Controls how `ball_image_front` is blended onto balls:
+    /// - `false` (scratches mode): Decal is an alpha scratch texture, blended additively.
+    ///   Scratches affect both diffuse and specular, creating surface wear effects.
+    /// - `true` (decal mode): Decal is a proper logo/image, blended using screen blend.
+    ///
+    /// Individual balls can override this with `Ball::decal_mode`.
+    /// See [`crate::vpx::gameitem::ball::Ball`] for detailed blending behavior.
+    ///
+    /// BIFF tag: `BDMO`
+    pub ball_decal_mode: bool,
+    /// Default strength of ball reflections on the playfield.
+    ///
+    /// Controls how visible balls are in the playfield reflection pass.
+    /// Range: 0.0 (invisible) to 1.0 (full reflection). Default is 1.0.
+    ///
+    /// Individual balls can override with `Ball::playfield_reflection_strength`.
+    ///
+    /// BIFF tag: `BPRS` (was missing in 10.01)
+    pub ball_playfield_reflection_strength: Option<f32>,
+    /// Default bulb light intensity scale for balls.
+    ///
+    /// Controls how strongly point lights (bulbs) affect ball surfaces.
+    /// Individual balls can override with `Ball::bulb_intensity_scale`.
+    ///
+    /// BIFF tag: `DBIS` (added in 10.?)
+    pub default_bulb_intensity_scale_on_ball: Option<f32>,
     /// this has a special quantization,
     /// See [`Self::get_ball_trail_strength`] and [`Self::set_ball_trail_strength`]
     pub ball_trail_strength: Option<u32>, // BTST 93 (became optional in 10.8)
-    pub user_detail_level: Option<u32>,                     // ARAC 94 (became optional in 10.8)
-    pub overwrite_global_detail_level: Option<bool>,        // OGAC 95 (became optional in 10.8)
-    pub overwrite_global_day_night: Option<bool>,           // OGDN 96 (became optional in 10.8)
-    pub show_grid: bool,                                    // GDAC 97
-    pub reflect_elements_on_playfield: Option<bool>,        // REOP 98 (became optional in 10.8)
-    pub use_aal: Option<i32>,                               // UAAL 99 (became optional in 10.8)
-    pub use_fxaa: Option<i32>,                              // UFXA 100 (became optional in 10.8)
-    pub use_ao: Option<i32>,                                // UAOC 101 (became optional in 10.8)
-    pub use_ssr: Option<i32>,                               // USSR 102 (added in 10.?)
-    pub tone_mapper: Option<ToneMapper>,                    // TMAP 102.5 (added in 10.8)
-    pub bloom_strength: f32,                                // BLST 103
-    pub materials_size: u32,                                // MASI 104
+    pub user_detail_level: Option<u32>, // ARAC 94 (became optional in 10.8)
+    pub overwrite_global_detail_level: Option<bool>, // OGAC 95 (became optional in 10.8)
+    pub overwrite_global_day_night: Option<bool>, // OGDN 96 (became optional in 10.8)
+    pub show_grid: bool,                // GDAC 97
+    pub reflect_elements_on_playfield: Option<bool>, // REOP 98 (became optional in 10.8)
+    pub use_aal: Option<i32>,           // UAAL 99 (became optional in 10.8)
+    pub use_fxaa: Option<i32>,          // UFXA 100 (became optional in 10.8)
+    pub use_ao: Option<i32>,            // UAOC 101 (became optional in 10.8)
+    pub use_ssr: Option<i32>,           // USSR 102 (added in 10.?)
+    pub tone_mapper: Option<ToneMapper>, // TMAP 102.5 (added in 10.8)
+    pub bloom_strength: f32,            // BLST 103
+    pub materials_size: u32,            // MASI 104
     /// Legacy material saving for backward compatibility
     pub materials_old: Vec<SaveMaterial>, // MATE 105 (only for <10.8)
     /// Legacy material saving for backward compatibility

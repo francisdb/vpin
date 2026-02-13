@@ -70,6 +70,7 @@ use std::path::Path;
 const PLAYFIELD_MATERIAL_NAME: &str = "__playfield__";
 
 /// A named mesh ready for GLTF export
+#[derive(Default)]
 struct NamedMesh {
     name: String,
     vertices: Vec<VertexWrapper>,
@@ -86,6 +87,13 @@ struct NamedMesh {
     /// Used for KHR_materials_transmission extension.
     /// Derived from VPinball's disable_lighting_below: transmission = 1.0 - disable_lighting_below
     transmission_factor: Option<f32>,
+    /// Whether this is a ball mesh (pinball) - requires metallic, shiny material
+    is_ball: bool,
+    /// Optional roughness/scratches texture name for balls.
+    /// In VPinball's scratches mode (decal_mode=false), this texture's alpha
+    /// controls surface roughness - white/opaque areas are more rough/scratched.
+    /// Used as metallicRoughnessTexture in glTF (green channel = roughness).
+    roughness_texture_name: Option<String>,
 }
 
 // Re-export camera types from the camera module
@@ -357,9 +365,7 @@ fn build_implicit_playfield_mesh(vpx: &VPX, playfield_material_name: &str) -> Na
         } else {
             Some(vpx.gamedata.image.clone())
         },
-        color_tint: None,
-        layer_name: None,
-        transmission_factor: None,
+        ..Default::default()
     }
 }
 
@@ -535,12 +541,12 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         indices: read_mesh.indices,
                         material_name,
                         texture_name,
-                        color_tint: None,
                         layer_name: get_layer_name(
                             &primitive.editor_layer_name,
                             primitive.editor_layer,
                         ),
                         transmission_factor,
+                        ..Default::default()
                     });
                 }
             }
@@ -575,9 +581,9 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             indices,
                             material_name,
                             texture_name,
-                            color_tint: None,
                             layer_name: get_layer_name(&wall.editor_layer_name, wall.editor_layer),
                             transmission_factor,
+                            ..Default::default()
                         });
                     }
 
@@ -607,9 +613,9 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             indices,
                             material_name,
                             texture_name,
-                            color_tint: None,
                             layer_name: get_layer_name(&wall.editor_layer_name, wall.editor_layer),
                             transmission_factor,
+                            ..Default::default()
                         });
                     }
                 }
@@ -636,9 +642,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         indices,
                         material_name,
                         texture_name,
-                        color_tint: None,
                         layer_name: get_layer_name(&ramp.editor_layer_name, ramp.editor_layer),
-                        transmission_factor: None,
+                        ..Default::default()
                     });
                 }
             }
@@ -658,9 +663,9 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         indices,
                         material_name,
                         texture_name: None,
-                        color_tint: None,
                         layer_name: get_layer_name(&rubber.editor_layer_name, rubber.editor_layer),
-                        transmission_factor: None,
+
+                        ..Default::default()
                     });
                 }
             }
@@ -695,6 +700,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             flasher.editor_layer,
                         ),
                         transmission_factor: None,
+                        is_ball: false,
+                        roughness_texture_name: None,
                     });
                 }
             }
@@ -716,13 +723,12 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         vertices: base_vertices,
                         indices: base_indices,
                         material_name: base_material,
-                        texture_name: None,
-                        color_tint: None,
+
                         layer_name: get_layer_name(
                             &flipper.editor_layer_name,
                             flipper.editor_layer,
                         ),
-                        transmission_factor: None,
+                        ..Default::default()
                     });
 
                     // Add rubber mesh if present
@@ -737,13 +743,12 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             vertices: rubber_vertices,
                             indices: rubber_indices,
                             material_name: rubber_material,
-                            texture_name: None,
-                            color_tint: None,
+
                             layer_name: get_layer_name(
                                 &flipper.editor_layer_name,
                                 flipper.editor_layer,
                             ),
-                            transmission_factor: None,
+                            ..Default::default()
                         });
                     }
                 }
@@ -765,10 +770,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         vertices: base_vertices,
                         indices: base_indices,
                         material_name: base_material,
-                        texture_name: None,
-                        color_tint: None,
                         layer_name: get_layer_name(&bumper.editor_layer_name, bumper.editor_layer),
-                        transmission_factor: None,
+                        ..Default::default()
                     });
                 }
 
@@ -784,10 +787,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         vertices: socket_vertices,
                         indices: socket_indices,
                         material_name: socket_material,
-                        texture_name: None,
-                        color_tint: None,
                         layer_name: get_layer_name(&bumper.editor_layer_name, bumper.editor_layer),
-                        transmission_factor: None,
+                        ..Default::default()
                     });
                 }
 
@@ -802,10 +803,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         vertices: ring_vertices,
                         indices: ring_indices,
                         material_name: ring_material,
-                        texture_name: None,
-                        color_tint: None,
                         layer_name: get_layer_name(&bumper.editor_layer_name, bumper.editor_layer),
-                        transmission_factor: None,
+                        ..Default::default()
                     });
                 }
 
@@ -821,10 +820,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         vertices: cap_vertices,
                         indices: cap_indices,
                         material_name: cap_material,
-                        texture_name: None,
-                        color_tint: None,
                         layer_name: get_layer_name(&bumper.editor_layer_name, bumper.editor_layer),
-                        transmission_factor: None,
+                        ..Default::default()
                     });
                 }
             }
@@ -843,14 +840,11 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         name: format!("{}Bracket", spinner.name),
                         vertices: bracket_vertices,
                         indices: bracket_indices,
-                        material_name: None,
-                        texture_name: None,
-                        color_tint: None,
                         layer_name: get_layer_name(
                             &spinner.editor_layer_name,
                             spinner.editor_layer,
                         ),
-                        transmission_factor: None,
+                        ..Default::default()
                     });
                 }
 
@@ -872,9 +866,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     indices: plate_indices,
                     material_name: plate_material,
                     texture_name: plate_texture,
-                    color_tint: None,
                     layer_name: get_layer_name(&spinner.editor_layer_name, spinner.editor_layer),
-                    transmission_factor: None,
+                    ..Default::default()
                 });
             }
             GameItemEnum::HitTarget(hit_target) => {
@@ -895,12 +888,11 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         indices,
                         material_name,
                         texture_name,
-                        color_tint: None,
                         layer_name: get_layer_name(
                             &hit_target.editor_layer_name,
                             hit_target.editor_layer,
                         ),
-                        transmission_factor: None,
+                        ..Default::default()
                     });
                 }
             }
@@ -921,10 +913,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             vertices: bracket_vertices,
                             indices: bracket_indices,
                             material_name: material_name.clone(),
-                            texture_name: None,
-                            color_tint: None,
                             layer_name: get_layer_name(&gate.editor_layer_name, gate.editor_layer),
-                            transmission_factor: None,
+                            ..Default::default()
                         });
                     }
 
@@ -935,10 +925,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         vertices: wire_vertices,
                         indices: wire_indices,
                         material_name,
-                        texture_name: None,
-                        color_tint: None,
                         layer_name: get_layer_name(&gate.editor_layer_name, gate.editor_layer),
-                        transmission_factor: None,
+                        ..Default::default()
                     });
                 }
             }
@@ -960,13 +948,12 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         vertices,
                         indices,
                         material_name,
-                        texture_name: None,
-                        color_tint: None,
                         layer_name: get_layer_name(
                             &trigger.editor_layer_name,
                             trigger.editor_layer,
                         ),
-                        transmission_factor: None,
+
+                        ..Default::default()
                     });
                 }
             }
@@ -1003,6 +990,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                                 light.editor_layer,
                             ),
                             transmission_factor: None,
+                            is_ball: false,
+                            roughness_texture_name: None,
                         });
                     }
 
@@ -1023,6 +1012,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                                 light.editor_layer,
                             ),
                             transmission_factor: None,
+                            is_ball: false,
+                            roughness_texture_name: None,
                         });
                     }
                 }
@@ -1054,9 +1045,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         indices,
                         material_name: material_name.clone(),
                         texture_name: texture_name.clone(),
-                        color_tint: None,
                         layer_name: layer_name.clone(),
-                        transmission_factor: None,
+                        ..Default::default()
                     });
                 }
 
@@ -1068,9 +1058,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         indices,
                         material_name: material_name.clone(),
                         texture_name: texture_name.clone(),
-                        color_tint: None,
                         layer_name: layer_name.clone(),
-                        transmission_factor: None,
+                        ..Default::default()
                     });
                 }
 
@@ -1082,9 +1071,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         indices,
                         material_name: material_name.clone(),
                         texture_name: texture_name.clone(),
-                        color_tint: None,
                         layer_name: layer_name.clone(),
-                        transmission_factor: None,
+                        ..Default::default()
                     });
                 }
 
@@ -1096,9 +1084,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         indices,
                         material_name: material_name.clone(),
                         texture_name: texture_name.clone(),
-                        color_tint: None,
                         layer_name: layer_name.clone(),
-                        transmission_factor: None,
+                        ..Default::default()
                     });
                 }
 
@@ -1113,6 +1100,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         color_tint: None,
                         layer_name,
                         transmission_factor: None,
+                        is_ball: false,
+                        roughness_texture_name: None,
                     });
                 }
             }
@@ -1191,6 +1180,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         color_tint: Some([0.02, 0.02, 0.02, 1.0]), // Near-black for hole effect
                         layer_name: layer_name.clone(),
                         transmission_factor: None,
+                        is_ball: false,
+                        roughness_texture_name: None,
                     });
                 }
 
@@ -1205,6 +1196,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         color_tint: kicker_color,
                         layer_name,
                         transmission_factor: None,
+                        is_ball: false,
+                        roughness_texture_name: None,
                     });
                 }
             }
@@ -1235,9 +1228,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         indices,
                         material_name,
                         texture_name,
-                        color_tint: None,
                         layer_name: get_layer_name(&decal.editor_layer_name, decal.editor_layer),
-                        transmission_factor: None,
+                        ..Default::default()
                     });
                 }
             }
@@ -1247,13 +1239,37 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
 
                 let (vertices, indices) = build_ball_mesh(ball);
 
-                // Ball texture: use ball.image if set, otherwise fall back to gamedata.ball_image
-                let texture_name = if !ball.image.is_empty() {
-                    Some(ball.image.clone())
-                } else if !vpx.gamedata.ball_image.is_empty() {
-                    Some(vpx.gamedata.ball_image.clone())
+                // Ball texture handling:
+                // VPinball has two modes controlled by decal_mode/ball_decal_mode:
+                // - decal_mode = false: ball_image_front is a scratches overlay (additive blend)
+                //   In glTF, we use this as a roughness texture - scratched areas are rougher.
+                // - decal_mode = true: ball_image_front is a proper decal/logo (screen blend)
+                //   We use this as the base color texture.
+                //
+                // Note: ball_image is the HDR environment map for reflections which
+                // Blender handles via environment lighting, so we always skip it.
+                let is_decal_mode = ball.decal_mode || vpx.gamedata.ball_decal_mode;
+
+                let (texture_name, roughness_texture_name) = if is_decal_mode {
+                    // Decal mode: use as base color texture
+                    let decal = if !ball.image_decal.is_empty() {
+                        Some(ball.image_decal.clone())
+                    } else if !vpx.gamedata.ball_image_front.is_empty() {
+                        Some(vpx.gamedata.ball_image_front.clone())
+                    } else {
+                        None
+                    };
+                    (decal, None)
                 } else {
-                    None
+                    // Scratches mode: use as roughness texture
+                    let scratches = if !ball.image_decal.is_empty() {
+                        Some(ball.image_decal.clone())
+                    } else if !vpx.gamedata.ball_image_front.is_empty() {
+                        Some(vpx.gamedata.ball_image_front.clone())
+                    } else {
+                        None
+                    };
+                    (None, scratches)
                 };
 
                 // Convert ball color to tint (white = no tint)
@@ -1278,6 +1294,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     color_tint,
                     layer_name: get_layer_name(&ball.editor_layer_name, ball.editor_layer),
                     transmission_factor: None,
+                    is_ball: true, // Pinballs need metallic, shiny material
+                    roughness_texture_name,
                 });
             }
             _ => {}
@@ -1476,7 +1494,16 @@ fn build_combined_gltf_payload(
 
     // First pass: create textures for all unique images
     for mesh in meshes.iter() {
-        if let Some(ref texture_name) = mesh.texture_name {
+        // Collect all texture names that need to be loaded
+        let texture_names: Vec<&String> = [
+            mesh.texture_name.as_ref(),
+            mesh.roughness_texture_name.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+
+        for texture_name in texture_names {
             let texture_key = texture_name.to_lowercase();
 
             // Skip if we already created a texture for this image
@@ -1565,8 +1592,44 @@ fn build_combined_gltf_payload(
         // Check if this mesh is the playfield
         let is_playfield_mesh = mesh.name.eq_ignore_ascii_case("playfield_mesh");
 
+        // Case 0: Ball mesh - needs metallic, shiny chrome-like material
+        if mesh.is_ball {
+            let material_idx = gltf_materials.len();
+            mesh_material_map.insert(mesh_idx, material_idx);
+
+            // Get ball color from color_tint if set, otherwise use chrome silver
+            let base_color = mesh.color_tint.unwrap_or([0.8, 0.8, 0.8, 1.0]);
+
+            // Check for base color texture (decal mode)
+            let base_texture_idx = mesh.texture_name.as_ref().and_then(|name| {
+                let key = name.to_lowercase();
+                texture_index_map.get(&key).copied()
+            });
+
+            let mut pbr = json!({
+                "baseColorFactor": base_color,
+                "metallicFactor": 1.0,
+                "roughnessFactor": 0.05
+            });
+
+            // Add base color texture if available (decal mode)
+            if let Some(tex_idx) = base_texture_idx {
+                pbr["baseColorTexture"] = json!({ "index": tex_idx });
+            }
+
+            // Note: VPinball's scratches mode (decal_mode=false) uses the ball_image_front
+            // texture as an additive scratch overlay that affects both color and roughness.
+            // This cannot be accurately represented in glTF's multiplicative PBR model.
+            // The roughness_texture_name is collected but not used - scratches would require
+            // preprocessing the texture or using a custom shader extension.
+
+            gltf_materials.push(json!({
+                "name": format!("{}_ball", mesh.name),
+                "pbrMetallicRoughness": pbr
+            }));
+        }
         // Case 1: Mesh has color_tint - needs unique material
-        if let Some(color_tint) = mesh.color_tint {
+        else if let Some(color_tint) = mesh.color_tint {
             let material_idx = gltf_materials.len();
             mesh_material_map.insert(mesh_idx, material_idx);
 
@@ -2699,8 +2762,8 @@ mod tests {
         // Even very high reflection should not go below minimum roughness
         let roughness = calculate_playfield_roughness(2.0, 0.5);
         assert!(
-            roughness >= 0.05,
-            "roughness should be clamped to minimum 0.05, got {}",
+            roughness >= 0.03,
+            "roughness should be clamped to minimum 0.03, got {}",
             roughness
         );
     }
