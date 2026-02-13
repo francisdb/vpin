@@ -2542,8 +2542,7 @@ fn write_glb<W: io::Write>(
     writer: &mut W,
 ) -> io::Result<()> {
     let json_string = serde_json::to_string(json).map_err(|e| {
-        io::Error::new(
-            io::ErrorKind::Other,
+        io::Error::other(
             format!("JSON serialization error: {}", e),
         )
     })?;
