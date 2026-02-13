@@ -168,15 +168,16 @@ mod tests {
     use crate::vpx::gameitem::vertex2d::Vertex2D;
 
     fn create_test_decal(decal_type: DecalType) -> Decal {
-        let mut decal = Decal::default();
-        decal.center = Vertex2D { x: 100.0, y: 200.0 };
-        decal.width = 50.0;
-        decal.height = 30.0;
-        decal.rotation = 0.0;
-        decal.decal_type = decal_type;
-        decal.image = "test_image".to_string();
-        decal.name = "TestDecal".to_string();
-        decal
+        Decal {
+            center: Vertex2D { x: 100.0, y: 200.0 },
+            width: 50.0,
+            height: 30.0,
+            rotation: 0.0,
+            decal_type,
+            image: "test_image".to_string(),
+            name: "TestDecal".to_string(),
+            ..Default::default()
+        }
     }
 
     #[test]
