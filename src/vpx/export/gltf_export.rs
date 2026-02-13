@@ -2541,11 +2541,8 @@ fn write_glb<W: io::Write>(
     bin_data: &[u8],
     writer: &mut W,
 ) -> io::Result<()> {
-    let json_string = serde_json::to_string(json).map_err(|e| {
-        io::Error::other(
-            format!("JSON serialization error: {}", e),
-        )
-    })?;
+    let json_string = serde_json::to_string(json)
+        .map_err(|e| io::Error::other(format!("JSON serialization error: {}", e)))?;
     let json_bytes = json_string.as_bytes();
 
     // Pad JSON to 4-byte alignment
