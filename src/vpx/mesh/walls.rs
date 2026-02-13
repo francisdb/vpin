@@ -3,16 +3,12 @@
 //! This module ports the rubber mesh generation from Visual Pinball's surface.cpp.
 //! Walls are represented as extruded polygons with optional smoothing and texture coordinates.
 
-use super::{PrimitiveMeshFormat, WriteError};
-use crate::filesystem::FileSystem;
 use crate::vpx::TableDimensions;
 use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::gameitem::wall::Wall;
 use crate::vpx::math::Vec2;
-use crate::vpx::mesh::{generated_mesh_file_name, write_mesh_to_file};
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
-use std::path::Path;
 
 struct RenderVertex {
     x: f32,
@@ -22,23 +18,8 @@ struct RenderVertex {
     tex_coord: f32,
 }
 
-pub(super) fn write_wall_meshes(
-    gameitems_dir: &Path,
-    wall: &Wall,
-    json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
-    fs: &dyn FileSystem,
-) -> Result<(), WriteError> {
-    let Some((vertices, indices)) = build_wall_mesh(wall) else {
-        return Ok(());
-    };
-
-    let mesh_path = gameitems_dir.join(generated_mesh_file_name(json_file_name, mesh_format));
-    write_mesh_to_file(&mesh_path, &wall.name, &vertices, &indices, mesh_format, fs)
-}
-
 /// Separate wall meshes for top and sides, each with their own material/texture
-pub(super) struct WallMeshes {
+pub(crate) struct WallMeshes {
     /// Top surface mesh (may be None if not visible)
     pub top: Option<(Vec<VertexWrapper>, Vec<VpxFace>)>,
     /// Side surface mesh (may be None if not visible)
@@ -49,7 +30,7 @@ pub(super) struct WallMeshes {
 /// This is useful for GLTF export where each surface can have its own material/texture
 ///
 /// `table_dims` is required for proper UV calculation - wall top textures use table-space UVs
-pub(super) fn build_wall_meshes(wall: &Wall, table_dims: &TableDimensions) -> Option<WallMeshes> {
+pub(crate) fn build_wall_meshes(wall: &Wall, table_dims: &TableDimensions) -> Option<WallMeshes> {
     let render_vertices = build_render_vertices(wall);
     if render_vertices.len() < 3 {
         return None;
@@ -126,7 +107,7 @@ pub(super) fn build_wall_meshes(wall: &Wall, table_dims: &TableDimensions) -> Op
     })
 }
 
-pub(super) fn build_wall_mesh(wall: &Wall) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
+pub(crate) fn build_wall_mesh(wall: &Wall) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
     let render_vertices = build_render_vertices(wall);
     if render_vertices.len() < 3 {
         return None;

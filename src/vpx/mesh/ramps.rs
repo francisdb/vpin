@@ -4,20 +4,16 @@
 //! Ramps can be either flat (with optional walls) or wire ramps (1-4 wire types).
 
 use super::super::mesh::{
-    RenderVertex3D, compute_normals, detail_level_to_accuracy, generated_mesh_file_name,
-    get_rotated_axis, init_nonuniform_catmull_coeffs, write_mesh_to_file,
+    RenderVertex3D, compute_normals, detail_level_to_accuracy, init_nonuniform_catmull_coeffs,
 };
-use super::{PrimitiveMeshFormat, WriteError};
-use crate::filesystem::FileSystem;
 use crate::vpx::TableDimensions;
 use crate::vpx::gameitem::dragpoint::DragPoint;
 use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::gameitem::ramp::{Ramp, RampType};
 use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
-use crate::vpx::math::{Vec2, Vec3};
+use crate::vpx::math::{Vec2, Vec3, get_rotated_axis};
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
-use std::path::Path;
 
 /// Catmull-Rom spline coefficients for cubic interpolation
 struct CatmullCurve3D {
@@ -992,7 +988,7 @@ fn build_wire_ramp_mesh(
 }
 
 /// Build the complete ramp mesh
-pub(super) fn build_ramp_mesh(
+pub(crate) fn build_ramp_mesh(
     ramp: &Ramp,
     table_dims: &TableDimensions,
 ) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
@@ -1017,23 +1013,6 @@ pub(super) fn build_ramp_mesh(
     } else {
         build_flat_ramp_mesh(ramp, &vvertex, table_dims)
     }
-}
-
-/// Write ramp meshes to file
-pub(super) fn write_ramp_meshes(
-    gameitems_dir: &Path,
-    ramp: &Ramp,
-    json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
-    table_dims: &TableDimensions,
-    fs: &dyn FileSystem,
-) -> Result<(), WriteError> {
-    let Some((vertices, indices)) = build_ramp_mesh(ramp, table_dims) else {
-        return Ok(());
-    };
-
-    let mesh_path = gameitems_dir.join(generated_mesh_file_name(json_file_name, mesh_format));
-    write_mesh_to_file(&mesh_path, &ramp.name, &vertices, &indices, mesh_format, fs)
 }
 
 #[cfg(test)]

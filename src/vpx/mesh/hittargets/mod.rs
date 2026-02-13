@@ -27,15 +27,12 @@ mod hit_target_round_mesh;
 mod hit_target_t1_slim_mesh;
 mod hit_target_t2_slim_mesh;
 
-use super::{PrimitiveMeshFormat, WriteError};
-use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::hittarget::{HitTarget, TargetType};
 use crate::vpx::gameitem::primitive::VertexWrapper;
-use crate::vpx::mesh::{Matrix3D, generated_mesh_file_name, write_mesh_to_file};
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 
-use crate::vpx::math::Vec3;
+use crate::vpx::math::{Mat3, Vec3};
 use drop_target_t2_mesh::{DROP_TARGET_T2_INDICES, DROP_TARGET_T2_MESH};
 use drop_target_t3_mesh::{DROP_TARGET_T3_INDICES, DROP_TARGET_T3_MESH};
 use drop_target_t4_mesh::{DROP_TARGET_T4_INDICES, DROP_TARGET_T4_MESH};
@@ -47,30 +44,6 @@ use hit_target_rectangle_mesh::{HIT_TARGET_RECTANGLE_INDICES, HIT_TARGET_RECTANG
 use hit_target_round_mesh::{HIT_TARGET_ROUND_INDICES, HIT_TARGET_ROUND_MESH};
 use hit_target_t1_slim_mesh::{HIT_TARGET_T1_SLIM_INDICES, HIT_TARGET_T1_SLIM_MESH};
 use hit_target_t2_slim_mesh::{HIT_TARGET_T2_SLIM_INDICES, HIT_TARGET_T2_SLIM_MESH};
-use std::path::Path;
-
-/// Write hit target mesh to a file
-pub(crate) fn write_hit_target_meshes(
-    gameitems_dir: &Path,
-    hit_target: &HitTarget,
-    json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
-    fs: &dyn FileSystem,
-) -> Result<(), WriteError> {
-    let Some((vertices, indices)) = build_hit_target_mesh(hit_target) else {
-        return Ok(());
-    };
-
-    let mesh_path = gameitems_dir.join(generated_mesh_file_name(json_file_name, mesh_format));
-    write_mesh_to_file(
-        &mesh_path,
-        &hit_target.name,
-        &vertices,
-        &indices,
-        mesh_format,
-        fs,
-    )
-}
 
 /// Get the mesh data for a target type
 fn get_mesh_for_type(target_type: &TargetType) -> (&'static [Vertex3dNoTex2], &'static [u16]) {
@@ -114,7 +87,7 @@ pub fn build_hit_target_mesh(target: &HitTarget) -> Option<(Vec<VertexWrapper>, 
     }
 
     let (mesh, indices) = get_mesh_for_type(&target.target_type);
-    let full_matrix = Matrix3D::rotate_z(target.rot_z.to_radians());
+    let full_matrix = Mat3::rotate_z(target.rot_z.to_radians());
 
     let vertices: Vec<VertexWrapper> = mesh
         .iter()

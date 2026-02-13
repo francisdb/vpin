@@ -9,17 +9,13 @@
 
 mod flipper_base_mesh;
 
-use super::super::mesh::{Matrix3D, generated_mesh_file_name, write_mesh_to_file};
-use super::{PrimitiveMeshFormat, WriteError};
-use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::flipper::Flipper;
 use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 use std::f32::consts::PI;
-use std::path::Path;
 
-use crate::vpx::math::{Vec2, Vec3};
+use crate::vpx::math::{Mat3, Vec2, Vec3};
 pub use flipper_base_mesh::*;
 
 /// Result of flipper mesh generation with separate base and rubber meshes
@@ -171,28 +167,6 @@ fn vertex_matches(v: &Vertex3dNoTex2, r: &Vec3) -> bool {
     (v.x - r.x).abs() < EPSILON && (v.y - r.y).abs() < EPSILON && (v.z - r.z).abs() < EPSILON
 }
 
-pub(crate) fn write_flipper_meshes(
-    gameitems_dir: &Path,
-    flipper: &Flipper,
-    json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
-    fs: &dyn FileSystem,
-) -> Result<(), WriteError> {
-    let Some((vertices, indices)) = build_flipper_mesh(flipper, 0.0) else {
-        return Ok(());
-    };
-
-    let mesh_path = gameitems_dir.join(generated_mesh_file_name(json_file_name, mesh_format));
-    write_mesh_to_file(
-        &mesh_path,
-        &flipper.name,
-        &vertices,
-        &indices,
-        mesh_format,
-        fs,
-    )
-}
-
 /// Build flipper mesh geometry
 ///
 /// # Arguments
@@ -296,7 +270,7 @@ pub fn build_flipper_mesh(
     }
 
     // Apply rotation (180 degrees) and transformations
-    let rotation_matrix = Matrix3D::rotate_z(180.0_f32.to_radians());
+    let rotation_matrix = Mat3::rotate_z(180.0_f32.to_radians());
     let start_angle_rad = flipper.start_angle.to_radians();
 
     let mut vertices = Vec::with_capacity(FLIPPER_BASE_NUM_VERTICES * 2);
@@ -603,7 +577,7 @@ pub fn build_flipper_meshes(flipper: &Flipper, surface_height: f32) -> Option<Fl
     }
 
     // Apply rotation (180 degrees) and transformations
-    let rotation_matrix = Matrix3D::rotate_z(180.0_f32.to_radians());
+    let rotation_matrix = Mat3::rotate_z(180.0_f32.to_radians());
     let start_angle_rad = flipper.start_angle.to_radians();
 
     // Build base mesh vertices

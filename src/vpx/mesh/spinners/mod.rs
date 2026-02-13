@@ -13,16 +13,12 @@
 mod spinner_bracket_mesh;
 mod spinner_plate_mesh;
 
-use super::{PrimitiveMeshFormat, WriteError};
-use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::gameitem::spinner::Spinner;
-use crate::vpx::mesh::{Matrix3D, generated_mesh_file_name, write_mesh_to_file};
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
-use std::path::Path;
 
-use crate::vpx::math::Vec3;
+use crate::vpx::math::{Mat3, Vec3};
 pub use spinner_bracket_mesh::*;
 pub use spinner_plate_mesh::*;
 
@@ -45,7 +41,7 @@ pub struct SpinnerMeshes {
 /// A SpinnerMeshes struct containing all spinner parts
 pub fn build_spinner_meshes(spinner: &Spinner, base_height: f32) -> SpinnerMeshes {
     let pos_z = base_height + spinner.height;
-    let full_matrix = Matrix3D::rotate_z(spinner.rotation.to_radians());
+    let full_matrix = Mat3::rotate_z(spinner.rotation.to_radians());
 
     SpinnerMeshes {
         bracket: if spinner.show_bracket {
@@ -62,7 +58,7 @@ pub fn build_spinner_meshes(spinner: &Spinner, base_height: f32) -> SpinnerMeshe
 fn generate_bracket_mesh(
     spinner: &Spinner,
     pos_z: f32,
-    full_matrix: &Matrix3D,
+    full_matrix: &Mat3,
 ) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
     let length = spinner.length;
 
@@ -117,7 +113,7 @@ fn generate_bracket_mesh(
 fn generate_plate_mesh(
     spinner: &Spinner,
     pos_z: f32,
-    full_matrix: &Matrix3D,
+    full_matrix: &Mat3,
 ) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
     let length = spinner.length;
 
@@ -166,47 +162,6 @@ fn generate_plate_mesh(
         .collect();
 
     (vertices, indices)
-}
-
-/// Write spinner meshes to file
-pub(crate) fn write_spinner_meshes(
-    gameitems_dir: &Path,
-    spinner: &Spinner,
-    json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
-    fs: &dyn FileSystem,
-) -> Result<(), WriteError> {
-    // TODO: get surface height from the table
-    let meshes = build_spinner_meshes(spinner, 0.0);
-
-    // Write bracket mesh if present
-    if let Some((bracket_vertices, bracket_indices)) = meshes.bracket {
-        let bracket_mesh_name = format!("{}-bracket", json_file_name.trim_end_matches(".json"));
-        let bracket_mesh_path =
-            gameitems_dir.join(generated_mesh_file_name(&bracket_mesh_name, mesh_format));
-        write_mesh_to_file(
-            &bracket_mesh_path,
-            &format!("{}Bracket", spinner.name),
-            &bracket_vertices,
-            &bracket_indices,
-            mesh_format,
-            fs,
-        )?;
-    }
-
-    // Write plate mesh
-    let (plate_vertices, plate_indices) = meshes.plate;
-    let plate_mesh_name = format!("{}-plate", json_file_name.trim_end_matches(".json"));
-    let plate_mesh_path =
-        gameitems_dir.join(generated_mesh_file_name(&plate_mesh_name, mesh_format));
-    write_mesh_to_file(
-        &plate_mesh_path,
-        &format!("{}Plate", spinner.name),
-        &plate_vertices,
-        &plate_indices,
-        mesh_format,
-        fs,
-    )
 }
 
 #[cfg(test)]

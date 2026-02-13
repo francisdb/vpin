@@ -24,15 +24,11 @@ mod trigger_simple_mesh;
 mod trigger_star_mesh;
 mod trigger_wire_d_mesh;
 
-use super::{PrimitiveMeshFormat, WriteError};
-use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::gameitem::trigger::{Trigger, TriggerShape};
 use crate::vpx::math::{Matrix3D, Vertex3D};
-use crate::vpx::mesh::{generated_mesh_file_name, write_mesh_to_file};
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
-use std::path::Path;
 
 use trigger_button_mesh::{TRIGGER_BUTTON_INDICES, TRIGGER_BUTTON_MESH};
 use trigger_inder_mesh::{TRIGGER_INDER_INDICES, TRIGGER_INDER_MESH};
@@ -208,31 +204,6 @@ pub fn build_trigger_mesh(
         .collect();
 
     Some((vertices, faces))
-}
-
-/// Write trigger mesh to file
-pub(crate) fn write_trigger_mesh(
-    gameitems_dir: &Path,
-    trigger: &Trigger,
-    json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
-    fs: &dyn FileSystem,
-) -> Result<(), WriteError> {
-    let Some((vertices, indices)) = build_trigger_mesh(trigger, 0.0) else {
-        return Ok(());
-    };
-
-    let mesh_path = gameitems_dir.join(generated_mesh_file_name(json_file_name, mesh_format));
-    write_mesh_to_file(
-        &mesh_path,
-        &trigger.name,
-        &vertices,
-        &indices,
-        mesh_format,
-        fs,
-    )?;
-
-    Ok(())
 }
 
 #[cfg(test)]

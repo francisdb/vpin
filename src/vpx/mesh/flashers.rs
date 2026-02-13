@@ -3,12 +3,7 @@
 //! This module ports the flasher mesh generation from Visual Pinball's flasher.cpp.
 //! Flashers are flat polygons defined by drag points, with optional rotation and height.
 
-use super::super::mesh::{
-    RenderVertex2D, detail_level_to_accuracy, generated_mesh_file_name, get_rg_vertex_2d,
-    write_mesh_to_file,
-};
-use super::{PrimitiveMeshFormat, WriteError};
-use crate::filesystem::FileSystem;
+use super::super::mesh::{RenderVertex2D, detail_level_to_accuracy, get_rg_vertex_2d};
 use crate::vpx::TableDimensions;
 use crate::vpx::gameitem::flasher::Flasher;
 use crate::vpx::gameitem::primitive::VertexWrapper;
@@ -16,7 +11,6 @@ use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 use std::f32::consts::PI;
-use std::path::Path;
 
 /// Find the corner vertex (minimum Y, in case of tie also minimum X)
 /// This matches VPinball's FindCornerVertex function
@@ -258,7 +252,7 @@ fn apply_rotation(
 }
 
 /// Build the complete flasher mesh
-pub(super) fn build_flasher_mesh(
+pub(crate) fn build_flasher_mesh(
     flasher: &Flasher,
     table_dims: &TableDimensions,
 ) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
@@ -374,30 +368,6 @@ pub(super) fn build_flasher_mesh(
         .collect();
 
     Some((wrapped, faces))
-}
-
-/// Write flasher meshes to file
-pub(super) fn write_flasher_meshes(
-    gameitems_dir: &Path,
-    flasher: &Flasher,
-    json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
-    table_dims: &TableDimensions,
-    fs: &dyn FileSystem,
-) -> Result<(), WriteError> {
-    let Some((vertices, indices)) = build_flasher_mesh(flasher, table_dims) else {
-        return Ok(());
-    };
-
-    let mesh_path = gameitems_dir.join(generated_mesh_file_name(json_file_name, mesh_format));
-    write_mesh_to_file(
-        &mesh_path,
-        &flasher.name,
-        &vertices,
-        &indices,
-        mesh_format,
-        fs,
-    )
 }
 
 #[cfg(test)]

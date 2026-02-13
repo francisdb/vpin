@@ -67,15 +67,11 @@
 //!
 //! Ported from: VPinball/src/parts/plunger.cpp
 
-use super::{PrimitiveMeshFormat, WriteError};
-use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::plunger::{Plunger, PlungerType};
 use crate::vpx::gameitem::primitive::VertexWrapper;
-use crate::vpx::mesh::{generated_mesh_file_name, write_mesh_to_file};
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 use std::f32::consts::PI;
-use std::path::Path;
 
 /// Number of vertices around the circumference for cylindrical shapes
 /// From VPinball: PlungerCoord::n_lathe_points
@@ -981,100 +977,6 @@ pub fn build_plunger_meshes(plunger: &Plunger, base_height: f32) -> PlungerMeshe
             }
         }
     }
-}
-
-/// Write plunger meshes to individual files
-pub(crate) fn write_plunger_meshes(
-    gameitems_dir: &Path,
-    plunger: &Plunger,
-    json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
-    fs: &dyn FileSystem,
-) -> Result<(), WriteError> {
-    let plunger_meshes = build_plunger_meshes(plunger, 0.0);
-    let file_name_base = json_file_name.trim_end_matches(".json");
-
-    // Write flat rod mesh
-    if let Some((vertices, indices)) = plunger_meshes.flat_rod {
-        let mesh_path = gameitems_dir.join(generated_mesh_file_name(
-            &format!("{file_name_base}-flat.json"),
-            mesh_format,
-        ));
-        write_mesh_to_file(
-            &mesh_path,
-            &format!("{}Flat", plunger.name),
-            &vertices,
-            &indices,
-            mesh_format,
-            fs,
-        )?;
-    }
-
-    // Write rod mesh
-    if let Some((vertices, indices)) = plunger_meshes.rod {
-        let mesh_path = gameitems_dir.join(generated_mesh_file_name(
-            &format!("{file_name_base}-rod.json"),
-            mesh_format,
-        ));
-        write_mesh_to_file(
-            &mesh_path,
-            &format!("{}Rod", plunger.name),
-            &vertices,
-            &indices,
-            mesh_format,
-            fs,
-        )?;
-    }
-
-    // Write spring mesh
-    if let Some((vertices, indices)) = plunger_meshes.spring {
-        let mesh_path = gameitems_dir.join(generated_mesh_file_name(
-            &format!("{file_name_base}-spring.json"),
-            mesh_format,
-        ));
-        write_mesh_to_file(
-            &mesh_path,
-            &format!("{}Spring", plunger.name),
-            &vertices,
-            &indices,
-            mesh_format,
-            fs,
-        )?;
-    }
-
-    // Write ring mesh
-    if let Some((vertices, indices)) = plunger_meshes.ring {
-        let mesh_path = gameitems_dir.join(generated_mesh_file_name(
-            &format!("{file_name_base}-ring.json"),
-            mesh_format,
-        ));
-        write_mesh_to_file(
-            &mesh_path,
-            &format!("{}Ring", plunger.name),
-            &vertices,
-            &indices,
-            mesh_format,
-            fs,
-        )?;
-    }
-
-    // Write tip mesh
-    if let Some((vertices, indices)) = plunger_meshes.tip {
-        let mesh_path = gameitems_dir.join(generated_mesh_file_name(
-            &format!("{file_name_base}-tip.json"),
-            mesh_format,
-        ));
-        write_mesh_to_file(
-            &mesh_path,
-            &format!("{}Tip", plunger.name),
-            &vertices,
-            &indices,
-            mesh_format,
-            fs,
-        )?;
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]

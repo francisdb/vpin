@@ -3,24 +3,20 @@
 pub(crate) mod balls;
 pub(crate) mod bumpers;
 pub(crate) mod decals;
+pub(crate) mod flashers;
 pub(crate) mod flippers;
 pub(crate) mod gates;
 pub(crate) mod hittargets;
 pub(crate) mod kickers;
 pub(crate) mod lights;
+pub(crate) mod mesh_validation;
+pub(crate) mod playfields;
 pub(crate) mod plungers;
+pub(crate) mod ramps;
+pub(crate) mod rubbers;
 pub(crate) mod spinners;
 pub(crate) mod triggers;
-
-use crate::filesystem::FileSystem;
-use crate::vpx::expanded::{PrimitiveMeshFormat, WriteError};
-use crate::vpx::gameitem::primitive::VertexWrapper;
-use crate::vpx::gltf::{GltfContainer, write_gltf};
-use crate::vpx::obj::{VpxFace, write_obj};
-use std::path::Path;
-// Re-export math types for convenience
-pub use crate::vpx::math::{Mat3 as Matrix3D, get_rotated_axis};
-use crate::vpx::math::{Vec2, Vec3};
+pub(crate) mod walls;
 
 /// Static detail level used by VPinball to approximate ramps and rubbers for physics/collision code.
 /// From VPinball physconst.h: `#define HIT_SHAPE_DETAIL_LEVEL 7.0f`
@@ -74,43 +70,7 @@ pub(super) struct RenderVertex3D {
     pub control_point: bool,
 }
 
-/// Generate the file name for a generated mesh file
-pub(super) fn generated_mesh_file_name(
-    json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
-) -> String {
-    let extension = match mesh_format {
-        PrimitiveMeshFormat::Obj => "obj",
-        PrimitiveMeshFormat::Glb => "glb",
-        PrimitiveMeshFormat::Gltf => "gltf",
-    };
-    format!("{json_file_name}-generated.{extension}")
-}
-
-/// Write a mesh to a file in the specified format
-pub(super) fn write_mesh_to_file(
-    mesh_path: &Path,
-    name: &str,
-    vertices: &[VertexWrapper],
-    indices: &[VpxFace],
-    mesh_format: PrimitiveMeshFormat,
-    fs: &dyn FileSystem,
-) -> Result<(), WriteError> {
-    match mesh_format {
-        PrimitiveMeshFormat::Obj => write_obj(name, vertices, indices, mesh_path, fs)
-            .map_err(|e| WriteError::Io(std::io::Error::other(format!("{e}"))))?,
-        PrimitiveMeshFormat::Glb => {
-            write_gltf(name, vertices, indices, mesh_path, GltfContainer::Glb, fs)
-                .map_err(|e| WriteError::Io(std::io::Error::other(format!("{e}"))))?
-        }
-        PrimitiveMeshFormat::Gltf => {
-            write_gltf(name, vertices, indices, mesh_path, GltfContainer::Gltf, fs)
-                .map_err(|e| WriteError::Io(std::io::Error::other(format!("{e}"))))?
-        }
-    }
-    Ok(())
-}
-
+use crate::vpx::math::{Vec2, Vec3};
 use crate::vpx::model::Vertex3dNoTex2;
 
 /// Compute normals for a mesh by accumulating face normals

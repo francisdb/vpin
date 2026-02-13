@@ -14,24 +14,21 @@
 //! Both formats are supported for reading, with OBJ checked first for backward compatibility.
 
 mod camera;
-mod flashers;
 mod fonts;
 mod gameitems;
 mod gltf_export;
 mod images;
 mod materials;
-mod mesh_validation;
 mod metadata;
-mod playfields;
 mod primitives;
-mod ramps;
-mod rubbers;
 mod sounds;
 mod util;
-mod walls;
 
 use crate::filesystem::{FileSystem, MemoryFileSystem, RealFileSystem};
+use crate::vpx::gameitem::primitive::VertexWrapper;
+use crate::vpx::gltf::{GltfContainer, write_gltf};
 use crate::vpx::material::Material;
+use crate::vpx::obj::{VpxFace, write_obj};
 use crate::vpx::{VPX, Version};
 pub use gltf_export::export_glb;
 use log::{info, warn};
@@ -398,6 +395,43 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
     let mut files = fs.list_files();
     files.sort();
     files
+}
+
+/// Generate the file name for a generated mesh file
+pub(super) fn generated_mesh_file_name(
+    json_file_name: &str,
+    mesh_format: PrimitiveMeshFormat,
+) -> String {
+    let extension = match mesh_format {
+        PrimitiveMeshFormat::Obj => "obj",
+        PrimitiveMeshFormat::Glb => "glb",
+        PrimitiveMeshFormat::Gltf => "gltf",
+    };
+    format!("{json_file_name}-generated.{extension}")
+}
+
+/// Write a mesh to a file in the specified format
+pub(super) fn write_mesh_to_file(
+    mesh_path: &Path,
+    name: &str,
+    vertices: &[VertexWrapper],
+    indices: &[VpxFace],
+    mesh_format: PrimitiveMeshFormat,
+    fs: &dyn FileSystem,
+) -> Result<(), WriteError> {
+    match mesh_format {
+        PrimitiveMeshFormat::Obj => write_obj(name, vertices, indices, mesh_path, fs)
+            .map_err(|e| WriteError::Io(std::io::Error::other(format!("{e}"))))?,
+        PrimitiveMeshFormat::Glb => {
+            write_gltf(name, vertices, indices, mesh_path, GltfContainer::Glb, fs)
+                .map_err(|e| WriteError::Io(std::io::Error::other(format!("{e}"))))?
+        }
+        PrimitiveMeshFormat::Gltf => {
+            write_gltf(name, vertices, indices, mesh_path, GltfContainer::Gltf, fs)
+                .map_err(|e| WriteError::Io(std::io::Error::other(format!("{e}"))))?
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

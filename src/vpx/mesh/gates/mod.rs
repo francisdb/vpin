@@ -19,15 +19,11 @@ mod gate_plate_mesh;
 mod gate_wire_mesh;
 mod gate_wire_rectangle_mesh;
 
-use super::{PrimitiveMeshFormat, WriteError};
-use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::gate::{Gate, GateType};
 use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::math::{Matrix3D, Vertex3D};
-use crate::vpx::mesh::{generated_mesh_file_name, write_mesh_to_file};
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
-use std::path::Path;
 
 use gate_bracket_mesh::{GATE_BRACKET_INDICES, GATE_BRACKET_MESH};
 use gate_long_plate_mesh::{GATE_LONG_PLATE_INDICES, GATE_LONG_PLATE_MESH};
@@ -191,54 +187,6 @@ pub fn build_gate_meshes(gate: &Gate, base_height: f32) -> Option<GateMeshes> {
         },
         wire: generate_wire_mesh(gate, base_height, mesh, indices),
     })
-}
-
-/// Write gate meshes to individual files
-pub(crate) fn write_gate_meshes(
-    gameitems_dir: &Path,
-    gate: &Gate,
-    json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
-    fs: &dyn FileSystem,
-) -> Result<(), WriteError> {
-    let Some(gate_meshes) = build_gate_meshes(gate, 0.0) else {
-        return Ok(());
-    };
-
-    let file_name_base = json_file_name.trim_end_matches(".json");
-
-    // Write bracket mesh if visible
-    if let Some((vertices, indices)) = gate_meshes.bracket {
-        let mesh_path = gameitems_dir.join(generated_mesh_file_name(
-            &format!("{file_name_base}-bracket.json"),
-            mesh_format,
-        ));
-        write_mesh_to_file(
-            &mesh_path,
-            &format!("{}Bracket", gate.name),
-            &vertices,
-            &indices,
-            mesh_format,
-            fs,
-        )?;
-    }
-
-    // Write wire/plate mesh
-    let (vertices, indices) = gate_meshes.wire;
-    let mesh_path = gameitems_dir.join(generated_mesh_file_name(
-        &format!("{file_name_base}-wire.json"),
-        mesh_format,
-    ));
-    write_mesh_to_file(
-        &mesh_path,
-        &format!("{}Wire", gate.name),
-        &vertices,
-        &indices,
-        mesh_format,
-        fs,
-    )?;
-
-    Ok(())
 }
 
 #[cfg(test)]

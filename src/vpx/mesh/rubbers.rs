@@ -3,21 +3,15 @@
 //! This module ports the rubber mesh generation from Visual Pinball's rubber.cpp.
 //! Rubbers are rendered as tubular shapes that follow a spline curve defined by drag points.
 
-use super::{PrimitiveMeshFormat, WriteError};
-use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::dragpoint::DragPoint;
 use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::gameitem::rubber::Rubber;
-use crate::vpx::math::{Vec2, Vec3};
+use crate::vpx::math::{Vec2, Vec3, get_rotated_axis};
 use crate::vpx::mesh::get_rg_vertex_2d;
-use crate::vpx::mesh::{
-    compute_normals, detail_level_to_accuracy, generated_mesh_file_name, get_rotated_axis,
-    write_mesh_to_file,
-};
+use crate::vpx::mesh::{compute_normals, detail_level_to_accuracy};
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 use std::f32::consts::PI;
-use std::path::Path;
 
 /// Get the spline vertices for the rubber outline
 /// Returns (outline_vertices, middle_points) where:
@@ -346,7 +340,7 @@ fn apply_rotation(
 }
 
 /// Build the complete rubber mesh
-pub(super) fn build_rubber_mesh(rubber: &Rubber) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
+pub(crate) fn build_rubber_mesh(rubber: &Rubber) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
     if rubber.thickness == 0 {
         return None;
     }
@@ -377,29 +371,6 @@ pub(super) fn build_rubber_mesh(rubber: &Rubber) -> Option<(Vec<VertexWrapper>, 
         .collect();
 
     Some((wrapped, faces))
-}
-
-/// Write rubber meshes to file
-pub(super) fn write_rubber_meshes(
-    gameitems_dir: &Path,
-    rubber: &Rubber,
-    json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
-    fs: &dyn FileSystem,
-) -> Result<(), WriteError> {
-    let Some((vertices, indices)) = build_rubber_mesh(rubber) else {
-        return Ok(());
-    };
-
-    let mesh_path = gameitems_dir.join(generated_mesh_file_name(json_file_name, mesh_format));
-    write_mesh_to_file(
-        &mesh_path,
-        &rubber.name,
-        &vertices,
-        &indices,
-        mesh_format,
-        fs,
-    )
 }
 
 #[cfg(test)]
