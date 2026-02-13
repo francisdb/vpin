@@ -2,7 +2,7 @@
 //
 // GLB format provides significantly better performance for large meshes compared to OBJ format.
 //
-// Usage: cargo run --example extract_with_glb -- <path_to_vpx_file>
+// Usage: cargo run --example extract_with_glb -- <path_to_vpx_file> [output_folder]
 
 use std::env;
 use std::path::PathBuf;
@@ -18,14 +18,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let vpx_path = if args.len() > 1 {
         PathBuf::from(&args[1])
     } else {
-        eprintln!("Usage: {} <path_to_vpx_file>", args[0]);
+        eprintln!("Usage: {} <path_to_vpx_file> [output_folder]", args[0]);
         eprintln!("Example: cargo run --example extract_with_glb -- /path/to/table.vpx");
+        eprintln!(
+            "Example: cargo run --example extract_with_glb -- /path/to/table.vpx /tmp/extracted"
+        );
         std::process::exit(1);
+    };
+
+    // Get optional output folder (defaults to current directory)
+    let output_base = if args.len() > 2 {
+        PathBuf::from(&args[2])
+    } else {
+        PathBuf::from(".")
     };
 
     if !vpx_path.exists() {
         eprintln!("Error: File not found: {}", vpx_path.display());
         std::process::exit(1);
+    }
+
+    // Create output base directory if needed
+    if !output_base.exists() {
+        std::fs::create_dir_all(&output_base)?;
     }
 
     // Read a VPX file
@@ -41,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Extract with default OBJ format
-    let obj_dir = PathBuf::from("extracted_obj");
+    let obj_dir = output_base.join("extracted_obj");
     if obj_dir.exists() {
         std::fs::remove_dir_all(&obj_dir)?;
     }
@@ -53,7 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✓ Extracted with OBJ format to: {}", obj_dir.display());
 
     // Extract with GLB format for better performance on large meshes
-    let glb_dir = PathBuf::from("extracted_glb");
+    let glb_dir = output_base.join("extracted_glb");
     if glb_dir.exists() {
         std::fs::remove_dir_all(&glb_dir)?;
     }
@@ -65,7 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✓ Extracted with GLB format to: {}", glb_dir.display());
 
     // Extract with GLTF format (JSON + BIN)
-    let gltf_dir = PathBuf::from("extracted_gltf");
+    let gltf_dir = output_base.join("extracted_gltf");
     if gltf_dir.exists() {
         std::fs::remove_dir_all(&gltf_dir)?;
     }

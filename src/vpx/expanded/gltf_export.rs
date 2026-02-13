@@ -532,7 +532,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
 
                     // Determine material and texture:
                     // - If it's the playfield primitive, use the playfield material and playfield image
-                    // - Otherwise, use the primitive's image as texture if set, or material
+                    // - Otherwise, set both independently - primitives can have both a texture AND a material
+                    //   (e.g., a screw with a metal texture AND metal material properties)
                     let (material_name, texture_name) = if is_playfield {
                         // Use both playfield material and playfield image
                         // The texture_name is needed for transmission materials to find the texture
@@ -542,13 +543,19 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             Some(vpx.gamedata.image.clone())
                         };
                         (Some(playfield_material_name.clone()), playfield_texture)
-                    } else if !primitive.image.is_empty() {
-                        // Primitive has a texture image - use it
-                        (None, Some(primitive.image.clone()))
-                    } else if !primitive.material.is_empty() {
-                        (Some(primitive.material.clone()), None)
                     } else {
-                        (None, None)
+                        // Set texture and material independently - both can be present
+                        let texture = if !primitive.image.is_empty() {
+                            Some(primitive.image.clone())
+                        } else {
+                            None
+                        };
+                        let material = if !primitive.material.is_empty() {
+                            Some(primitive.material.clone())
+                        } else {
+                            None
+                        };
+                        (material, texture)
                     };
 
                     let transmission_factor =
@@ -1765,7 +1772,62 @@ fn build_combined_gltf_payload(
                 }
             }
 
-            // No material color tint needed - can share material based on texture only
+            // No material color tint needed - check if material has metallic properties
+            // If so, create a unique material; otherwise share based on texture only
+
+            // Get metallic/roughness from material if available
+            let mat_properties = mesh
+                .material_name
+                .as_ref()
+                .and_then(|mat_name| materials.get(mat_name))
+                .map(|mat| {
+                    (
+                        mat.metallic,
+                        mat.roughness,
+                        mat.opacity_active,
+                        mat.base_color[3],
+                    )
+                });
+
+            // If material has non-default metallic (> 0), create unique material
+            if let Some((metallic, roughness, opacity_active, opacity)) = mat_properties
+                && metallic > 0.0
+            {
+                // Create unique material for this texture + metallic combination
+                if let Some(&texture_idx) = texture_index_map.get(&texture_key) {
+                    let material_idx = gltf_materials.len();
+                    mesh_material_map.insert(mesh_idx, material_idx);
+
+                    let image_has_alpha = image_map
+                        .get(&texture_key)
+                        .is_some_and(|img| image_has_transparency(img));
+
+                    let material_has_alpha = opacity_active && opacity < 0.999;
+                    let needs_alpha = image_has_alpha || material_has_alpha;
+
+                    let mut material = json!({
+                        "name": format!("{}_{}", mesh.material_name.as_ref().unwrap(), texture_name),
+                        "pbrMetallicRoughness": {
+                            "baseColorTexture": {
+                                "index": texture_idx
+                            },
+                            "metallicFactor": metallic,
+                            "roughnessFactor": roughness
+                        },
+                        "doubleSided": true
+                    });
+
+                    if needs_alpha {
+                        material["alphaMode"] = json!("MASK");
+                        material["alphaCutoff"] = json!(0.5);
+                    }
+
+                    gltf_materials.push(material);
+                }
+                continue;
+            }
+
+            // No metallic material - can share material based on texture only
             // Skip if material already exists for this texture
             if texture_material_map.contains_key(&texture_key) {
                 continue;
@@ -2490,6 +2552,8 @@ pub fn export_glb(vpx: &VPX, path: &Path, fs: &dyn FileSystem) -> Result<(), Wri
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vpx::gameitem::primitive::Primitive;
+    use crate::vpx::model::Vertex3dNoTex2;
 
     #[test]
     fn test_collect_meshes_empty_vpx_has_implicit_playfield() {
@@ -2507,5 +2571,122 @@ mod tests {
         // Should succeed because we generate an implicit playfield
         let result = export_glb(&vpx, Path::new("test.glb"), &fs);
         assert!(result.is_ok());
+    }
+
+    /// Helper to create minimal compressed mesh data for a single triangle
+    fn create_minimal_mesh_data() -> (Vec<u8>, Vec<u8>, u32, u32) {
+        use crate::vpx::gameitem::primitive::compress_mesh_data;
+
+        // Create 3 vertices (a simple triangle)
+        let vertices = vec![
+            Vertex3dNoTex2 {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                nx: 0.0,
+                ny: 0.0,
+                nz: 1.0,
+                tu: 0.0,
+                tv: 0.0,
+            },
+            Vertex3dNoTex2 {
+                x: 100.0,
+                y: 0.0,
+                z: 0.0,
+                nx: 0.0,
+                ny: 0.0,
+                nz: 1.0,
+                tu: 1.0,
+                tv: 0.0,
+            },
+            Vertex3dNoTex2 {
+                x: 50.0,
+                y: 100.0,
+                z: 0.0,
+                nx: 0.0,
+                ny: 0.0,
+                nz: 1.0,
+                tu: 0.5,
+                tv: 1.0,
+            },
+        ];
+
+        // Convert vertices to raw bytes (32 bytes per vertex)
+        let mut raw_vertices = Vec::new();
+        for v in &vertices {
+            raw_vertices.extend_from_slice(&v.x.to_le_bytes());
+            raw_vertices.extend_from_slice(&v.y.to_le_bytes());
+            raw_vertices.extend_from_slice(&v.z.to_le_bytes());
+            raw_vertices.extend_from_slice(&v.nx.to_le_bytes());
+            raw_vertices.extend_from_slice(&v.ny.to_le_bytes());
+            raw_vertices.extend_from_slice(&v.nz.to_le_bytes());
+            raw_vertices.extend_from_slice(&v.tu.to_le_bytes());
+            raw_vertices.extend_from_slice(&v.tv.to_le_bytes());
+        }
+
+        // Create indices for a single triangle (2 bytes per index since < 65535 vertices)
+        let indices: Vec<u16> = vec![0, 1, 2];
+        let mut raw_indices = Vec::new();
+        for i in &indices {
+            raw_indices.extend_from_slice(&i.to_le_bytes());
+        }
+
+        // Compress the data
+        let compressed_vertices = compress_mesh_data(&raw_vertices).unwrap();
+        let compressed_indices = compress_mesh_data(&raw_indices).unwrap();
+
+        (
+            compressed_vertices,
+            compressed_indices,
+            vertices.len() as u32,
+            indices.len() as u32,
+        )
+    }
+
+    #[test]
+    fn test_primitive_with_image_and_material_preserves_both() {
+        let mut vpx = VPX::default();
+
+        // Create mesh data
+        let (compressed_vertices, compressed_indices, num_vertices, num_indices) =
+            create_minimal_mesh_data();
+
+        // Create a primitive with both image AND material (like a screw)
+        let primitive = Primitive {
+            name: "test_screw".to_string(),
+            image: "metal_texture".to_string(),
+            material: "MetalMaterial".to_string(),
+            is_visible: true,
+            compressed_vertices_data: Some(compressed_vertices),
+            compressed_vertices_len: Some(0), // Not used for reading
+            compressed_indices_data: Some(compressed_indices),
+            compressed_indices_len: Some(0), // Not used for reading
+            num_vertices: Some(num_vertices),
+            num_indices: Some(num_indices),
+            ..Default::default()
+        };
+
+        vpx.gameitems.push(GameItemEnum::Primitive(primitive));
+
+        // Collect meshes - this calls the actual code we fixed
+        let meshes = collect_meshes(&vpx);
+
+        // Find our test mesh (skip the implicit playfield)
+        let test_mesh = meshes.iter().find(|m| m.name == "test_screw");
+        assert!(test_mesh.is_some(), "test_screw mesh should exist");
+
+        let test_mesh = test_mesh.unwrap();
+
+        // The mesh should have BOTH material_name AND texture_name set
+        assert_eq!(
+            test_mesh.material_name,
+            Some("MetalMaterial".to_string()),
+            "material_name should be preserved when primitive has both image and material"
+        );
+        assert_eq!(
+            test_mesh.texture_name,
+            Some("metal_texture".to_string()),
+            "texture_name should be preserved"
+        );
     }
 }
