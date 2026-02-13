@@ -84,8 +84,6 @@ pub struct Primitive {
     /// VPinball shader uses: `lerp(light_from_below, 0, disable_lighting_below)`
     /// So higher values = less light transmission.
     ///
-    /// For glTF export, we convert to transmission factor: `transmission = 1.0 - disable_lighting_below`
-    ///
     /// BIFF tag: `DILB`  (added in 10.?)
     pub disable_lighting_below: Option<f32>,
 
