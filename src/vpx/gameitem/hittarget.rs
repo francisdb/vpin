@@ -150,12 +150,12 @@ impl<'de> Deserialize<'de> for TargetType {
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct HitTarget {
+    pub name: String,
     pub position: Vertex3D,
     pub size: Vertex3D,
     pub rot_z: f32,
     pub image: String,
     pub target_type: TargetType,
-    pub name: String,
     pub material: String,
     pub is_visible: bool,
     pub is_legacy: bool,
@@ -166,9 +166,35 @@ pub struct HitTarget {
     pub friction: f32,
     pub scatter: f32,
     pub is_collidable: bool,
-    pub disable_lighting_top_old: Option<f32>, // DILI (removed in 10.8)
-    pub disable_lighting_top: Option<f32>,     // DILT (added in 10.8)
-    pub disable_lighting_below: Option<f32>,   // DILB (added in 10.?)
+    /// Legacy field for disabling lighting on top surface.
+    /// Replaced by `disable_lighting_top` in VPX 10.8.
+    ///
+    /// BIFF tag: `DILI` (removed in 10.8)
+    pub disable_lighting_top_old: Option<f32>,
+
+    /// Controls how much lighting is disabled on the top surface.
+    /// Range: 0.0 to 1.0
+    /// - 0.0 = full lighting (normal rendering)
+    /// - 1.0 = lighting fully disabled (appears darker/unlit)
+    ///
+    /// BIFF tag: `DILT` (added in 10.8)
+    pub disable_lighting_top: Option<f32>,
+
+    /// Controls light transmission through this surface from lights below.
+    /// Despite the confusing name "disable_lighting_below", this value controls
+    /// how much light from below is BLOCKED, not transmitted.
+    ///
+    /// Range: 0.0 to 1.0
+    /// - 0.0 = light passes through fully (fully transmissive/transparent to light)
+    /// - 1.0 = light is fully blocked (opaque, no light transmission)
+    ///
+    /// VPinball shader uses: `lerp(light_from_below, 0, disable_lighting_below)`
+    /// So higher values = less light transmission.
+    ///
+    /// For glTF export, we convert to transmission factor: `transmission = 1.0 - disable_lighting_below`
+    ///
+    /// BIFF tag: `DILB`  (added in 10.?)
+    pub disable_lighting_below: Option<f32>,
     pub depth_bias: f32,
     pub is_reflection_enabled: bool,
     pub is_dropped: bool,

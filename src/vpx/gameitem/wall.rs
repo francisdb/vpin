@@ -11,6 +11,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Wall {
+    pub name: String,
     pub hit_event: bool,
     pub is_droppable: bool,
     pub is_flipbook: bool,
@@ -26,7 +27,6 @@ pub struct Wall {
     pub slingshot_material: String,
     pub height_bottom: f32,
     pub height_top: f32,
-    pub name: String,
     /// Whether to display the top image texture in the VPinball editor preview.
     /// This does NOT affect runtime rendering - textures are always rendered if set.
     /// See: https://github.com/vpinball/vpinball/blob/master/src/parts/surface.h
@@ -40,12 +40,40 @@ pub struct Wall {
     pub is_top_bottom_visible: bool,
     pub slingshot_animation: bool,
     pub is_side_visible: bool,
-    pub disable_lighting_top_old: Option<f32>, // DILI (removed in 10.8)
-    pub disable_lighting_top: Option<f32>,     // DILT (added in 10.8)
-    pub disable_lighting_below: Option<f32>,   // DILB (added in 10.?)
-    pub is_reflection_enabled: Option<bool>,   // REEN (was missing in 10.01)
-    pub physics_material: Option<String>,      // MAPH (added in 10.?)
-    pub overwrite_physics: Option<bool>,       // OVPH (added in 10.?)
+
+    /// Legacy field for disabling lighting on top surface.
+    /// Replaced by `disable_lighting_top` in VPX 10.8.
+    ///
+    /// BIFF tag: `DILI` (removed in 10.8)
+    pub disable_lighting_top_old: Option<f32>,
+
+    /// Controls how much lighting is disabled on the top surface.
+    /// Range: 0.0 to 1.0
+    /// - 0.0 = full lighting (normal rendering)
+    /// - 1.0 = lighting fully disabled (appears darker/unlit)
+    ///
+    /// BIFF tag: `DILT` (added in 10.8)
+    pub disable_lighting_top: Option<f32>,
+
+    /// Controls light transmission through this surface from lights below.
+    /// Despite the confusing name "disable_lighting_below", this value controls
+    /// how much light from below is BLOCKED, not transmitted.
+    ///
+    /// Range: 0.0 to 1.0
+    /// - 0.0 = light passes through fully (fully transmissive/transparent to light)
+    /// - 1.0 = light is fully blocked (opaque, no light transmission)
+    ///
+    /// VPinball shader uses: `lerp(light_from_below, 0, disable_lighting_below)`
+    /// So higher values = less light transmission.
+    ///
+    /// For glTF export, we convert to transmission factor: `transmission = 1.0 - disable_lighting_below`
+    ///
+    /// BIFF tag: `DILB` (added in 10.?)
+    pub disable_lighting_below: Option<f32>,
+
+    pub is_reflection_enabled: Option<bool>, // REEN (was missing in 10.01)
+    pub physics_material: Option<String>,    // MAPH (added in 10.?)
+    pub overwrite_physics: Option<bool>,     // OVPH (added in 10.?)
 
     // these are shared between all items
     pub is_locked: bool,

@@ -537,7 +537,9 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     };
 
                     // Calculate transmission factor from disable_lighting_below
-                    // VPinball: disable_lighting_below 0.0 = fully transmits light, 1.0 = blocks light
+                    // VPinball shader: lerp(light, 0, disable_lighting_below)
+                    //   disable_lighting_below 0.0 = full light passes through = fully transmissive
+                    //   disable_lighting_below 1.0 = no light passes through = opaque
                     // glTF KHR_materials_transmission: 0.0 = opaque, 1.0 = fully transmissive
                     // So: transmission = 1.0 - disable_lighting_below
                     let transmission_factor = primitive
@@ -583,7 +585,9 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         };
 
                         // Calculate transmission factor from disable_lighting_below
-                        // VPinball: disable_lighting_below 0.0 = fully transmits light, 1.0 = blocks light
+                        // VPinball shader: lerp(light, 0, disable_lighting_below)
+                        //   disable_lighting_below 0.0 = full light passes through = fully transmissive
+                        //   disable_lighting_below 1.0 = no light passes through = opaque
                         // glTF KHR_materials_transmission: 0.0 = opaque, 1.0 = fully transmissive
                         // So: transmission = 1.0 - disable_lighting_below
                         let transmission_factor = wall
@@ -621,6 +625,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         };
 
                         // Side surfaces also use the same disable_lighting_below value
+                        // transmission = 1.0 - disable_lighting_below
                         let transmission_factor = wall
                             .disable_lighting_below
                             .filter(|&v| v < 1.0)
@@ -1704,10 +1709,68 @@ fn build_combined_gltf_payload(
                 }
             }
         }
-        // Case 3: Mesh has texture but no color_tint and no transmission - can share material
+        // Case 3: Mesh has texture but no color_tint and no transmission
+        // If mesh also has a material_name, we need to create a unique material that combines
+        // the texture with the material's base color (tint)
         else if let Some(ref texture_name) = mesh.texture_name {
             let texture_key = texture_name.to_lowercase();
 
+            // Check if mesh has a material that provides a base color tint
+            let mat_info = mesh
+                .material_name
+                .as_ref()
+                .and_then(|mat_name| materials.get(mat_name))
+                .map(|mat| {
+                    (
+                        mat.base_color,
+                        mat.opacity_active,
+                        mat.metallic,
+                        mat.roughness,
+                    )
+                });
+
+            // Check if mesh needs a unique material (non-white color)
+            if let Some((color, opacity_active, metallic, roughness)) = mat_info {
+                let is_non_white = color[0] < 0.99 || color[1] < 0.99 || color[2] < 0.99;
+
+                if is_non_white {
+                    // Create unique material for this texture + color combination
+                    if let Some(&texture_idx) = texture_index_map.get(&texture_key) {
+                        let material_idx = gltf_materials.len();
+                        mesh_material_map.insert(mesh_idx, material_idx);
+
+                        let image_has_alpha = image_map
+                            .get(&texture_key)
+                            .is_some_and(|img| image_has_transparency(img));
+
+                        let material_has_alpha = opacity_active && color[3] < 0.999;
+                        let needs_alpha = image_has_alpha || material_has_alpha;
+
+                        let mut material = json!({
+                            "name": format!("{}_{}", mesh.material_name.as_ref().unwrap(), texture_name),
+                            "pbrMetallicRoughness": {
+                                "baseColorTexture": {
+                                    "index": texture_idx
+                                },
+                                "baseColorFactor": color,
+                                "metallicFactor": metallic,
+                                "roughnessFactor": roughness
+                            },
+                            "doubleSided": true
+                        });
+
+                        if needs_alpha {
+                            material["alphaMode"] = json!("MASK");
+                            material["alphaCutoff"] = json!(0.5);
+                        }
+
+                        gltf_materials.push(material);
+                    }
+                    continue;
+                }
+            }
+
+            // No material color tint needed - can share material based on texture only
             // Skip if material already exists for this texture
             if texture_material_map.contains_key(&texture_key) {
                 continue;

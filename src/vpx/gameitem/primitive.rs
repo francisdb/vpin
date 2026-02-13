@@ -25,6 +25,7 @@ pub const MAX_VERTICES_FOR_2_BYTE_INDEX: usize = 65535;
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Primitive {
+    pub name: String,       // 15
     pub position: Vertex3D, // 0 VPOS
     pub size: Vertex3D,     // 1 VSIZ
     /// Indices for RotAndTra:
@@ -41,7 +42,6 @@ pub struct Primitive {
     pub image: String,      // 12 IMAG
     pub normal_map: Option<String>, // 13 NRMA (added in 10.?)
     pub sides: u32,         // 14
-    pub name: String,       // 15
     pub material: String,   // 16
     pub side_color: Color,  // 17
     pub is_visible: bool,   // 18
@@ -58,36 +58,64 @@ pub struct Primitive {
     pub is_toy: bool,       // 29
     pub use_3d_mesh: bool,  // 30
     pub static_rendering: bool, // 31
-    pub disable_lighting_top_old: Option<f32>, // DILI (removed in 10.8)
-    pub disable_lighting_top: Option<f32>, // DILT (added in 10.8)
-    pub disable_lighting_below: Option<f32>, // 33 DILB (added in 10.?)
+
+    /// Legacy field for disabling lighting on top surface.
+    /// Replaced by `disable_lighting_top` in VPX 10.8.
+    ///
+    /// BIFF tag: `DILI` (removed in 10.8)
+    pub disable_lighting_top_old: Option<f32>,
+
+    /// Controls how much lighting is disabled on the top surface.
+    /// Range: 0.0 to 1.0
+    /// - 0.0 = full lighting (normal rendering)
+    /// - 1.0 = lighting fully disabled (appears darker/unlit)
+    ///
+    /// BIFF tag: `DILT` (added in 10.8)
+    pub disable_lighting_top: Option<f32>,
+
+    /// Controls light transmission through this surface from lights below.
+    /// Despite the confusing name "disable_lighting_below", this value controls
+    /// how much light from below is BLOCKED, not transmitted.
+    ///
+    /// Range: 0.0 to 1.0
+    /// - 0.0 = light passes through fully (fully transmissive/transparent to light)
+    /// - 1.0 = light is fully blocked (opaque, no light transmission)
+    ///
+    /// VPinball shader uses: `lerp(light_from_below, 0, disable_lighting_below)`
+    /// So higher values = less light transmission.
+    ///
+    /// For glTF export, we convert to transmission factor: `transmission = 1.0 - disable_lighting_below`
+    ///
+    /// BIFF tag: `DILB`  (added in 10.?)
+    pub disable_lighting_below: Option<f32>,
+
     pub is_reflection_enabled: Option<bool>, // 34 REEN (was missing in 10.01)
-    pub backfaces_enabled: Option<bool>, // 35 EBFC (added in 10.?)
-    pub physics_material: Option<String>, // 36 MAPH (added in 10.?)
-    pub overwrite_physics: Option<bool>, // 37 OVPH (added in 10.?)
-    pub display_texture: Option<bool>, // 38 DIPT (added in ?)
+    pub backfaces_enabled: Option<bool>,     // 35 EBFC (added in 10.?)
+    pub physics_material: Option<String>,    // 36 MAPH (added in 10.?)
+    pub overwrite_physics: Option<bool>,     // 37 OVPH (added in 10.?)
+    pub display_texture: Option<bool>,       // 38 DIPT (added in ?)
     pub object_space_normal_map: Option<bool>, // 38.5 OSNM (added in ?)
-    pub min_aa_bound: Option<Vec<u8>>, // BMIN added in 10.8 ( TODO Vector3D)
-    pub max_aa_bound: Option<Vec<u8>>, // BMAX added in 10.8( TODO Vector3D)
-    pub mesh_file_name: Option<String>, // 39 M3DN
-    pub num_vertices: Option<u32>, // 40 M3VN
+    pub min_aa_bound: Option<Vec<u8>>,       // BMIN added in 10.8 ( TODO Vector3D)
+    pub max_aa_bound: Option<Vec<u8>>,       // BMAX added in 10.8( TODO Vector3D)
+    pub mesh_file_name: Option<String>,      // 39 M3DN
+    pub num_vertices: Option<u32>,           // 40 M3VN
     pub compressed_vertices_len: Option<u32>, // 41 M3CY
     pub compressed_vertices_data: Option<Vec<u8>>, // 42 M3CX
-    pub num_indices: Option<u32>, // 43 M3FN
+    pub num_indices: Option<u32>,            // 43 M3FN
     pub compressed_indices_len: Option<u32>, // 44 M3CJ
     pub compressed_indices_data: Option<Vec<u8>>, // 45 M3CI
     pub compressed_animation_vertices_len: Option<Vec<u32>>, // 46 M3AY multiple
     pub compressed_animation_vertices_data: Option<Vec<Vec<u8>>>, // 47 M3AX multiple
-    pub depth_bias: f32,    // 45 PIDB
-    pub add_blend: Option<bool>, // 46 ADDB - added in ?
-    pub use_depth_mask: Option<bool>, // ZMSK added in 10.8
-    pub alpha: Option<f32>, // 47 FALP - added in ?
-    pub color: Option<Color>, // 48 COLR - added in ?
-    pub light_map: Option<String>, // LMAP - added in 10.8
-    pub reflection_probe: Option<String>, // REFL - added in 10.8
-    pub reflection_strength: Option<f32>, // RSTR - added in 10.8
-    pub refraction_probe: Option<String>, // REFR - added in 10.8
-    pub refraction_thickness: Option<f32>, // RTHI - added in 10.8
+    pub depth_bias: f32,                     // 45 PIDB
+    pub add_blend: Option<bool>,             // 46 ADDB - added in ?
+    pub use_depth_mask: Option<bool>,        // ZMSK added in 10.8
+    pub alpha: Option<f32>,                  // 47 FALP - added in ?
+    pub color: Option<Color>,                // 48 COLR - added in ?
+    pub light_map: Option<String>,           // LMAP - added in 10.8
+    pub reflection_probe: Option<String>,    // REFL - added in 10.8
+    pub reflection_strength: Option<f32>,    // RSTR - added in 10.8
+    pub refraction_probe: Option<String>,    // REFR - added in 10.8
+    pub refraction_thickness: Option<f32>,   // RTHI - added in 10.8
 
     // these are shared between all items
     pub is_locked: bool,
