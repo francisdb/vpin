@@ -405,6 +405,23 @@ mod tests {
     use super::*;
     use crate::vpx::expanded::mesh_common::{CatmullCurve2D, RenderVertex2D};
 
+    /// Generate octagon drag points for testing
+    fn create_octagon_drag_points(radius: f32, smooth: bool) -> Vec<DragPoint> {
+        let num_points = 8;
+        (0..num_points)
+            .map(|i| {
+                let angle = (i as f32 / num_points as f32) * 2.0 * PI;
+                DragPoint {
+                    x: radius * angle.cos(),
+                    y: radius * angle.sin(),
+                    z: 0.0,
+                    smooth,
+                    ..Default::default()
+                }
+            })
+            .collect()
+    }
+
     #[test]
     fn test_catmull_curve_2d() {
         let v0 = RenderVertex2D {
@@ -531,5 +548,221 @@ mod tests {
         let (vertices, indices) = result.unwrap();
         assert!(!vertices.is_empty());
         assert!(!indices.is_empty());
+    }
+
+    #[test]
+    fn test_rubber_octagon_smooth_corners() {
+        // Create an octagon shape with all smooth points
+        // This should produce a smooth, rounded rubber mesh
+        let drag_points = create_octagon_drag_points(100.0, true);
+
+        let mut rubber = Rubber::default();
+        rubber.thickness = 8;
+        rubber.height = 25.0;
+        rubber.drag_points = drag_points;
+
+        let result = build_rubber_mesh(&rubber);
+        assert!(result.is_some(), "Octagon rubber mesh should be generated");
+
+        let (vertices, indices) = result.unwrap();
+        assert!(!vertices.is_empty(), "Should have vertices");
+        assert!(!indices.is_empty(), "Should have faces");
+
+        // Extract vertex data for analysis
+        let verts: Vec<_> = vertices.iter().map(|v| &v.vertex).collect();
+
+        // Check that all normals are normalized
+        for (i, v) in verts.iter().enumerate() {
+            let len = (v.nx * v.nx + v.ny * v.ny + v.nz * v.nz).sqrt();
+            assert!(
+                (len - 1.0).abs() < 0.01,
+                "Normal at vertex {} should be normalized, got length {}",
+                i,
+                len
+            );
+        }
+
+        // For a smooth rubber, adjacent vertices should have similar normals
+        // (indicating smooth shading, not flat shading with hard edges)
+        // We check vertices that are on the same ring (same position along the rubber)
+        let num_segments = 8; // Cross-section segments
+
+        // Check the first ring of vertices
+        if verts.len() >= num_segments * 2 {
+            for j in 0..num_segments {
+                let v1 = &verts[j];
+                let v2 = &verts[(j + 1) % num_segments];
+
+                // Calculate dot product of normals
+                let dot = v1.nx * v2.nx + v1.ny * v2.ny + v1.nz * v2.nz;
+
+                // For a smooth circular cross-section, adjacent normals should have
+                // a reasonable angle between them (dot product > 0.7 for ~45 degrees)
+                assert!(
+                    dot > 0.5,
+                    "Adjacent normals on ring should be similar for smooth shading, got dot={}",
+                    dot
+                );
+            }
+        }
+
+        // Verify seam continuity - the last ring should connect smoothly back to the first
+        let num_rings = verts.len() / num_segments;
+        if num_rings >= 2 {
+            // Compare normals at the seam (last ring connects to first ring)
+            let last_ring_start = (num_rings - 1) * num_segments;
+            for j in 0..num_segments {
+                let v_last = &verts[last_ring_start + j];
+                let v_first = &verts[j];
+
+                let dot = v_last.nx * v_first.nx + v_last.ny * v_first.ny + v_last.nz * v_first.nz;
+
+                // The seam normals should be fairly similar for a smooth loop
+                // Allow more tolerance here as the geometry changes around the curve
+                assert!(
+                    dot > 0.3,
+                    "Seam normals should be continuous, got dot={} at segment {}",
+                    dot,
+                    j
+                );
+            }
+            println!("Seam continuity check passed for {} rings", num_rings);
+        }
+
+        // Print some stats for debugging
+        println!(
+            "Octagon rubber: {} vertices, {} faces",
+            vertices.len(),
+            indices.len()
+        );
+    }
+
+    #[test]
+    fn test_rubber_octagon_sharp_corners() {
+        // Create an octagon with NON-smooth points
+        // This should produce sharper corners in the curve
+        let drag_points = create_octagon_drag_points(100.0, false);
+
+        let mut rubber = Rubber::default();
+        rubber.thickness = 8;
+        rubber.height = 25.0;
+        rubber.drag_points = drag_points;
+
+        let result = build_rubber_mesh(&rubber);
+        assert!(
+            result.is_some(),
+            "Sharp octagon rubber mesh should be generated"
+        );
+
+        let (vertices, indices) = result.unwrap();
+
+        // Sharp corners should generate fewer vertices since less subdivision
+        println!(
+            "Sharp octagon rubber: {} vertices, {} faces",
+            vertices.len(),
+            indices.len()
+        );
+    }
+
+    #[test]
+    fn test_rubber_ring003_from_table() {
+        // This is the actual Ring003 rubber from example_with_balls.vpx
+        // It has 8 drag points in a circle but should render as a smooth ring
+        let mut rubber = Rubber::default();
+        rubber.height = 102.0;
+        rubber.hit_height = Some(25.0);
+        rubber.thickness = 8;
+        rubber.static_rendering = true;
+        rubber.rot_x = 90.0;
+        rubber.rot_y = 0.0;
+        rubber.rot_z = 0.0;
+        rubber.drag_points = vec![
+            DragPoint {
+                x: 50.00001,
+                y: 910.0,
+                z: 0.0,
+                smooth: true,
+                ..Default::default()
+            },
+            DragPoint {
+                x: 21.715734,
+                y: 921.7157,
+                z: 0.0,
+                smooth: true,
+                ..Default::default()
+            },
+            DragPoint {
+                x: 10.0,
+                y: 950.0,
+                z: 0.0,
+                smooth: true,
+                ..Default::default()
+            },
+            DragPoint {
+                x: 21.715723,
+                y: 978.2843,
+                z: 0.0,
+                smooth: true,
+                ..Default::default()
+            },
+            DragPoint {
+                x: 50.0,
+                y: 990.0,
+                z: 0.0,
+                smooth: true,
+                ..Default::default()
+            },
+            DragPoint {
+                x: 78.28428,
+                y: 978.2843,
+                z: 0.0,
+                smooth: true,
+                ..Default::default()
+            },
+            DragPoint {
+                x: 90.0,
+                y: 950.0,
+                z: 0.0,
+                smooth: true,
+                ..Default::default()
+            },
+            DragPoint {
+                x: 78.28428,
+                y: 921.7157,
+                z: 0.0,
+                smooth: true,
+                ..Default::default()
+            },
+        ];
+
+        let result = build_rubber_mesh(&rubber);
+        assert!(result.is_some(), "Ring003 rubber mesh should be generated");
+
+        let (vertices, indices) = result.unwrap();
+        let num_segments = 8; // Cross-section segments
+        let num_rings = vertices.len() / num_segments;
+
+        println!("Ring003 rubber:");
+        println!("  Drag points: {}", rubber.drag_points.len());
+        println!("  Generated rings: {}", num_rings);
+        println!("  Total vertices: {}", vertices.len());
+        println!("  Total faces: {}", indices.len());
+
+        // For a smooth ring with 8 drag points and high detail,
+        // we should have MANY more rings than drag points due to spline subdivision
+        // If we only get 8 rings, the spline is not subdividing
+        assert!(
+            num_rings > 8,
+            "Should have more rings ({}) than drag points (8) for smooth subdivision",
+            num_rings
+        );
+
+        // A truly smooth ring should have ~32+ rings for 8 control points
+        // at the highest detail level
+        assert!(
+            num_rings >= 24,
+            "Expected at least 24 rings for a smooth ring, got {}",
+            num_rings
+        );
     }
 }

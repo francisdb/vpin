@@ -123,6 +123,7 @@ pub(super) fn write_mesh_to_file(
 use crate::vpx::model::Vertex3dNoTex2;
 
 /// Compute normals for a mesh by accumulating face normals
+/// This matches VPinball's ComputeNormals from mesh.h
 pub(super) fn compute_normals(vertices: &mut [Vertex3dNoTex2], indices: &[u32]) {
     // Reset all normals
     for v in vertices.iter_mut() {
@@ -131,7 +132,7 @@ pub(super) fn compute_normals(vertices: &mut [Vertex3dNoTex2], indices: &[u32]) 
         v.nz = 0.0;
     }
 
-    // Accumulate face normals
+    // Accumulate face normals (normalized so each face contributes equally)
     for tri in indices.chunks_exact(3) {
         let i0 = tri[0] as usize;
         let i1 = tri[1] as usize;
@@ -157,6 +158,9 @@ pub(super) fn compute_normals(vertices: &mut [Vertex3dNoTex2], indices: &[u32]) 
         };
         let n = Vec3::cross(&e1, &e2);
 
+        // Normalize face normal so each face contributes equally (like VPinball)
+        let n = n.normalize();
+
         vertices[i0].nx += n.x;
         vertices[i0].ny += n.y;
         vertices[i0].nz += n.z;
@@ -168,7 +172,7 @@ pub(super) fn compute_normals(vertices: &mut [Vertex3dNoTex2], indices: &[u32]) 
         vertices[i2].nz += n.z;
     }
 
-    // Normalize
+    // Normalize final vertex normals
     for v in vertices.iter_mut() {
         let len = (v.nx * v.nx + v.ny * v.ny + v.nz * v.nz).sqrt();
         if len > 0.0 {
@@ -285,27 +289,19 @@ impl CatmullCurve2D {
 }
 
 /// Check if three 2D points are collinear within the given accuracy
+/// Matches VPinball's FlatWithAccuracy from mesh.h
 pub(super) fn flat_with_accuracy_2d(
     v1: &RenderVertex2D,
     v2: &RenderVertex2D,
     vmid: &RenderVertex2D,
     accuracy: f32,
 ) -> bool {
-    let dx = v2.x - v1.x;
-    let dy = v2.y - v1.y;
+    // Compute double the signed area of the triangle (v1, vmid, v2)
+    // This is equivalent to the cross product of (vmid-v1) and (v2-v1)
+    let dblarea = (vmid.x - v1.x) * (v2.y - v1.y) - (v2.x - v1.x) * (vmid.y - v1.y);
 
-    let line_len_sq = dx * dx + dy * dy;
-    if line_len_sq < 1e-10 {
-        return true;
-    }
-
-    let px = vmid.x - v1.x;
-    let py = vmid.y - v1.y;
-
-    let cross = dx * py - dy * px;
-    let dist_sq = (cross * cross) / line_len_sq;
-
-    dist_sq < accuracy * accuracy
+    // VPinball compares area squared directly against accuracy (not accuracy squared!)
+    dblarea * dblarea < accuracy
 }
 
 /// Recursively subdivide a 2D curve segment until it's flat enough
