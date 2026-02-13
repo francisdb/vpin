@@ -67,11 +67,11 @@
 //!
 //! Ported from: VPinball/src/parts/plunger.cpp
 
-use super::mesh_common::{generated_mesh_file_name, write_mesh_to_file};
 use super::{PrimitiveMeshFormat, WriteError};
 use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::plunger::{Plunger, PlungerType};
 use crate::vpx::gameitem::primitive::VertexWrapper;
+use crate::vpx::mesh::{generated_mesh_file_name, write_mesh_to_file};
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 use std::f32::consts::PI;
@@ -984,7 +984,7 @@ pub fn build_plunger_meshes(plunger: &Plunger, base_height: f32) -> PlungerMeshe
 }
 
 /// Write plunger meshes to individual files
-pub(super) fn write_plunger_meshes(
+pub(crate) fn write_plunger_meshes(
     gameitems_dir: &Path,
     plunger: &Plunger,
     json_file_name: &str,

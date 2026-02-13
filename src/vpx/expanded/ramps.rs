@@ -3,16 +3,18 @@
 //! This module ports the ramp mesh generation from Visual Pinball's ramp.cpp.
 //! Ramps can be either flat (with optional walls) or wire ramps (1-4 wire types).
 
-use super::mesh_common::{
-    RenderVertex3D, TableDimensions, Vec2, Vec3, compute_normals, detail_level_to_accuracy,
-    generated_mesh_file_name, get_rotated_axis, init_nonuniform_catmull_coeffs, write_mesh_to_file,
+use super::super::mesh::{
+    RenderVertex3D, compute_normals, detail_level_to_accuracy, generated_mesh_file_name,
+    get_rotated_axis, init_nonuniform_catmull_coeffs, write_mesh_to_file,
 };
 use super::{PrimitiveMeshFormat, WriteError};
 use crate::filesystem::FileSystem;
+use crate::vpx::TableDimensions;
 use crate::vpx::gameitem::dragpoint::DragPoint;
 use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::gameitem::ramp::{Ramp, RampType};
 use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
+use crate::vpx::math::{Vec2, Vec3};
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 use std::path::Path;

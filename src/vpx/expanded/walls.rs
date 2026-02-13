@@ -3,11 +3,13 @@
 //! This module ports the rubber mesh generation from Visual Pinball's surface.cpp.
 //! Walls are represented as extruded polygons with optional smoothing and texture coordinates.
 
-use super::mesh_common::{TableDimensions, Vec2, generated_mesh_file_name, write_mesh_to_file};
 use super::{PrimitiveMeshFormat, WriteError};
 use crate::filesystem::FileSystem;
+use crate::vpx::TableDimensions;
 use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::gameitem::wall::Wall;
+use crate::vpx::math::Vec2;
+use crate::vpx::mesh::{generated_mesh_file_name, write_mesh_to_file};
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 use std::path::Path;

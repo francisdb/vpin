@@ -72,6 +72,7 @@ pub(crate) mod json;
 // we have to make this public for the integration tests
 mod gltf;
 pub mod lzw;
+mod mesh;
 mod obj;
 pub(crate) mod wav;
 
@@ -1088,6 +1089,27 @@ fn write_custominfotags<F: Read + Write + Seek>(
     let data = custominfotags::write_custominfotags(tags);
     let mut stream = comp.create_stream(path)?;
     stream.write_all(&data)
+}
+
+/// Table dimensions for UV coordinate calculation
+/// Used for world-space texture mapping in walls, ramps, and flashers
+#[derive(Debug, Clone, Copy)]
+pub struct TableDimensions {
+    pub left: f32,
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+}
+
+impl TableDimensions {
+    pub fn new(left: f32, top: f32, right: f32, bottom: f32) -> Self {
+        Self {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
 }
 
 #[cfg(test)]

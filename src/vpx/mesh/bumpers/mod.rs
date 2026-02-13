@@ -17,15 +17,16 @@ mod bumper_cap_mesh;
 mod bumper_ring_mesh;
 mod bumper_socket_mesh;
 
-use super::mesh_common::{Matrix3D, Vec3, generated_mesh_file_name, write_mesh_to_file};
 use super::{PrimitiveMeshFormat, WriteError};
 use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::bumper::Bumper;
 use crate::vpx::gameitem::primitive::VertexWrapper;
+use crate::vpx::mesh::{Matrix3D, generated_mesh_file_name, write_mesh_to_file};
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 use std::path::Path;
 
+use crate::vpx::math::Vec3;
 pub use bumper_base_mesh::*;
 pub use bumper_cap_mesh::*;
 pub use bumper_ring_mesh::*;
@@ -79,7 +80,7 @@ pub fn build_bumper_meshes(bumper: &Bumper, base_height: f32) -> BumperMeshes {
 }
 
 /// Write bumper meshes to individual files
-pub(super) fn write_bumper_meshes(
+pub(crate) fn write_bumper_meshes(
     gameitems_dir: &Path,
     bumper: &Bumper,
     json_file_name: &str,

@@ -27,24 +27,13 @@
 //! Triangle winding order is reversed to convert from left-handed to right-handed.
 
 use super::WriteError;
-use super::balls::build_ball_mesh;
-use super::bumpers::build_bumper_meshes;
-use super::decals::build_decal_mesh;
 use super::flashers::build_flasher_mesh;
-use super::flippers::build_flipper_meshes;
-use super::gates::build_gate_meshes;
-use super::hittargets::build_hit_target_mesh;
-use super::kickers::build_kicker_meshes;
-use super::mesh_common::TableDimensions;
 use super::playfields::build_playfield_mesh;
-use super::plungers::build_plunger_meshes;
 use super::ramps::build_ramp_mesh;
 use super::rubbers::build_rubber_mesh;
-use super::spinners::build_spinner_meshes;
-use super::triggers::build_trigger_mesh;
 use super::walls::build_wall_meshes;
 use crate::filesystem::FileSystem;
-use crate::vpx::VPX;
+use crate::vpx;
 use crate::vpx::gameitem::GameItemEnum;
 use crate::vpx::gameitem::light::Light;
 use crate::vpx::gameitem::primitive::VertexWrapper;
@@ -57,14 +46,26 @@ use crate::vpx::gltf::{
 };
 use crate::vpx::image::{ImageData, image_has_transparency};
 use crate::vpx::material::MaterialType;
+use crate::vpx::mesh::balls::build_ball_mesh;
+use crate::vpx::mesh::bumpers::build_bumper_meshes;
+use crate::vpx::mesh::flippers::build_flipper_meshes;
+use crate::vpx::mesh::gates::build_gate_meshes;
+use crate::vpx::mesh::hittargets::build_hit_target_mesh;
+use crate::vpx::mesh::kickers::build_kicker_meshes;
+use crate::vpx::mesh::lights::build_light_meshes;
+use crate::vpx::mesh::plungers::build_plunger_meshes;
+use crate::vpx::mesh::spinners::build_spinner_meshes;
+use crate::vpx::mesh::triggers::build_trigger_mesh;
 use crate::vpx::obj::VpxFace;
 use crate::vpx::units::{mm_to_vpu, vpu_to_m};
+use crate::vpx::{TableDimensions, VPX};
 use byteorder::{LittleEndian, WriteBytesExt};
 use log::{info, warn};
 use serde_json::json;
 use std::collections::HashMap;
 use std::io;
 use std::path::Path;
+use vpx::mesh::decals::build_decal_mesh;
 
 /// Special material name for the playfield
 const PLAYFIELD_MATERIAL_NAME: &str = "__playfield__";
@@ -967,8 +968,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 let surface_height =
                     get_surface_height(vpx, &light.surface, light.center.x, light.center.y);
 
-                if let Some(light_meshes) = super::lights::build_light_meshes(light, surface_height)
-                {
+                if let Some(light_meshes) = build_light_meshes(light, surface_height) {
                     // Add bulb mesh
                     // VPinball bulb material (light.cpp lines 679-691):
                     //   m_bOpacityActive = true, m_fOpacity = 0.2f (20% opacity = 80% transparent)
@@ -2624,8 +2624,8 @@ pub fn export_glb(vpx: &VPX, path: &Path, fs: &dyn FileSystem) -> Result<(), Wri
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vpx::expanded::mesh_common::test_utils::create_minimal_mesh_data;
     use crate::vpx::gameitem::primitive::Primitive;
+    use crate::vpx::mesh::test_utils::create_minimal_mesh_data;
 
     #[test]
     fn test_collect_meshes_empty_vpx_has_implicit_playfield() {

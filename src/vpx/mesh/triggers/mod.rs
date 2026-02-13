@@ -24,12 +24,12 @@ mod trigger_simple_mesh;
 mod trigger_star_mesh;
 mod trigger_wire_d_mesh;
 
-use super::mesh_common::{generated_mesh_file_name, write_mesh_to_file};
 use super::{PrimitiveMeshFormat, WriteError};
 use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::gameitem::trigger::{Trigger, TriggerShape};
 use crate::vpx::math::{Matrix3D, Vertex3D};
+use crate::vpx::mesh::{generated_mesh_file_name, write_mesh_to_file};
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 use std::path::Path;
@@ -211,7 +211,7 @@ pub fn build_trigger_mesh(
 }
 
 /// Write trigger mesh to file
-pub(super) fn write_trigger_mesh(
+pub(crate) fn write_trigger_mesh(
     gameitems_dir: &Path,
     trigger: &Trigger,
     json_file_name: &str,

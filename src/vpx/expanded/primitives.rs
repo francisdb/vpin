@@ -1,16 +1,8 @@
 //! Primitive mesh reading and writing for expanded VPX format
 
-use super::bumpers::write_bumper_meshes;
 use super::flashers::write_flasher_meshes;
-use super::flippers::write_flipper_meshes;
-use super::gates::write_gate_meshes;
-use super::hittargets::write_hit_target_meshes;
-use super::mesh_common::TableDimensions;
-use super::plungers::write_plunger_meshes;
 use super::ramps::write_ramp_meshes;
 use super::rubbers::write_rubber_meshes;
-use super::spinners::write_spinner_meshes;
-use super::triggers::write_trigger_mesh;
 use super::walls::write_wall_meshes;
 use super::{ExpandOptions, PrimitiveMeshFormat, WriteError};
 use crate::filesystem::FileSystem;
@@ -27,6 +19,15 @@ use crate::vpx::obj::{
     write_vertex_index_for_vpx,
 };
 
+use crate::vpx::TableDimensions;
+use crate::vpx::mesh::bumpers::write_bumper_meshes;
+use crate::vpx::mesh::flippers::write_flipper_meshes;
+use crate::vpx::mesh::gates::write_gate_meshes;
+use crate::vpx::mesh::hittargets::write_hit_target_meshes;
+use crate::vpx::mesh::lights::write_light_meshes;
+use crate::vpx::mesh::plungers::write_plunger_meshes;
+use crate::vpx::mesh::spinners::write_spinner_meshes;
+use crate::vpx::mesh::triggers::write_trigger_mesh;
 use bytes::{BufMut, BytesMut};
 use std::io;
 use std::iter::Zip;
@@ -158,6 +159,9 @@ pub(super) fn write_gameitem_binaries(
             }
             GameItemEnum::Plunger(plunger) => {
                 write_plunger_meshes(gameitems_dir, plunger, json_file_name, mesh_format, fs)?;
+            }
+            GameItemEnum::Light(light) => {
+                write_light_meshes(gameitems_dir, light, json_file_name, mesh_format, fs)?;
             }
             _ => {}
         }

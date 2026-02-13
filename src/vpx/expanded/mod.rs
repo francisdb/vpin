@@ -13,32 +13,20 @@
 //! Use [`write_with_options`] to specify the format and other options.
 //! Both formats are supported for reading, with OBJ checked first for backward compatibility.
 
-mod balls;
-mod bumpers;
 mod camera;
-mod decals;
 mod flashers;
-mod flippers;
 mod fonts;
 mod gameitems;
-mod gates;
 mod gltf_export;
-mod hittargets;
 mod images;
-mod kickers;
-mod lights;
 mod materials;
-mod mesh_common;
 mod mesh_validation;
 mod metadata;
 mod playfields;
-mod plungers;
 mod primitives;
 mod ramps;
 mod rubbers;
 mod sounds;
-mod spinners;
-mod triggers;
 mod util;
 mod walls;
 

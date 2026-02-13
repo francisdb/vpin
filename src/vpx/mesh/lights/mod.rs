@@ -138,8 +138,7 @@ fn build_socket_mesh(
 }
 
 /// Write light meshes to files
-#[allow(dead_code)]
-pub fn write_light_meshes(
+pub(crate) fn write_light_meshes(
     gameitems_dir: &std::path::Path,
     light: &Light,
     json_file_name: &str,

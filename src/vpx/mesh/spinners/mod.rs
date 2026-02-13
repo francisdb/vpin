@@ -13,15 +13,16 @@
 mod spinner_bracket_mesh;
 mod spinner_plate_mesh;
 
-use super::mesh_common::{Matrix3D, Vec3, generated_mesh_file_name, write_mesh_to_file};
 use super::{PrimitiveMeshFormat, WriteError};
 use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::gameitem::spinner::Spinner;
+use crate::vpx::mesh::{Matrix3D, generated_mesh_file_name, write_mesh_to_file};
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 use std::path::Path;
 
+use crate::vpx::math::Vec3;
 pub use spinner_bracket_mesh::*;
 pub use spinner_plate_mesh::*;
 
@@ -168,7 +169,7 @@ fn generate_plate_mesh(
 }
 
 /// Write spinner meshes to file
-pub(super) fn write_spinner_meshes(
+pub(crate) fn write_spinner_meshes(
     gameitems_dir: &Path,
     spinner: &Spinner,
     json_file_name: &str,

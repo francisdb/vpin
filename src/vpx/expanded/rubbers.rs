@@ -3,15 +3,17 @@
 //! This module ports the rubber mesh generation from Visual Pinball's rubber.cpp.
 //! Rubbers are rendered as tubular shapes that follow a spline curve defined by drag points.
 
-use super::mesh_common::{
-    Vec2, Vec3, compute_normals, detail_level_to_accuracy, generated_mesh_file_name,
-    get_rg_vertex_2d, get_rotated_axis, write_mesh_to_file,
-};
 use super::{PrimitiveMeshFormat, WriteError};
 use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::dragpoint::DragPoint;
 use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::gameitem::rubber::Rubber;
+use crate::vpx::math::{Vec2, Vec3};
+use crate::vpx::mesh::get_rg_vertex_2d;
+use crate::vpx::mesh::{
+    compute_normals, detail_level_to_accuracy, generated_mesh_file_name, get_rotated_axis,
+    write_mesh_to_file,
+};
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 use std::f32::consts::PI;
@@ -403,7 +405,7 @@ pub(super) fn write_rubber_meshes(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vpx::expanded::mesh_common::{CatmullCurve2D, RenderVertex2D};
+    use crate::vpx::mesh::{CatmullCurve2D, RenderVertex2D};
 
     /// Generate octagon drag points for testing
     fn create_octagon_drag_points(radius: f32, smooth: bool) -> Vec<DragPoint> {

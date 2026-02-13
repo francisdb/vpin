@@ -1,35 +1,26 @@
-//! Common utilities for mesh generation
+//! Mesh generation
 
-use super::{PrimitiveMeshFormat, WriteError};
+pub(crate) mod balls;
+pub(crate) mod bumpers;
+pub(crate) mod decals;
+pub(crate) mod flippers;
+pub(crate) mod gates;
+pub(crate) mod hittargets;
+pub(crate) mod kickers;
+pub(crate) mod lights;
+pub(crate) mod plungers;
+pub(crate) mod spinners;
+pub(crate) mod triggers;
+
 use crate::filesystem::FileSystem;
+use crate::vpx::expanded::{PrimitiveMeshFormat, WriteError};
 use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::gltf::{GltfContainer, write_gltf};
 use crate::vpx::obj::{VpxFace, write_obj};
 use std::path::Path;
-
 // Re-export math types for convenience
-pub use crate::vpx::math::{Mat3 as Matrix3D, Vec2, Vec3, get_rotated_axis};
-
-/// Table dimensions for UV coordinate calculation
-/// Used for world-space texture mapping in walls, ramps, and flashers
-#[derive(Debug, Clone, Copy)]
-pub struct TableDimensions {
-    pub left: f32,
-    pub top: f32,
-    pub right: f32,
-    pub bottom: f32,
-}
-
-impl TableDimensions {
-    pub fn new(left: f32, top: f32, right: f32, bottom: f32) -> Self {
-        Self {
-            left,
-            top,
-            right,
-            bottom,
-        }
-    }
-}
+pub use crate::vpx::math::{Mat3 as Matrix3D, get_rotated_axis};
+use crate::vpx::math::{Vec2, Vec3};
 
 /// Static detail level used by VPinball to approximate ramps and rubbers for physics/collision code.
 /// From VPinball physconst.h: `#define HIT_SHAPE_DETAIL_LEVEL 7.0f`

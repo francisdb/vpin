@@ -9,7 +9,7 @@
 
 mod flipper_base_mesh;
 
-use super::mesh_common::{Matrix3D, Vec2, Vec3, generated_mesh_file_name, write_mesh_to_file};
+use super::super::mesh::{Matrix3D, generated_mesh_file_name, write_mesh_to_file};
 use super::{PrimitiveMeshFormat, WriteError};
 use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::flipper::Flipper;
@@ -19,6 +19,7 @@ use crate::vpx::obj::VpxFace;
 use std::f32::consts::PI;
 use std::path::Path;
 
+use crate::vpx::math::{Vec2, Vec3};
 pub use flipper_base_mesh::*;
 
 /// Result of flipper mesh generation with separate base and rubber meshes
@@ -170,7 +171,7 @@ fn vertex_matches(v: &Vertex3dNoTex2, r: &Vec3) -> bool {
     (v.x - r.x).abs() < EPSILON && (v.y - r.y).abs() < EPSILON && (v.z - r.z).abs() < EPSILON
 }
 
-pub(super) fn write_flipper_meshes(
+pub(crate) fn write_flipper_meshes(
     gameitems_dir: &Path,
     flipper: &Flipper,
     json_file_name: &str,

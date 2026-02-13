@@ -335,6 +335,7 @@ pub fn check_normal_consistency(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vpx::mesh::flippers::build_flipper_mesh;
     use crate::vpx::model::Vertex3dNoTex2;
 
     fn make_vertex(x: f32, y: f32, z: f32, nx: f32, ny: f32, nz: f32) -> VertexWrapper {
@@ -544,7 +545,6 @@ mod tests {
 
     #[test]
     fn test_flipper_mesh_validation() {
-        use crate::vpx::expanded::flippers::build_flipper_mesh;
         use crate::vpx::gameitem::flipper::Flipper;
         use fake::{Fake, Faker};
 

@@ -27,14 +27,15 @@ mod hit_target_round_mesh;
 mod hit_target_t1_slim_mesh;
 mod hit_target_t2_slim_mesh;
 
-use super::mesh_common::{Matrix3D, Vec3, generated_mesh_file_name, write_mesh_to_file};
 use super::{PrimitiveMeshFormat, WriteError};
 use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::hittarget::{HitTarget, TargetType};
 use crate::vpx::gameitem::primitive::VertexWrapper;
+use crate::vpx::mesh::{Matrix3D, generated_mesh_file_name, write_mesh_to_file};
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 
+use crate::vpx::math::Vec3;
 use drop_target_t2_mesh::{DROP_TARGET_T2_INDICES, DROP_TARGET_T2_MESH};
 use drop_target_t3_mesh::{DROP_TARGET_T3_INDICES, DROP_TARGET_T3_MESH};
 use drop_target_t4_mesh::{DROP_TARGET_T4_INDICES, DROP_TARGET_T4_MESH};
@@ -49,7 +50,7 @@ use hit_target_t2_slim_mesh::{HIT_TARGET_T2_SLIM_INDICES, HIT_TARGET_T2_SLIM_MES
 use std::path::Path;
 
 /// Write hit target mesh to a file
-pub(super) fn write_hit_target_meshes(
+pub(crate) fn write_hit_target_meshes(
     gameitems_dir: &Path,
     hit_target: &HitTarget,
     json_file_name: &str,

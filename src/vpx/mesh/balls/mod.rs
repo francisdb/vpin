@@ -28,7 +28,7 @@ pub use ball_mesh::{BALL_INDICES, BALL_NUM_INDICES, BALL_NUM_VERTICES, BALL_VERT
 ///
 /// # Returns
 /// Tuple of (vertices, faces) for the ball mesh
-pub(super) fn build_ball_mesh(ball: &Ball) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
+pub(crate) fn build_ball_mesh(ball: &Ball) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
     let radius = ball.radius;
 
     // Transform the unit sphere vertices by the ball's radius and position

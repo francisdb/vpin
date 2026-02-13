@@ -3,12 +3,13 @@
 //! This module ports the flasher mesh generation from Visual Pinball's flasher.cpp.
 //! Flashers are flat polygons defined by drag points, with optional rotation and height.
 
-use super::mesh_common::{
-    RenderVertex2D, TableDimensions, detail_level_to_accuracy, generated_mesh_file_name,
-    get_rg_vertex_2d, write_mesh_to_file,
+use super::super::mesh::{
+    RenderVertex2D, detail_level_to_accuracy, generated_mesh_file_name, get_rg_vertex_2d,
+    write_mesh_to_file,
 };
 use super::{PrimitiveMeshFormat, WriteError};
 use crate::filesystem::FileSystem;
+use crate::vpx::TableDimensions;
 use crate::vpx::gameitem::flasher::Flasher;
 use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
