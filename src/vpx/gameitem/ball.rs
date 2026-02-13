@@ -6,24 +6,154 @@ use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Serialize};
 
+/// A ball (pinball) game item, typically used for captive ball effects.
+///
+/// # Texture and Decal Handling
+///
+/// VPinball has a two-layer texture system for balls:
+///
+/// 1. **Base texture** (`image` / `gamedata.ball_image`):
+///    - This is typically an HDR environment map used for reflections
+///    - Mapped using either equirectangular or spherical mapping (`spherical_mapping`)
+///    - Falls back to `gamedata.ball_image` if empty
+///
+/// 2. **Decal/overlay texture** (`image_decal` / `gamedata.ball_image_front`):
+///    - Overlaid on top of the base texture
+///    - Behavior depends on `decal_mode` / `gamedata.ball_decal_mode`:
+///
+/// ## Decal Modes (controlled by `decal_mode`)
+///
+/// **When `decal_mode = false` (scratches mode):**
+/// - The decal texture is treated as an alpha scratch texture
+/// - Blending: additive (`ballImageColor += decalColor * decalAlpha`)
+/// - Scratches affect material properties:
+///   - `diffuse *= decalColor` (makes scratched areas more rough/matte)
+///   - `specular *= (1 - decalColor)` (reduces specular in scratched areas)
+/// - Used to add surface imperfections and wear to the ball
+///
+/// **When `decal_mode = true` (logo/decal mode):**
+/// - The decal texture is a proper image/logo
+/// - Blending: screen blend (`ScreenHDR(ballImageColor, decalColor)`)
+/// - Emission is halved (`0.5 * envEmissionScale`) compared to scratches mode
+/// - Used for custom ball designs, logos, or artwork
+///
+/// # Shader Techniques
+///
+/// VPinball uses different shader techniques based on settings:
+/// - `RenderBall` / `RenderBall_DecalMode`: Equirectangular environment mapping
+/// - `RenderBall_SphericalMap` / `RenderBall_SphericalMap_DecalMode`: Spherical UV mapping
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Ball {
+    /// Name of the ball.
+    ///
+    /// BIFF tag: `NAME`
+    pub name: String,
+
+    /// Position of the ball in 3D space (x, y, z).
+    ///
+    /// BIFF tag: `VCEN`
     pub pos: Vertex3D,
+
+    /// Radius of the ball in VP units. Default is 25.0.
+    ///
+    /// BIFF tag: `RADI`
     pub radius: f32,
+
+    /// Mass of the ball, affects physics.
+    ///
+    /// 1 VP mass unit = 80g (mass of a standard pinball).
+    /// Default is 1.0 (standard ball mass).
+    ///
+    /// BIFF tag: `MASS`
     pub mass: f32,
+
+    /// Forces the ball to appear in playfield reflections even when elevated.
+    ///
+    /// Normally, balls on ramps, in kickers, or above the playfield are not
+    /// rendered in the reflection pass to avoid visual artifacts. When this
+    /// is `true`, the ball will always appear in reflections regardless of
+    /// its position.
+    ///
+    /// BIFF tag: `FREF`
     pub force_reflection: bool,
+
+    /// Controls how the decal texture (`image_decal`) is blended onto the ball.
+    ///
+    /// - `false` (scratches mode): Decal is an alpha scratch texture, blended additively.
+    ///   Scratches affect both diffuse and specular properties, creating surface wear.
+    /// - `true` (decal mode): Decal is a proper logo/image, blended using screen blend.
+    ///
+    /// Falls back to `gamedata.ball_decal_mode` for table-wide default.
+    ///
+    /// BIFF tag: `DCMD`
     pub decal_mode: bool,
+
+    /// Base image/texture name for the ball (typically HDR environment map).
+    ///
+    /// This is used for environment reflections on the ball surface.
+    /// If empty, falls back to `gamedata.ball_image`.
+    /// The mapping method is controlled by `spherical_mapping`.
+    ///
+    /// BIFF tag: `IMAG`
     pub image: String,
+
+    /// Decal/overlay image name for the ball.
+    ///
+    /// This texture is overlaid on top of the base `image`.
+    /// How it's blended depends on `decal_mode`:
+    /// - Scratches mode (`decal_mode = false`): Additive blend using alpha
+    /// - Decal mode (`decal_mode = true`): Screen blend for logos/artwork
+    ///
+    /// If empty, falls back to `gamedata.ball_image_front`.
+    ///
+    /// BIFF tag: `DIMG`
     pub image_decal: String,
+
+    /// Scale factor for bulb light intensity on the ball surface.
+    ///
+    /// Controls how strongly point lights (bulbs) affect the ball's appearance.
+    /// Default is 1.0.
+    ///
+    /// BIFF tag: `BISC`
     pub bulb_intensity_scale: f32,
+
+    /// Strength of the ball's reflection on the playfield surface.
+    ///
+    /// Controls how visible this ball is in the playfield reflection pass.
+    /// Range: 0.0 (invisible in reflections) to 1.0 (full reflection strength).
+    /// Default is 1.0.
+    ///
+    /// BIFF tag: `PFRF`
     pub playfield_reflection_strength: f32,
+
+    /// Color tint applied to the ball material.
+    ///
+    /// This color multiplies the ball's base appearance. White (255,255,255)
+    /// means no tinting. Can be used for colored balls (e.g., red, blue).
+    ///
+    /// BIFF tag: `COLR`
     pub color: Color,
+
+    /// Controls the UV mapping method for the base texture (`image`).
+    ///
+    /// - `false`: Equirectangular mapping (standard HDR environment map layout)
+    /// - `true`: Spherical UV mapping (direct sphere projection)
+    ///
+    /// Most HDR ball textures use equirectangular mapping (false).
+    ///
+    /// BIFF tag: `SPHR`
     pub spherical_mapping: bool,
+
+    /// Whether this ball appears in playfield reflections.
+    ///
+    /// When `true`, the ball is rendered in the reflection pass.
+    /// When `false`, the ball won't appear as a reflection on the playfield.
+    ///
+    /// BIFF tag: `REEN`
     pub is_reflection_enabled: bool,
     is_timer_enabled: bool,
     timer_interval: i32,
-    pub name: String,
 
     // these are shared between all items
     pub is_locked: bool,

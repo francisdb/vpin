@@ -51,6 +51,50 @@ For primitive mesh data, you can choose between two formats:
 Use `write_with_format()` to specify the format. Both formats are supported for reading, with OBJ checked first for
 backward compatibility.
 
+### Derived Mesh Generation
+
+When extracting VPX files, the library can optionally generate mesh files for game items that don't store explicit mesh
+data but are defined by drag points (walls, ramps, rubbers, flashers). Use `ExpandOptions` to enable this:
+
+```rust
+use vpin::vpx::expanded::{ExpandOptions, PrimitiveMeshFormat};
+
+let options = ExpandOptions::new()
+.mesh_format(PrimitiveMeshFormat::Glb)
+.generate_derived_meshes(true);
+```
+
+## VPinball Coordinate System
+
+VPinball uses a left-handed coordinate system:
+
+```
+    (0,0)───────────────→ +X (right)
+      │   ┌───────────┐
+      │   │           │
+      │   │ Playfield │
+      │   │           │
+      ↓   └───────────┘
+     +Y (towards player)
+
+    +Z points up (towards the cabinet top glass)
+```
+
+- **Origin**: Top-left corner of the playfield (near the back of the cabinet)
+- **X-axis**: Positive to the right (across the playfield)
+- **Y-axis**: Positive towards the player (down the playfield)
+- **Z-axis**: Positive upward (towards the glass)
+
+### Polygon Winding Order
+
+Due to the Y-axis pointing down, winding order appears reversed compared to standard mathematical conventions:
+
+- A polygon whose vertices go **clockwise on screen** has a **positive** orientation determinant
+- A polygon whose vertices go **counter-clockwise on screen** has a **negative** orientation determinant
+
+VPinball's triangulation algorithm (used for flashers, walls, etc.) normalizes all polygons to counter-clockwise order
+before processing. This library matches that behavior.
+
 ## Projects using vpin
 
 https://github.com/francisdb/vpxtool

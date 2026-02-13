@@ -16,7 +16,7 @@ mod test {
     use std::path::{Path, PathBuf};
     use testdir::testdir;
     use vpin::filesystem::{FileSystem, MemoryFileSystem, RealFileSystem};
-    use vpin::vpx::expanded::PrimitiveMeshFormat;
+    use vpin::vpx::expanded::{ExpandOptions, PrimitiveMeshFormat};
 
     fn init() {
         use crate::common::tracing_duration_filter::DurationFilterLayer;
@@ -131,7 +131,8 @@ mod test {
             (Box::new(MemoryFileSystem::new()), PathBuf::from("/vpx"))
         };
 
-        vpin::vpx::expanded::write_fs(&original, &extract_dir, PRIMITIVE_MESH_FORMAT, &*fs)
+        let options = ExpandOptions::new().mesh_format(PRIMITIVE_MESH_FORMAT);
+        vpin::vpx::expanded::write_fs(&original, &extract_dir, &options, &*fs)
             .map_err(io::Error::other)?;
         let expanded_read =
             vpin::vpx::expanded::read_fs(&extract_dir, &*fs).map_err(io::Error::other)?;

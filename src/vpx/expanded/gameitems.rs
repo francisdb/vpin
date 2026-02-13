@@ -12,7 +12,7 @@ use tracing::instrument;
 
 use super::primitives::{read_gameitem_binaries, write_gameitem_binaries};
 use super::util::read_json;
-use super::{PrimitiveMeshFormat, WriteError};
+use super::{ExpandOptions, WriteError};
 
 /// Since it's common to change layer visibility we don't want that to cause a
 /// difference in the item json, therefore we write this info in the index.
@@ -65,7 +65,7 @@ impl FileNameGen {
 pub(super) fn write_gameitems<P: AsRef<Path>>(
     gameitems: &[GameItemEnum],
     expanded_dir: &P,
-    mesh_format: PrimitiveMeshFormat,
+    options: &ExpandOptions,
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
     let gameitems_dir = expanded_dir.as_ref().join("gameitems");
@@ -112,7 +112,7 @@ pub(super) fn write_gameitems<P: AsRef<Path>>(
         let json_bytes = serde_json::to_vec_pretty(gameitem).map_err(WriteError::Json)?;
         fs.write_file(&path, &json_bytes)?;
 
-        write_gameitem_binaries(&gameitems_dir_clone, gameitem, file_name, mesh_format, fs)?;
+        write_gameitem_binaries(&gameitems_dir_clone, gameitem, file_name, options, fs)?;
 
         Ok(())
     };

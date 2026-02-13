@@ -169,6 +169,11 @@ pub struct Decal {
     pub height: f32,
     pub rotation: f32,
     pub image: String,
+    /// The name of the surface (wall, ramp, or empty for playfield) that this decal sits on.
+    /// Used to determine the Z height of the decal via `GetSurfaceHeight()`.
+    /// The decal is rendered at surface_height + 0.2 units.
+    ///
+    /// BIFF tag: `SURF`
     pub surface: String,
     pub name: String,
     pub text: String,

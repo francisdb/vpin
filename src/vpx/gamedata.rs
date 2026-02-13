@@ -1,3 +1,32 @@
+//! Game data structures for VPX tables.
+//!
+//! # VPinball Unit System (VPU)
+//!
+//! VPinball uses its own unit system called VPU (Visual Pinball Units).
+//! The conversion factors are:
+//!
+//! - **50 VPU = 1.0625 inches** (based on standard pinball diameter of 27mm)
+//! - **1 VPU ≈ 0.54 mm** (or about 0.021 inches)
+//! - **CMTOVPU(x)** = x * (50 / (2.54 * 1.0625)) ≈ x * 18.53
+//! - **VPUTOCM(x)** = x * (2.54 * 1.0625 / 50) ≈ x * 0.054
+//! - **INCHESTOVPU(x)** = x * (50 / 1.0625) ≈ x * 47.06
+//! - **VPUTOINCHES(x)** = x * (1.0625 / 50) ≈ x * 0.021
+//!
+//! # View Modes
+//!
+//! VPinball supports three view setups:
+//! - **Desktop (BG_DESKTOP)**: Default view for playing on a computer monitor
+//! - **Fullscreen (BG_FULLSCREEN)**: View for fullscreen/cabinet mode
+//! - **FSS (BG_FSS)**: Full Single Screen mode for single-monitor cabinet setups
+//!
+//! Each view can use one of three layout modes:
+//! - **Legacy**: Pre-10.8 mode with viewer position relative to fitted bounding vertices,
+//!   uses perspective projection with layback skewing
+//! - **Camera**: Viewer position relative to table bottom center, standard perspective projection,
+//!   frustum offset instead of layback
+//! - **Window**: Viewer position relative to screen bottom center, oblique projection for
+//!   "magic window" effect on cabinet glass
+
 #![allow(dead_code)]
 
 use super::{
@@ -289,143 +318,411 @@ pub struct GameData {
     /// CLM_RELATIVE = 0, // All tables before 10.8 used a camera position relative to a fitting of a set of bounding vertices (not all parts)
     /// CLM_ABSOLUTE = 1 // Position camera relative to the bottom center of the table
     pub camera_layout_mode: Option<u32>,
-    pub bg_view_mode_desktop: Option<ViewLayoutMode>, // VSM0 added in 10.8.x
-    pub bg_rotation_desktop: f32,                     // ROTA 5
-    pub bg_inclination_desktop: f32,                  // INCL 6
-    pub bg_layback_desktop: f32,                      // LAYB 7
-    pub bg_fov_desktop: f32,                          // FOVX 8
-    pub bg_offset_x_desktop: f32,                     // XLTX 9
-    pub bg_offset_y_desktop: f32,                     // XLTY 10
-    pub bg_offset_z_desktop: f32,                     // XLTZ 11
-    pub bg_scale_x_desktop: f32,                      // SCLX 12
-    pub bg_scale_y_desktop: f32,                      // SCLY 13
-    pub bg_scale_z_desktop: f32,                      // SCLZ 14
-    pub bg_enable_fss: Option<bool>,                  // EFSS 15 (added in 10.?)
-    pub bg_view_horizontal_offset_desktop: Option<f32>, // HOF0 added in 10.8.x
-    pub bg_view_vertical_offset_desktop: Option<f32>, // VOF0 added in 10.8.x
-    pub bg_window_top_x_offset_desktop: Option<f32>,  // WTX0 added in 10.8.x
-    pub bg_window_top_y_offset_desktop: Option<f32>,  // WTY0 added in 10.8.x
-    pub bg_window_top_z_offset_desktop: Option<f32>,  // WTZ0 added in 10.8.x
-    pub bg_window_bottom_x_offset_desktop: Option<f32>, // WBX0 added in 10.8.x
-    pub bg_window_bottom_y_offset_desktop: Option<f32>, // WBY0 added in 10.8.x
-    pub bg_window_bottom_z_offset_desktop: Option<f32>, // WBZ0 added in 10.8.x
-    pub bg_view_mode_fullscreen: Option<ViewLayoutMode>, // VSM1 added in 10.8.x
-    pub bg_rotation_fullscreen: f32,                  // ROTF 16
-    pub bg_inclination_fullscreen: f32,               // INCF 17
-    pub bg_layback_fullscreen: f32,                   // LAYF 18
-    pub bg_fov_fullscreen: f32,                       // FOVF 19
-    pub bg_offset_x_fullscreen: f32,                  // XLFX 20
-    pub bg_offset_y_fullscreen: f32,                  // XLFY 21
-    pub bg_offset_z_fullscreen: f32,                  // XLFZ 22
-    pub bg_scale_x_fullscreen: f32,                   // SCFX 23
-    pub bg_scale_y_fullscreen: f32,                   // SCFY 24
-    pub bg_scale_z_fullscreen: f32,                   // SCFZ 25
-    pub bg_view_horizontal_offset_fullscreen: Option<f32>, // HOF1 added in 10.8.x
-    pub bg_view_vertical_offset_fullscreen: Option<f32>, // VOF1 added in 10.8.x
-    pub bg_window_top_x_offset_fullscreen: Option<f32>, // WTX1 added in 10.8.x
-    pub bg_window_top_y_offset_fullscreen: Option<f32>, // WTY1 added in 10.8.x
-    pub bg_window_top_z_offset_fullscreen: Option<f32>, // WTZ1 added in 10.8.x
-    pub bg_window_bottom_x_offset_fullscreen: Option<f32>, // WBX1 added in 10.8.x
-    pub bg_window_bottom_y_offset_fullscreen: Option<f32>, // WBY1 added in 10.8.x
-    pub bg_window_bottom_z_offset_fullscreen: Option<f32>, // WBZ1 added in 10.8.x
-    pub bg_view_mode_full_single_screen: Option<ViewLayoutMode>, // VSM2 added in 10.8.x
-    pub bg_rotation_full_single_screen: Option<f32>,  // ROFS 26 (added in 10.?)
-    pub bg_inclination_full_single_screen: Option<f32>, // INFS 27 (added in 10.?)
-    pub bg_layback_full_single_screen: Option<f32>,   // LAFS 28 (added in 10.?)
-    pub bg_fov_full_single_screen: Option<f32>,       // FOFS 29 (added in 10.?)
-    pub bg_offset_x_full_single_screen: Option<f32>,  // XLXS 30 (added in 10.?)
-    pub bg_offset_y_full_single_screen: Option<f32>,  // XLYS 31 (added in 10.?)
-    pub bg_offset_z_full_single_screen: Option<f32>,  // XLZS 32 (added in 10.?)
-    pub bg_scale_x_full_single_screen: Option<f32>,   // SCXS 33 (added in 10.?)
-    pub bg_scale_y_full_single_screen: Option<f32>,   // SCYS 34 (added in 10.?)
-    pub bg_scale_z_full_single_screen: Option<f32>,   // SCZS 35 (added in 10.?)
-    pub bg_view_horizontal_offset_full_single_screen: Option<f32>, // HOF2 added in 10.8.x
-    pub bg_view_vertical_offset_full_single_screen: Option<f32>, // VOF2 added in 10.8.x
-    pub bg_window_top_x_offset_full_single_screen: Option<f32>, // WTX2 added in 10.8.x
-    pub bg_window_top_y_offset_full_single_screen: Option<f32>, // WTY2 added in 10.8.x
-    pub bg_window_top_z_offset_full_single_screen: Option<f32>, // WTZ2 added in 10.8.x
-    pub bg_window_bottom_x_offset_full_single_screen: Option<f32>, // WBX2 added in 10.8.x
-    pub bg_window_bottom_y_offset_full_single_screen: Option<f32>, // WBY2 added in 10.8.x
-    pub bg_window_bottom_z_offset_full_single_screen: Option<f32>, // WBZ2 added in 10.8.x
-    pub override_physics: u32,                        // ORRP 36
-    pub override_physics_flipper: Option<bool>,       // ORPF 37 added in ?
-    pub gravity: f32,                                 // GAVT 38
-    pub friction: f32,                                // FRCT 39
-    pub elasticity: f32,                              // ELAS 40
-    pub elastic_falloff: f32,                         // ELFA 41
-    pub scatter: f32,                                 // PFSC 42
-    pub default_scatter: f32,                         // SCAT 43
-    pub nudge_time: f32,                              // NDGT 44
-    pub plunger_normalize: Option<u32>,               // MPGC 45
-    pub plunger_filter: Option<bool>,                 // MPDF 46
-    pub physics_max_loops: u32,                       // PHML 47
-    pub render_em_reels: bool,                        // REEL 48
-    pub render_decals: bool,                          // DECL 49
-    pub offset_x: f32,                                // OFFX 50
-    pub offset_y: f32,                                // OFFY 51
-    pub zoom: f32,                                    // ZOOM 52
-    pub angle_tilt_max: f32,                          // SLPX 53
-    pub angle_tilt_min: f32,                          // SLOP 54
-    pub stereo_max_separation: Option<f32>,           // MAXS 55
-    pub stereo_zero_parallax_displacement: Option<f32>, // ZPD 56
-    pub stereo_offset: Option<f32>,                   // STO 57 (was missing in  10.01)
-    pub overwrite_global_stereo3d: Option<bool>,      // OGST 58
-    pub image: String,                                // IMAG 59
-    pub backglass_image_full_desktop: String,         // BIMG 60
-    pub backglass_image_full_fullscreen: String,      // BIMF 61
+
+    // =====================================================================================
+    // DESKTOP VIEW SETTINGS (BG_DESKTOP)
+    //
+    // These settings are used for the main desktop view when playing on a single computer monitor.
+    // The table fills the screen from top to bottom and anything that would be shown on the
+    // backglass is shown on the left or the right of the playfield.
+    //
+    // Default values (legacy VPX format, stored in VPU):
+    // - Mode: Legacy (VLM_LEGACY) when not set
+    // - Rotation: 0 degrees
+    // - Inclination: 0 degrees (legacy) / 0.25 (camera mode, 25% from bottom)
+    // - Layback: 0 degrees
+    // - FOV: 45 degrees
+    // - Offset X: 0 VPU
+    // - Offset Y: 30 VPU (about 1.6 cm)
+    // - Offset Z: -200 VPU (about -10.8 cm, negative moves camera back in legacy mode)
+    // - Scale X/Y/Z: 1.0
+    //
+    // Note: VPinball 10.8+ ViewSetup.h uses defaults in centimeters (20cm Y, 70cm Z)
+    // for new tables, but VPX files store values in VPU.
+    // =====================================================================================
+    /// View layout mode for desktop view (VSM0, added in 10.8.x)
+    /// - Legacy: viewer position relative to fitted bounding vertices, perspective projection with layback
+    /// - Camera: viewer position relative to table bottom center, standard perspective projection
+    /// - Window: viewer position relative to screen bottom center, oblique projection
+    pub bg_view_mode_desktop: Option<ViewLayoutMode>,
+    /// Viewport rotation in degrees (ROTA)
+    /// Rotates the entire viewport, useful for portrait/landscape orientations
+    /// Default: 0 degrees
+    pub bg_rotation_desktop: f32,
+    /// Look-at / inclination setting (INCL)
+    /// - Legacy mode: look-at as percent of table height from top 0% to table front 100%
+    /// - Camera mode: look-at as percent of table height from bottom (0.25 = around slingshots)
+    ///
+    /// Default: 0 degrees (legacy mode)
+    pub bg_inclination_desktop: f32,
+    /// Layback angle in degrees (LAYB)
+    /// Legacy mode only: skewing angle that deforms the table perspective
+    /// Default: 0 degrees
+    pub bg_layback_desktop: f32,
+    /// Field of view in degrees (FOVX)
+    /// Camera & Legacy modes: vertical field of view
+    /// Default: 45 degrees
+    pub bg_fov_desktop: f32,
+    /// Camera X position in VPU (XLTX)
+    /// - Legacy mode: offset from fitted camera position
+    /// - Camera/Window mode: position relative to table bottom center
+    ///
+    /// Default: 0 VPU
+    pub bg_offset_x_desktop: f32,
+    /// Camera Y position in VPU (XLTY)
+    /// - Legacy mode: offset from fitted camera position
+    /// - Camera/Window mode: position relative to table bottom center
+    ///
+    /// Default: 30 VPU (about 1.6 cm)
+    pub bg_offset_y_desktop: f32,
+    /// Camera Z position in VPU (XLTZ)
+    /// - Legacy mode: offset from fitted camera position (negative moves camera back)
+    /// - Camera/Window mode: height relative to table playfield
+    ///
+    /// Default: -200 VPU (about -10.8 cm)
+    pub bg_offset_z_desktop: f32,
+    /// Scene scale X (SCLX) - multiplier
+    /// Default: 1.0
+    pub bg_scale_x_desktop: f32,
+    /// Scene scale Y (SCLY) - multiplier
+    /// Default: 1.0
+    pub bg_scale_y_desktop: f32,
+    /// Scene scale Z (SCLZ) - multiplier
+    /// Default: 1.0
+    pub bg_scale_z_desktop: f32,
+    /// Enable Full Single Screen mode (EFSS)
+    /// When true, FSS view settings are used when available
+    pub bg_enable_fss: Option<bool>,
+    /// Horizontal frustum offset (HOF0, added in 10.8.x)
+    /// Camera & Window modes: shifts the view frustum horizontally
+    /// Default: 0
+    pub bg_view_horizontal_offset_desktop: Option<f32>,
+    /// Vertical frustum offset (VOF0, added in 10.8.x)
+    /// Camera & Window modes: shifts the view frustum vertically
+    /// Default: 0
+    pub bg_view_vertical_offset_desktop: Option<f32>,
+    /// Window mode: top edge X offset in VPU (WTX0, added in 10.8.x)
+    pub bg_window_top_x_offset_desktop: Option<f32>,
+    /// Window mode: top edge Y offset in VPU (WTY0, added in 10.8.x)
+    pub bg_window_top_y_offset_desktop: Option<f32>,
+    /// Window mode: top edge Z offset in VPU (WTZ0, added in 10.8.x)
+    /// Height of upper window/glass border above playfield
+    /// Default: 20 cm → ~370.6 VPU (from ViewSetup.h)
+    pub bg_window_top_z_offset_desktop: Option<f32>,
+    /// Window mode: bottom edge X offset in VPU (WBX0, added in 10.8.x)
+    pub bg_window_bottom_x_offset_desktop: Option<f32>,
+    /// Window mode: bottom edge Y offset in VPU (WBY0, added in 10.8.x)
+    pub bg_window_bottom_y_offset_desktop: Option<f32>,
+    /// Window mode: bottom edge Z offset in VPU (WBZ0, added in 10.8.x)
+    /// Height of lower window/glass border above playfield
+    /// Default: 7.5 cm → ~139 VPU (from ViewSetup.h)
+    pub bg_window_bottom_z_offset_desktop: Option<f32>,
+
+    // =====================================================================================
+    // FULLSCREEN VIEW SETTINGS (BG_FULLSCREEN)
+    // This is for use with a pinball cabinet setup with a separate monitor for the backglass,
+    // where the playfield is displayed on a monitor in landscape orientation,
+    // and the backglass on a second monitor in portrait orientation above it.
+    //
+    // Default values (legacy VPX format, stored in VPU):
+    // - Mode: Legacy (VLM_LEGACY) when not set
+    // - Rotation: 0 degrees
+    // - Inclination: 0 degrees
+    // - Layback: 0 degrees
+    // - FOV: 45 degrees
+    // - Offset X: 110 VPU (about 5.9 cm)
+    // - Offset Y: -86 VPU (about -4.6 cm)
+    // - Offset Z: 400 VPU (about 21.6 cm)
+    // - Scale X: 1.3, Scale Y: 1.41, Scale Z: 1.0
+    // =====================================================================================
+    /// View layout mode for fullscreen view (VSM1, added in 10.8.x)
+    pub bg_view_mode_fullscreen: Option<ViewLayoutMode>,
+    /// Viewport rotation in degrees (ROTF)
+    /// Default: 0 degrees
+    pub bg_rotation_fullscreen: f32,
+    /// Look-at / inclination setting (INCF)
+    /// - Legacy mode: look-at as percent of table height from top 0% to table front 100%
+    /// - Camera mode: look-at as percent of table height from bottom
+    ///
+    /// Default: 0 degrees
+    pub bg_inclination_fullscreen: f32,
+    /// Layback angle in degrees (LAYF) - Legacy mode only
+    /// Default: 0 degrees
+    pub bg_layback_fullscreen: f32,
+    /// Field of view in degrees (FOVF)
+    /// Default: 45 degrees
+    pub bg_fov_fullscreen: f32,
+    /// Camera X position in VPU (XLFX)
+    /// Default: 110 VPU (about 5.9 cm)
+    pub bg_offset_x_fullscreen: f32,
+    /// Camera Y position in VPU (XLFY)
+    /// Default: -86 VPU (about -4.6 cm)
+    pub bg_offset_y_fullscreen: f32,
+    /// Camera Z position in VPU (XLFZ)
+    /// Default: 400 VPU (about 21.6 cm)
+    pub bg_offset_z_fullscreen: f32,
+    /// Scene scale X (SCFX) - multiplier
+    /// Default: 1.3
+    pub bg_scale_x_fullscreen: f32,
+    /// Scene scale Y (SCFY) - multiplier
+    /// Default: 1.41
+    pub bg_scale_y_fullscreen: f32,
+    /// Scene scale Z (SCFZ) - multiplier
+    /// Default: 1.0
+    pub bg_scale_z_fullscreen: f32,
+    /// Horizontal frustum offset (HOF1, added in 10.8.x)
+    /// Default: 0
+    pub bg_view_horizontal_offset_fullscreen: Option<f32>,
+    /// Vertical frustum offset (VOF1, added in 10.8.x)
+    /// Default: 0
+    pub bg_view_vertical_offset_fullscreen: Option<f32>,
+    /// Window mode: top edge X offset in VPU (WTX1, added in 10.8.x)
+    pub bg_window_top_x_offset_fullscreen: Option<f32>,
+    /// Window mode: top edge Y offset in VPU (WTY1, added in 10.8.x)
+    pub bg_window_top_y_offset_fullscreen: Option<f32>,
+    /// Window mode: top edge Z offset in VPU (WTZ1, added in 10.8.x)
+    /// Default: 20 cm → ~370.6 VPU (from ViewSetup.h)
+    pub bg_window_top_z_offset_fullscreen: Option<f32>,
+    /// Window mode: bottom edge X offset in VPU (WBX1, added in 10.8.x)
+    pub bg_window_bottom_x_offset_fullscreen: Option<f32>,
+    /// Window mode: bottom edge Y offset in VPU (WBY1, added in 10.8.x)
+    pub bg_window_bottom_y_offset_fullscreen: Option<f32>,
+    /// Window mode: bottom edge Z offset in VPU (WBZ1, added in 10.8.x)
+    /// Default: 7.5 cm → ~139 VPU (from ViewSetup.h)
+    pub bg_window_bottom_z_offset_fullscreen: Option<f32>,
+
+    // =====================================================================================
+    // FULL SINGLE SCREEN (FSS) VIEW SETTINGS (BG_FSS)
+    // This view is designed for single-screen setups where the playfield
+    // and 3d backglass are displayed on one monitor in portrait orientation. (e.g. mobile phone)
+    //
+    // Default values (from ViewSetup.h):
+    // Note: ViewSetup.h specifies defaults in centimeters, converted to VPU internally.
+    // The values stored in VPX files are in VPU.
+    //
+    // - Mode: Legacy (VLM_LEGACY)
+    // - Rotation: 0 degrees
+    // - Inclination/LookAt: 0.25 (legacy: degrees, camera: 25% from bottom)
+    // - Layback: 0 degrees
+    // - FOV: 45 degrees
+    // - Offset X: 0 cm → 0 VPU
+    // - Offset Y: 20 cm → ~370.6 VPU (position relative to table bottom center)
+    // - Offset Z: 70 cm → ~1297 VPU (camera height)
+    // - Scale X/Y/Z: 1.0
+    // - Horizontal/Vertical offset: 0
+    // - Window Top Z: 20 cm → ~370.6 VPU (glass top height above playfield)
+    // - Window Bottom Z: 7.5 cm → ~139 VPU (glass bottom height above playfield)
+    //
+    // Note: The commented defaults in Default::default() (52, 30, -50, 1.2, 1.1)
+    // are legacy VPX file defaults, different from the ViewSetup struct defaults.
+    // =====================================================================================
+    /// View layout mode for FSS view (VSM2, added in 10.8.x)
+    /// Default: Legacy (VLM_LEGACY)
+    pub bg_view_mode_full_single_screen: Option<ViewLayoutMode>,
+    /// Viewport rotation in degrees (ROFS, added in 10.?)
+    /// Default: 0 degrees
+    pub bg_rotation_full_single_screen: Option<f32>,
+    /// Look-at / inclination setting (INFS, added in 10.?)
+    /// - Legacy mode:look-at as percent of table height from top 0% to table front 100%
+    /// - Camera mode: look-at as percent of table height from bottom
+    ///
+    /// Default: 0.25 (legacy file default was 52 percent)
+    pub bg_inclination_full_single_screen: Option<f32>,
+    /// Layback angle in degrees (LAFS, added in 10.?) - Legacy mode only
+    /// Default: 0 degrees
+    pub bg_layback_full_single_screen: Option<f32>,
+    /// Field of view in degrees (FOFS, added in 10.?)
+    /// Default: 45 degrees
+    pub bg_fov_full_single_screen: Option<f32>,
+    /// Camera X position in VPU (XLXS, added in 10.?)
+    /// Default: 0 cm → 0 VPU
+    pub bg_offset_x_full_single_screen: Option<f32>,
+    /// Camera Y position in VPU (XLYS, added in 10.?)
+    /// - Legacy mode: offset from fitted camera position
+    /// - Camera/Window mode: position relative to table bottom center
+    ///   Default: 20 cm → ~370.6 VPU (legacy file default was 30 VPU)
+    pub bg_offset_y_full_single_screen: Option<f32>,
+    /// Camera Z position in VPU (XLZS, added in 10.?)
+    /// - Legacy mode: offset from fitted camera position (negative moves back)
+    /// - Camera/Window mode: height relative to playfield
+    ///
+    /// Default: 70 cm → ~1297 VPU (legacy file default was -50 VPU)
+    pub bg_offset_z_full_single_screen: Option<f32>,
+    /// Scene scale X (SCXS, added in 10.?) - multiplier
+    /// Default: 1.0 (legacy file default was 1.2)
+    pub bg_scale_x_full_single_screen: Option<f32>,
+    /// Scene scale Y (SCYS, added in 10.?) - multiplier
+    /// Default: 1.0 (legacy file default was 1.1)
+    pub bg_scale_y_full_single_screen: Option<f32>,
+    /// Scene scale Z (SCZS, added in 10.?) - multiplier
+    /// Default: 1.0
+    pub bg_scale_z_full_single_screen: Option<f32>,
+    /// Horizontal frustum offset as percentage (HOF2, added in 10.8.x)
+    /// Camera & Window modes only
+    /// Default: 0
+    pub bg_view_horizontal_offset_full_single_screen: Option<f32>,
+    /// Vertical frustum offset as percentage (VOF2, added in 10.8.x)
+    /// Camera & Window modes only
+    /// Default: 0
+    pub bg_view_vertical_offset_full_single_screen: Option<f32>,
+    /// Window mode: top edge X offset in VPU (WTX2, added in 10.8.x)
+    pub bg_window_top_x_offset_full_single_screen: Option<f32>,
+    /// Window mode: top edge Y offset in VPU (WTY2, added in 10.8.x)
+    pub bg_window_top_y_offset_full_single_screen: Option<f32>,
+    /// Window mode: top edge Z offset in VPU (WTZ2, added in 10.8.x)
+    /// Height of upper window/glass border above playfield
+    /// Default: 20 cm → ~370.6 VPU
+    pub bg_window_top_z_offset_full_single_screen: Option<f32>,
+    /// Window mode: bottom edge X offset in VPU (WBX2, added in 10.8.x)
+    pub bg_window_bottom_x_offset_full_single_screen: Option<f32>,
+    /// Window mode: bottom edge Y offset in VPU (WBY2, added in 10.8.x)
+    pub bg_window_bottom_y_offset_full_single_screen: Option<f32>,
+    /// Window mode: bottom edge Z offset in VPU (WBZ2, added in 10.8.x)
+    /// Height of lower window/glass border above playfield
+    /// Default: 7.5 cm → ~139 VPU
+    pub bg_window_bottom_z_offset_full_single_screen: Option<f32>,
+
+    // =====================================================================================
+    // END OF VIEW SETTINGS
+    // =====================================================================================
+    pub override_physics: u32,                              // ORRP 36
+    pub override_physics_flipper: Option<bool>,             // ORPF 37 added in ?
+    pub gravity: f32,                                       // GAVT 38
+    pub friction: f32,                                      // FRCT 39
+    pub elasticity: f32,                                    // ELAS 40
+    pub elastic_falloff: f32,                               // ELFA 41
+    pub scatter: f32,                                       // PFSC 42
+    pub default_scatter: f32,                               // SCAT 43
+    pub nudge_time: f32,                                    // NDGT 44
+    pub plunger_normalize: Option<u32>,                     // MPGC 45
+    pub plunger_filter: Option<bool>,                       // MPDF 46
+    pub physics_max_loops: u32,                             // PHML 47
+    pub render_em_reels: bool,                              // REEL 48
+    pub render_decals: bool,                                // DECL 49
+    pub offset_x: f32,                                      // OFFX 50
+    pub offset_y: f32,                                      // OFFY 51
+    pub zoom: f32,                                          // ZOOM 52
+    pub angle_tilt_max: f32,                                // SLPX 53
+    pub angle_tilt_min: f32,                                // SLOP 54
+    pub stereo_max_separation: Option<f32>,                 // MAXS 55
+    pub stereo_zero_parallax_displacement: Option<f32>,     // ZPD 56
+    pub stereo_offset: Option<f32>,                         // STO 57 (was missing in  10.01)
+    pub overwrite_global_stereo3d: Option<bool>,            // OGST 58
+    pub image: String,                                      // IMAG 59
+    pub backglass_image_full_desktop: String,               // BIMG 60
+    pub backglass_image_full_fullscreen: String,            // BIMF 61
     pub backglass_image_full_single_screen: Option<String>, // BIMS 62 (added in 10.?)
-    pub image_backdrop_night_day: bool,               // BIMN 63
-    pub image_color_grade: String,                    // IMCG 64
-    pub ball_image: String,                           // BLIM 65
-    pub ball_spherical_mapping: Option<bool>,         // BLSM (added in 10.8)
-    pub ball_image_front: String,                     // BLIF 66
-    pub env_image: Option<String>,                    // EIMG 67 (was missing in 10.01)
-    pub notes: Option<String>,                        // NOTX 67.5 (added in 10.7)
-    pub screen_shot: String,                          // SSHT 68
-    pub display_backdrop: bool,                       // FBCK 69
-    pub glass_top_height: f32,                        // GLAS 70
-    pub glass_bottom_height: Option<f32>,             // GLAB 70.5 (added in 10.8)
-    pub table_height: Option<f32>,                    // TBLH 71 (optional in 10.8)
-    pub playfield_material: String,                   // PLMA 72
-    pub backdrop_color: Color,                        // BCLR 73 (color bgr)
-    pub global_difficulty: f32,                       // TDFT 74
+    pub image_backdrop_night_day: bool,                     // BIMN 63
+    pub image_color_grade: String,                          // IMCG 64
+    /// Default ball texture (typically HDR environment map for reflections).
+    ///
+    /// Used as fallback when `Ball::image` is empty. This is the base texture
+    /// for all balls, usually an HDR environment map for realistic reflections.
+    /// See [`crate::vpx::gameitem::ball::Ball`] for texture/decal handling details.
+    ///
+    /// BIFF tag: `BLIM`
+    pub ball_image: String,
+    /// Whether to use spherical UV mapping for ball textures.
+    ///
+    /// - `false`: Equirectangular mapping (standard HDR environment map layout)
+    /// - `true`: Spherical UV mapping (direct sphere projection)
+    ///
+    /// BIFF tag: `BLSM` (added in 10.8)
+    pub ball_spherical_mapping: Option<bool>,
+    /// Default ball decal/overlay texture.
+    ///
+    /// Used as fallback when `Ball::image_decal` is empty. This texture is
+    /// overlaid on top of `ball_image`. How it's blended depends on `ball_decal_mode`:
+    /// - `false` (scratches mode): Additive blend using alpha for surface wear
+    /// - `true` (decal mode): Screen blend for logos/artwork
+    ///
+    /// See [`crate::vpx::gameitem::ball::Ball`] for detailed blending behavior.
+    ///
+    /// BIFF tag: `BLIF`
+    pub ball_image_front: String,
+    pub env_image: Option<String>, // EIMG 67 (was missing in 10.01)
+    pub notes: Option<String>,     // NOTX 67.5 (added in 10.7)
+    pub screen_shot: String,       // SSHT 68
+    pub display_backdrop: bool,    // FBCK 69
+    pub glass_top_height: f32,     // GLAS 70
+    pub glass_bottom_height: Option<f32>, // GLAB 70.5 (added in 10.8)
+    pub table_height: Option<f32>, // TBLH 71 (optional in 10.8)
+    pub playfield_material: String, // PLMA 72
+    pub backdrop_color: Color,     // BCLR 73 (color bgr)
+    pub global_difficulty: f32,    // TDFT 74
     /// changes the ambient light contribution for each material, please always try to keep this at full Black
     pub light_ambient: Color, // LZAM 75 (color)
     /// changes the light contribution for each material (currently light0 emission is copied to light1, too)
     pub light0_emission: Color, // LZDI 76 (color)
-    pub light_height: f32,                            // LZHI 77
-    pub light_range: f32,                             // LZRA 78
-    pub light_emission_scale: f32,                    // LIES 79
-    pub env_emission_scale: f32,                      // ENES 80
-    pub global_emission_scale: f32,                   // GLES 81
-    pub ao_scale: f32,                                // AOSC 82
-    pub ssr_scale: Option<f32>,                       // SSSC 83 (added in 10.?)
-    pub ground_to_lockbar_height: Option<f32>,        // CLBH (added in 10.8.x)
-    pub table_sound_volume: f32,                      // SVOL 84
-    pub table_music_volume: f32,                      // MVOL 85
-    pub table_adaptive_vsync: Option<i32>,            // AVSY 86 (became optional in 10.8)
-    pub use_reflection_for_balls: Option<i32>,        // BREF 87 (became optional in 10.8)
-    pub brst: Option<i32>,                            // BRST (in use in 10.01)
-    pub playfield_reflection_strength: f32,           // PLST 88
-    pub use_trail_for_balls: Option<i32>,             // BTRA 89 (became optional in 10.8)
-    pub ball_decal_mode: bool,                        // BDMO 90
-    pub ball_playfield_reflection_strength: Option<f32>, // BPRS 91 (was missing in 10.01)
-    pub default_bulb_intensity_scale_on_ball: Option<f32>, // DBIS 92 (added in 10.?)
+    pub light_height: f32,         // LZHI 77
+    pub light_range: f32,          // LZRA 78
+    pub light_emission_scale: f32, // LIES 79
+    pub env_emission_scale: f32,   // ENES 80
+    pub global_emission_scale: f32, // GLES 81
+    pub ao_scale: f32,             // AOSC 82
+    pub ssr_scale: Option<f32>,    // SSSC 83 (added in 10.?)
+    pub ground_to_lockbar_height: Option<f32>, // CLBH (added in 10.8.x)
+    pub table_sound_volume: f32,   // SVOL 84
+    pub table_music_volume: f32,   // MVOL 85
+    pub table_adaptive_vsync: Option<i32>, // AVSY 86 (became optional in 10.8)
+    pub use_reflection_for_balls: Option<i32>, // BREF 87 (became optional in 10.8)
+    pub brst: Option<i32>,         // BRST (in use in 10.01)
+    /// Default playfield reflection strength for objects.
+    ///
+    /// Controls how strongly objects reflect on the playfield surface.
+    /// Range: 0.0 (no reflections) to 1.0 (full reflection strength).
+    /// Default is 0.2 (20%).
+    ///
+    /// Note: This is used to initialize `Primitive::reflection_strength` for
+    /// the playfield mesh. Individual objects can override with their own
+    /// `reflection_strength` setting.
+    ///
+    /// BIFF tag: `PLST`
+    pub playfield_reflection_strength: f32,
+    pub use_trail_for_balls: Option<i32>, // BTRA 89 (became optional in 10.8)
+    /// Default decal mode for all balls.
+    ///
+    /// Controls how `ball_image_front` is blended onto balls:
+    /// - `false` (scratches mode): Decal is an alpha scratch texture, blended additively.
+    ///   Scratches affect both diffuse and specular, creating surface wear effects.
+    /// - `true` (decal mode): Decal is a proper logo/image, blended using screen blend.
+    ///
+    /// Individual balls can override this with `Ball::decal_mode`.
+    /// See [`crate::vpx::gameitem::ball::Ball`] for detailed blending behavior.
+    ///
+    /// BIFF tag: `BDMO`
+    pub ball_decal_mode: bool,
+    /// Default strength of ball reflections on the playfield.
+    ///
+    /// Controls how visible balls are in the playfield reflection pass.
+    /// Range: 0.0 (invisible) to 1.0 (full reflection). Default is 1.0.
+    ///
+    /// Individual balls can override with `Ball::playfield_reflection_strength`.
+    ///
+    /// BIFF tag: `BPRS` (was missing in 10.01)
+    pub ball_playfield_reflection_strength: Option<f32>,
+    /// Default bulb light intensity scale for balls.
+    ///
+    /// Controls how strongly point lights (bulbs) affect ball surfaces.
+    /// Individual balls can override with `Ball::bulb_intensity_scale`.
+    ///
+    /// BIFF tag: `DBIS` (added in 10.?)
+    pub default_bulb_intensity_scale_on_ball: Option<f32>,
     /// this has a special quantization,
     /// See [`Self::get_ball_trail_strength`] and [`Self::set_ball_trail_strength`]
     pub ball_trail_strength: Option<u32>, // BTST 93 (became optional in 10.8)
-    pub user_detail_level: Option<u32>,               // ARAC 94 (became optional in 10.8)
-    pub overwrite_global_detail_level: Option<bool>,  // OGAC 95 (became optional in 10.8)
-    pub overwrite_global_day_night: Option<bool>,     // OGDN 96 (became optional in 10.8)
-    pub show_grid: bool,                              // GDAC 97
-    pub reflect_elements_on_playfield: Option<bool>,  // REOP 98 (became optional in 10.8)
-    pub use_aal: Option<i32>,                         // UAAL 99 (became optional in 10.8)
-    pub use_fxaa: Option<i32>,                        // UFXA 100 (became optional in 10.8)
-    pub use_ao: Option<i32>,                          // UAOC 101 (became optional in 10.8)
-    pub use_ssr: Option<i32>,                         // USSR 102 (added in 10.?)
-    pub tone_mapper: Option<ToneMapper>,              // TMAP 102.5 (added in 10.8)
-    pub bloom_strength: f32,                          // BLST 103
-    pub materials_size: u32,                          // MASI 104
+    pub user_detail_level: Option<u32>, // ARAC 94 (became optional in 10.8)
+    pub overwrite_global_detail_level: Option<bool>, // OGAC 95 (became optional in 10.8)
+    pub overwrite_global_day_night: Option<bool>, // OGDN 96 (became optional in 10.8)
+    pub show_grid: bool,                // GDAC 97
+    pub reflect_elements_on_playfield: Option<bool>, // REOP 98 (became optional in 10.8)
+    pub use_aal: Option<i32>,           // UAAL 99 (became optional in 10.8)
+    pub use_fxaa: Option<i32>,          // UFXA 100 (became optional in 10.8)
+    pub use_ao: Option<i32>,            // UAOC 101 (became optional in 10.8)
+    pub use_ssr: Option<i32>,           // USSR 102 (added in 10.?)
+    pub tone_mapper: Option<ToneMapper>, // TMAP 102.5 (added in 10.8)
+    pub bloom_strength: f32,            // BLST 103
+    pub materials_size: u32,            // MASI 104
     /// Legacy material saving for backward compatibility
     pub materials_old: Vec<SaveMaterial>, // MATE 105 (only for <10.8)
     /// Legacy material saving for backward compatibility

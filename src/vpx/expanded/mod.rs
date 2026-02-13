@@ -10,8 +10,8 @@
 //! - **GLB**: Binary GLTF format, significantly faster for large meshes
 //! - **GLTF**: JSON + external BIN buffer for tooling-friendly workflows
 //!
-//! Use [`write_with_format`] to specify the format. Both formats are supported
-//! for reading, with OBJ checked first for backward compatibility.
+//! Use [`write_with_options`] to specify the format and other options.
+//! Both formats are supported for reading, with OBJ checked first for backward compatibility.
 
 mod fonts;
 mod gameitems;
@@ -23,7 +23,10 @@ mod sounds;
 mod util;
 
 use crate::filesystem::{FileSystem, MemoryFileSystem, RealFileSystem};
+use crate::vpx::gameitem::primitive::VertexWrapper;
+use crate::vpx::gltf::{GltfContainer, write_gltf};
 use crate::vpx::material::Material;
+use crate::vpx::obj::{VpxFace, write_obj};
 use crate::vpx::{VPX, Version};
 use log::{info, warn};
 pub use primitives::BytesMutExt;
@@ -44,6 +47,79 @@ pub enum PrimitiveMeshFormat {
     Glb,
     /// GLTF JSON + external BIN buffer
     Gltf,
+}
+
+/// Options for expanding VPX files to directory format.
+///
+/// Use [`ExpandOptions::new`] to create a new instance with default settings,
+/// then chain configuration methods to customize behavior.
+///
+/// # Examples
+///
+/// ```
+/// use vpin::vpx::expanded::{ExpandOptions, PrimitiveMeshFormat};
+///
+/// // Default options (OBJ format, no derived meshes)
+/// let options = ExpandOptions::new();
+///
+/// // Custom options with GLB format and derived mesh generation
+/// let options = ExpandOptions::new()
+///     .mesh_format(PrimitiveMeshFormat::Glb)
+///     .generate_derived_meshes(true);
+/// ```
+#[derive(Debug, Clone)]
+pub struct ExpandOptions {
+    mesh_format: PrimitiveMeshFormat,
+    generate_derived_meshes: bool,
+}
+
+impl ExpandOptions {
+    /// Creates a new set of options with default settings.
+    ///
+    /// Defaults:
+    /// - `mesh_format`: [`PrimitiveMeshFormat::Obj`]
+    /// - `generate_derived_meshes`: `false`
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the format for primitive mesh data.
+    ///
+    /// Default: [`PrimitiveMeshFormat::Obj`]
+    pub fn mesh_format(mut self, format: PrimitiveMeshFormat) -> Self {
+        self.mesh_format = format;
+        self
+    }
+
+    /// Sets whether to generate derived meshes for walls, ramps, and rubbers.
+    ///
+    /// When enabled, mesh files are generated from the drag points of these game items.
+    /// This is useful for visualization tools but increases extraction time and disk usage.
+    ///
+    /// Default: `false`
+    pub fn generate_derived_meshes(mut self, generate: bool) -> Self {
+        self.generate_derived_meshes = generate;
+        self
+    }
+
+    /// Returns the configured mesh format.
+    pub(super) fn get_mesh_format(&self) -> PrimitiveMeshFormat {
+        self.mesh_format
+    }
+
+    /// Returns whether derived mesh generation is enabled.
+    pub(super) fn should_generate_derived_meshes(&self) -> bool {
+        self.generate_derived_meshes
+    }
+}
+
+impl Default for ExpandOptions {
+    fn default() -> Self {
+        Self {
+            mesh_format: PrimitiveMeshFormat::Obj,
+            generate_derived_meshes: false,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -82,22 +158,20 @@ impl From<serde_json::Error> for WriteError {
     }
 }
 
-pub fn write<P: AsRef<Path>>(vpx: &VPX, expanded_dir: &P) -> Result<(), WriteError> {
-    write_with_format(vpx, expanded_dir, PrimitiveMeshFormat::default())
-}
-
-pub fn write_with_format<P: AsRef<Path>>(
+/// Write VPX to expanded directory format
+pub fn write<P: AsRef<Path>>(
     vpx: &VPX,
     expanded_dir: &P,
-    mesh_format: PrimitiveMeshFormat,
+    options: &ExpandOptions,
 ) -> Result<(), WriteError> {
-    write_fs(vpx, expanded_dir, mesh_format, &RealFileSystem)
+    write_fs(vpx, expanded_dir, options, &RealFileSystem)
 }
 
+/// Write VPX to expanded directory format using the provided file system
 pub fn write_fs<P: AsRef<Path>>(
     vpx: &VPX,
     expanded_dir: &P,
-    mesh_format: PrimitiveMeshFormat,
+    options: &ExpandOptions,
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
     info!("=== Starting VPX extraction process ===");
@@ -127,7 +201,7 @@ pub fn write_fs<P: AsRef<Path>>(
     info!("✓ {} Collections written", vpx.collections.len());
 
     info!("Writing game items...");
-    gameitems::write_gameitems(&vpx.gameitems, expanded_dir, mesh_format, fs)?;
+    gameitems::write_gameitems(&vpx.gameitems, expanded_dir, options, fs)?;
     info!("✓ {} Game items written", vpx.gameitems.len());
 
     info!("Writing images...");
@@ -309,11 +383,52 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
             .unwrap_or_else(|| std::ffi::OsStr::new("expanded")),
     );
 
-    write_fs(&vpx, &expanded_dir, PrimitiveMeshFormat::default(), &fs).unwrap();
+    // default options with no derived meshes and OBJ format
+    let options = ExpandOptions::new()
+        .generate_derived_meshes(false)
+        .mesh_format(PrimitiveMeshFormat::Obj);
+    write_fs(&vpx, &expanded_dir, &options, &fs).unwrap();
 
     let mut files = fs.list_files();
     files.sort();
     files
+}
+
+/// Generate the file name for a generated mesh file
+pub(super) fn generated_mesh_file_name(
+    json_file_name: &str,
+    mesh_format: PrimitiveMeshFormat,
+) -> String {
+    let extension = match mesh_format {
+        PrimitiveMeshFormat::Obj => "obj",
+        PrimitiveMeshFormat::Glb => "glb",
+        PrimitiveMeshFormat::Gltf => "gltf",
+    };
+    format!("{json_file_name}-generated.{extension}")
+}
+
+/// Write a mesh to a file in the specified format
+pub(super) fn write_mesh_to_file(
+    mesh_path: &Path,
+    name: &str,
+    vertices: &[VertexWrapper],
+    indices: &[VpxFace],
+    mesh_format: PrimitiveMeshFormat,
+    fs: &dyn FileSystem,
+) -> Result<(), WriteError> {
+    match mesh_format {
+        PrimitiveMeshFormat::Obj => write_obj(name, vertices, indices, mesh_path, fs)
+            .map_err(|e| WriteError::Io(std::io::Error::other(format!("{e}"))))?,
+        PrimitiveMeshFormat::Glb => {
+            write_gltf(name, vertices, indices, mesh_path, GltfContainer::Glb, fs)
+                .map_err(|e| WriteError::Io(std::io::Error::other(format!("{e}"))))?
+        }
+        PrimitiveMeshFormat::Gltf => {
+            write_gltf(name, vertices, indices, mesh_path, GltfContainer::Gltf, fs)
+                .map_err(|e| WriteError::Io(std::io::Error::other(format!("{e}"))))?
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -580,7 +695,7 @@ mod tests {
         };
 
         let path = Path::new("expanded");
-        write_fs(&vpx, &path, PrimitiveMeshFormat::default(), &fs)?;
+        write_fs(&vpx, &path, &ExpandOptions::default(), &fs)?;
 
         // the user has updated one image from png to webp
         let image_path = path.join("images").join("test image replaced.png");
@@ -628,5 +743,47 @@ mod tests {
         );
 
         assert_eq!(files.len(), 95);
+    }
+
+    #[test]
+    #[cfg(not(target_family = "wasm"))]
+    fn test_expand_options_derived_meshes() {
+        let vpx_path = Path::new("testdata/completely_blank_table_10_7_4.vpx");
+        let vpx = crate::vpx::read(vpx_path).unwrap();
+
+        // Without derived meshes (default)
+        {
+            let fs = MemoryFileSystem::default();
+            let path = Path::new("expanded");
+            let options = ExpandOptions::default();
+            write_fs(&vpx, &path, &options, &fs).unwrap();
+
+            let files = fs.list_files();
+            // Should not contain any -generated files
+            let generated_files: Vec<_> =
+                files.iter().filter(|f| f.contains("-generated")).collect();
+            assert!(
+                generated_files.is_empty(),
+                "Should not generate derived meshes by default: {:?}",
+                generated_files
+            );
+        }
+
+        // With derived meshes enabled
+        {
+            let fs = MemoryFileSystem::default();
+            let path = Path::new("expanded");
+            let options = ExpandOptions::new().generate_derived_meshes(true);
+            write_fs(&vpx, &path, &options, &fs).unwrap();
+
+            let files = fs.list_files();
+            // Should contain -generated files
+            let generated_files: Vec<_> =
+                files.iter().filter(|f| f.contains("-generated")).collect();
+            assert!(
+                !generated_files.is_empty(),
+                "Should generate derived meshes when enabled"
+            );
+        }
     }
 }

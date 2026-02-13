@@ -17,8 +17,7 @@ pub struct Vertex3dNoTex2 {
 }
 
 impl Vertex3dNoTex2 {
-    #[cfg(test)]
-    pub(crate) fn as_vpx_bytes(&self) -> [u8; 32] {
+    pub(crate) fn to_vpx_bytes(&self) -> [u8; 32] {
         let mut b = [0u8; 32];
         let mut offset = 0;
         for &value in &[
@@ -28,6 +27,11 @@ impl Vertex3dNoTex2 {
             offset += 4;
         }
         b
+    }
+
+    #[cfg(test)]
+    pub(crate) fn as_vpx_bytes(&self) -> [u8; 32] {
+        self.to_vpx_bytes()
     }
 
     #[cfg(test)]

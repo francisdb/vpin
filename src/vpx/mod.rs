@@ -58,6 +58,7 @@ pub mod math;
 pub mod model;
 pub mod sound;
 pub mod tableinfo;
+pub mod units;
 pub mod version;
 
 pub(crate) mod utf16;
@@ -69,34 +70,12 @@ pub mod renderprobe;
 pub(crate) mod json;
 
 // we have to make this public for the integration tests
+pub mod export;
 mod gltf;
 pub mod lzw;
+mod mesh;
 mod obj;
 pub(crate) mod wav;
-
-/// Convert from visual pinball units to millimeters
-#[inline(always)]
-pub fn mm_to_vpu(x: f32) -> f32 {
-    x * (50.0 / (25.4 * 1.0625))
-}
-
-/// Convert from visual pinball units to millimeters
-#[inline(always)]
-pub fn vpu_to_mm(x: f32) -> f32 {
-    x * (25.4 * 1.0625 / 50.0)
-}
-
-/// Convert from meters to visual pinball units
-#[inline(always)]
-pub fn m_to_vpu(x: f32) -> f32 {
-    x * 50.0 / (0.0254 * 1.0625)
-}
-
-/// Convert from visual pinball units to meters
-#[inline(always)]
-pub fn vpu_to_m(x: f32) -> f32 {
-    x * 0.0254 * 1.0625 / 50.0
-}
 
 /// In-memory representation of a VPX file
 ///
@@ -1111,6 +1090,27 @@ fn write_custominfotags<F: Read + Write + Seek>(
     let data = custominfotags::write_custominfotags(tags);
     let mut stream = comp.create_stream(path)?;
     stream.write_all(&data)
+}
+
+/// Table dimensions for UV coordinate calculation
+/// Used for world-space texture mapping in walls, ramps, and flashers
+#[derive(Debug, Clone, Copy)]
+pub struct TableDimensions {
+    pub left: f32,
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+}
+
+impl TableDimensions {
+    pub fn new(left: f32, top: f32, right: f32, bottom: f32) -> Self {
+        Self {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
 }
 
 #[cfg(test)]

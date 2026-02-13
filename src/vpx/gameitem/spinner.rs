@@ -8,7 +8,12 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Spinner {
+    pub name: String,
     pub center: Vertex2D,
+    /// Rotation in degrees, where 0 is the default position,
+    /// positive is clockwise, and negative is counterclockwise
+    ///
+    /// BIFF tag: ROTA
     pub rotation: f32,
     is_timer_enabled: bool,
     timer_interval: i32,
@@ -23,7 +28,6 @@ pub struct Spinner {
     pub material: String,
     pub image: String,
     pub surface: String,
-    pub name: String,
     pub is_reflection_enabled: Option<bool>, // added in ?
 
     // these are shared between all items

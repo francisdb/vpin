@@ -485,6 +485,48 @@ pub(crate) fn swap_red_and_blue(data: &[u8]) -> Vec<u8> {
     swapped
 }
 
+/// Check if an image has any transparent pixels
+///
+/// VPinball dynamically scans the actual pixel data to determine transparency
+/// (see Texture.cpp UpdateOpaque). We do the same here.
+///
+/// Note: In VPX files:
+/// - `bits` = BMP (bitmap) data, always BGRA format
+/// - `jpeg` = can be JPEG, PNG, or other formats (the field name is misleading)
+pub fn image_has_transparency(image: &ImageData) -> bool {
+    // If is_opaque is explicitly set, use it
+    if let Some(is_opaque) = image.is_opaque {
+        return !is_opaque;
+    }
+
+    // Check jpeg field - this can contain JPEG, PNG, or other formats
+    if let Some(ref jpeg) = image.jpeg {
+        // Try to decode the image to check for alpha
+        if let Ok(img) = image::load_from_memory(&jpeg.data) {
+            return has_transparent_pixels(&img);
+        }
+        return false;
+    }
+
+    // Check bitmap data - scan for any non-opaque pixels
+    if let Some(ref bits) = image.bits {
+        // Decompress and check raw BGRA data directly (alpha is at index 3)
+        let decompressed_bgra = from_lzw_blocks(&bits.lzw_compressed_data);
+        return decompressed_bgra.chunks_exact(4).any(|bgra| bgra[3] != 255);
+    }
+
+    // Default to opaque if we can't determine
+    false
+}
+
+/// Check if a DynamicImage has any transparent pixels
+fn has_transparent_pixels(img: &DynamicImage) -> bool {
+    // Convert to RGBA8 to check alpha channel
+    // to_rgba8() handles all image formats uniformly
+    let rgba = img.to_rgba8();
+    rgba.pixels().any(|pixel| pixel[3] != 255)
+}
+
 #[cfg(test)]
 mod test {
 

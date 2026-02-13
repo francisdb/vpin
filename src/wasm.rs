@@ -4,7 +4,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::filesystem::{FileSystem, MemoryFileSystem};
 use crate::vpx;
-use crate::vpx::expanded::{PrimitiveMeshFormat, read_fs, write_fs};
+use crate::vpx::expanded::{ExpandOptions, PrimitiveMeshFormat, read_fs, write_fs};
 
 thread_local! {
     static PROGRESS_CALLBACK: RefCell<Option<js_sys::Function>> = const { RefCell::new(None) };
@@ -50,7 +50,10 @@ pub fn extract(data: &[u8], callback: Option<js_sys::Function>) -> Result<js_sys
         vpx_data.gameitems.len()
     ));
 
-    write_fs(&vpx_data, &root_dir, PrimitiveMeshFormat::Obj, &fs).map_err(|e| {
+    let expand_options = ExpandOptions::new()
+        .mesh_format(PrimitiveMeshFormat::Obj)
+        .generate_derived_meshes(false);
+    write_fs(&vpx_data, &root_dir, &expand_options, &fs).map_err(|e| {
         set_progress_callback(None);
         JsError::new(&format!("Failed to extract VPX: {}", e))
     })?;

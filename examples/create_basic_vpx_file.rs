@@ -8,6 +8,9 @@ use vpin::vpx::gameitem::flipper::Flipper;
 use vpin::vpx::material::Material;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize logger - set RUST_LOG=warn (or info, debug) to see warnings
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
+
     let mut vpx = VPX::default();
 
     // playfield material
