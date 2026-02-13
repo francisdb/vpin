@@ -463,15 +463,61 @@ pub struct Material {
 
     // shading properties
     pub type_: MaterialType,
+    /// Wrap/rim lighting factor (0(off)..1(full))
+    ///
+    /// Controls how much light wraps around to the dark side of an object,
+    /// creating a softer, more diffuse look. This is sometimes called "half-Lambert"
+    /// or "wrap diffuse" lighting.
+    ///
+    /// - 0.0 = Standard diffuse lighting (sharp terminator between lit and unlit sides)
+    /// - 1.0 = Full wrap lighting (light wraps completely around the object)
+    ///
+    /// Commonly used for subsurface scattering approximation on materials like
+    /// skin, wax, or translucent plastics where light penetrates the surface slightly.
+    ///
+    /// Passed to shader as `Roughness_WrapL_Edge_Thickness.y`
     pub wrap_lighting: f32,
+    /// Roughness of glossy layer (0(diffuse/matte)..1(specular/shiny))
+    ///
+    /// In the UI it is shown as Shininess, which is the inverse of roughness.
+    ///
+    /// NOTE: This is the INVERSE of standard PBR roughness!
+    /// In glTF/Blender: 0=specular(shiny), 1=diffuse(matte)
+    /// In VPinball:     0=diffuse(matte), 1=specular(shiny)
     pub roughness: f32,
+    /// Use image also for the glossy layer (0(no tinting at all)..1(use image))
+    ///
+    /// In the shader, this controls the lerp between pure glossy_color and texture-tinted glossy:
+    /// ```text
+    /// glossy = (pixel * glossy_image_lerp + (1.0 - glossy_image_lerp)) * glossy_color * 0.08
+    /// ```
+    /// - 0.0 = glossy reflection uses only `glossy_color`, no texture influence
+    /// - 1.0 = glossy reflection is multiplied by the texture color
+    ///
+    /// For metals, this is ignored as glossy always equals diffuse.
     pub glossy_image_lerp: f32,
+    /// Thickness for transparent materials (0(paper thin)..1(maximum))
     pub thickness: f32,
+    /// Edge weight/brightness for glossy and clearcoat (0(dark edges)..1(full fresnel))
     pub edge: f32,
+    /// Edge weight for fresnel on opacity (0(no opacity change)..1(full fresnel))
     pub edge_alpha: f32,
+    /// Opacity (0..1)
     pub opacity: f32,
+    /// Base color of the material.
+    /// Can be overridden by texture on object itself.
     pub base_color: Color,
+    /// Specular of glossy layer.
+    ///
+    /// In the shader (for non-metals):
+    /// ```text
+    /// glossy = (pixel * glossy_image_lerp + (1.0 - glossy_image_lerp)) * glossy_color * 0.08
+    /// ```
+    /// The 0.08 factor represents typical dielectric F0 reflectance (~4% for most materials).
+    ///
+    /// For metals, glossy_color is ignored and the diffuse/base color is used instead.
     pub glossy_color: Color,
+    /// Specular of clearcoat layer
     pub clearcoat_color: Color,
     // Transparency active in the UI
     pub opacity_active: bool,

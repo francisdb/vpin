@@ -167,6 +167,10 @@ fn transform_primitive_vertices(
 }
 
 /// A simple material representation for glTF export
+///
+/// Note: VPinball's glossy_color and playfield reflections are NOT represented here.
+/// Playfield reflections in VPinball are a screen-space rendering effect controlled
+/// by per-object `reflection_enabled` flags, not material properties.
 struct GltfMaterial {
     name: String,
     base_color: [f32; 4], // RGBA
@@ -385,6 +389,47 @@ fn calculate_transmission_factor(disable_lighting_below: Option<f32>) -> Option<
     disable_lighting_below
         .filter(|&v| v < 1.0)
         .map(|v| (1.0 - v) * MAX_TRANSMISSION)
+}
+
+/// Calculate playfield roughness from VPinball's reflection strength.
+///
+/// VPinball's playfield reflections are a separate screen-space effect that renders
+/// objects onto the playfield, controlled by `playfield_reflection_strength`.
+/// This is NOT from the material's glossy_color or roughness.
+///
+/// To approximate this in glTF (where reflections come from environment maps),
+/// we map `playfield_reflection_strength` to roughness:
+/// - High reflection strength → low roughness (more reflective)
+/// - Low/zero reflection strength → use fallback roughness (matte)
+///
+/// # Arguments
+/// * `reflection_strength` - VPinball's playfield_reflection_strength (0.0 to 1.0, default 0.2)
+/// * `fallback_roughness` - Roughness to use when reflection_strength is too low
+///
+/// # Returns
+/// glTF roughness value (0.0 = mirror, 1.0 = matte)
+///
+/// # Examples
+/// - `reflection_strength = 1.0` → roughness = 0.03 (near mirror)
+/// - `reflection_strength = 0.5` → roughness ≈ 0.10 (very glossy)
+/// - `reflection_strength = 0.3` → roughness ≈ 0.14 (glossy, typical playfield)
+/// - `reflection_strength = 0.2` → roughness ≈ 0.17 (moderately glossy)
+/// - `reflection_strength < 0.1` → uses fallback_roughness (matte)
+fn calculate_playfield_roughness(reflection_strength: f32, fallback_roughness: f32) -> f32 {
+    const REFLECTION_THRESHOLD: f32 = 0.1;
+    const MIN_ROUGHNESS: f32 = 0.03;
+    const MAX_ROUGHNESS: f32 = 0.20;
+
+    if reflection_strength > REFLECTION_THRESHOLD {
+        // Map reflection_strength to roughness: higher reflection = lower roughness
+        // Formula: roughness = MAX_ROUGHNESS - (reflection_strength * 0.17)
+        // This gives very low roughness values for reflective playfields:
+        // 1.0 -> 0.03, 0.5 -> 0.115, 0.3 -> 0.149, 0.2 -> 0.166
+        (MAX_ROUGHNESS - reflection_strength * 0.17).clamp(MIN_ROUGHNESS, MAX_ROUGHNESS)
+    } else {
+        // Low/no reflection - use fallback roughness
+        fallback_roughness
+    }
 }
 
 /// Calculate the effective range for a light in meters.
@@ -1330,6 +1375,32 @@ fn build_combined_gltf_payload(
         }));
 
         // Add playfield material with texture
+        // Note: VPinball's playfield reflections are a separate screen-space effect
+        // controlled by `playfield_reflection_strength`. See calculate_playfield_roughness().
+        let material_roughness = materials.get(playfield_material_name).map(|m| m.roughness);
+        let fallback_roughness = material_roughness.unwrap_or(0.5);
+        let reflection_strength = vpx.gamedata.playfield_reflection_strength;
+        let playfield_roughness =
+            calculate_playfield_roughness(reflection_strength, fallback_roughness);
+
+        // Log a warning if we're overriding the material's roughness
+        // Note: mat_roughness is already in glTF space (inverted from VPinball's "shininess")
+        if let Some(mat_roughness) = material_roughness
+            && reflection_strength > 0.1
+            && (mat_roughness - playfield_roughness).abs() > 0.05
+        {
+            warn!(
+                "Playfield material '{}' has glTF roughness {:.2} (VPinball shininess {:.2}), \
+                but playfield_reflection_strength {:.2} suggests it should be more reflective. \
+                Using glTF roughness {:.2} instead.",
+                playfield_material_name,
+                mat_roughness,
+                1.0 - mat_roughness, // Convert back to VPinball terms for clarity
+                reflection_strength,
+                playfield_roughness
+            );
+        }
+
         material_index_map.insert(playfield_material_name.to_string(), gltf_materials.len());
         gltf_materials.push(json!({
             "name": playfield_material_name,
@@ -1338,7 +1409,7 @@ fn build_combined_gltf_payload(
                     "index": texture_idx
                 },
                 "metallicFactor": 0.0,
-                "roughnessFactor": 0.5
+                "roughnessFactor": playfield_roughness
             }
             // Note: No alphaMode - playfield should be opaque (default is OPAQUE)
         }));
@@ -1361,27 +1432,25 @@ fn build_combined_gltf_payload(
         // an alpha channel or a 'meaningful' (not 0.999) alpha value"
         let needs_alpha_blend = mat.opacity_active && mat.base_color[3] < 0.999;
 
+        // Note: VPinball's glossy_color affects specular highlights from lights,
+        // but playfield reflections are a separate screen-space rendering pass
+        // controlled by per-object reflection_enabled flags, not material properties.
+        // We don't use KHR_materials_specular since it doesn't match VPinball's model.
+
+        let mut material = json!({
+            "name": mat.name,
+            "pbrMetallicRoughness": {
+                "baseColorFactor": mat.base_color,
+                "metallicFactor": mat.metallic,
+                "roughnessFactor": mat.roughness
+            }
+        });
+
         if needs_alpha_blend {
-            gltf_materials.push(json!({
-                "name": mat.name,
-                "pbrMetallicRoughness": {
-                    "baseColorFactor": mat.base_color,
-                    "metallicFactor": mat.metallic,
-                    "roughnessFactor": mat.roughness
-                },
-                "alphaMode": "BLEND"
-            }));
-        } else {
-            gltf_materials.push(json!({
-                "name": mat.name,
-                "pbrMetallicRoughness": {
-                    "baseColorFactor": mat.base_color,
-                    "metallicFactor": mat.metallic,
-                    "roughnessFactor": mat.roughness
-                }
-                // No alphaMode = OPAQUE (default)
-            }));
+            material["alphaMode"] = json!("BLEND");
         }
+
+        gltf_materials.push(material);
     }
 
     // Build a map of image name -> ImageData for quick lookup
@@ -1482,8 +1551,20 @@ fn build_combined_gltf_payload(
         }
     }
 
+    // Pre-calculate playfield roughness for use in material creation
+    // This is used when creating transmission materials for the playfield mesh
+    let playfield_roughness_override = {
+        let material_roughness = materials.get(playfield_material_name).map(|m| m.roughness);
+        let fallback_roughness = material_roughness.unwrap_or(0.5);
+        let reflection_strength = vpx.gamedata.playfield_reflection_strength;
+        calculate_playfield_roughness(reflection_strength, fallback_roughness)
+    };
+
     // Second pass: create materials for meshes
     for (mesh_idx, mesh) in meshes.iter().enumerate() {
+        // Check if this mesh is the playfield
+        let is_playfield_mesh = mesh.name.eq_ignore_ascii_case("playfield_mesh");
+
         // Case 1: Mesh has color_tint - needs unique material
         if let Some(color_tint) = mesh.color_tint {
             let material_idx = gltf_materials.len();
@@ -1543,16 +1624,21 @@ fn build_combined_gltf_payload(
                 uses_transmission_extension = true;
 
                 // Get base material properties if available
-                let (base_color, metallic, roughness, needs_alpha_blend) = if let Some(ref mat_name) =
-                    mesh.material_name
-                    && let Some(mat) = materials.get(mat_name)
-                {
-                    // Check if material needs alpha blending (opacity_active and opacity < 0.999)
-                    let needs_blend = mat.opacity_active && mat.base_color[3] < 0.999;
-                    (mat.base_color, mat.metallic, mat.roughness, needs_blend)
-                } else {
-                    ([1.0, 1.0, 1.0, 1.0], 0.0, 0.5, false)
-                };
+                let (base_color, metallic, mut roughness, needs_alpha_blend) =
+                    if let Some(ref mat_name) = mesh.material_name
+                        && let Some(mat) = materials.get(mat_name)
+                    {
+                        // Check if material needs alpha blending (opacity_active and opacity < 0.999)
+                        let needs_blend = mat.opacity_active && mat.base_color[3] < 0.999;
+                        (mat.base_color, mat.metallic, mat.roughness, needs_blend)
+                    } else {
+                        ([1.0, 1.0, 1.0, 1.0], 0.0, 0.5, false)
+                    };
+
+                // Override roughness for playfield mesh based on playfield_reflection_strength
+                if is_playfield_mesh {
+                    roughness = playfield_roughness_override;
+                }
 
                 // Check if mesh also has a texture
                 if let Some(ref texture_name) = mesh.texture_name {
@@ -2549,6 +2635,73 @@ mod tests {
             test_mesh.texture_name,
             Some("metal_texture".to_string()),
             "texture_name should be preserved"
+        );
+    }
+
+    #[test]
+    fn test_calculate_playfield_roughness_high_reflection() {
+        // High reflection strength should give very low roughness (glossy)
+        let roughness = calculate_playfield_roughness(1.0, 0.5);
+        assert!(
+            (roughness - 0.03).abs() < 0.01,
+            "reflection 1.0 should give roughness ~0.03, got {}",
+            roughness
+        );
+
+        let roughness = calculate_playfield_roughness(0.5, 0.5);
+        assert!(
+            (roughness - 0.115).abs() < 0.02,
+            "reflection 0.5 should give roughness ~0.115, got {}",
+            roughness
+        );
+    }
+
+    #[test]
+    fn test_calculate_playfield_roughness_default_vpinball() {
+        // VPinball default is 0.2 (20% reflection)
+        let roughness = calculate_playfield_roughness(0.2, 0.5);
+        assert!(
+            (roughness - 0.166).abs() < 0.02,
+            "reflection 0.2 should give roughness ~0.166, got {}",
+            roughness
+        );
+    }
+
+    #[test]
+    fn test_calculate_playfield_roughness_typical_table() {
+        // A typical table with ~0.3 reflection strength should be glossy
+        let roughness = calculate_playfield_roughness(0.3, 0.5);
+        assert!(
+            (roughness - 0.149).abs() < 0.02,
+            "reflection 0.3 should give roughness ~0.149, got {}",
+            roughness
+        );
+    }
+
+    #[test]
+    fn test_calculate_playfield_roughness_low_reflection_uses_fallback() {
+        // Low reflection strength should use fallback roughness
+        let roughness = calculate_playfield_roughness(0.05, 0.8);
+        assert_eq!(
+            roughness, 0.8,
+            "low reflection should use fallback roughness"
+        );
+
+        let roughness = calculate_playfield_roughness(0.0, 0.7);
+        assert_eq!(
+            roughness, 0.7,
+            "zero reflection should use fallback roughness"
+        );
+    }
+
+    #[test]
+    fn test_calculate_playfield_roughness_minimum_clamp() {
+        // Even very high reflection should not go below minimum roughness
+        let roughness = calculate_playfield_roughness(2.0, 0.5);
+        assert!(
+            roughness >= 0.05,
+            "roughness should be clamped to minimum 0.05, got {}",
+            roughness
         );
     }
 }
