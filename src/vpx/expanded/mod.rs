@@ -13,6 +13,7 @@
 //! Use [`write_with_options`] to specify the format and other options.
 //! Both formats are supported for reading, with OBJ checked first for backward compatibility.
 
+mod balls;
 mod bumpers;
 mod camera;
 mod decals;

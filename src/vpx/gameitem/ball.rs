@@ -9,21 +9,81 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Ball {
+    /// Name of the ball.
+    ///
+    /// BIFF tag: `NAME`
+    pub name: String,
+
+    /// Position of the ball in 3D space (x, y, z).
+    ///
+    /// BIFF tag: `VCEN`
     pub pos: Vertex3D,
+
+    /// Radius of the ball in VP units. Default is 25.0.
+    ///
+    /// BIFF tag: `RADI`
     pub radius: f32,
+
+    /// Mass of the ball, affects physics.
+    ///
+    /// 1 VP mass unit = 80g (mass of a standard pinball).
+    /// Default is 1.0 (standard ball mass).
+    ///
+    /// BIFF tag: `MASS`
     pub mass: f32,
+
+    /// Forces the ball to appear in playfield reflections even when elevated.
+    ///
+    /// Normally, balls on ramps, in kickers, or above the playfield are not
+    /// rendered in the reflection pass to avoid visual artifacts. When this
+    /// is `true`, the ball will always appear in reflections regardless of
+    /// its position.
+    ///
+    /// BIFF tag: `FREF`
     pub force_reflection: bool,
+
+    /// Whether the ball uses decal mode for texturing.
+    ///
+    /// BIFF tag: `DCMD`
     pub decal_mode: bool,
+
+    /// Image/texture name for the ball. Empty uses default ball texture.
+    /// In VPinball, falls back to `gamedata.ball_image` if empty.
+    ///
+    /// BIFF tag: `IMAG`
     pub image: String,
+
+    /// Decal image name overlaid on the ball when `decal_mode` is true.
+    ///
+    /// BIFF tag: `DIMG`
     pub image_decal: String,
+
+    /// Scale factor for bulb light intensity on the ball surface.
+    ///
+    /// BIFF tag: `BISC`
     pub bulb_intensity_scale: f32,
+
+    /// Strength of playfield reflection on the ball.
+    ///
+    /// BIFF tag: `PFRF`
     pub playfield_reflection_strength: f32,
+
+    /// Color tint applied to the ball.
+    ///
+    /// BIFF tag: `COLR`
     pub color: Color,
+
+    /// Whether to use spherical UV mapping for the texture.
+    ///
+    /// BIFF tag: `SPHR`
     pub spherical_mapping: bool,
+
+    /// Whether reflection is enabled for this ball.
+    ///
+    /// BIFF tag: `REEN`
     pub is_reflection_enabled: bool,
     is_timer_enabled: bool,
     timer_interval: i32,
-    pub name: String,
 
     // these are shared between all items
     pub is_locked: bool,

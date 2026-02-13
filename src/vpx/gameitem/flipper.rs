@@ -16,7 +16,15 @@ pub struct Flipper {
     pub start_angle: f32,
     pub end_angle: f32,
     pub override_physics: u32,
+
+    /// Mass of the flipper, affects physics momentum transfer.
+    ///
+    /// 1 VP mass unit = 80g (mass of a standard pinball).
+    /// Default is 1.0.
+    ///
+    /// BIFF tag: `FORC`
     pub mass: f32,
+
     is_timer_enabled: bool,
     timer_interval: i32,
     pub surface: String,
@@ -34,12 +42,13 @@ pub struct Flipper {
     pub elasticity_falloff: f32,
     pub friction: f32,
     pub ramp_up: f32,
+    /// BIFF tag: SCTR (added in 10.?)
     pub scatter: Option<f32>,
-    // SCTR (added in 10.?)
+    /// BIFF tag: TODA (added in 10.?)
     pub torque_damping: Option<f32>,
-    // TODA (added in 10.?)
+    /// BIFF tag: TDAA (added in 10.?)
     pub torque_damping_angle: Option<f32>,
-    // TDAA (added in 10.?)
+
     pub flipper_radius_min: f32,
     pub is_visible: bool,
     pub is_enabled: bool,

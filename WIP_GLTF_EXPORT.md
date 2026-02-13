@@ -41,6 +41,10 @@
     - Supports rotation, width/height, and surface height offset (+0.2)
     - Text decals not supported (require runtime font rendering)
     - Backglass decals not supported (rendered in screen space, not 3D geometry)
+- **Balls** - captive ball meshes as textured spheres
+    - Pre-defined unit sphere mesh (181 vertices, 320 triangles) scaled by ball radius
+    - Ball texture: uses `ball.image` if set, otherwise falls back to `gamedata.ball_image`
+    - Supports color tint via `ball.color`
 - **Playfield** - explicit `playfield_mesh` detection + implicit playfield generation
 
 ### Materials & Textures
@@ -73,10 +77,6 @@
     - Empty surface name returns 0.0 (playfield level)
 
 ## 🔲 TODO
-
-### Mesh Generation (game items)
-
-- [ ] **Balls** - captive ball meshes, ball texture available in `gamedata.ball_image`
 
 ### Optimization
 

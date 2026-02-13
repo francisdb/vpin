@@ -27,6 +27,7 @@
 //! Triangle winding order is reversed to convert from left-handed to right-handed.
 
 use super::WriteError;
+use super::balls::build_ball_mesh;
 use super::bumpers::build_bumper_meshes;
 use super::decals::build_decal_mesh;
 use super::flashers::build_flasher_mesh;
@@ -1264,6 +1265,45 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         transmission_factor: None,
                     });
                 }
+            }
+            GameItemEnum::Ball(ball) => {
+                // Balls are spheres used for captive ball effects
+                // The ball mesh is a pre-defined unit sphere scaled by the ball's radius
+
+                let (vertices, indices) = build_ball_mesh(ball);
+
+                // Ball texture: use ball.image if set, otherwise fall back to gamedata.ball_image
+                let texture_name = if !ball.image.is_empty() {
+                    Some(ball.image.clone())
+                } else if !vpx.gamedata.ball_image.is_empty() {
+                    Some(vpx.gamedata.ball_image.clone())
+                } else {
+                    None
+                };
+
+                // Convert ball color to tint (white = no tint)
+                let color = ball.color;
+                let color_tint = if color.r == 255 && color.g == 255 && color.b == 255 {
+                    None // White = no tint needed
+                } else {
+                    Some([
+                        color.r as f32 / 255.0,
+                        color.g as f32 / 255.0,
+                        color.b as f32 / 255.0,
+                        1.0,
+                    ])
+                };
+
+                meshes.push(NamedMesh {
+                    name: ball.name.clone(),
+                    vertices,
+                    indices,
+                    material_name: None, // Balls don't have a material property
+                    texture_name,
+                    color_tint,
+                    layer_name: get_layer_name(&ball.editor_layer_name, ball.editor_layer),
+                    transmission_factor: None,
+                });
             }
             _ => {}
         }
