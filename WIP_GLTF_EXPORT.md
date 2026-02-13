@@ -36,6 +36,11 @@
     - Default colors approximate VPinball's built-in textures (KickerCup.webp, etc.)
     - Note: VPinball uses depth buffer trick (`Z_ALWAYS` + `kickerBoolean` shader with -30 Z offset)
       to create hole illusion without actual geometry - this doesn't translate to glTF
+- **Decals** - image decals as textured quads
+    - Simple quad mesh (4 vertices, 2 triangles)
+    - Supports rotation, width/height, and surface height offset (+0.2)
+    - Text decals not supported (require runtime font rendering)
+    - Backglass decals not supported (rendered in screen space, not 3D geometry)
 - **Playfield** - explicit `playfield_mesh` detection + implicit playfield generation
 
 ### Materials & Textures
@@ -62,12 +67,25 @@
 - **Unit scaling** - VP units to meters
 - **`is_playfield()` method** - on Primitive struct, matching VPinball's `IsPlayfield()`
 - **Grouping by Layer** - meshes grouped by `editor_layer_name` field
+- **Surface height lookup** - `get_surface_height()` replicates VPinball's `PinTable::GetSurfaceHeight()`
+    - Items on walls use `wall.height_top`
+    - Items on ramps use average of `height_bottom` and `height_top`
+    - Empty surface name returns 0.0 (playfield level)
 
 ## 🔲 TODO
 
 ### Mesh Generation (game items)
 
-- [ ] **Decals**
+- [ ] **Balls** - captive ball meshes, ball texture available in `gamedata.ball_image`
+
+### Optimization
+
+- [ ] **Mesh deduplication** - detect and share identical meshes to reduce file size
+    - Generated light bulbs/sockets with same `mesh_radius`
+    - Screw primitives (same OBJ mesh referenced multiple times)
+    - Bumpers with same radius/height parameters
+    - Kickers with same type/radius
+    - Drop targets of same type
 
 ### Cameras
 

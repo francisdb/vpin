@@ -28,6 +28,7 @@
 
 use super::WriteError;
 use super::bumpers::build_bumper_meshes;
+use super::decals::build_decal_mesh;
 use super::flashers::build_flasher_mesh;
 use super::flippers::build_flipper_meshes;
 use super::gates::build_gate_meshes;
@@ -58,7 +59,7 @@ use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 use crate::vpx::units::{mm_to_vpu, vpu_to_m};
 use byteorder::{LittleEndian, WriteBytesExt};
-use log::warn;
+use log::{info, warn};
 use serde_json::json;
 use std::collections::HashMap;
 use std::io;
@@ -241,6 +242,56 @@ fn find_image_by_name<'a>(images: &'a [ImageData], name: &str) -> Option<&'a Ima
     images
         .iter()
         .find(|img| img.name.eq_ignore_ascii_case(name))
+}
+
+/// Get the height of a named surface at a given position.
+///
+/// This replicates VPinball's `PinTable::GetSurfaceHeight()` function from pintable.cpp:
+/// - If the surface name is empty, return 0.0 (playfield level)
+/// - Look for a Surface (wall) or Ramp with matching name (case-insensitive)
+/// - For surfaces/walls, return the top height (`height_top`)
+/// - For ramps, ideally interpolate based on (x, y) position, but for simplicity
+///   we return the average of height_bottom and height_top
+///
+/// # Arguments
+/// * `vpx` - The VPX table data
+/// * `surface_name` - The name of the surface to look up
+/// * `_x` - The X position (used for ramp height interpolation, not yet implemented)
+/// * `_y` - The Y position (used for ramp height interpolation, not yet implemented)
+fn get_surface_height(vpx: &VPX, surface_name: &str, _x: f32, _y: f32) -> f32 {
+    if surface_name.is_empty() {
+        return 0.0;
+    }
+
+    // Search through game items for matching surface or ramp
+    for item in &vpx.gameitems {
+        match item {
+            GameItemEnum::Wall(wall) => {
+                if wall.name.eq_ignore_ascii_case(surface_name) {
+                    return wall.height_top;
+                }
+            }
+            GameItemEnum::Ramp(ramp) => {
+                if ramp.name.eq_ignore_ascii_case(surface_name) {
+                    // TODO: Proper ramp height interpolation based on (x, y) position
+                    warn!(
+                        "Ramp height interpolation not implemented, returning average height for ramp '{}'",
+                        ramp.name
+                    );
+                    // For now, return average of bottom and top heights
+                    return (ramp.height_bottom + ramp.height_top) / 2.0;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Surface not found, log warning and return playfield level
+    info!(
+        "Surface '{}' not found, using playfield height (0.0)",
+        surface_name
+    );
+    0.0
 }
 
 /// Find the playfield image in the VPX
@@ -722,8 +773,9 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 }
             }
             GameItemEnum::Bumper(bumper) => {
-                // TODO: get surface height from the table
-                let bumper_meshes = build_bumper_meshes(bumper, 0.0);
+                let surface_height =
+                    get_surface_height(vpx, &bumper.surface, bumper.center.x, bumper.center.y);
+                let bumper_meshes = build_bumper_meshes(bumper, surface_height);
 
                 // Add base mesh if visible
                 if let Some((base_vertices, base_indices)) = bumper_meshes.base {
@@ -804,8 +856,9 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 if !spinner.is_visible {
                     continue; // Skip invisible spinners
                 }
-                // TODO: get surface height from the table
-                let spinner_meshes = build_spinner_meshes(spinner, 0.0);
+                let surface_height =
+                    get_surface_height(vpx, &spinner.surface, spinner.center.x, spinner.center.y);
+                let spinner_meshes = build_spinner_meshes(spinner, surface_height);
 
                 // Add bracket mesh if visible
                 if let Some((bracket_vertices, bracket_indices)) = spinner_meshes.bracket {
@@ -876,8 +929,9 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 }
             }
             GameItemEnum::Gate(gate) => {
-                // TODO: get surface height from the table
-                if let Some(gate_meshes) = build_gate_meshes(gate, 0.0) {
+                let surface_height =
+                    get_surface_height(vpx, &gate.surface, gate.center.x, gate.center.y);
+                if let Some(gate_meshes) = build_gate_meshes(gate, surface_height) {
                     let material_name = if gate.material.is_empty() {
                         None
                     } else {
@@ -916,8 +970,9 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 if !trigger.is_visible {
                     continue; // Skip invisible triggers
                 }
-                // TODO: get surface height from the table
-                if let Some((vertices, indices)) = build_trigger_mesh(trigger, 0.0) {
+                let surface_height =
+                    get_surface_height(vpx, &trigger.surface, trigger.center.x, trigger.center.y);
+                if let Some((vertices, indices)) = build_trigger_mesh(trigger, surface_height) {
                     let material_name = if trigger.material.is_empty() {
                         None
                     } else {
@@ -946,8 +1001,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     continue;
                 }
 
-                // TODO: Get actual surface height from the table
-                let surface_height = 0.0;
+                let surface_height =
+                    get_surface_height(vpx, &light.surface, light.center.x, light.center.y);
 
                 if let Some(light_meshes) = super::lights::build_light_meshes(light, surface_height)
                 {
@@ -1000,8 +1055,9 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 if !plunger.is_visible {
                     continue; // Skip invisible plungers
                 }
-                // TODO: get surface height from the table
-                let plunger_meshes = build_plunger_meshes(plunger, 0.0);
+                let surface_height =
+                    get_surface_height(vpx, &plunger.surface, plunger.center.x, plunger.center.y);
+                let plunger_meshes = build_plunger_meshes(plunger, surface_height);
                 let material_name = if plunger.material.is_empty() {
                     None
                 } else {
@@ -1115,8 +1171,9 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 //   KickerHoleWood.webp
                 // These are not part of the VPX file, so we use approximate default colors.
 
-                // TODO: get surface height from the table
-                let kicker_meshes = build_kicker_meshes(kicker, 0.0);
+                let surface_height =
+                    get_surface_height(vpx, &kicker.surface, kicker.center.x, kicker.center.y);
+                let kicker_meshes = build_kicker_meshes(kicker, surface_height);
                 let material_name = if kicker.material.is_empty() {
                     None
                 } else {
@@ -1171,6 +1228,39 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         texture_name: None,
                         color_tint: kicker_color,
                         layer_name,
+                        transmission_factor: None,
+                    });
+                }
+            }
+            GameItemEnum::Decal(decal) => {
+                // Decals are simple textured quads
+                // Note: Text decals are not supported - they require runtime text rendering
+                // which VPinball does using Windows GDI. We only export image decals.
+
+                // Get surface height based on the surface the decal sits on
+                let surface_height =
+                    get_surface_height(vpx, &decal.surface, decal.center.x, decal.center.y);
+
+                if let Some((vertices, indices)) = build_decal_mesh(decal, surface_height) {
+                    let texture_name = if !decal.image.is_empty() {
+                        Some(decal.image.clone())
+                    } else {
+                        None
+                    };
+                    let material_name = if !decal.material.is_empty() {
+                        Some(decal.material.clone())
+                    } else {
+                        None
+                    };
+
+                    meshes.push(NamedMesh {
+                        name: decal.name.clone(),
+                        vertices,
+                        indices,
+                        material_name,
+                        texture_name,
+                        color_tint: None,
+                        layer_name: get_layer_name(&decal.editor_layer_name, decal.editor_layer),
                         transmission_factor: None,
                     });
                 }

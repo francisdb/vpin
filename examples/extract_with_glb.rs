@@ -10,6 +10,9 @@ use vpin::vpx::expanded::ExpandOptions;
 use vpin::vpx::{self, expanded::PrimitiveMeshFormat};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize logger - set RUST_LOG=warn (or info, debug) to see warnings
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
+
     // Get VPX file path from command line argument
     let args: Vec<String> = env::args().collect();
     let vpx_path = if args.len() > 1 {

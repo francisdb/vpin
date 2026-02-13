@@ -9,26 +9,30 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Bumper {
+    pub name: String,
     pub center: Vertex2D,
     pub radius: f32,
     is_timer_enabled: bool,
     timer_interval: i32,
     pub threshold: f32,
     pub force: f32,
-    pub scatter: Option<f32>,
     // BSCT (added in ?)
+    pub scatter: Option<f32>,
     pub height_scale: f32,
     pub ring_speed: f32,
     pub orientation: f32,
-    pub ring_drop_offset: Option<f32>,
     // RDLI (added in ?)
+    pub ring_drop_offset: Option<f32>,
     pub cap_material: String,
     pub base_material: String,
     pub socket_material: String,
-    pub ring_material: Option<String>,
     // RIMA (added in ?)
-    surface: String,
-    pub name: String,
+    pub ring_material: Option<String>,
+    /// The name of the surface (wall, ramp, or empty for playfield) that this bumper sits on.
+    /// Used to determine the Z height of the bumper via `GetSurfaceHeight()`.
+    ///
+    /// BIFF tag: `SURF`
+    pub surface: String,
     pub is_cap_visible: bool,
     pub is_base_visible: bool,
     pub is_ring_visible: Option<bool>,       // RIVS (added in ?)

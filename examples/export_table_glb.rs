@@ -8,6 +8,9 @@ use vpin::vpx;
 use vpin::vpx::expanded::export_glb;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize logger - set RUST_LOG=warn (or info, debug) to see warnings
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
+
     // Read a VPX file
     let vpx_path = match std::env::args().nth(1) {
         Some(path) => PathBuf::from(path),

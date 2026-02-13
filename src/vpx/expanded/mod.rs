@@ -15,6 +15,7 @@
 
 mod bumpers;
 mod camera;
+mod decals;
 mod flashers;
 mod flippers;
 mod fonts;
