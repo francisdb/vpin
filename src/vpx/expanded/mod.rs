@@ -31,6 +31,7 @@ mod materials;
 mod mesh_common;
 mod mesh_validation;
 mod metadata;
+mod playfields;
 mod plungers;
 mod primitives;
 mod ramps;

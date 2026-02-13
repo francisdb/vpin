@@ -36,6 +36,7 @@ use super::gates::build_gate_meshes;
 use super::hittargets::build_hit_target_mesh;
 use super::kickers::build_kicker_meshes;
 use super::mesh_common::TableDimensions;
+use super::playfields::build_playfield_mesh;
 use super::plungers::build_plunger_meshes;
 use super::ramps::build_ramp_mesh;
 use super::rubbers::build_rubber_mesh;
@@ -56,7 +57,6 @@ use crate::vpx::gltf::{
 };
 use crate::vpx::image::{ImageData, image_has_transparency};
 use crate::vpx::material::MaterialType;
-use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 use crate::vpx::units::{mm_to_vpu, vpu_to_m};
 use byteorder::{LittleEndian, WriteBytesExt};
@@ -106,7 +106,7 @@ fn transform_primitive_vertices(
     vertices: Vec<VertexWrapper>,
     primitive: &crate::vpx::gameitem::primitive::Primitive,
 ) -> Vec<VertexWrapper> {
-    use crate::vpx::math::{Matrix3D, Vertex3D, deg_to_rad};
+    use crate::vpx::math::{Matrix3D, Vertex3D};
 
     let pos = &primitive.position;
     let size = &primitive.size;
@@ -120,15 +120,15 @@ fn transform_primitive_vertices(
     // Build the transformation matrix matching VPinball's RecalculateMatrices()
     // RTmatrix = Translate(tra) * RotZ * RotY * RotX
     let rt_matrix = Matrix3D::translate(rot[3], rot[4], rot[5])
-        * Matrix3D::rotate_z(deg_to_rad(rot[2]))
-        * Matrix3D::rotate_y(deg_to_rad(rot[1]))
-        * Matrix3D::rotate_x(deg_to_rad(rot[0]));
+        * Matrix3D::rotate_z(rot[2].to_radians())
+        * Matrix3D::rotate_y(rot[1].to_radians())
+        * Matrix3D::rotate_x(rot[0].to_radians());
 
     // RTmatrix = RTmatrix * ObjRotZ * ObjRotY * ObjRotX
     let rt_matrix = rt_matrix
-        * Matrix3D::rotate_z(deg_to_rad(rot[8]))
-        * Matrix3D::rotate_y(deg_to_rad(rot[7]))
-        * Matrix3D::rotate_x(deg_to_rad(rot[6]));
+        * Matrix3D::rotate_z(rot[8].to_radians())
+        * Matrix3D::rotate_y(rot[7].to_radians())
+        * Matrix3D::rotate_x(rot[6].to_radians());
 
     // fullMatrix = Scale * RTmatrix * Translate(position)
     let full_matrix = Matrix3D::scale(size.x, size.y, size.z)
@@ -336,89 +336,12 @@ fn get_image_bytes(image: &ImageData) -> Option<Vec<u8>> {
 /// - UV: (0,0), (1,0), (0,1), (1,1)
 /// - 6 indices: [0,1,2], [2,1,3]
 fn build_implicit_playfield_mesh(vpx: &VPX, playfield_material_name: &str) -> NamedMesh {
-    let left = vpx.gamedata.left;
-    let top = vpx.gamedata.top;
-    let right = vpx.gamedata.right;
-    let bottom = vpx.gamedata.bottom;
-
-    // Create 4 vertices matching VPinball's layout:
-    // offs = x + y * 2, so:
-    // (x=0,y=0) -> offs=0: left, top
-    // (x=1,y=0) -> offs=1: right, top
-    // (x=0,y=1) -> offs=2: left, bottom
-    // (x=1,y=1) -> offs=3: right, bottom
-    let vertices = vec![
-        // offs=0: (x=0, y=0) -> left, top
-        VertexWrapper::new(
-            [0u8; 32], // Not needed for export, just a placeholder
-            Vertex3dNoTex2 {
-                x: left,
-                y: top,
-                z: 0.0,
-                nx: 0.0,
-                ny: 0.0,
-                nz: 1.0,
-                tu: 0.0,
-                tv: 0.0,
-            },
-        ),
-        // offs=1: (x=1, y=0) -> right, top
-        VertexWrapper::new(
-            [0u8; 32],
-            Vertex3dNoTex2 {
-                x: right,
-                y: top,
-                z: 0.0,
-                nx: 0.0,
-                ny: 0.0,
-                nz: 1.0,
-                tu: 1.0,
-                tv: 0.0,
-            },
-        ),
-        // offs=2: (x=0, y=1) -> left, bottom
-        VertexWrapper::new(
-            [0u8; 32],
-            Vertex3dNoTex2 {
-                x: left,
-                y: bottom,
-                z: 0.0,
-                nx: 0.0,
-                ny: 0.0,
-                nz: 1.0,
-                tu: 0.0,
-                tv: 1.0,
-            },
-        ),
-        // offs=3: (x=1, y=1) -> right, bottom
-        VertexWrapper::new(
-            [0u8; 32],
-            Vertex3dNoTex2 {
-                x: right,
-                y: bottom,
-                z: 0.0,
-                nx: 0.0,
-                ny: 0.0,
-                nz: 1.0,
-                tu: 1.0,
-                tv: 1.0,
-            },
-        ),
-    ];
-
-    // Indices from VPinball: [0,1,2], [2,1,3]
-    let indices = vec![
-        VpxFace {
-            i0: 0,
-            i1: 1,
-            i2: 2,
-        },
-        VpxFace {
-            i0: 2,
-            i1: 1,
-            i2: 3,
-        },
-    ];
+    let (vertices, indices) = build_playfield_mesh(
+        vpx.gamedata.left,
+        vpx.gamedata.top,
+        vpx.gamedata.right,
+        vpx.gamedata.bottom,
+    );
 
     NamedMesh {
         name: "playfield_mesh".to_string(),
@@ -2552,8 +2475,8 @@ pub fn export_glb(vpx: &VPX, path: &Path, fs: &dyn FileSystem) -> Result<(), Wri
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vpx::expanded::mesh_common::test_utils::create_minimal_mesh_data;
     use crate::vpx::gameitem::primitive::Primitive;
-    use crate::vpx::model::Vertex3dNoTex2;
 
     #[test]
     fn test_collect_meshes_empty_vpx_has_implicit_playfield() {
@@ -2573,81 +2496,20 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    /// Helper to create minimal compressed mesh data for a single triangle
-    fn create_minimal_mesh_data() -> (Vec<u8>, Vec<u8>, u32, u32) {
-        use crate::vpx::gameitem::primitive::compress_mesh_data;
-
-        // Create 3 vertices (a simple triangle)
-        let vertices = vec![
-            Vertex3dNoTex2 {
-                x: 0.0,
-                y: 0.0,
-                z: 0.0,
-                nx: 0.0,
-                ny: 0.0,
-                nz: 1.0,
-                tu: 0.0,
-                tv: 0.0,
-            },
-            Vertex3dNoTex2 {
-                x: 100.0,
-                y: 0.0,
-                z: 0.0,
-                nx: 0.0,
-                ny: 0.0,
-                nz: 1.0,
-                tu: 1.0,
-                tv: 0.0,
-            },
-            Vertex3dNoTex2 {
-                x: 50.0,
-                y: 100.0,
-                z: 0.0,
-                nx: 0.0,
-                ny: 0.0,
-                nz: 1.0,
-                tu: 0.5,
-                tv: 1.0,
-            },
-        ];
-
-        // Convert vertices to raw bytes (32 bytes per vertex)
-        let mut raw_vertices = Vec::new();
-        for v in &vertices {
-            raw_vertices.extend_from_slice(&v.x.to_le_bytes());
-            raw_vertices.extend_from_slice(&v.y.to_le_bytes());
-            raw_vertices.extend_from_slice(&v.z.to_le_bytes());
-            raw_vertices.extend_from_slice(&v.nx.to_le_bytes());
-            raw_vertices.extend_from_slice(&v.ny.to_le_bytes());
-            raw_vertices.extend_from_slice(&v.nz.to_le_bytes());
-            raw_vertices.extend_from_slice(&v.tu.to_le_bytes());
-            raw_vertices.extend_from_slice(&v.tv.to_le_bytes());
-        }
-
-        // Create indices for a single triangle (2 bytes per index since < 65535 vertices)
-        let indices: Vec<u16> = vec![0, 1, 2];
-        let mut raw_indices = Vec::new();
-        for i in &indices {
-            raw_indices.extend_from_slice(&i.to_le_bytes());
-        }
-
-        // Compress the data
-        let compressed_vertices = compress_mesh_data(&raw_vertices).unwrap();
-        let compressed_indices = compress_mesh_data(&raw_indices).unwrap();
-
-        (
-            compressed_vertices,
-            compressed_indices,
-            vertices.len() as u32,
-            indices.len() as u32,
-        )
-    }
-
     #[test]
     fn test_primitive_with_image_and_material_preserves_both() {
+        // This test verifies that when a primitive has both an image (texture)
+        // and a material, both are preserved in the NamedMesh.
+        //
+        // This was a bug where the logic was:
+        //   if !primitive.image.is_empty() {
+        //       (None, Some(primitive.image.clone()))  // material_name was None!
+        //   }
+        // which lost the material when an image was present.
+
         let mut vpx = VPX::default();
 
-        // Create mesh data
+        // Create mesh data using the shared helper
         let (compressed_vertices, compressed_indices, num_vertices, num_indices) =
             create_minimal_mesh_data();
 

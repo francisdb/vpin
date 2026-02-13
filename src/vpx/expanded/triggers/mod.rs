@@ -29,7 +29,7 @@ use super::{PrimitiveMeshFormat, WriteError};
 use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::gameitem::trigger::{Trigger, TriggerShape};
-use crate::vpx::math::{Matrix3D, Vertex3D, deg_to_rad};
+use crate::vpx::math::{Matrix3D, Vertex3D};
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 use std::path::Path;
@@ -81,12 +81,12 @@ fn get_z_offset(shape: &TriggerShape) -> f32 {
 fn get_rotation_matrix(shape: &TriggerShape, rotation: f32) -> Matrix3D {
     match shape {
         TriggerShape::WireB => {
-            Matrix3D::rotate_x(deg_to_rad(-23.0)) * Matrix3D::rotate_z(deg_to_rad(rotation))
+            Matrix3D::rotate_x((-23.0_f32).to_radians()) * Matrix3D::rotate_z(rotation.to_radians())
         }
         TriggerShape::WireC => {
-            Matrix3D::rotate_x(deg_to_rad(140.0)) * Matrix3D::rotate_z(deg_to_rad(rotation))
+            Matrix3D::rotate_x(140.0_f32.to_radians()) * Matrix3D::rotate_z(rotation.to_radians())
         }
-        _ => Matrix3D::rotate_z(deg_to_rad(rotation)),
+        _ => Matrix3D::rotate_z(rotation.to_radians()),
     }
 }
 

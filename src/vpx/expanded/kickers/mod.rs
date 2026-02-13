@@ -32,7 +32,6 @@ use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::math::Matrix3D;
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
-use std::f32::consts::PI;
 
 pub use kicker_cup_mesh::*;
 pub use kicker_gottlieb_mesh::*;
@@ -48,11 +47,6 @@ pub struct KickerMeshes {
     pub plate: Option<(Vec<VertexWrapper>, Vec<VpxFace>)>,
     /// The kicker body mesh (varies by kicker type)
     pub kicker: Option<(Vec<VertexWrapper>, Vec<VpxFace>)>,
-}
-
-/// Degrees to radians conversion
-fn deg_to_rad(deg: f32) -> f32 {
-    deg * PI / 180.0
 }
 
 /// Generate all kicker meshes based on the kicker parameters
@@ -186,7 +180,7 @@ fn generate_kicker_mesh(kicker: &Kicker, base_height: f32) -> (Vec<VertexWrapper
     let num_indices = mesh_indices.len();
 
     // Build rotation matrix
-    let full_matrix = Matrix3D::rotate_z(deg_to_rad(z_rot));
+    let full_matrix = Matrix3D::rotate_z(z_rot.to_radians());
 
     let mut vertices = Vec::with_capacity(num_vertices);
 

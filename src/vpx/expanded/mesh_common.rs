@@ -443,3 +443,82 @@ pub(super) fn get_rg_vertex_2d(
 
     vv
 }
+
+#[cfg(test)]
+pub mod test_utils {
+    use crate::vpx::gameitem::primitive::compress_mesh_data;
+    use crate::vpx::model::Vertex3dNoTex2;
+
+    /// Creates minimal compressed mesh data for a single triangle.
+    ///
+    /// Returns (compressed_vertices, compressed_indices, num_vertices, num_indices)
+    ///
+    /// This is useful for creating test primitives that have valid mesh data
+    /// without needing to load from a file.
+    pub fn create_minimal_mesh_data() -> (Vec<u8>, Vec<u8>, u32, u32) {
+        // Create 3 vertices (a simple triangle)
+        let vertices = vec![
+            Vertex3dNoTex2 {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                nx: 0.0,
+                ny: 0.0,
+                nz: 1.0,
+                tu: 0.0,
+                tv: 0.0,
+            },
+            Vertex3dNoTex2 {
+                x: 100.0,
+                y: 0.0,
+                z: 0.0,
+                nx: 0.0,
+                ny: 0.0,
+                nz: 1.0,
+                tu: 1.0,
+                tv: 0.0,
+            },
+            Vertex3dNoTex2 {
+                x: 50.0,
+                y: 100.0,
+                z: 0.0,
+                nx: 0.0,
+                ny: 0.0,
+                nz: 1.0,
+                tu: 0.5,
+                tv: 1.0,
+            },
+        ];
+
+        // Convert vertices to raw bytes (32 bytes per vertex)
+        let mut raw_vertices = Vec::new();
+        for v in &vertices {
+            raw_vertices.extend_from_slice(&v.x.to_le_bytes());
+            raw_vertices.extend_from_slice(&v.y.to_le_bytes());
+            raw_vertices.extend_from_slice(&v.z.to_le_bytes());
+            raw_vertices.extend_from_slice(&v.nx.to_le_bytes());
+            raw_vertices.extend_from_slice(&v.ny.to_le_bytes());
+            raw_vertices.extend_from_slice(&v.nz.to_le_bytes());
+            raw_vertices.extend_from_slice(&v.tu.to_le_bytes());
+            raw_vertices.extend_from_slice(&v.tv.to_le_bytes());
+        }
+
+        // Create indices for a single triangle (2 bytes per index since < 65535 vertices)
+        let indices: Vec<u16> = vec![0, 1, 2];
+        let mut raw_indices = Vec::new();
+        for i in &indices {
+            raw_indices.extend_from_slice(&i.to_le_bytes());
+        }
+
+        // Compress the data
+        let compressed_vertices = compress_mesh_data(&raw_vertices).unwrap();
+        let compressed_indices = compress_mesh_data(&raw_indices).unwrap();
+
+        (
+            compressed_vertices,
+            compressed_indices,
+            vertices.len() as u32,
+            indices.len() as u32,
+        )
+    }
+}

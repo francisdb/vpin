@@ -20,7 +20,6 @@ use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::gameitem::spinner::Spinner;
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
-use std::f32::consts::PI;
 use std::path::Path;
 
 pub use spinner_bracket_mesh::*;
@@ -35,11 +34,6 @@ pub struct SpinnerMeshes {
     pub plate: (Vec<VertexWrapper>, Vec<VpxFace>),
 }
 
-/// Degrees to radians conversion
-fn deg_to_rad(deg: f32) -> f32 {
-    deg * PI / 180.0
-}
-
 /// Generate all spinner meshes based on the spinner parameters
 ///
 /// # Arguments
@@ -50,7 +44,7 @@ fn deg_to_rad(deg: f32) -> f32 {
 /// A SpinnerMeshes struct containing all spinner parts
 pub fn build_spinner_meshes(spinner: &Spinner, base_height: f32) -> SpinnerMeshes {
     let pos_z = base_height + spinner.height;
-    let full_matrix = Matrix3D::rotate_z(deg_to_rad(spinner.rotation));
+    let full_matrix = Matrix3D::rotate_z(spinner.rotation.to_radians());
 
     SpinnerMeshes {
         bracket: if spinner.show_bracket {

@@ -24,7 +24,7 @@ use super::{PrimitiveMeshFormat, WriteError};
 use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::gate::{Gate, GateType};
 use crate::vpx::gameitem::primitive::VertexWrapper;
-use crate::vpx::math::{Matrix3D, Vertex3D, deg_to_rad};
+use crate::vpx::math::{Matrix3D, Vertex3D};
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 use std::path::Path;
@@ -64,7 +64,7 @@ fn get_mesh_for_type(gate_type: &GateType) -> (&'static [Vertex3dNoTex2], &'stat
 /// rotMatrix.TransformNormals(gateBracket, buf, gateBracketNumVertices);
 /// ```
 fn generate_bracket_mesh(gate: &Gate, base_height: f32) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
-    let rot_matrix = Matrix3D::rotate_z(deg_to_rad(gate.rotation));
+    let rot_matrix = Matrix3D::rotate_z(gate.rotation.to_radians());
     let vert_matrix = rot_matrix
         * Matrix3D::scale_uniform(gate.length)
         * Matrix3D::translate(gate.center.x, gate.center.y, gate.height + base_height);
@@ -125,7 +125,7 @@ fn generate_wire_mesh(
     mesh: &[Vertex3dNoTex2],
     indices: &[u16],
 ) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
-    let world_matrix = Matrix3D::rotate_z(deg_to_rad(gate.rotation))
+    let world_matrix = Matrix3D::rotate_z(gate.rotation.to_radians())
         * Matrix3D::translate(gate.center.x, gate.center.y, gate.height + base_height);
 
     let vertices: Vec<VertexWrapper> = mesh

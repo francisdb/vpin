@@ -10,14 +10,7 @@
 //! 1. First apply A to v
 //! 2. Then apply B to the result
 
-use std::f32::consts::PI;
 use std::ops::Mul;
-
-/// Convert degrees to radians
-#[inline]
-pub fn deg_to_rad(deg: f32) -> f32 {
-    deg * PI / 180.0
-}
 
 /// 3D vector for positions and directions
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -348,8 +341,8 @@ mod tests {
     #[test]
     fn test_combined_rotation() {
         // Test combining multiple rotations
-        let rot_x = Matrix3D::rotate_x(deg_to_rad(90.0));
-        let rot_z = Matrix3D::rotate_z(deg_to_rad(90.0));
+        let rot_x = Matrix3D::rotate_x(90.0_f32.to_radians());
+        let rot_z = Matrix3D::rotate_z(90.0_f32.to_radians());
 
         // Apply RotX first, then RotZ: rot_x * rot_z
         let combined = rot_x * rot_z;

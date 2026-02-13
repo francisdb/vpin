@@ -18,12 +18,6 @@ use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 use log::warn;
-use std::f32::consts::PI;
-
-/// Degrees to radians conversion
-fn deg_to_rad(deg: f32) -> f32 {
-    deg * PI / 180.0
-}
 
 /// Generate the decal mesh
 ///
@@ -74,7 +68,7 @@ pub fn build_decal_mesh(
     let halfheight = decal.height * 0.5;
 
     // Rotation
-    let radangle = deg_to_rad(decal.rotation);
+    let radangle = decal.rotation.to_radians();
     let sn = radangle.sin();
     let cs = radangle.cos();
 

@@ -24,7 +24,6 @@ use crate::vpx::gameitem::bumper::Bumper;
 use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
-use std::f32::consts::PI;
 use std::path::Path;
 
 pub use bumper_base_mesh::*;
@@ -44,11 +43,6 @@ pub struct BumperMeshes {
     pub cap: Option<(Vec<VertexWrapper>, Vec<VpxFace>)>,
 }
 
-/// Degrees to radians conversion
-fn deg_to_rad(deg: f32) -> f32 {
-    deg * PI / 180.0
-}
-
 /// Generate all bumper meshes based on the bumper parameters
 ///
 /// # Arguments
@@ -58,7 +52,7 @@ fn deg_to_rad(deg: f32) -> f32 {
 /// # Returns
 /// A BumperMeshes struct containing all visible bumper parts
 pub fn build_bumper_meshes(bumper: &Bumper, base_height: f32) -> BumperMeshes {
-    let full_matrix = Matrix3D::rotate_z(deg_to_rad(bumper.orientation));
+    let full_matrix = Matrix3D::rotate_z(bumper.orientation.to_radians());
 
     BumperMeshes {
         base: if bumper.is_base_visible {

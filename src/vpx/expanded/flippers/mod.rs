@@ -108,11 +108,6 @@ static VERTS_BASE_TOP: [Vec3; 13] = [
     Vec3 { x: 0.100762, y: 0.0, z: 1.004253 },
 ];
 
-/// Degrees to radians conversion
-fn deg_to_rad(deg: f32) -> f32 {
-    deg * PI / 180.0
-}
-
 /// Sign function matching VPinball's sgn()
 fn sgn(x: f32) -> f32 {
     if x > 0.0 {
@@ -300,8 +295,8 @@ pub fn build_flipper_mesh(
     }
 
     // Apply rotation (180 degrees) and transformations
-    let rotation_matrix = Matrix3D::rotate_z(deg_to_rad(180.0));
-    let start_angle_rad = deg_to_rad(flipper.start_angle);
+    let rotation_matrix = Matrix3D::rotate_z(180.0_f32.to_radians());
+    let start_angle_rad = flipper.start_angle.to_radians();
 
     let mut vertices = Vec::with_capacity(FLIPPER_BASE_NUM_VERTICES * 2);
 
@@ -607,8 +602,8 @@ pub fn build_flipper_meshes(flipper: &Flipper, surface_height: f32) -> Option<Fl
     }
 
     // Apply rotation (180 degrees) and transformations
-    let rotation_matrix = Matrix3D::rotate_z(deg_to_rad(180.0));
-    let start_angle_rad = deg_to_rad(flipper.start_angle);
+    let rotation_matrix = Matrix3D::rotate_z(180.0_f32.to_radians());
+    let start_angle_rad = flipper.start_angle.to_radians();
 
     // Build base mesh vertices
     let mut base_vertices = Vec::with_capacity(FLIPPER_BASE_NUM_VERTICES);

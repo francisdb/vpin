@@ -34,8 +34,6 @@ use crate::vpx::gameitem::hittarget::{HitTarget, TargetType};
 use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
-use std::f32::consts::PI;
-use std::path::Path;
 
 use drop_target_t2_mesh::{DROP_TARGET_T2_INDICES, DROP_TARGET_T2_MESH};
 use drop_target_t3_mesh::{DROP_TARGET_T3_INDICES, DROP_TARGET_T3_MESH};
@@ -48,11 +46,7 @@ use hit_target_rectangle_mesh::{HIT_TARGET_RECTANGLE_INDICES, HIT_TARGET_RECTANG
 use hit_target_round_mesh::{HIT_TARGET_ROUND_INDICES, HIT_TARGET_ROUND_MESH};
 use hit_target_t1_slim_mesh::{HIT_TARGET_T1_SLIM_INDICES, HIT_TARGET_T1_SLIM_MESH};
 use hit_target_t2_slim_mesh::{HIT_TARGET_T2_SLIM_INDICES, HIT_TARGET_T2_SLIM_MESH};
-
-/// Degrees to radians conversion
-fn deg_to_rad(deg: f32) -> f32 {
-    deg * PI / 180.0
-}
+use std::path::Path;
 
 /// Write hit target mesh to a file
 pub(super) fn write_hit_target_meshes(
@@ -119,7 +113,7 @@ pub fn build_hit_target_mesh(target: &HitTarget) -> Option<(Vec<VertexWrapper>, 
     }
 
     let (mesh, indices) = get_mesh_for_type(&target.target_type);
-    let full_matrix = Matrix3D::rotate_z(deg_to_rad(target.rot_z));
+    let full_matrix = Matrix3D::rotate_z(target.rot_z.to_radians());
 
     let vertices: Vec<VertexWrapper> = mesh
         .iter()
