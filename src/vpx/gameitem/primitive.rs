@@ -82,9 +82,9 @@ pub struct Primitive {
     /// - 1.0 = light is fully blocked (opaque, no light transmission)
     ///
     /// VPinball shader uses: `lerp(light_from_below, 0, disable_lighting_below)`
-    /// So higher values = less light transmission.
+    /// This ADDS light from below to the surface color, it doesn't make it see-through.
     ///
-    /// BIFF tag: `DILB`  (added in 10.?)
+    /// BIFF tag: `DILB` (added in 10.?)
     pub disable_lighting_below: Option<f32>,
 
     pub is_reflection_enabled: Option<bool>, // 34 REEN (was missing in 10.01)

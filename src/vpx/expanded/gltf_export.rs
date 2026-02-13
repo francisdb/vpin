@@ -449,6 +449,21 @@ fn get_layer_name(editor_layer_name: &Option<String>, editor_layer: Option<u32>)
     editor_layer.map(|layer| format!("Layer_{}", layer + 1))
 }
 
+/// Calculate transmission factor from disable_lighting_below.
+///
+/// VPinball's disable_lighting_below adds light from below to the surface color.
+/// We approximate this with glTF's KHR_materials_transmission, but cap at 30%
+/// to avoid glass-like appearance.
+///
+/// - `disable_lighting_below = 0.0` → 30% transmission (max light through)
+/// - `disable_lighting_below = 1.0` → 0% transmission (opaque, no light through)
+fn calculate_transmission_factor(disable_lighting_below: Option<f32>) -> Option<f32> {
+    const MAX_TRANSMISSION: f32 = 0.3;
+    disable_lighting_below
+        .filter(|&v| v < 1.0)
+        .map(|v| (1.0 - v) * MAX_TRANSMISSION)
+}
+
 /// Calculate the effective range for a light in meters.
 ///
 /// The range is determined in the following priority:
@@ -536,16 +551,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         (None, None)
                     };
 
-                    // Calculate transmission factor from disable_lighting_below
-                    // VPinball shader: lerp(light, 0, disable_lighting_below)
-                    //   disable_lighting_below 0.0 = full light passes through = fully transmissive
-                    //   disable_lighting_below 1.0 = no light passes through = opaque
-                    // glTF KHR_materials_transmission: 0.0 = opaque, 1.0 = fully transmissive
-                    // So: transmission = 1.0 - disable_lighting_below
-                    let transmission_factor = primitive
-                        .disable_lighting_below
-                        .filter(|&v| v < 1.0) // Only set if < 1.0 (i.e., some transmission)
-                        .map(|v| 1.0 - v);
+                    let transmission_factor =
+                        calculate_transmission_factor(primitive.disable_lighting_below);
 
                     meshes.push(NamedMesh {
                         name: primitive.name.clone(),
@@ -584,16 +591,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             None
                         };
 
-                        // Calculate transmission factor from disable_lighting_below
-                        // VPinball shader: lerp(light, 0, disable_lighting_below)
-                        //   disable_lighting_below 0.0 = full light passes through = fully transmissive
-                        //   disable_lighting_below 1.0 = no light passes through = opaque
-                        // glTF KHR_materials_transmission: 0.0 = opaque, 1.0 = fully transmissive
-                        // So: transmission = 1.0 - disable_lighting_below
-                        let transmission_factor = wall
-                            .disable_lighting_below
-                            .filter(|&v| v < 1.0) // Only set if < 1.0 (i.e., some transmission)
-                            .map(|v| 1.0 - v);
+                        let transmission_factor =
+                            calculate_transmission_factor(wall.disable_lighting_below);
 
                         meshes.push(NamedMesh {
                             name: format!("{}Top", wall.name),
@@ -624,12 +623,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             None
                         };
 
-                        // Side surfaces also use the same disable_lighting_below value
-                        // transmission = 1.0 - disable_lighting_below
-                        let transmission_factor = wall
-                            .disable_lighting_below
-                            .filter(|&v| v < 1.0)
-                            .map(|v| 1.0 - v);
+                        let transmission_factor =
+                            calculate_transmission_factor(wall.disable_lighting_below);
 
                         meshes.push(NamedMesh {
                             name: format!("{}Side", wall.name),
