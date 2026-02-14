@@ -24,7 +24,7 @@ use std::{
 };
 
 use crate::vpx::biff::BiffReader;
-use cfb::{CompoundFile, CreateStreamOptions, OpenStreamOptions};
+use cfb::CompoundFile;
 use log::{debug, info, warn};
 use md2::{Digest, Md2};
 use tracing::{info_span, instrument};
@@ -802,14 +802,7 @@ fn write_gameitem<F: Read + Write + Seek>(
     path: &Path,
     gameitem: &GameItemEnum,
 ) -> Result<(), Error> {
-    let options = if matches!(gameitem, GameItemEnum::Primitive(_)) {
-        CreateStreamOptions::new()
-            .buffer_size(64 * 1024)
-            .overwrite(false)
-    } else {
-        CreateStreamOptions::new().overwrite(false)
-    };
-    let mut stream = comp.create_stream_with_options(path, options)?;
+    let mut stream = comp.create_stream(path)?;
     let data = gameitem::write(gameitem);
     stream.write_all(&data)
 }
@@ -836,8 +829,7 @@ fn read_sound<F: Read + Seek>(
         .join(format!("Sound{index}"));
     let mut input = Vec::new();
     let span = info_span!("read_sound_stream", ?path);
-    let options = OpenStreamOptions::new().buffer_size(64 * 1024);
-    let mut stream = comp.open_stream_with_options(&path, options)?;
+    let mut stream = comp.open_stream(&path)?;
     stream.read_to_end(&mut input)?;
     drop(span);
     let mut reader = BiffReader::new(&input);
@@ -855,10 +847,7 @@ fn write_sounds<F: Read + Write + Seek>(
         let path = Path::new(MAIN_SEPARATOR_STR)
             .join("GameStg")
             .join(format!("Sound{index}"));
-        let options = CreateStreamOptions::new()
-            .buffer_size(64 * 1024)
-            .overwrite(false);
-        let mut stream = comp.create_stream_with_options(&path, options)?;
+        let mut stream = comp.create_stream(&path)?;
         let mut writer = BiffWriter::new();
         sound::write(file_version, sound, &mut writer);
         stream.write_all(writer.get_data())?;
@@ -911,8 +900,7 @@ fn read_images<F: Read + Seek>(
 fn read_image<F: Read + Seek>(comp: &mut CompoundFile<F>, index: u32) -> Result<ImageData, Error> {
     let path = format!("GameStg/Image{index}");
     let mut input = Vec::new();
-    let options = OpenStreamOptions::new().buffer_size(64 * 1024);
-    let mut stream = comp.open_stream_with_options(&path, options)?;
+    let mut stream = comp.open_stream(&path)?;
     stream.read_to_end(&mut input)?;
     let mut reader = BiffReader::new(&input);
     Ok(ImageData::biff_read(&mut reader))
@@ -936,10 +924,12 @@ fn write_image<F: Read + Write + Seek>(
     overwrite: bool,
 ) -> Result<(), Error> {
     let path = format!("GameStg/Image{index}");
-    let options = CreateStreamOptions::new()
-        .buffer_size(64 * 1024)
-        .overwrite(overwrite);
-    let mut stream = comp.create_stream_with_options(&path, options)?;
+
+    let mut stream = if overwrite {
+        comp.create_stream(&path)?
+    } else {
+        comp.create_new_stream(&path)?
+    };
     let mut writer = BiffWriter::new();
     image.biff_write(&mut writer);
     stream.write_all(writer.get_data())?;
