@@ -21,7 +21,7 @@ The library provides several optional features that can be enabled:
 - `parallel` (default): Enables parallel processing using rayon for better performance
 - `wasm`: Enables WebAssembly bindings for browser/Node.js usage
 
-To use only VPX functionality without DirectB2S support:
+To use only VPX functionality without parallel support:
 
 ```toml
 [dependencies]
@@ -32,7 +32,7 @@ To enable specific features:
 
 ```toml
 [dependencies]
-vpin = { version = "0.20", default-features = false, features = ["parallel"] }
+vpin = { version = "0.20", default-features = false, features = ["wasm"] }
 ```
 
 ## Example code
