@@ -404,7 +404,9 @@ fn write_vpx<F: Read + Write + Seek>(comp: &mut CompoundFile<F>, vpx: &VPX) -> i
     write_collections(comp, &vpx.collections)?;
     debug!("Wrote {} collections", vpx.collections.len());
     let mac = generate_mac(comp)?;
-    write_mac(comp, &mac)
+    write_mac(comp, &mac)?;
+    info!("Wrote VPX");
+    Ok(())
 }
 
 /// Writes a minimal `vpx` file

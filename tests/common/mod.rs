@@ -16,6 +16,37 @@ use vpin::vpx::biff::BiffReader;
 use vpin::vpx::lzw::from_lzw_blocks;
 use walkdir::WalkDir;
 
+pub(crate) fn init_logger() {
+    use crate::common::tracing_duration_filter::DurationFilterLayer;
+    use std::time::Duration;
+    use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
+
+    // let _ = env_logger::builder()
+    //     .is_test(true)
+    //     .filter_level(log::LevelFilter::Info)
+    //     .try_init();
+
+    // let _ = fmt()
+    //     .with_env_filter(
+    //         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+    //     )
+    //     .with_test_writer()
+    //     .with_span_events(fmt::format::FmtSpan::CLOSE)
+    //     .try_init();
+
+    let _ = tracing_subscriber::registry()
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with(
+            fmt::layer()
+                .with_test_writer()
+                // Enable colored output
+                .with_ansi(true), // Show timing when spans close
+                                  //.with_span_events(fmt::format::FmtSpan::CLOSE),
+        )
+        .with(DurationFilterLayer::new(Duration::from_millis(300)))
+        .try_init();
+}
+
 /// if TABLES_DIR is set use that
 /// otherwise use ~/vpinball/tables
 pub(crate) fn tables_dir() -> PathBuf {
