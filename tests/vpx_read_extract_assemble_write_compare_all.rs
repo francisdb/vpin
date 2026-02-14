@@ -10,7 +10,7 @@ mod test {
     use pretty_assertions::assert_eq;
     // TODO once we can capture logs per extract / assemble we can re-enable parallel tests
     // use rayon::prelude::*;
-    use crate::common::{assert_equal_vpx, find_files, tables_dir};
+    use crate::common::{assert_equal_vpx, find_files, init_logger, tables_dir};
     use log::info;
     use std::io;
     use std::path::{Path, PathBuf};
@@ -18,41 +18,10 @@ mod test {
     use vpin::filesystem::{FileSystem, MemoryFileSystem, RealFileSystem};
     use vpin::vpx::expanded::{ExpandOptions, PrimitiveMeshFormat};
 
-    fn init() {
-        use crate::common::tracing_duration_filter::DurationFilterLayer;
-        use std::time::Duration;
-        use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
-
-        // let _ = env_logger::builder()
-        //     .is_test(true)
-        //     .filter_level(log::LevelFilter::Info)
-        //     .try_init();
-
-        // let _ = fmt()
-        //     .with_env_filter(
-        //         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        //     )
-        //     .with_test_writer()
-        //     .with_span_events(fmt::format::FmtSpan::CLOSE)
-        //     .try_init();
-
-        let _ = tracing_subscriber::registry()
-            .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
-            .with(
-                fmt::layer()
-                    .with_test_writer()
-                    // Enable colored output
-                    .with_ansi(true), // Show timing when spans close
-                                      //.with_span_events(fmt::format::FmtSpan::CLOSE),
-            )
-            .with(DurationFilterLayer::new(Duration::from_millis(300)))
-            .try_init();
-    }
-
     #[test]
     #[ignore = "slow integration test that only runs on correctly set up machines"]
     fn read_extract_assemble_and_write_all() -> io::Result<()> {
-        init();
+        init_logger();
         let folder = tables_dir();
         let paths = find_files(&folder, "vpx")?;
         // testdir can not be used in non-main threads
