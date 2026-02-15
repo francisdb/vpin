@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0](https://github.com/francisdb/vpin/compare/v0.20.15...v0.21.0) - 2026-02-14
+
+### Added
+
+- [**breaking**] force major version bump after adding mesh generation
+- convert vpx to glb (gltf) ([#231](https://github.com/francisdb/vpin/pull/231))
+- add GLTF format support for mesh extraction and reading ([#229](https://github.com/francisdb/vpin/pull/229))
+
+### Other
+
+- add missing ignores on integration test ([#243](https://github.com/francisdb/vpin/pull/243))
+- cfb 0.14.0 ([#242](https://github.com/francisdb/vpin/pull/242))
+
 ## [0.20.15](https://github.com/francisdb/vpin/compare/v0.20.14...v0.20.15) - 2026-02-06
 
 ### Other
