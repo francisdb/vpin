@@ -66,12 +66,83 @@ pub struct ImageData {
     // we only see this where a screenshot is set on the table info.
     // https://github.com/vpinball/vpinball/blob/1a70aa35eb57ec7b5fbbb9727f6735e8ef3183e0/Texture.cpp#L588
     pub link: Option<u32>, // LINK
-    /// ALTV
-    /// Alpha test value, used for transparency
-    /// Used to default to 1.0, now defaults to -1.0 since 10.8
-    pub alpha_test_value: f32, // ALTV
-    pub is_opaque: Option<bool>, // OPAQ (added in 10.8)
-    pub is_signed: Option<bool>, // SIGN (added in 10.8)
+    /// Alpha test value for transparency cutoff.
+    ///
+    /// ## File Storage
+    /// Stored in the VPX file as BIFF tag `ALTV` in the range **0-255**.
+    /// VPinball multiplies by `1/255` when reading and by `255` when writing,
+    /// so the runtime value is in the range **0.0-1.0** (or negative for disabled).
+    ///
+    /// ## Values
+    /// - **Negative** (e.g., `-1.0`): Alpha testing disabled, use alpha blending instead
+    /// - **0.0-255.0**: Alpha test threshold; pixels with `alpha <= threshold/255` are discarded
+    ///   - `1.0` = very low cutoff (~0.004), essentially shows all non-fully-transparent pixels
+    ///   - `128.0` = mid cutoff (~0.5), typical for binary transparency masks
+    ///   - `220.0` = high cutoff (~0.86), only very opaque pixels pass
+    ///
+    /// ## Defaults
+    /// - **Before 10.8**: Default was `1.0` (enabled with minimal cutoff)
+    /// - **Since 10.8**: Default is `-1.0` (disabled)
+    ///
+    /// ## Shader Usage
+    /// In VPinball's shader (`fs_basic.sc`), this controls pixel discard:
+    /// ```glsl
+    /// if (pixel.a <= alphaTestValue)
+    ///     discard;
+    /// ```
+    /// After the alpha test, VPinball also applies alpha blending:
+    /// ```glsl
+    /// pixel.a *= cBase_Alpha.a;  // Material opacity multiplied in
+    /// ```
+    ///
+    /// BIFF tag: `ALTV`
+    pub alpha_test_value: f32,
+    /// Whether the image is fully opaque (no transparent pixels).
+    ///
+    /// ## Purpose
+    /// This is a cached/precomputed flag that indicates whether the image
+    /// contains any transparent pixels. When `true`, VPinball can skip
+    /// alpha blending operations for better rendering performance.
+    ///
+    /// ## How It's Determined
+    /// VPinball scans the actual pixel data to detect transparency:
+    /// - For RGBA images: checks if any pixel has `alpha < 255`
+    /// - For indexed images: checks if any palette entry has transparency
+    ///
+    /// See `Texture::UpdateOpaque()` in VPinball's `Texture.cpp`.
+    ///
+    /// ## Effect on Rendering
+    /// - `true`: Image is fully opaque, no alpha blending needed
+    /// - `false`: Image has transparency, requires alpha blending
+    /// - `None`: Not set (older files), transparency is determined at runtime
+    ///
+    /// ## Version
+    /// Added in VPinball 10.8
+    ///
+    /// BIFF tag: `OPAQ`
+    pub is_opaque: Option<bool>,
+    /// Whether the image uses signed pixel values.
+    ///
+    /// ## Purpose
+    /// Indicates if the image data should be interpreted as signed values
+    /// rather than unsigned. This is relevant for normal maps and other
+    /// special texture types where values need to represent negative numbers
+    /// (e.g., normals pointing in negative directions).
+    ///
+    /// ## Values
+    /// - `true`: Image uses signed values (range -1.0 to 1.0 or -128 to 127)
+    /// - `false`: Image uses unsigned values (range 0.0 to 1.0 or 0 to 255)
+    /// - `None`: Not set (older files), defaults to unsigned
+    ///
+    /// ## Usage
+    /// Primarily used for normal maps where the RGB channels encode
+    /// surface normal directions that can be negative.
+    ///
+    /// ## Version
+    /// Added in VPinball 10.8
+    ///
+    /// BIFF tag: `SIGN`
+    pub is_signed: Option<bool>,
     // TODO we can probably only have one of jpeg or bits so we can make an enum
     /// This field is named jpeg, but it's actually used for any image that is not a bitmap
     pub jpeg: Option<ImageDataJpeg>,

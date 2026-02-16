@@ -90,6 +90,7 @@
 // - Environment map emission
 
 use crate::filesystem::FileSystem;
+use crate::gltf::GltfMaterialBuilder;
 use crate::vpx;
 use crate::vpx::gameitem::GameItemEnum;
 use crate::vpx::gameitem::light::Light;
@@ -123,7 +124,7 @@ use crate::vpx::units::{mm_to_vpu, vpu_to_m};
 use crate::vpx::{TableDimensions, VPX};
 use byteorder::{LittleEndian, WriteBytesExt};
 use log::{info, warn};
-use serde_json::json;
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io;
 use std::path::Path;
@@ -131,6 +132,36 @@ use vpx::mesh::decals::build_decal_mesh;
 
 /// Special material name for the playfield
 const PLAYFIELD_MATERIAL_NAME: &str = "__playfield__";
+
+/// Determine the MIME type for an image based on its data and path extension.
+///
+/// - If the image has bitmap data (`bits` field), it's converted to PNG
+/// - Otherwise, the MIME type is determined from the file extension
+fn mime_type_for_image(image: &ImageData) -> &'static str {
+    // Bitmap data is always converted to PNG
+    if image.bits.is_some() {
+        return "image/png";
+    }
+
+    // Determine from file extension
+    let path_lower = image.path.to_lowercase();
+    if path_lower.ends_with(".png") {
+        "image/png"
+    } else if path_lower.ends_with(".jpg") || path_lower.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if path_lower.ends_with(".webp") {
+        "image/webp"
+    } else if path_lower.ends_with(".gif") {
+        "image/gif"
+    } else if path_lower.ends_with(".hdr") {
+        "image/vnd.radiance"
+    } else if path_lower.ends_with(".exr") {
+        "image/x-exr"
+    } else {
+        // Default to JPEG for unknown extensions (most common in VPX tables)
+        "image/jpeg"
+    }
+}
 
 /// A named mesh ready for GLTF export
 #[derive(Default)]
@@ -157,6 +188,12 @@ struct NamedMesh {
     /// controls surface roughness - white/opaque areas are more rough/scratched.
     /// Used as metallicRoughnessTexture in glTF (green channel = roughness).
     roughness_texture_name: Option<String>,
+}
+
+impl NamedMesh {
+    fn is_playfield(&self) -> bool {
+        self.name.eq_ignore_ascii_case("playfield_mesh")
+    }
 }
 
 // Re-export camera types from the camera module
@@ -499,6 +536,107 @@ fn calculate_playfield_roughness(reflection_strength: f32, fallback_roughness: f
         // Low/no reflection - use fallback roughness
         fallback_roughness
     }
+}
+
+/// Adds the playfield material with texture to the glTF export.
+///
+/// This function handles:
+/// - Adding a sampler for the playfield texture
+/// - Writing image data to the binary buffer
+/// - Creating a buffer view for the image
+/// - Adding the image and texture to the glTF arrays
+/// - Creating the playfield material with appropriate roughness based on reflection strength
+///
+/// Returns `true` if the playfield material was added, `false` if no image was available.
+#[allow(clippy::too_many_arguments)]
+fn playfield_material(
+    vpx: &VPX,
+    playfield_image: &ImageData,
+    playfield_material_name: &str,
+    materials: &HashMap<String, GltfMaterial>,
+    gltf_samplers: &mut Vec<serde_json::Value>,
+    gltf_images: &mut Vec<serde_json::Value>,
+    gltf_textures: &mut Vec<serde_json::Value>,
+    buffer_views: &mut Vec<serde_json::Value>,
+    bin_data: &mut Vec<u8>,
+) -> Value {
+    let image_bytes = get_image_bytes(playfield_image).unwrap();
+
+    // Add sampler
+    let sampler_idx = gltf_samplers.len();
+    gltf_samplers.push(json!({
+        "magFilter": GLTF_FILTER_LINEAR,
+        "minFilter": GLTF_FILTER_LINEAR_MIPMAP_LINEAR,
+        "wrapS": GLTF_WRAP_REPEAT,
+        "wrapT": GLTF_WRAP_REPEAT
+    }));
+
+    // Write image data to binary buffer
+    let image_offset = bin_data.len();
+    bin_data.extend_from_slice(&image_bytes);
+    let image_length = image_bytes.len();
+
+    // Pad to 4-byte alignment for next data
+    while !bin_data.len().is_multiple_of(4) {
+        bin_data.push(0);
+    }
+
+    // Add buffer view for image
+    let image_buffer_view_idx = buffer_views.len();
+    buffer_views.push(json!({
+        "buffer": 0,
+        "byteOffset": image_offset,
+        "byteLength": image_length
+    }));
+
+    // Add image referencing the buffer view
+    let image_idx = gltf_images.len();
+    let mime_type = mime_type_for_image(playfield_image);
+    gltf_images.push(json!({
+        "bufferView": image_buffer_view_idx,
+        "mimeType": mime_type,
+        "name": playfield_image.name
+    }));
+
+    // Add texture
+    let texture_idx = gltf_textures.len();
+    gltf_textures.push(json!({
+        "sampler": sampler_idx,
+        "source": image_idx,
+        "name": format!("{}_texture", playfield_image.name)
+    }));
+
+    // Add playfield material with texture
+    // Note: VPinball's playfield reflections are a separate screen-space effect
+    // controlled by `playfield_reflection_strength`. See calculate_playfield_roughness().
+    let material_roughness = materials.get(playfield_material_name).map(|m| m.roughness);
+    let fallback_roughness = material_roughness.unwrap_or(0.5);
+    let reflection_strength = vpx.gamedata.playfield_reflection_strength;
+    let playfield_roughness =
+        calculate_playfield_roughness(reflection_strength, fallback_roughness);
+
+    // Log a warning if we're overriding the material's roughness
+    // Note: mat_roughness is already in glTF space (inverted from VPinball's "shininess")
+    if let Some(mat_roughness) = material_roughness
+        && reflection_strength > 0.1
+        && (mat_roughness - playfield_roughness).abs() > 0.05
+    {
+        warn!(
+            "Playfield material '{}' has glTF roughness {:.2} (VPinball shininess {:.2}), \
+            but playfield_reflection_strength {:.2} suggests it should be more reflective. \
+            Using glTF roughness {:.2} instead.",
+            playfield_material_name,
+            mat_roughness,
+            1.0 - mat_roughness, // Convert back to VPinball terms for clarity
+            reflection_strength,
+            playfield_roughness
+        );
+    }
+
+    // Note: No alphaMode - playfield should be opaque (default is OPAQUE)
+    GltfMaterialBuilder::new(playfield_material_name, 0.0, playfield_roughness)
+        .texture(texture_idx)
+        .build()
 }
 
 /// Calculate the effective range for a light in meters.
@@ -1401,98 +1539,20 @@ fn build_combined_gltf_payload(
     let mut buffer_views = Vec::new();
 
     // Add playfield material with texture if available
-    if let Some(image) = playfield_image
-        && let Some(image_bytes) = get_image_bytes(image)
-    {
-        // Add sampler
-        let sampler_idx = gltf_samplers.len();
-        gltf_samplers.push(json!({
-            "magFilter": GLTF_FILTER_LINEAR,
-            "minFilter": GLTF_FILTER_LINEAR_MIPMAP_LINEAR,
-            "wrapS": GLTF_WRAP_REPEAT,
-            "wrapT": GLTF_WRAP_REPEAT
-        }));
-
-        // Write image data to binary buffer
-        let image_offset = bin_data.len();
-        bin_data.extend_from_slice(&image_bytes);
-        let image_length = image_bytes.len();
-
-        // Pad to 4-byte alignment for next data
-        while bin_data.len() % 4 != 0 {
-            bin_data.push(0);
-        }
-
-        // Add buffer view for image
-        let image_buffer_view_idx = buffer_views.len();
-        buffer_views.push(json!({
-            "buffer": 0,
-            "byteOffset": image_offset,
-            "byteLength": image_length
-        }));
-
-        // Add image referencing the buffer view
-        let image_idx = gltf_images.len();
-        // Determine MIME type: bitmap is converted to PNG, otherwise check the file extension
-        let mime_type = if image.bits.is_some() || image.path.to_lowercase().ends_with(".png") {
-            "image/png"
-        } else {
-            // FIXME this is wrong, we should check the file extension
-            "image/jpeg"
-        };
-        gltf_images.push(json!({
-            "bufferView": image_buffer_view_idx,
-            "mimeType": mime_type,
-            "name": image.name
-        }));
-
-        // Add texture
-        let texture_idx = gltf_textures.len();
-        gltf_textures.push(json!({
-            "sampler": sampler_idx,
-            "source": image_idx,
-            "name": format!("{}_texture", image.name)
-        }));
-
-        // Add playfield material with texture
-        // Note: VPinball's playfield reflections are a separate screen-space effect
-        // controlled by `playfield_reflection_strength`. See calculate_playfield_roughness().
-        let material_roughness = materials.get(playfield_material_name).map(|m| m.roughness);
-        let fallback_roughness = material_roughness.unwrap_or(0.5);
-        let reflection_strength = vpx.gamedata.playfield_reflection_strength;
-        let playfield_roughness =
-            calculate_playfield_roughness(reflection_strength, fallback_roughness);
-
-        // Log a warning if we're overriding the material's roughness
-        // Note: mat_roughness is already in glTF space (inverted from VPinball's "shininess")
-        if let Some(mat_roughness) = material_roughness
-            && reflection_strength > 0.1
-            && (mat_roughness - playfield_roughness).abs() > 0.05
-        {
-            warn!(
-                "Playfield material '{}' has glTF roughness {:.2} (VPinball shininess {:.2}), \
-                but playfield_reflection_strength {:.2} suggests it should be more reflective. \
-                Using glTF roughness {:.2} instead.",
-                playfield_material_name,
-                mat_roughness,
-                1.0 - mat_roughness, // Convert back to VPinball terms for clarity
-                reflection_strength,
-                playfield_roughness
-            );
-        }
-
+    if let Some(image) = playfield_image {
+        let pf_material = playfield_material(
+            vpx,
+            image,
+            playfield_material_name,
+            materials,
+            &mut gltf_samplers,
+            &mut gltf_images,
+            &mut gltf_textures,
+            &mut buffer_views,
+            &mut bin_data,
+        );
         material_index_map.insert(playfield_material_name.to_string(), gltf_materials.len());
-        gltf_materials.push(json!({
-            "name": playfield_material_name,
-            "pbrMetallicRoughness": {
-                "baseColorTexture": {
-                    "index": texture_idx
-                },
-                "metallicFactor": 0.0,
-                "roughnessFactor": playfield_roughness
-            }
-            // Note: No alphaMode - playfield should be opaque (default is OPAQUE)
-        }));
+        gltf_materials.push(pf_material);
     }
 
     for (name, mat) in materials {
@@ -1501,6 +1561,11 @@ fn build_combined_gltf_payload(
             continue;
         }
         material_index_map.insert(name.clone(), gltf_materials.len());
+
+        // Note: VPinball's glossy_color affects specular highlights from lights,
+        // but playfield reflections are a separate screen-space rendering pass
+        // controlled by per-object reflection_enabled flags, not material properties.
+        // We don't use KHR_materials_specular since it doesn't match VPinball's model.
 
         // VPinball only enables alpha blending when:
         // 1. opacity_active is true, AND
@@ -1512,23 +1577,10 @@ fn build_combined_gltf_payload(
         // an alpha channel or a 'meaningful' (not 0.999) alpha value"
         let needs_alpha_blend = mat.opacity_active && mat.base_color[3] < 0.999;
 
-        // Note: VPinball's glossy_color affects specular highlights from lights,
-        // but playfield reflections are a separate screen-space rendering pass
-        // controlled by per-object reflection_enabled flags, not material properties.
-        // We don't use KHR_materials_specular since it doesn't match VPinball's model.
-
-        let mut material = json!({
-            "name": mat.name,
-            "pbrMetallicRoughness": {
-                "baseColorFactor": mat.base_color,
-                "metallicFactor": mat.metallic,
-                "roughnessFactor": mat.roughness
-            }
-        });
-
-        if needs_alpha_blend {
-            material["alphaMode"] = json!("BLEND");
-        }
+        let material = GltfMaterialBuilder::new(&mat.name, mat.metallic, mat.roughness)
+            .base_color(mat.base_color)
+            .alpha_blend_if(needs_alpha_blend)
+            .build();
 
         gltf_materials.push(material);
     }
@@ -1610,12 +1662,7 @@ fn build_combined_gltf_payload(
 
                 // Add image referencing the buffer view
                 let image_idx = gltf_images.len();
-                let mime_type =
-                    if image.bits.is_some() || image.path.to_lowercase().ends_with(".png") {
-                        "image/png"
-                    } else {
-                        "image/jpeg"
-                    };
+                let mime_type = mime_type_for_image(image);
                 gltf_images.push(json!({
                     "bufferView": image_buffer_view_idx,
                     "mimeType": mime_type,
@@ -1640,19 +1687,21 @@ fn build_combined_gltf_payload(
         }
     }
 
-    // Pre-calculate playfield roughness for use in material creation
-    // This is used when creating transmission materials for the playfield mesh
-    let playfield_roughness_override = {
-        let material_roughness = materials.get(playfield_material_name).map(|m| m.roughness);
-        let fallback_roughness = material_roughness.unwrap_or(0.5);
-        let reflection_strength = vpx.gamedata.playfield_reflection_strength;
-        calculate_playfield_roughness(reflection_strength, fallback_roughness)
-    };
-
     // Second pass: create materials for meshes
     for (mesh_idx, mesh) in meshes.iter().enumerate() {
-        // Check if this mesh is the playfield
-        let is_playfield_mesh = mesh.name.eq_ignore_ascii_case("playfield_mesh");
+        let vpx_material = mesh
+            .material_name
+            .as_ref()
+            .and_then(|mat_name| materials.get(mat_name));
+        let metallic = vpx_material.map(|m| m.metallic).unwrap_or(0.0);
+        let roughness = if mesh.is_playfield() {
+            // Override roughness for playfield mesh based on playfield_reflection_strength
+            let material_roughness = vpx_material.map(|m| m.roughness).unwrap_or(0.5);
+            let reflection_strength = vpx.gamedata.playfield_reflection_strength;
+            calculate_playfield_roughness(reflection_strength, material_roughness)
+        } else {
+            vpx_material.map(|m| m.roughness).unwrap_or(0.5)
+        };
 
         // Case 0: Ball mesh - needs metallic, shiny chrome-like material
         if mesh.is_ball {
@@ -1668,181 +1717,104 @@ fn build_combined_gltf_payload(
                 texture_index_map.get(&key).copied()
             });
 
-            let mut pbr = json!({
-                "baseColorFactor": base_color,
-                "metallicFactor": 1.0,
-                "roughnessFactor": 0.05
-            });
-
-            // Add base color texture if available (decal mode)
-            if let Some(tex_idx) = base_texture_idx {
-                pbr["baseColorTexture"] = json!({ "index": tex_idx });
-            }
-
             // Note: VPinball's scratches mode (decal_mode=false) uses the ball_image_front
             // texture as an additive scratch overlay that affects both color and roughness.
             // This cannot be accurately represented in glTF's multiplicative PBR model.
             // The roughness_texture_name is collected but not used - scratches would require
             // preprocessing the texture or using a custom shader extension.
+            let material_name = format!("{}_ball", mesh.name);
 
-            gltf_materials.push(json!({
-                "name": format!("{}_ball", mesh.name),
-                "pbrMetallicRoughness": pbr
-            }));
+            let material_json = GltfMaterialBuilder::new(material_name, 1.0, 0.05)
+                .base_color(base_color)
+                .texture_opt(base_texture_idx)
+                .build();
+
+            gltf_materials.push(material_json);
         }
         // Case 1: Mesh has color_tint - needs unique material
         else if let Some(color_tint) = mesh.color_tint {
             let material_idx = gltf_materials.len();
             mesh_material_map.insert(mesh_idx, material_idx);
 
-            if let Some(ref texture_name) = mesh.texture_name {
-                let texture_key = texture_name.to_lowercase();
-                if let Some(&texture_idx) = texture_index_map.get(&texture_key) {
-                    // Material with texture and color tint
-                    gltf_materials.push(json!({
-                        "name": format!("{}_{}", mesh.name, texture_name),
-                        "pbrMetallicRoughness": {
-                            "baseColorTexture": {
-                                "index": texture_idx
-                            },
-                            "baseColorFactor": color_tint,
-                            "metallicFactor": 0.0,
-                            "roughnessFactor": 0.5
-                        },
-                        "alphaMode": "BLEND",
-                        "doubleSided": true
-                    }));
-                } else {
-                    // Texture not found, use color only
-                    gltf_materials.push(json!({
-                        "name": format!("{}_color", mesh.name),
-                        "pbrMetallicRoughness": {
-                            "baseColorFactor": color_tint,
-                            "metallicFactor": 0.0,
-                            "roughnessFactor": 0.5
-                        },
-                        "alphaMode": "BLEND",
-                        "doubleSided": true
-                    }));
-                }
-            } else {
-                // No texture, color only (e.g., shadow flashers)
-                gltf_materials.push(json!({
-                    "name": format!("{}_color", mesh.name),
-                    "pbrMetallicRoughness": {
-                        "baseColorFactor": color_tint,
-                        "metallicFactor": 0.0,
-                        "roughnessFactor": 0.5
-                    },
-                    "alphaMode": "BLEND",
-                    "doubleSided": true
-                }));
-            }
+            // Look up texture index if texture_name is set
+            let texture_idx = mesh
+                .texture_name
+                .as_ref()
+                .and_then(|name| texture_index_map.get(&name.to_lowercase()).copied());
+
+            let material_name = match &mesh.texture_name {
+                Some(tex) if texture_idx.is_some() => format!("{}_{}", mesh.name, tex),
+                _ => format!("{}_color", mesh.name),
+            };
+
+            gltf_materials.push(
+                GltfMaterialBuilder::new(&material_name, metallic, roughness)
+                    .base_color(color_tint)
+                    .texture_opt(texture_idx)
+                    .alpha_blend()
+                    .double_sided()
+                    .build(),
+            );
         }
         // Case 2: Mesh has transmission_factor - needs unique material with KHR_materials_transmission
         // This must come before texture-only case because transmission requires unique materials
         else if let Some(transmission) = mesh.transmission_factor {
             // Only create unique material if transmission > 0
             if transmission > 0.0 {
+                let material_name = format!("{}_transmission", mesh.name);
                 let material_idx = gltf_materials.len();
                 mesh_material_map.insert(mesh_idx, material_idx);
                 uses_transmission_extension = true;
 
                 // Get base material properties if available
-                let (base_color, metallic, mut roughness, needs_alpha_blend) =
-                    if let Some(ref mat_name) = mesh.material_name
-                        && let Some(mat) = materials.get(mat_name)
-                    {
-                        // Check if material needs alpha blending (opacity_active and opacity < 0.999)
-                        let needs_blend = mat.opacity_active && mat.base_color[3] < 0.999;
-                        (mat.base_color, mat.metallic, mat.roughness, needs_blend)
-                    } else {
-                        ([1.0, 1.0, 1.0, 1.0], 0.0, 0.5, false)
-                    };
+                let (base_color, needs_alpha_blend) = if let Some(ref mat_name) = mesh.material_name
+                    && let Some(mat) = materials.get(mat_name)
+                {
+                    // Check if material needs alpha blending (opacity_active and opacity < 0.999)
+                    let needs_blend = mat.opacity_active && mat.base_color[3] < 0.999;
+                    (mat.base_color, needs_blend)
+                } else {
+                    ([1.0, 1.0, 1.0, 1.0], false)
+                };
 
-                // Override roughness for playfield mesh based on playfield_reflection_strength
-                if is_playfield_mesh {
-                    roughness = playfield_roughness_override;
-                }
+                // Look up texture index if texture_name is set
+                // Also get image alpha info: whether it has transparency and the alpha_test_value
+                let texture_info = mesh.texture_name.as_ref().and_then(|name| {
+                    let key = name.to_lowercase();
+                    texture_index_map.get(&key).copied().map(|idx| {
+                        let img = image_map.get(&key);
+                        let has_alpha = img.is_some_and(|i| image_has_transparency(i));
+                        // VPinball's alpha_test_value: >= 0 means use MASK, < 0 means disabled (use BLEND)
+                        let alpha_test_value = img.map(|i| i.alpha_test_value).unwrap_or(-1.0);
+                        (idx, has_alpha, alpha_test_value)
+                    })
+                });
 
-                // Check if mesh also has a texture
-                if let Some(ref texture_name) = mesh.texture_name {
-                    let texture_key = texture_name.to_lowercase();
-                    if let Some(&texture_idx) = texture_index_map.get(&texture_key) {
-                        // Check if the image has transparent pixels
-                        let image_has_alpha = image_map
-                            .get(&texture_key)
-                            .is_some_and(|img| image_has_transparency(img));
+                // Transmission is reduced for textured surfaces (decals/stickers block light)
+                let effective_transmission = if texture_info.is_some() {
+                    transmission * 0.3
+                } else {
+                    transmission
+                };
 
-                        // Material with texture AND transmission
-                        // Reduce transmission for textured surfaces since printed decals/stickers
-                        // block light - only clear/unprinted areas would transmit light
-                        // Use 30% of the original transmission as an approximation
-                        let reduced_transmission = transmission * 0.3;
+                let mut builder = GltfMaterialBuilder::new(material_name, metallic, roughness)
+                    .base_color(base_color)
+                    .transmission(effective_transmission);
 
-                        let mut material = json!({
-                            "name": format!("{}_transmission", mesh.name),
-                            "pbrMetallicRoughness": {
-                                "baseColorTexture": {
-                                    "index": texture_idx
-                                },
-                                "baseColorFactor": base_color,
-                                "metallicFactor": metallic,
-                                "roughnessFactor": roughness
-                            },
-                            "extensions": {
-                                "KHR_materials_transmission": {
-                                    "transmissionFactor": reduced_transmission
-                                }
-                            },
-                            "doubleSided": true
-                        });
-                        // Enable alpha if material or image has transparency
-                        if needs_alpha_blend || image_has_alpha {
-                            material["alphaMode"] = json!("MASK");
-                            material["alphaCutoff"] = json!(0.5);
-                        }
-                        gltf_materials.push(material);
-                    } else {
-                        // Texture not found, use color only with transmission
-                        let mut material = json!({
-                            "name": format!("{}_transmission", mesh.name),
-                            "pbrMetallicRoughness": {
-                                "baseColorFactor": base_color,
-                                "metallicFactor": metallic,
-                                "roughnessFactor": roughness
-                            },
-                            "extensions": {
-                                "KHR_materials_transmission": {
-                                    "transmissionFactor": transmission
-                                }
-                            }
-                        });
-                        if needs_alpha_blend {
-                            material["alphaMode"] = json!("BLEND");
-                        }
-                        gltf_materials.push(material);
+                if let Some((texture_idx, image_has_alpha, _alpha_test_value)) = texture_info {
+                    // VPinball alpha handling:
+                    // VPinball does BOTH alpha testing AND alpha blending (pixel.a *= cBase_Alpha.a)
+                    // For glTF compatibility, we use BLEND for any transparency since MASK
+                    // would make pixels fully opaque after passing the test.
+                    builder = builder.texture(texture_idx).double_sided();
+                    if needs_alpha_blend || image_has_alpha {
+                        builder = builder.alpha_blend();
                     }
                 } else {
-                    // No texture, just transmission
-                    let mut material = json!({
-                        "name": format!("{}_transmission", mesh.name),
-                        "pbrMetallicRoughness": {
-                            "baseColorFactor": base_color,
-                            "metallicFactor": metallic,
-                            "roughnessFactor": roughness
-                        },
-                        "extensions": {
-                            "KHR_materials_transmission": {
-                                "transmissionFactor": transmission
-                            }
-                        }
-                    });
-                    if needs_alpha_blend {
-                        material["alphaMode"] = json!("BLEND");
-                    }
-                    gltf_materials.push(material);
+                    builder = builder.alpha_blend_if(needs_alpha_blend);
                 }
+
+                gltf_materials.push(builder.build());
             }
         }
         // Case 3: Mesh has texture but no color_tint and no transmission
@@ -1875,32 +1847,25 @@ fn build_combined_gltf_payload(
                         let material_idx = gltf_materials.len();
                         mesh_material_map.insert(mesh_idx, material_idx);
 
-                        let image_has_alpha = image_map
-                            .get(&texture_key)
-                            .is_some_and(|img| image_has_transparency(img));
+                        let img = image_map.get(&texture_key);
+                        let image_has_alpha = img.is_some_and(|i| image_has_transparency(i));
 
                         let material_has_alpha = opacity_active && color[3] < 0.999;
-                        let needs_alpha = image_has_alpha || material_has_alpha;
 
-                        let mut material = json!({
-                            "name": format!("{}_{}", mesh.material_name.as_ref().unwrap(), texture_name),
-                            "pbrMetallicRoughness": {
-                                "baseColorTexture": {
-                                    "index": texture_idx
-                                },
-                                "baseColorFactor": color,
-                                "metallicFactor": metallic,
-                                "roughnessFactor": roughness
-                            },
-                            "doubleSided": true
-                        });
-
-                        if needs_alpha {
-                            material["alphaMode"] = json!("MASK");
-                            material["alphaCutoff"] = json!(0.5);
+                        let material_name =
+                            format!("{}_{}", mesh.material_name.as_ref().unwrap(), texture_name);
+                        // VPinball does BOTH alpha testing AND alpha blending
+                        // Use BLEND for any transparency for visual fidelity
+                        let mut builder =
+                            GltfMaterialBuilder::new(&material_name, metallic, roughness)
+                                .base_color(color)
+                                .texture(texture_idx)
+                                .double_sided();
+                        if material_has_alpha || image_has_alpha {
+                            builder = builder.alpha_blend();
                         }
 
-                        gltf_materials.push(material);
+                        gltf_materials.push(builder.build());
                     }
                     continue;
                 }
@@ -1932,31 +1897,24 @@ fn build_combined_gltf_payload(
                     let material_idx = gltf_materials.len();
                     mesh_material_map.insert(mesh_idx, material_idx);
 
-                    let image_has_alpha = image_map
-                        .get(&texture_key)
-                        .is_some_and(|img| image_has_transparency(img));
+                    let img = image_map.get(&texture_key);
+                    let image_has_alpha = img.is_some_and(|i| image_has_transparency(i));
 
                     let material_has_alpha = opacity_active && opacity < 0.999;
-                    let needs_alpha = image_has_alpha || material_has_alpha;
 
-                    let mut material = json!({
-                        "name": format!("{}_{}", mesh.material_name.as_ref().unwrap(), texture_name),
-                        "pbrMetallicRoughness": {
-                            "baseColorTexture": {
-                                "index": texture_idx
-                            },
-                            "metallicFactor": metallic,
-                            "roughnessFactor": roughness
-                        },
-                        "doubleSided": true
-                    });
+                    let material_name =
+                        format!("{}_{}", mesh.material_name.as_ref().unwrap(), texture_name);
 
-                    if needs_alpha {
-                        material["alphaMode"] = json!("MASK");
-                        material["alphaCutoff"] = json!(0.5);
+                    // VPinball does BOTH alpha testing AND alpha blending
+                    // Use BLEND for any transparency for visual fidelity
+                    let mut builder = GltfMaterialBuilder::new(material_name, metallic, roughness)
+                        .texture(texture_idx)
+                        .double_sided();
+                    if material_has_alpha || image_has_alpha {
+                        builder = builder.alpha_blend();
                     }
 
-                    gltf_materials.push(material);
+                    gltf_materials.push(builder.build());
                 }
                 continue;
             }
@@ -1971,51 +1929,27 @@ fn build_combined_gltf_payload(
                 let material_idx = gltf_materials.len();
                 texture_material_map.insert(texture_key.clone(), material_idx);
 
-                // Check if alpha blending is needed:
-                // 1. Image has transparent pixels (scan actual pixel data like VPinball does), OR
-                // 2. Mesh has a material with opacity_active enabled and opacity < 0.999
-                let image_has_alpha = image_map
-                    .get(&texture_key)
-                    .is_some_and(|img| image_has_transparency(img));
+                // Get image alpha info
+                let img = image_map.get(&texture_key);
+                let image_has_alpha = img.is_some_and(|i| image_has_transparency(i));
 
+                // Check if material has alpha opacity
                 let material_has_alpha = mesh
                     .material_name
                     .as_ref()
                     .and_then(|mat_name| materials.get(mat_name))
                     .is_some_and(|mat| mat.opacity_active && mat.base_color[3] < 0.999);
 
-                let needs_alpha = image_has_alpha || material_has_alpha;
-
-                if needs_alpha {
-                    // Use MASK mode instead of BLEND to avoid making the entire mesh translucent
-                    // MASK mode makes pixels below alphaCutoff fully transparent, above it fully opaque
-                    gltf_materials.push(json!({
-                        "name": format!("__texture__{}", texture_name),
-                        "pbrMetallicRoughness": {
-                            "baseColorTexture": {
-                                "index": texture_idx
-                            },
-                            "metallicFactor": 0.0,
-                            "roughnessFactor": 0.5
-                        },
-                        "alphaMode": "MASK",
-                        "alphaCutoff": 0.5,
-                        "doubleSided": true
-                    }));
-                } else {
-                    gltf_materials.push(json!({
-                        "name": format!("__texture__{}", texture_name),
-                        "pbrMetallicRoughness": {
-                            "baseColorTexture": {
-                                "index": texture_idx
-                            },
-                            "metallicFactor": 0.0,
-                            "roughnessFactor": 0.5
-                        },
-                        // No alphaMode = OPAQUE (default)
-                        "doubleSided": true
-                    }));
+                let material_name = format!("__texture__{}", texture_name);
+                // VPinball does BOTH alpha testing AND alpha blending
+                // Use BLEND for any transparency for visual fidelity
+                let mut builder = GltfMaterialBuilder::new(&material_name, metallic, roughness)
+                    .texture(texture_idx)
+                    .double_sided();
+                if material_has_alpha || image_has_alpha {
+                    builder = builder.alpha_blend();
                 }
+                gltf_materials.push(builder.build());
             }
         }
     }
@@ -2575,6 +2509,16 @@ fn write_glb<W: io::Write>(
     Ok(())
 }
 
+/// Output format for glTF export
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GltfFormat {
+    /// GLB - Single binary file containing JSON + binary data
+    #[default]
+    Glb,
+    /// glTF - JSON file + separate .bin file for binary data
+    Gltf,
+}
+
 /// Export the entire VPX table as a GLB file
 ///
 /// This creates a single GLB file containing all meshes from the table:
@@ -2605,6 +2549,44 @@ fn write_glb<W: io::Write>(
 /// export_glb(&vpx, Path::new("table.glb"), &RealFileSystem).unwrap();
 /// ```
 pub fn export_glb(vpx: &VPX, path: &Path, fs: &dyn FileSystem) -> io::Result<()> {
+    export(vpx, path, fs, GltfFormat::Glb)
+}
+
+/// Export the entire VPX table as glTF files (JSON + separate binary)
+///
+/// This creates:
+/// - `{name}.gltf` - JSON descriptor file
+/// - `{name}.bin` - Binary buffer data (mesh geometry)
+///
+/// Note: Images are embedded in the binary buffer, not as separate files.
+///
+/// # Arguments
+/// * `vpx` - The VPX table to export
+/// * `path` - The output path for the .gltf file
+/// * `fs` - The filesystem to write to
+///
+/// # Example
+/// ```no_run
+/// use vpin::vpx;
+/// use vpin::vpx::export::gltf_export::export_gltf;
+/// use vpin::filesystem::RealFileSystem;
+/// use std::path::Path;
+///
+/// let vpx = vpx::read(Path::new("table.vpx")).unwrap();
+/// export_gltf(&vpx, Path::new("table.gltf"), &RealFileSystem).unwrap();
+/// ```
+pub fn export_gltf(vpx: &VPX, path: &Path, fs: &dyn FileSystem) -> io::Result<()> {
+    export(vpx, path, fs, GltfFormat::Gltf)
+}
+
+/// Export the entire VPX table in the specified format (GLB or glTF)
+///
+/// # Arguments
+/// * `vpx` - The VPX table to export
+/// * `path` - The output path (.glb or .gltf)
+/// * `fs` - The filesystem to write to
+/// * `format` - The output format (GLB or glTF)
+pub fn export(vpx: &VPX, path: &Path, fs: &dyn FileSystem, format: GltfFormat) -> io::Result<()> {
     let meshes = collect_meshes(vpx);
 
     if meshes.is_empty() {
@@ -2627,7 +2609,7 @@ pub fn export_glb(vpx: &VPX, path: &Path, fs: &dyn FileSystem) -> io::Result<()>
         &vpx.gamedata.playfield_material
     };
 
-    let (json, bin_data) = build_combined_gltf_payload(
+    let (mut json, bin_data) = build_combined_gltf_payload(
         vpx,
         &meshes,
         &materials,
@@ -2636,10 +2618,41 @@ pub fn export_glb(vpx: &VPX, path: &Path, fs: &dyn FileSystem) -> io::Result<()>
         playfield_material_name,
     )?;
 
-    let mut buffer = Vec::new();
-    write_glb(&json, &bin_data, &mut buffer)?;
+    match format {
+        GltfFormat::Glb => {
+            let mut buffer = Vec::new();
+            write_glb(&json, &bin_data, &mut buffer)?;
+            fs.write_file(path, &buffer)?;
+        }
+        GltfFormat::Gltf => {
+            // Get the base name for the .bin file
+            let bin_filename = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| format!("{}.bin", s))
+                .unwrap_or_else(|| "buffer.bin".to_string());
 
-    fs.write_file(path, &buffer)?;
+            let bin_path = path
+                .parent()
+                .unwrap_or_else(|| Path::new(""))
+                .join(&bin_filename);
+
+            // Update the buffer to reference the external .bin file
+            if let Some(buffers) = json.get_mut("buffers").and_then(|b| b.as_array_mut())
+                && let Some(buffer) = buffers.first_mut()
+            {
+                buffer["uri"] = json!(bin_filename);
+            }
+
+            // Write the .bin file
+            fs.write_file(&bin_path, &bin_data)?;
+
+            // Write the .gltf JSON file (pretty-printed for readability)
+            let json_string = serde_json::to_string_pretty(&json)
+                .map_err(|e| io::Error::other(format!("JSON serialization error: {}", e)))?;
+            fs.write_file(path, json_string.as_bytes())?;
+        }
+    }
 
     Ok(())
 }
@@ -2666,6 +2679,37 @@ mod tests {
         // Should succeed because we generate an implicit playfield
         let result = export_glb(&vpx, Path::new("test.glb"), &fs);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_export_gltf_empty_vpx_succeeds_with_playfield() {
+        let vpx = VPX::default();
+        let fs = crate::filesystem::MemoryFileSystem::default();
+        // Should succeed and create both .gltf and .bin files
+        let result = export_gltf(&vpx, Path::new("test.gltf"), &fs);
+        assert!(result.is_ok());
+
+        // Verify both files were created
+        assert!(
+            fs.read_file(Path::new("test.gltf")).is_ok(),
+            ".gltf file should exist"
+        );
+        assert!(
+            fs.read_file(Path::new("test.bin")).is_ok(),
+            ".bin file should exist"
+        );
+
+        // Verify the .gltf file contains valid JSON with a buffer URI
+        let gltf_content = fs.read_file(Path::new("test.gltf")).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&gltf_content).unwrap();
+
+        // Check that buffer references external file
+        let buffer_uri = json["buffers"][0]["uri"].as_str();
+        assert_eq!(
+            buffer_uri,
+            Some("test.bin"),
+            "Buffer should reference external .bin file"
+        );
     }
 
     #[test]
