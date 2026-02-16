@@ -578,8 +578,8 @@ pub fn validate_part_group_order(gameitems: &[GameItemEnum]) -> Vec<String> {
         }
 
         // Check if this item references a part group
-        if let Some(group_name) = item.part_group_name() {
-            if !defined_part_groups.contains(group_name) {
+        if let Some(group_name) = item.part_group_name()
+            && !defined_part_groups.contains(group_name) {
                 warnings.push(format!(
                     "GameItem[{}] '{}' ({}) references part_group '{}' which has not been defined yet",
                     index,
@@ -588,7 +588,6 @@ pub fn validate_part_group_order(gameitems: &[GameItemEnum]) -> Vec<String> {
                     group_name
                 ));
             }
-        }
     }
 
     warnings
