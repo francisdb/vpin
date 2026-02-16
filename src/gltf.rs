@@ -22,6 +22,7 @@ pub enum AlphaMode {
     Opaque,
     /// Alpha values below `alphaCutoff` are rendered as fully transparent,
     /// above as fully opaque.
+    #[allow(dead_code)]
     Mask,
     /// Alpha value is used to composite source and destination areas.
     Blend,
@@ -177,6 +178,7 @@ impl GltfMaterialBuilder {
     /// # Arguments
     ///
     /// * `cutoff` - Alpha threshold (typically 0.5). Values below this are transparent.
+    #[allow(dead_code)]
     pub fn alpha_mask(mut self, cutoff: f32) -> Self {
         self.alpha_mode = Some(AlphaMode::Mask);
         self.alpha_cutoff = Some(cutoff);
@@ -189,6 +191,7 @@ impl GltfMaterialBuilder {
     }
 
     /// Conditionally set alpha mode to MASK if the condition is true.
+    #[allow(dead_code)]
     pub fn alpha_mask_if(self, condition: bool, cutoff: f32) -> Self {
         if condition {
             self.alpha_mask(cutoff)
