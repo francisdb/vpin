@@ -1778,13 +1778,15 @@ fn build_combined_gltf_payload(
                 };
 
                 // Look up texture index if texture_name is set
+                // Also get image alpha info: whether it has transparency and the alpha_test_value
                 let texture_info = mesh.texture_name.as_ref().and_then(|name| {
                     let key = name.to_lowercase();
                     texture_index_map.get(&key).copied().map(|idx| {
-                        let has_alpha = image_map
-                            .get(&key)
-                            .is_some_and(|img| image_has_transparency(img));
-                        (idx, has_alpha)
+                        let img = image_map.get(&key);
+                        let has_alpha = img.is_some_and(|i| image_has_transparency(i));
+                        // VPinball's alpha_test_value: >= 0 means use MASK, < 0 means disabled (use BLEND)
+                        let alpha_test_value = img.map(|i| i.alpha_test_value).unwrap_or(-1.0);
+                        (idx, has_alpha, alpha_test_value)
                     })
                 });
 
@@ -1799,11 +1801,15 @@ fn build_combined_gltf_payload(
                     .base_color(base_color)
                     .transmission(effective_transmission);
 
-                if let Some((texture_idx, image_has_alpha)) = texture_info {
-                    builder = builder
-                        .texture(texture_idx)
-                        .double_sided()
-                        .alpha_mask_if(needs_alpha_blend || image_has_alpha, 0.5);
+                if let Some((texture_idx, image_has_alpha, _alpha_test_value)) = texture_info {
+                    // VPinball alpha handling:
+                    // VPinball does BOTH alpha testing AND alpha blending (pixel.a *= cBase_Alpha.a)
+                    // For glTF compatibility, we use BLEND for any transparency since MASK
+                    // would make pixels fully opaque after passing the test.
+                    builder = builder.texture(texture_idx).double_sided();
+                    if needs_alpha_blend || image_has_alpha {
+                        builder = builder.alpha_blend();
+                    }
                 } else {
                     builder = builder.alpha_blend_if(needs_alpha_blend);
                 }
@@ -1841,24 +1847,25 @@ fn build_combined_gltf_payload(
                         let material_idx = gltf_materials.len();
                         mesh_material_map.insert(mesh_idx, material_idx);
 
-                        let image_has_alpha = image_map
-                            .get(&texture_key)
-                            .is_some_and(|img| image_has_transparency(img));
+                        let img = image_map.get(&texture_key);
+                        let image_has_alpha = img.is_some_and(|i| image_has_transparency(i));
 
                         let material_has_alpha = opacity_active && color[3] < 0.999;
-                        let needs_alpha = image_has_alpha || material_has_alpha;
 
                         let material_name =
                             format!("{}_{}", mesh.material_name.as_ref().unwrap(), texture_name);
-                        let material =
+                        // VPinball does BOTH alpha testing AND alpha blending
+                        // Use BLEND for any transparency for visual fidelity
+                        let mut builder =
                             GltfMaterialBuilder::new(&material_name, metallic, roughness)
                                 .base_color(color)
                                 .texture(texture_idx)
-                                .double_sided()
-                                .alpha_mask_if(needs_alpha, 0.5)
-                                .build();
+                                .double_sided();
+                        if material_has_alpha || image_has_alpha {
+                            builder = builder.alpha_blend();
+                        }
 
-                        gltf_materials.push(material);
+                        gltf_materials.push(builder.build());
                     }
                     continue;
                 }
@@ -1890,23 +1897,24 @@ fn build_combined_gltf_payload(
                     let material_idx = gltf_materials.len();
                     mesh_material_map.insert(mesh_idx, material_idx);
 
-                    let image_has_alpha = image_map
-                        .get(&texture_key)
-                        .is_some_and(|img| image_has_transparency(img));
+                    let img = image_map.get(&texture_key);
+                    let image_has_alpha = img.is_some_and(|i| image_has_transparency(i));
 
                     let material_has_alpha = opacity_active && opacity < 0.999;
-                    let needs_alpha = image_has_alpha || material_has_alpha;
 
                     let material_name =
                         format!("{}_{}", mesh.material_name.as_ref().unwrap(), texture_name);
 
-                    let material = GltfMaterialBuilder::new(material_name, metallic, roughness)
+                    // VPinball does BOTH alpha testing AND alpha blending
+                    // Use BLEND for any transparency for visual fidelity
+                    let mut builder = GltfMaterialBuilder::new(material_name, metallic, roughness)
                         .texture(texture_idx)
-                        .double_sided()
-                        .alpha_mask_if(needs_alpha, 0.5)
-                        .build();
+                        .double_sided();
+                    if material_has_alpha || image_has_alpha {
+                        builder = builder.alpha_blend();
+                    }
 
-                    gltf_materials.push(material);
+                    gltf_materials.push(builder.build());
                 }
                 continue;
             }
@@ -1921,27 +1929,27 @@ fn build_combined_gltf_payload(
                 let material_idx = gltf_materials.len();
                 texture_material_map.insert(texture_key.clone(), material_idx);
 
-                // Check if alpha blending is needed:
-                // 1. Image has transparent pixels (scan actual pixel data like VPinball does), OR
-                // 2. Mesh has a material with opacity_active enabled and opacity < 0.999
-                let image_has_alpha = image_map
-                    .get(&texture_key)
-                    .is_some_and(|img| image_has_transparency(img));
+                // Get image alpha info
+                let img = image_map.get(&texture_key);
+                let image_has_alpha = img.is_some_and(|i| image_has_transparency(i));
 
+                // Check if material has alpha opacity
                 let material_has_alpha = mesh
                     .material_name
                     .as_ref()
                     .and_then(|mat_name| materials.get(mat_name))
                     .is_some_and(|mat| mat.opacity_active && mat.base_color[3] < 0.999);
 
-                let needs_alpha = image_has_alpha || material_has_alpha;
                 let material_name = format!("__texture__{}", texture_name);
-                let material = GltfMaterialBuilder::new(&material_name, metallic, roughness)
+                // VPinball does BOTH alpha testing AND alpha blending
+                // Use BLEND for any transparency for visual fidelity
+                let mut builder = GltfMaterialBuilder::new(&material_name, metallic, roughness)
                     .texture(texture_idx)
-                    .double_sided()
-                    .alpha_mask_if(needs_alpha, 0.5)
-                    .build();
-                gltf_materials.push(material);
+                    .double_sided();
+                if material_has_alpha || image_has_alpha {
+                    builder = builder.alpha_blend();
+                }
+                gltf_materials.push(builder.build());
             }
         }
     }
@@ -2631,9 +2639,10 @@ pub fn export(vpx: &VPX, path: &Path, fs: &dyn FileSystem, format: GltfFormat) -
 
             // Update the buffer to reference the external .bin file
             if let Some(buffers) = json.get_mut("buffers").and_then(|b| b.as_array_mut())
-                && let Some(buffer) = buffers.first_mut() {
-                    buffer["uri"] = json!(bin_filename);
-                }
+                && let Some(buffer) = buffers.first_mut()
+            {
+                buffer["uri"] = json!(bin_filename);
+            }
 
             // Write the .bin file
             fs.write_file(&bin_path, &bin_data)?;
