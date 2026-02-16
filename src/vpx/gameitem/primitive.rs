@@ -2,6 +2,7 @@ use super::vertex3d::Vertex3D;
 use crate::vpx::gameitem::select::WriteSharedAttributes;
 
 use crate::vpx::expanded::WriteError;
+use crate::vpx::math::{dequantize_unsigned, quantize_unsigned};
 use crate::vpx::model::Vertex3dNoTex2;
 
 use crate::impl_shared_attributes;
@@ -589,10 +590,10 @@ impl BiffRead for Primitive {
                 "STRE" => {
                     primitive.static_rendering = reader.get_bool();
                 }
-                //[BiffFloat("DILI", QuantizedUnsignedBits = 8, Pos = 32)]
-                //public float DisableLightingTop; // m_d.m_fDisableLightingTop = (tmp == 1) ? 1.f : dequantizeUnsigned<8>(tmp); // backwards compatible hacky loading!
                 "DILI" => {
-                    primitive.disable_lighting_top_old = Some(reader.get_f32());
+                    // vpinball reads this to DILT, but we keep it as we stick to pure IO
+                    primitive.disable_lighting_top_old =
+                        Some(dequantize_unsigned::<8>(reader.get_u32()));
                 }
                 "DILT" => {
                     primitive.disable_lighting_top = Some(reader.get_f32());
@@ -757,7 +758,7 @@ impl BiffWrite for Primitive {
         writer.write_tagged_bool("U3DM", self.use_3d_mesh);
         writer.write_tagged_bool("STRE", self.static_rendering);
         if let Some(disable_lighting_top_old) = self.disable_lighting_top_old {
-            writer.write_tagged_f32("DILI", disable_lighting_top_old);
+            writer.write_tagged_u32("DILI", quantize_unsigned::<8>(disable_lighting_top_old));
         }
         if let Some(disable_lighting_top) = self.disable_lighting_top {
             writer.write_tagged_f32("DILT", disable_lighting_top);
@@ -1060,7 +1061,8 @@ mod tests {
             is_toy: rng.random(),
             use_3d_mesh: rng.random(),
             static_rendering: rng.random(),
-            disable_lighting_top_old: Some(rng.random()),
+            // we need a value that is supported when quantized to 8 bits, since the old `DILI` tag uses 8-bit quantization.
+            disable_lighting_top_old: Some(1.0),
             disable_lighting_top: Some(rng.random()),
             disable_lighting_below: rng.random_option(),
             is_reflection_enabled: rng.random_option(),

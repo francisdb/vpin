@@ -2,6 +2,7 @@ use super::vertex3d::Vertex3D;
 use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
+use crate::vpx::math::{dequantize_unsigned, quantize_unsigned};
 use log::warn;
 use serde::{Deserialize, Serialize};
 
@@ -492,7 +493,9 @@ impl BiffRead for HitTarget {
                     hit_target.is_collidable = reader.get_bool();
                 }
                 "DILI" => {
-                    hit_target.disable_lighting_top_old = Some(reader.get_f32());
+                    // vpinball reads this to DILT, but we keep it as we stick to pure IO
+                    hit_target.disable_lighting_top_old =
+                        Some(dequantize_unsigned::<8>(reader.get_u32()));
                 }
                 "DILT" => {
                     hit_target.disable_lighting_top = Some(reader.get_f32());
@@ -553,8 +556,8 @@ impl BiffWrite for HitTarget {
         writer.write_tagged_f32("RFCT", self.friction);
         writer.write_tagged_f32("RSCT", self.scatter);
         writer.write_tagged_bool("CLDR", self.is_collidable);
-        if let Some(dili) = self.disable_lighting_top_old {
-            writer.write_tagged_f32("DILI", dili);
+        if let Some(disable_lighting_top_old) = self.disable_lighting_top_old {
+            writer.write_tagged_u32("DILI", quantize_unsigned::<8>(disable_lighting_top_old));
         }
         if let Some(disable_lighting_top) = self.disable_lighting_top {
             writer.write_tagged_f32("DILT", disable_lighting_top);
@@ -614,7 +617,8 @@ mod tests {
             friction: rng.random(),
             scatter: rng.random(),
             is_collidable: rng.random(),
-            disable_lighting_top_old: Some(rng.random()),
+            // we need a value that is supported when quantized to 8 bits, since the old `DILI` tag uses 8-bit quantization.
+            disable_lighting_top_old: Some(0.007843138),
             disable_lighting_top: Some(rng.random()),
             disable_lighting_below: rng.random_option(),
             is_reflection_enabled: rng.random(),
