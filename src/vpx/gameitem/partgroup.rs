@@ -127,8 +127,6 @@ impl<'de> Deserialize<'de> for SpaceReference {
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct PartGroup {
-    //     // Standard properties
-    //     TimerDataRoot m_tdr;
     pub name: String,
     /// In vpinball this is just v, but I wanted to unify the naming.
     pub center: Vertex2D,
