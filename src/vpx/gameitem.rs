@@ -579,15 +579,16 @@ pub fn validate_part_group_order(gameitems: &[GameItemEnum]) -> Vec<String> {
 
         // Check if this item references a part group
         if let Some(group_name) = item.part_group_name()
-            && !defined_part_groups.contains(group_name) {
-                warnings.push(format!(
-                    "GameItem[{}] '{}' ({}) references part_group '{}' which has not been defined yet",
-                    index,
-                    item.name(),
-                    item.type_name(),
-                    group_name
-                ));
-            }
+            && !defined_part_groups.contains(group_name)
+        {
+            warnings.push(format!(
+                "GameItem[{}] '{}' ({}) references part_group '{}' which has not been defined yet",
+                index,
+                item.name(),
+                item.type_name(),
+                group_name
+            ));
+        }
     }
 
     warnings
@@ -765,9 +766,11 @@ fn write_with_type<T: BiffWrite>(item_type: u32, item: &T) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use rand::Rng;
     use rand::distr::{Distribution, StandardUniform};
     use rand::prelude::ThreadRng;
+    use std::default::Default;
 
     /// see https://github.com/rust-random/rand/issues/1573
     pub(crate) trait RandomOption {
@@ -800,8 +803,10 @@ mod tests {
 
     #[test]
     fn test_validate_part_group_order_no_part_groups() {
-        let mut primitive = primitive::Primitive::default();
-        primitive.name = "TestPrimitive".to_string();
+        let primitive = primitive::Primitive {
+            name: "TestPrimitive".to_string(),
+            ..Default::default()
+        };
         let gameitems = vec![GameItemEnum::Primitive(primitive)];
         let warnings = validate_part_group_order(&gameitems);
         assert!(warnings.is_empty());
@@ -813,9 +818,11 @@ mod tests {
         let mut part_group = partgroup::PartGroup::default();
         part_group.name = "TestGroup".to_string();
 
-        let mut primitive = primitive::Primitive::default();
-        primitive.name = "TestPrimitive".to_string();
-        primitive.part_group_name = Some("TestGroup".to_string());
+        let primitive = primitive::Primitive {
+            name: "TestPrimitive".to_string(),
+            part_group_name: Some("TestGroup".to_string()),
+            ..Default::default()
+        };
 
         let gameitems = vec![
             GameItemEnum::PartGroup(part_group),
@@ -828,9 +835,11 @@ mod tests {
     #[test]
     fn test_validate_part_group_order_wrong_order() {
         // Item referencing part group comes before the part group
-        let mut primitive = primitive::Primitive::default();
-        primitive.name = "TestPrimitive".to_string();
-        primitive.part_group_name = Some("TestGroup".to_string());
+        let primitive = primitive::Primitive {
+            name: "TestPrimitive".to_string(),
+            part_group_name: Some("TestGroup".to_string()),
+            ..Default::default()
+        };
 
         let mut part_group = partgroup::PartGroup::default();
         part_group.name = "TestGroup".to_string();
@@ -849,9 +858,11 @@ mod tests {
     #[test]
     fn test_validate_part_group_order_undefined_group() {
         // Item references a part group that doesn't exist at all
-        let mut primitive = primitive::Primitive::default();
-        primitive.name = "TestPrimitive".to_string();
-        primitive.part_group_name = Some("NonExistentGroup".to_string());
+        let primitive = primitive::Primitive {
+            name: "TestPrimitive".to_string(),
+            part_group_name: Some("TestGroup".to_string()),
+            ..Default::default()
+        };
 
         let gameitems = vec![GameItemEnum::Primitive(primitive)];
         let warnings = validate_part_group_order(&gameitems);
