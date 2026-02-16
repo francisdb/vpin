@@ -577,7 +577,7 @@ fn playfield_material(
     let image_length = image_bytes.len();
 
     // Pad to 4-byte alignment for next data
-    while bin_data.len() % 4 != 0 {
+    while !bin_data.len().is_multiple_of(4) {
         bin_data.push(0);
     }
 
@@ -2630,11 +2630,10 @@ pub fn export(vpx: &VPX, path: &Path, fs: &dyn FileSystem, format: GltfFormat) -
                 .join(&bin_filename);
 
             // Update the buffer to reference the external .bin file
-            if let Some(buffers) = json.get_mut("buffers").and_then(|b| b.as_array_mut()) {
-                if let Some(buffer) = buffers.first_mut() {
+            if let Some(buffers) = json.get_mut("buffers").and_then(|b| b.as_array_mut())
+                && let Some(buffer) = buffers.first_mut() {
                     buffer["uri"] = json!(bin_filename);
                 }
-            }
 
             // Write the .bin file
             fs.write_file(&bin_path, &bin_data)?;
