@@ -1,21 +1,43 @@
-// Example showing how to export an entire VPX table as a single GLB file
+// Example showing how to export an entire VPX table as a GLB or glTF file
 //
-// The resulting GLB can be opened in any 3D viewer or editor like Blender.
+// The resulting GLB/glTF can be opened in any 3D viewer or editor like Blender.
 
 use std::path::PathBuf;
 use vpin::filesystem::RealFileSystem;
 use vpin::vpx;
-use vpin::vpx::export::gltf_export::export_glb;
+use vpin::vpx::export::gltf_export::{GltfFormat, export};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logger - set RUST_LOG=warn (or info, debug) to see warnings
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
 
-    // Read a VPX file
-    let vpx_path = match std::env::args().nth(1) {
-        Some(path) => PathBuf::from(path),
-        None => {
-            eprintln!("Usage: cargo run --example export_table_glb <path_to_vpx>");
+    // Parse arguments
+    let args: Vec<String> = std::env::args().collect();
+
+    let (vpx_path, format) = match args.len() {
+        2 => (PathBuf::from(&args[1]), GltfFormat::Glb),
+        3 => {
+            let fmt = match args[2].to_lowercase().as_str() {
+                "glb" => GltfFormat::Glb,
+                "gltf" => GltfFormat::Gltf,
+                _ => {
+                    eprintln!("Error: Unknown format '{}'. Use 'glb' or 'gltf'.", args[2]);
+                    std::process::exit(1);
+                }
+            };
+            (PathBuf::from(&args[1]), fmt)
+        }
+        _ => {
+            eprintln!("Usage: cargo run --example export_table_glb <path_to_vpx> [format]");
+            eprintln!();
+            eprintln!("Arguments:");
+            eprintln!("  path_to_vpx  Path to the .vpx file to export");
+            eprintln!("  format       Output format: 'glb' (default) or 'gltf'");
+            eprintln!();
+            eprintln!("Examples:");
+            eprintln!("  cargo run --example export_table_glb table.vpx");
+            eprintln!("  cargo run --example export_table_glb table.vpx glb");
+            eprintln!("  cargo run --example export_table_glb table.vpx gltf");
             std::process::exit(1);
         }
     };
@@ -82,21 +104,47 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         combined, light_intensity
     );
 
-    // Export to GLB
-    let glb_path = vpx_path.with_extension("glb");
-    println!("\nExporting to: {}", glb_path.display());
+    // Determine output path based on format
+    let output_path = match format {
+        GltfFormat::Glb => vpx_path.with_extension("glb"),
+        GltfFormat::Gltf => vpx_path.with_extension("gltf"),
+    };
 
-    export_glb(&vpx, &glb_path, &RealFileSystem)?;
+    let format_name = match format {
+        GltfFormat::Glb => "GLB",
+        GltfFormat::Gltf => "glTF",
+    };
 
-    // Get file size
-    let metadata = std::fs::metadata(&glb_path)?;
+    println!(
+        "\nExporting to {} format: {}",
+        format_name,
+        output_path.display()
+    );
+
+    export(&vpx, &output_path, &RealFileSystem, format)?;
+
+    // Get file size(s)
+    let metadata = std::fs::metadata(&output_path)?;
     let size_mb = metadata.len() as f64 / (1024.0 * 1024.0);
 
     println!("✓ Export complete!");
-    println!("  File size: {:.2} MB", size_mb);
+    println!("  {} file size: {:.2} MB", format_name, size_mb);
+
+    // For glTF, also show the .bin file size
+    if format == GltfFormat::Gltf {
+        let bin_path = output_path.with_extension("bin");
+        if let Ok(bin_metadata) = std::fs::metadata(&bin_path) {
+            let bin_size_mb = bin_metadata.len() as f64 / (1024.0 * 1024.0);
+            println!("  Binary file size: {:.2} MB", bin_size_mb);
+            println!("\nGenerated files:");
+            println!("  - {}", output_path.display());
+            println!("  - {}", bin_path.display());
+        }
+    }
+
     println!(
         "\nYou can now open \"{}\" in Blender or any other 3D viewer.",
-        glb_path.display()
+        output_path.display()
     );
 
     Ok(())

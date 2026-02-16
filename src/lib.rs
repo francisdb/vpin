@@ -6,6 +6,7 @@
 //! The main focus is on the Visual Pinball X (VPX) file format, but it also provides tools for backglass DirectB2S and Point of View POV files.
 
 pub mod filesystem;
+pub(crate) mod gltf;
 pub mod vpx;
 pub(crate) mod wavefront_obj_io;
 
