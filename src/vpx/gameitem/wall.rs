@@ -2,6 +2,7 @@ use super::dragpoint::DragPoint;
 use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite, BiffWriter};
 use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
+use crate::vpx::math::{dequantize_unsigned, quantize_unsigned};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -406,7 +407,8 @@ impl BiffRead for Wall {
                     wall.is_side_visible = reader.get_bool();
                 }
                 "DILI" => {
-                    wall.disable_lighting_top_old = Some(reader.get_f32());
+                    wall.disable_lighting_top_old =
+                        Some(dequantize_unsigned::<8>(reader.get_u32()));
                 }
                 "DILT" => {
                     wall.disable_lighting_top = Some(reader.get_f32());
@@ -505,7 +507,7 @@ impl BiffWrite for Wall {
         writer.write_tagged_bool("SLGA", self.slingshot_animation);
         writer.write_tagged_bool("SVBL", self.is_side_visible);
         if let Some(disable_lighting_top_old) = self.disable_lighting_top_old {
-            writer.write_tagged_f32("DILI", disable_lighting_top_old);
+            writer.write_tagged_u32("DILI", quantize_unsigned::<8>(disable_lighting_top_old));
         }
         if let Some(disable_lighting_top) = self.disable_lighting_top {
             writer.write_tagged_f32("DILT", disable_lighting_top);
@@ -571,7 +573,8 @@ mod tests {
             is_top_bottom_visible: true,
             slingshot_animation: true,
             is_side_visible: true,
-            disable_lighting_top_old: Some(rng.random()),
+            // we need a value that is supported when quantized to 8 bits, since the old `DILI` tag uses 8-bit quantization.
+            disable_lighting_top_old: Some(0.12156863),
             disable_lighting_top: Some(rng.random()),
             disable_lighting_below: Some(12.0),
             is_reflection_enabled: Some(true),
