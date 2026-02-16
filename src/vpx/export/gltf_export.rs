@@ -133,6 +133,36 @@ use vpx::mesh::decals::build_decal_mesh;
 /// Special material name for the playfield
 const PLAYFIELD_MATERIAL_NAME: &str = "__playfield__";
 
+/// Determine the MIME type for an image based on its data and path extension.
+///
+/// - If the image has bitmap data (`bits` field), it's converted to PNG
+/// - Otherwise, the MIME type is determined from the file extension
+fn mime_type_for_image(image: &ImageData) -> &'static str {
+    // Bitmap data is always converted to PNG
+    if image.bits.is_some() {
+        return "image/png";
+    }
+
+    // Determine from file extension
+    let path_lower = image.path.to_lowercase();
+    if path_lower.ends_with(".png") {
+        "image/png"
+    } else if path_lower.ends_with(".jpg") || path_lower.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if path_lower.ends_with(".webp") {
+        "image/webp"
+    } else if path_lower.ends_with(".gif") {
+        "image/gif"
+    } else if path_lower.ends_with(".hdr") {
+        "image/vnd.radiance"
+    } else if path_lower.ends_with(".exr") {
+        "image/x-exr"
+    } else {
+        // Default to JPEG for unknown extensions (most common in VPX tables)
+        "image/jpeg"
+    }
+}
+
 /// A named mesh ready for GLTF export
 #[derive(Default)]
 struct NamedMesh {
@@ -561,15 +591,7 @@ fn playfield_material(
 
     // Add image referencing the buffer view
     let image_idx = gltf_images.len();
-    // Determine MIME type: bitmap is converted to PNG, otherwise check the file extension
-    let mime_type = if playfield_image.bits.is_some()
-        || playfield_image.path.to_lowercase().ends_with(".png")
-    {
-        "image/png"
-    } else {
-        // FIXME this is wrong, we should check the file extension
-        "image/jpeg"
-    };
+    let mime_type = mime_type_for_image(playfield_image);
     gltf_images.push(json!({
         "bufferView": image_buffer_view_idx,
         "mimeType": mime_type,
@@ -1640,12 +1662,7 @@ fn build_combined_gltf_payload(
 
                 // Add image referencing the buffer view
                 let image_idx = gltf_images.len();
-                let mime_type =
-                    if image.bits.is_some() || image.path.to_lowercase().ends_with(".png") {
-                        "image/png"
-                    } else {
-                        "image/jpeg"
-                    };
+                let mime_type = mime_type_for_image(image);
                 gltf_images.push(json!({
                     "bufferView": image_buffer_view_idx,
                     "mimeType": mime_type,
