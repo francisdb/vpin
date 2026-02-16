@@ -525,6 +525,73 @@ impl GameItemEnum {
             _ => unimplemented!("type_id for {}", type_name),
         }
     }
+
+    /// Returns the part group name this item belongs to, if any.
+    /// PartGroup items themselves don't have a part_group_name.
+    pub fn part_group_name(&self) -> Option<&str> {
+        match self {
+            GameItemEnum::Wall(wall) => wall.part_group_name.as_deref(),
+            GameItemEnum::Flipper(flipper) => flipper.part_group_name.as_deref(),
+            GameItemEnum::Timer(timer) => timer.part_group_name.as_deref(),
+            GameItemEnum::Plunger(plunger) => plunger.part_group_name.as_deref(),
+            GameItemEnum::TextBox(textbox) => textbox.part_group_name.as_deref(),
+            GameItemEnum::Bumper(bumper) => bumper.part_group_name.as_deref(),
+            GameItemEnum::Trigger(trigger) => trigger.part_group_name.as_deref(),
+            GameItemEnum::Light(light) => light.part_group_name.as_deref(),
+            GameItemEnum::Kicker(kicker) => kicker.part_group_name.as_deref(),
+            GameItemEnum::Decal(decal) => decal.part_group_name.as_deref(),
+            GameItemEnum::Gate(gate) => gate.part_group_name.as_deref(),
+            GameItemEnum::Spinner(spinner) => spinner.part_group_name.as_deref(),
+            GameItemEnum::Ramp(ramp) => ramp.part_group_name.as_deref(),
+            GameItemEnum::Reel(reel) => reel.part_group_name.as_deref(),
+            GameItemEnum::LightSequencer(lightsequencer) => {
+                lightsequencer.part_group_name.as_deref()
+            }
+            GameItemEnum::Primitive(primitive) => primitive.part_group_name.as_deref(),
+            GameItemEnum::Flasher(flasher) => flasher.part_group_name.as_deref(),
+            GameItemEnum::Rubber(rubber) => rubber.part_group_name.as_deref(),
+            GameItemEnum::HitTarget(hittarget) => hittarget.part_group_name.as_deref(),
+            GameItemEnum::Ball(ball) => ball.part_group_name.as_deref(),
+            // PartGroup items don't reference other part groups
+            GameItemEnum::PartGroup(_) => None,
+            GameItemEnum::Generic(_, _) => None,
+        }
+    }
+}
+
+/// Validates that game items referencing part groups come after the part group definition.
+///
+/// VPinball requires that any game item pointing to a `part_group_name` must appear
+/// after the PartGroup item with that name in the game items list.
+///
+/// Returns a list of warning messages for items that violate this ordering rule.
+pub fn validate_part_group_order(gameitems: &[GameItemEnum]) -> Vec<String> {
+    use std::collections::HashSet;
+
+    let mut warnings = Vec::new();
+    let mut defined_part_groups: HashSet<&str> = HashSet::new();
+
+    for (index, item) in gameitems.iter().enumerate() {
+        // If this is a PartGroup, add it to the set of defined groups
+        if let GameItemEnum::PartGroup(pg) = item {
+            defined_part_groups.insert(&pg.name);
+        }
+
+        // Check if this item references a part group
+        if let Some(group_name) = item.part_group_name() {
+            if !defined_part_groups.contains(group_name) {
+                warnings.push(format!(
+                    "GameItem[{}] '{}' ({}) references part_group '{}' which has not been defined yet",
+                    index,
+                    item.name(),
+                    item.type_name(),
+                    group_name
+                ));
+            }
+        }
+    }
+
+    warnings
 }
 
 // Item types:
@@ -698,6 +765,7 @@ fn write_with_type<T: BiffWrite>(item_type: u32, item: &T) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use rand::Rng;
     use rand::distr::{Distribution, StandardUniform};
     use rand::prelude::ThreadRng;
@@ -722,5 +790,73 @@ mod tests {
                 None
             }
         }
+    }
+
+    #[test]
+    fn test_validate_part_group_order_empty() {
+        let gameitems: Vec<GameItemEnum> = vec![];
+        let warnings = validate_part_group_order(&gameitems);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn test_validate_part_group_order_no_part_groups() {
+        let mut primitive = primitive::Primitive::default();
+        primitive.name = "TestPrimitive".to_string();
+        let gameitems = vec![GameItemEnum::Primitive(primitive)];
+        let warnings = validate_part_group_order(&gameitems);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn test_validate_part_group_order_correct_order() {
+        // PartGroup comes first, then item referencing it
+        let mut part_group = partgroup::PartGroup::default();
+        part_group.name = "TestGroup".to_string();
+
+        let mut primitive = primitive::Primitive::default();
+        primitive.name = "TestPrimitive".to_string();
+        primitive.part_group_name = Some("TestGroup".to_string());
+
+        let gameitems = vec![
+            GameItemEnum::PartGroup(part_group),
+            GameItemEnum::Primitive(primitive),
+        ];
+        let warnings = validate_part_group_order(&gameitems);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn test_validate_part_group_order_wrong_order() {
+        // Item referencing part group comes before the part group
+        let mut primitive = primitive::Primitive::default();
+        primitive.name = "TestPrimitive".to_string();
+        primitive.part_group_name = Some("TestGroup".to_string());
+
+        let mut part_group = partgroup::PartGroup::default();
+        part_group.name = "TestGroup".to_string();
+
+        let gameitems = vec![
+            GameItemEnum::Primitive(primitive),
+            GameItemEnum::PartGroup(part_group),
+        ];
+        let warnings = validate_part_group_order(&gameitems);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("TestPrimitive"));
+        assert!(warnings[0].contains("TestGroup"));
+        assert!(warnings[0].contains("not been defined yet"));
+    }
+
+    #[test]
+    fn test_validate_part_group_order_undefined_group() {
+        // Item references a part group that doesn't exist at all
+        let mut primitive = primitive::Primitive::default();
+        primitive.name = "TestPrimitive".to_string();
+        primitive.part_group_name = Some("NonExistentGroup".to_string());
+
+        let gameitems = vec![GameItemEnum::Primitive(primitive)];
+        let warnings = validate_part_group_order(&gameitems);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("NonExistentGroup"));
     }
 }

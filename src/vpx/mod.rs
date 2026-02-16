@@ -393,6 +393,10 @@ fn write_vpx<F: Read + Write + Seek>(comp: &mut CompoundFile<F>, vpx: &VPX) -> i
     write_version(comp, &vpx.version)?;
     write_game_data(comp, &vpx.gamedata, &vpx.version)?;
     debug!("Wrote gamedata");
+    // Validate part group ordering before writing
+    for warning in gameitem::validate_part_group_order(&vpx.gameitems) {
+        warn!("{}", warning);
+    }
     write_game_items(comp, &vpx.gameitems)?;
     debug!("Wrote {} gameitems", vpx.gameitems.len());
     write_images(comp, &vpx.images)?;
