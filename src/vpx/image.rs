@@ -521,10 +521,14 @@ pub fn image_has_transparency(image: &ImageData) -> bool {
 
 /// Check if a DynamicImage has any transparent pixels
 fn has_transparent_pixels(img: &DynamicImage) -> bool {
-    // Convert to RGBA8 to check alpha channel
-    // to_rgba8() handles all image formats uniformly
-    let rgba = img.to_rgba8();
-    rgba.pixels().any(|pixel| pixel[3] != 255)
+    match img {
+        DynamicImage::ImageRgba8(rgba) => rgba.pixels().any(|p| p[3] != 255),
+        DynamicImage::ImageRgba16(rgba) => rgba.pixels().any(|p| p[3] != 65535),
+        DynamicImage::ImageRgba32F(rgba) => rgba.pixels().any(|p| p[3] < 1.0),
+        DynamicImage::ImageLumaA8(la) => la.pixels().any(|p| p[1] != 255),
+        DynamicImage::ImageLumaA16(la) => la.pixels().any(|p| p[1] != 65535),
+        _ => false, // RGB, Luma, etc. have no alpha
+    }
 }
 
 #[cfg(test)]
