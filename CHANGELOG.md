@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.1](https://github.com/francisdb/vpin/compare/v0.21.0...v0.21.1) - 2026-02-16
+
+### Added
+
+- part group order warnings ([#249](https://github.com/francisdb/vpin/pull/249))
+
+### Fixed
+
+- update DILI handling to use quantization ([#246](https://github.com/francisdb/vpin/pull/246))
+
 ## [0.21.0](https://github.com/francisdb/vpin/compare/v0.20.15...v0.21.0) - 2026-02-14
 
 ### Added
