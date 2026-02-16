@@ -767,6 +767,7 @@ fn write_with_type<T: BiffWrite>(item_type: u32, item: &T) -> Vec<u8> {
 mod tests {
     use super::*;
 
+    use pretty_assertions::assert_eq;
     use rand::Rng;
     use rand::distr::{Distribution, StandardUniform};
     use rand::prelude::ThreadRng;
@@ -798,7 +799,8 @@ mod tests {
     fn test_validate_part_group_order_empty() {
         let gameitems: Vec<GameItemEnum> = vec![];
         let warnings = validate_part_group_order(&gameitems);
-        assert!(warnings.is_empty());
+        let expected: Vec<String> = vec![];
+        assert_eq!(warnings, expected);
     }
 
     #[test]
@@ -809,7 +811,8 @@ mod tests {
         };
         let gameitems = vec![GameItemEnum::Primitive(primitive)];
         let warnings = validate_part_group_order(&gameitems);
-        assert!(warnings.is_empty());
+        let expected: Vec<String> = vec![];
+        assert_eq!(warnings, expected);
     }
 
     #[test]
@@ -829,7 +832,8 @@ mod tests {
             GameItemEnum::Primitive(primitive),
         ];
         let warnings = validate_part_group_order(&gameitems);
-        assert!(warnings.is_empty());
+        let expected: Vec<String> = vec![];
+        assert_eq!(warnings, expected);
     }
 
     #[test]
@@ -850,9 +854,10 @@ mod tests {
         ];
         let warnings = validate_part_group_order(&gameitems);
         assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].contains("TestPrimitive"));
-        assert!(warnings[0].contains("TestGroup"));
-        assert!(warnings[0].contains("not been defined yet"));
+        let expected = vec![
+            "GameItem[0] 'TestPrimitive' (Primitive) references part_group 'TestGroup' which has not been defined yet",
+        ];
+        assert_eq!(warnings, expected);
     }
 
     #[test]
@@ -866,7 +871,9 @@ mod tests {
 
         let gameitems = vec![GameItemEnum::Primitive(primitive)];
         let warnings = validate_part_group_order(&gameitems);
-        assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].contains("NonExistentGroup"));
+        let expected = vec![
+            "GameItem[0] 'TestPrimitive' (Primitive) references part_group 'TestGroup' which has not been defined yet",
+        ];
+        assert_eq!(warnings, expected);
     }
 }
