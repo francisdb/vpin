@@ -202,27 +202,88 @@ pub struct Light {
     pub falloff_power: f32,  // FAPO
     /// 0 = off, 1 = on, 2 = blinking
     /// m_d.m_state == 0.f ? 0 : (m_d.m_state == 2.f ? 2 : 1);
-    /// STAT deprecated, planned or removal in to 10.9+
+    /// BIFF tag: STAT deprecated, planned or removal in to 10.9+
     pub state_u32: u32,
     /// 0..1 is modulated from off to on, 2 is blinking
-    /// STTF added in 10.8
+    /// BIFF tag: STTF added in 10.8
     pub state: Option<f32>,
     /// Light color at the center/near the light source.
     /// The shader interpolates between this color and color2 based on distance.
-    /// COLR
+    /// BIFF tag: COLR
     pub color: Color,
     /// Light color at the falloff edge/far from the light source (also called "ColorFull").
     /// The shader interpolates between color and this color based on distance,
     /// creating a color gradient effect from the center outward.
-    /// COL2
+    /// BIFF tag: COL2
     pub color2: Color,
-    is_timer_enabled: bool,                 // TMON
-    timer_interval: i32,                    // TMIN
-    pub blink_pattern: String,              // BPAT
-    pub off_image: String,                  // IMG1
-    pub blink_interval: u32,                // BINT
-    pub intensity: f32,                     // BWTH
-    pub transmission_scale: f32,            // TRMS
+    is_timer_enabled: bool,    // TMON
+    timer_interval: i32,       // TMIN
+    pub blink_pattern: String, // BPAT
+    pub off_image: String,     // IMG1
+    pub blink_interval: u32,   // BINT
+    /// Light intensity/brightness multiplier.
+    ///
+    /// ## Range
+    /// - **0.0**: Light is off (no emission)
+    /// - **1.0**: Default/normal brightness
+    /// - **> 1.0**: Brighter than normal (HDR values supported)
+    ///
+    /// Typical values range from 0.0 to 10.0+, though there's no hard maximum.
+    ///
+    /// ## Unit
+    /// Unitless multiplier. The final light emission is calculated as:
+    /// ```text
+    /// currentIntensity = intensity * intensity_scale * lightState
+    /// ```
+    /// Where `intensity_scale` is a runtime-only multiplier (not persisted),
+    /// and `lightState` is 0.0 (off) to 1.0 (on) or 2.0 (blinking).
+    ///
+    /// ## Shader Usage
+    /// In the light shader, intensity is scaled before being sent to the GPU:
+    /// ```cpp
+    /// lightColor_intensity.w = m_currentIntensity * 0.02f;  // For bulb lights
+    /// // or
+    /// lightColor_intensity.w = m_currentIntensity;          // For image lights
+    /// ```
+    ///
+    /// The intensity also affects the light's transmission through surfaces
+    /// when `transmission_scale` is applied.
+    ///
+    /// ## Default
+    /// Default value is `1.0`
+    ///
+    /// BIFF tag: `BWTH`
+    pub intensity: f32,
+    /// Light transmission scale for "light through playfield" effects.
+    ///
+    /// ## Purpose
+    /// Controls how much light passes through surfaces to illuminate objects
+    /// below/behind (like GI lights shining through a translucent plastic).
+    /// This is used during the "light buffer" render pass where VPinball
+    /// calculates transmitted lighting.
+    ///
+    /// ## Range
+    /// - **0.0**: No light transmission (light doesn't pass through surfaces)
+    /// - **0.5**: Default, 50% of light intensity transmits
+    /// - **1.0**: Full transmission (all light passes through)
+    ///
+    /// ## Unit
+    /// Unitless multiplier (0.0 to 1.0, though values > 1.0 are allowed).
+    ///
+    /// ## Shader Usage
+    /// Applied in the light shader during the light buffer render pass:
+    /// ```cpp
+    /// if (g_pplayer->m_renderer->IsRenderPass(Renderer::LIGHT_BUFFER))
+    ///     lightColor_intensity.w *= m_d.m_transmissionScale;
+    /// ```
+    /// This multiplies the final light intensity by the transmission scale,
+    /// affecting how much light "bleeds through" to objects on the other side.
+    ///
+    /// ## Default
+    /// Default value is `0.5`
+    ///
+    /// BIFF tag: `TRMS`
+    pub transmission_scale: f32,
     pub surface: String,                    // SURF
     pub name: String,                       // NAME
     pub is_backglass: bool,                 // BGLS
