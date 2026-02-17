@@ -284,7 +284,11 @@ pub struct Light {
     ///
     /// BIFF tag: `TRMS`
     pub transmission_scale: f32,
-    pub surface: String,                    // SURF
+    /// Name of the surface (ramp or wall top) this light sits on.
+    /// Used to determine the light's base height (z position).
+    /// If empty, the light sits on the playfield.
+    /// BIFF tag: SURF
+    pub surface: String,
     pub name: String,                       // NAME
     pub is_backglass: bool,                 // BGLS
     pub depth_bias: f32,                    // LIDB

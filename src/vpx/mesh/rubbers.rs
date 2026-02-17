@@ -255,19 +255,20 @@ fn generate_mesh(rubber: &Rubber) -> Option<(Vec<Vertex3dNoTex2>, Vec<u32>)> {
     Some((vertices, indices))
 }
 
-/// Apply rotation transformation to rubber mesh
+/// Apply rotation transformation to rubber mesh and return center position.
 /// This is a port of Rubber::UpdateRubber from rubber.cpp
+///
+/// Vertices are centered at origin after rotation. The center position is returned
+/// for use as a glTF node transform.
+///
+/// Returns the center position (middle_x, middle_y, height) in VPX coordinates.
 fn apply_rotation(
     vertices: &mut [Vertex3dNoTex2],
     rot_x: f32,
     rot_y: f32,
     rot_z: f32,
     height: f32,
-) {
-    if rot_x == 0.0 && rot_y == 0.0 && rot_z == 0.0 {
-        return;
-    }
-
+) -> Vec3 {
     // Find the middle point of the mesh for rotation center
     let mut min_x = f32::MAX;
     let mut max_x = f32::MIN;
@@ -288,6 +289,21 @@ fn apply_rotation(
     let middle_x = (max_x + min_x) * 0.5;
     let middle_y = (max_y + min_y) * 0.5;
     let middle_z = (max_z + min_z) * 0.5;
+
+    if rot_x == 0.0 && rot_y == 0.0 && rot_z == 0.0 {
+        // No rotation - just center vertices at origin
+        for v in vertices.iter_mut() {
+            v.x -= middle_x;
+            v.y -= middle_y;
+            v.z -= middle_z;
+        }
+        // VPinball uses height as the z position, not height + middle_z
+        return Vec3 {
+            x: middle_x,
+            y: middle_y,
+            z: height,
+        };
+    }
 
     // Convert degrees to radians
     let rad_x = rot_x * PI / 180.0;
@@ -323,10 +339,10 @@ fn apply_rotation(
         let new_y = m10 * x + m11 * y + m12 * z;
         let new_z = m20 * x + m21 * y + m22 * z;
 
-        // Translate back with height adjustment
-        v.x = new_x + middle_x;
-        v.y = new_y + middle_y;
-        v.z = new_z + height;
+        // Keep centered at origin (translation will be in node transform)
+        v.x = new_x;
+        v.y = new_y;
+        v.z = new_z;
 
         // Also rotate normals
         let nx = v.nx;
@@ -337,10 +353,26 @@ fn apply_rotation(
         v.ny = m10 * nx + m11 * ny + m12 * nz;
         v.nz = m20 * nx + m21 * ny + m22 * nz;
     }
+
+    // Return center position - VPinball uses height as the z position
+    Vec3 {
+        x: middle_x,
+        y: middle_y,
+        z: height,
+    }
 }
 
 /// Build the complete rubber mesh
-pub(crate) fn build_rubber_mesh(rubber: &Rubber) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
+///
+/// Returns vertices centered at origin, along with the center position in VPX coordinates.
+/// The center position should be used as a glTF node transform.
+///
+/// # Returns
+/// A tuple of (vertices, faces, center) or None if invalid.
+/// Center is (x, y, z) in VPX coordinates.
+pub(crate) fn build_rubber_mesh(
+    rubber: &Rubber,
+) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>, Vec3)> {
     if rubber.thickness == 0 {
         return None;
     }
@@ -351,8 +383,8 @@ pub(crate) fn build_rubber_mesh(rubber: &Rubber) -> Option<(Vec<VertexWrapper>, 
 
     let (mut vertices, indices) = generate_mesh(rubber)?;
 
-    // Apply rotation transformation
-    apply_rotation(
+    // Apply rotation transformation and get center position
+    let center = apply_rotation(
         &mut vertices,
         rubber.rot_x,
         rubber.rot_y,
@@ -370,7 +402,7 @@ pub(crate) fn build_rubber_mesh(rubber: &Rubber) -> Option<(Vec<VertexWrapper>, 
         .map(|tri| VpxFace::new(tri[0] as i64, tri[1] as i64, tri[2] as i64))
         .collect();
 
-    Some((wrapped, faces))
+    Some((wrapped, faces, center))
 }
 
 #[cfg(test)]
@@ -473,7 +505,7 @@ mod tests {
         let result = build_rubber_mesh(&rubber);
         assert!(result.is_some());
 
-        let (vertices, indices) = result.unwrap();
+        let (vertices, indices, _center) = result.unwrap();
         assert!(!vertices.is_empty());
         assert!(!indices.is_empty());
     }
@@ -518,7 +550,7 @@ mod tests {
         let result = build_rubber_mesh(&rubber);
         assert!(result.is_some());
 
-        let (vertices, indices) = result.unwrap();
+        let (vertices, indices, _center) = result.unwrap();
         assert!(!vertices.is_empty());
         assert!(!indices.is_empty());
     }
@@ -537,7 +569,7 @@ mod tests {
         let result = build_rubber_mesh(&rubber);
         assert!(result.is_some(), "Octagon rubber mesh should be generated");
 
-        let (vertices, indices) = result.unwrap();
+        let (vertices, indices, _center) = result.unwrap();
         assert!(!vertices.is_empty(), "Should have vertices");
         assert!(!indices.is_empty(), "Should have faces");
 
@@ -627,7 +659,7 @@ mod tests {
             "Sharp octagon rubber mesh should be generated"
         );
 
-        let (vertices, indices) = result.unwrap();
+        let (vertices, indices, _center) = result.unwrap();
 
         // Sharp corners should generate fewer vertices since less subdivision
         println!(
@@ -711,7 +743,7 @@ mod tests {
         let result = build_rubber_mesh(&rubber);
         assert!(result.is_some(), "Ring003 rubber mesh should be generated");
 
-        let (vertices, indices) = result.unwrap();
+        let (vertices, indices, _center) = result.unwrap();
         let num_segments = 8; // Cross-section segments
         let num_rings = vertices.len() / num_segments;
 

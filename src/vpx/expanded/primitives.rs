@@ -528,7 +528,7 @@ fn write_rubber_meshes(
     mesh_format: PrimitiveMeshFormat,
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
-    let Some((vertices, indices)) = build_rubber_mesh(rubber) else {
+    let Some((vertices, indices, _center)) = build_rubber_mesh(rubber) else {
         return Ok(());
     };
 

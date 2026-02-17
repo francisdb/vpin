@@ -195,6 +195,12 @@ pub struct HitTarget {
     /// BIFF tag: `DILB` (added in 10.?)
     pub disable_lighting_below: Option<f32>,
     pub depth_bias: f32,
+    /// Whether this hittarget appears in playfield reflections.
+    ///
+    /// When `true`, the ball is rendered in the reflection pass.
+    /// When `false`, the ball won't appear as a reflection on the playfield.
+    ///
+    /// BIFF tag: `REEN`
     pub is_reflection_enabled: bool,
     pub is_dropped: bool,
     pub drop_speed: f32,

@@ -27,8 +27,18 @@ pub struct Spinner {
     pub show_bracket: bool,
     pub material: String,
     pub image: String,
+    /// Name of the surface (ramp or wall top) this spinner sits on.
+    /// Used to determine the spinner's base height (z position).
+    /// If empty, the spinner sits on the playfield.
+    /// BIFF tag: SURF
     pub surface: String,
-    pub is_reflection_enabled: Option<bool>, // added in ?
+    /// Whether this spinner appears in playfield reflections.
+    ///
+    /// When `true`, the ball is rendered in the reflection pass.
+    /// When `false`, the ball won't appear as a reflection on the playfield.
+    ///
+    /// BIFF tag: `REEN` (was missing in 10.01)
+    pub is_reflection_enabled: Option<bool>,
 
     // these are shared between all items
     pub is_locked: bool,

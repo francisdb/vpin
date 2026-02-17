@@ -27,6 +27,10 @@ pub struct Flipper {
 
     is_timer_enabled: bool,
     timer_interval: i32,
+    /// Name of the surface (ramp or wall top) this flipper sits on.
+    /// Used to determine the flipper's base height (z position).
+    /// If empty, the flipper sits on the playfield.
+    /// BIFF tag: SURF
     pub surface: String,
     pub material: String,
     pub name: String,
@@ -53,8 +57,14 @@ pub struct Flipper {
     pub is_visible: bool,
     pub is_enabled: bool,
     pub height: f32,
-    pub image: Option<String>,               // IMAG (was missing in 10.01)
-    pub is_reflection_enabled: Option<bool>, // REEN (was missing in 10.01)
+    pub image: Option<String>, // IMAG (was missing in 10.01)
+    /// Whether this flipper appears in playfield reflections.
+    ///
+    /// When `true`, the ball is rendered in the reflection pass.
+    /// When `false`, the ball won't appear as a reflection on the playfield.
+    ///
+    /// BIFF tag: `REEN` (was missing in 10.01)
+    pub is_reflection_enabled: Option<bool>,
 
     // these are shared between all items
     pub is_locked: bool,

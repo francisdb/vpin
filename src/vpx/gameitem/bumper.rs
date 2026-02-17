@@ -35,11 +35,17 @@ pub struct Bumper {
     pub surface: String,
     pub is_cap_visible: bool,
     pub is_base_visible: bool,
-    pub is_ring_visible: Option<bool>,       // RIVS (added in ?)
-    pub is_socket_visible: Option<bool>,     // SKVS (added in ?)
-    pub hit_event: Option<bool>,             // HAHE (added in ?)
-    pub is_collidable: Option<bool>,         // COLI (added in ?)
-    pub is_reflection_enabled: Option<bool>, // REEN (was missing in 10.01)
+    pub is_ring_visible: Option<bool>,   // RIVS (added in ?)
+    pub is_socket_visible: Option<bool>, // SKVS (added in ?)
+    pub hit_event: Option<bool>,         // HAHE (added in ?)
+    pub is_collidable: Option<bool>,     // COLI (added in ?)
+    /// Whether this bumper appears in playfield reflections.
+    ///
+    /// When `true`, the ball is rendered in the reflection pass.
+    /// When `false`, the ball won't appear as a reflection on the playfield.
+    ///
+    /// BIFF tag: `REEN` (was missing in 10.01)
+    pub is_reflection_enabled: Option<bool>,
 
     // these are shared between all items
     pub is_locked: bool,

@@ -74,29 +74,39 @@ impl<'de> Deserialize<'de> for GateType {
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Gate {
-    pub center: Vertex2D,                    // 1 VCEN
-    pub length: f32,                         // 2 LGTH
-    pub height: f32,                         // 3 HGTH
-    pub rotation: f32,                       // 4 ROTA
-    pub material: String,                    // 5 MATR
-    is_timer_enabled: bool,                  // 6 TMON
-    pub show_bracket: bool,                  // 7 GSUP
-    pub is_collidable: bool,                 // 8 GCOL
-    timer_interval: i32,                     // 9 TMIN
-    pub imgf: Option<String>,                // IMGF (was in use in 10.01)
-    pub imgb: Option<String>,                // IMGB (was in use in 10.01)
-    pub surface: String,                     // 10 SURF
-    pub elasticity: f32,                     // 11 ELAS
-    pub angle_max: f32,                      // 12 GAMA
-    pub angle_min: f32,                      // 13 GAMI
-    pub friction: f32,                       // 14 GFRC
-    pub damping: Option<f32>,                // 15 AFRC (added in 10.?)
-    pub gravity_factor: Option<f32>,         // 16 GGFC (added in 10.?)
-    pub is_visible: bool,                    // 17 GVSB
-    pub name: String,                        // 18 NAME
-    pub two_way: bool,                       // 19 TWWA
-    pub is_reflection_enabled: Option<bool>, // 20 REEN (was missing in 10.01)
-    pub gate_type: Option<GateType>,         // 21 GATY (was missing in 10.01)
+    pub center: Vertex2D,     // 1 VCEN
+    pub length: f32,          // 2 LGTH
+    pub height: f32,          // 3 HGTH
+    pub rotation: f32,        // 4 ROTA
+    pub material: String,     // 5 MATR
+    is_timer_enabled: bool,   // 6 TMON
+    pub show_bracket: bool,   // 7 GSUP
+    pub is_collidable: bool,  // 8 GCOL
+    timer_interval: i32,      // 9 TMIN
+    pub imgf: Option<String>, // IMGF (was in use in 10.01)
+    pub imgb: Option<String>, // IMGB (was in use in 10.01)
+    /// Name of the surface (ramp or wall top) this gate sits on.
+    /// Used to determine the gate's base height (z position).
+    /// If empty, the gate sits on the playfield.
+    /// BIFF tag: SURF
+    pub surface: String,
+    pub elasticity: f32,             // 11 ELAS
+    pub angle_max: f32,              // 12 GAMA
+    pub angle_min: f32,              // 13 GAMI
+    pub friction: f32,               // 14 GFRC
+    pub damping: Option<f32>,        // 15 AFRC (added in 10.?)
+    pub gravity_factor: Option<f32>, // 16 GGFC (added in 10.?)
+    pub is_visible: bool,            // 17 GVSB
+    pub name: String,                // 18 NAME
+    pub two_way: bool,               // 19 TWWA
+    /// Whether this gate appears in playfield reflections.
+    ///
+    /// When `true`, the ball is rendered in the reflection pass.
+    /// When `false`, the ball won't appear as a reflection on the playfield.
+    ///
+    /// BIFF tag: `REEN` (was missing in 10.01)
+    pub is_reflection_enabled: Option<bool>,
+    pub gate_type: Option<GateType>, // 21 GATY (was missing in 10.01)
 
     // these are shared between all items
     pub is_locked: bool,

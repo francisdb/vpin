@@ -874,12 +874,19 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 if !rubber.is_visible {
                     continue; // Skip invisible rubbers
                 }
-                if let Some((vertices, indices)) = build_rubber_mesh(rubber) {
+                if let Some((vertices, indices, center)) = build_rubber_mesh(rubber) {
                     let material_name = if rubber.material.is_empty() {
                         None
                     } else {
                         Some(rubber.material.clone())
                     };
+                    // Convert center to glTF coordinates (meters, Y-up)
+                    // VPX (x, y, z) → glTF [x, z, y]
+                    let translation = Some(Vec3::new(
+                        vpu_to_m(center.x),
+                        vpu_to_m(center.z),
+                        vpu_to_m(center.y),
+                    ));
                     meshes.push(NamedMesh {
                         name: rubber.name.clone(),
                         vertices,
@@ -887,7 +894,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         material_name,
                         texture_name: None,
                         layer_name: get_layer_name(&rubber.editor_layer_name, rubber.editor_layer),
-
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -943,6 +950,14 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 }
                 // TODO: get surface height from the table
                 if let Some(flipper_meshes) = build_flipper_meshes(flipper, 0.0) {
+                    // Convert center to glTF coordinates (meters, Y-up)
+                    // VPX (x, y, z) → glTF [x, z, y]
+                    let translation = Some(Vec3::new(
+                        vpu_to_m(flipper_meshes.center.x),
+                        vpu_to_m(flipper_meshes.center.z),
+                        vpu_to_m(flipper_meshes.center.y),
+                    ));
+
                     // Add base flipper mesh
                     let (base_vertices, base_indices) = flipper_meshes.base;
                     let base_material = if flipper.material.is_empty() {
@@ -955,11 +970,11 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         vertices: base_vertices,
                         indices: base_indices,
                         material_name: base_material,
-
                         layer_name: get_layer_name(
                             &flipper.editor_layer_name,
                             flipper.editor_layer,
                         ),
+                        translation,
                         ..Default::default()
                     });
 
@@ -975,11 +990,11 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             vertices: rubber_vertices,
                             indices: rubber_indices,
                             material_name: rubber_material,
-
                             layer_name: get_layer_name(
                                 &flipper.editor_layer_name,
                                 flipper.editor_layer,
                             ),
+                            translation,
                             ..Default::default()
                         });
                     }
@@ -1183,6 +1198,14 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         Some(trigger.material.clone())
                     };
 
+                    // Convert center to glTF coordinates (meters, Y-up)
+                    // VPX (x, y, z) → glTF [x, z, y]
+                    let translation = Some(Vec3::new(
+                        vpu_to_m(trigger.center.x),
+                        vpu_to_m(surface_height),
+                        vpu_to_m(trigger.center.y),
+                    ));
+
                     meshes.push(NamedMesh {
                         name: trigger.name.clone(),
                         vertices,
@@ -1192,7 +1215,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             &trigger.editor_layer_name,
                             trigger.editor_layer,
                         ),
-
+                        translation,
                         ..Default::default()
                     });
                 }

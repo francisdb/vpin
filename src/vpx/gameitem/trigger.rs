@@ -5,17 +5,26 @@ use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// The visual shape of a trigger.
 #[derive(Debug, PartialEq, Clone, Default)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum TriggerShape {
+    /// No visible mesh (invisible trigger)
     None = 0,
+    /// Simple wire trigger
     #[default]
     WireA = 1,
+    /// Star-shaped trigger (uses `radius` for scaling)
     Star = 2,
+    /// Wire trigger rotated -23° around X axis
     WireB = 3,
+    /// Button trigger (uses `radius` for scaling, z offset +5)
     Button = 4,
+    /// Wire trigger rotated 140° around X axis, z offset -19
     WireC = 5,
+    /// D-shaped wire trigger
     WireD = 6,
+    /// Inder-style trigger
     Inder = 7,
 }
 
@@ -138,31 +147,83 @@ impl<'de> Deserialize<'de> for TriggerShape {
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Trigger {
+    pub name: String,
     pub center: Vertex2D,
+
+    /// Radius of the trigger in VPU (Visual Pinball Units).
+    ///
+    /// Used for:
+    /// - Hit detection: defines the circular collision area
+    /// - Mesh scaling for Button and Star shapes: the mesh is uniformly scaled
+    ///   by this value in x, y, and z directions
+    /// - Animation limits for Button and Star shapes
+    ///
+    /// For wire-type triggers (WireA, WireB, WireC, WireD, Inder), use `scale_x`
+    /// and `scale_y` instead for mesh scaling.
+    ///
+    /// Default: 25.0
+    ///
+    /// BIFF tag: RADI
     pub radius: f32,
     pub rotation: f32,
-    pub wire_thickness: Option<f32>, // WITI (was missing in 10.01)
+    /// Wire thickness for wire-type triggers (WireA, WireB, WireC, WireD, Inder).
+    ///
+    /// This value (in VPU) is added to each vertex position along its normal direction,
+    /// effectively making the wire mesh thicker or thinner.
+    /// Only applies to wire-based trigger shapes, ignored for Star and Button.
+    ///
+    /// A value of 0.0 means the default (no vertex offset).
+    ///
+    /// Default: 0.0 (normal size based on the mesh)
+    ///
+    /// BIFF tag: WITI (was missing in 10.01)
+    pub wire_thickness: Option<f32>,
     pub scale_x: f32,
     pub scale_y: f32,
     is_timer_enabled: bool,
     timer_interval: i32,
     pub material: String,
+    /// Name of the surface (ramp or wall top) this trigger sits on.
+    /// Used to determine the trigger's base height (z position).
+    /// If empty, the trigger sits on the playfield.
+    /// BIFF tag: SURF
     pub surface: String,
+
     pub is_visible: bool,
     pub is_enabled: bool,
     pub hit_height: f32,
-    pub name: String,
-    // [BiffInt("SHAP", Pos = 15)]
-    // public int Shape = TriggerShape.TriggerWireA;
 
-    // [BiffFloat("ANSP", Pos = 16)]
-    // public float AnimSpeed = 1f;
-
-    // [BiffBool("REEN", Pos = 17)]
-    // public bool IsReflectionEnabled = true;
+    /// The visual shape of the trigger.
+    ///
+    /// Determines which mesh is used for rendering and how scaling is applied.
+    /// Wire-type triggers (WireA/B/C/D/Inder) use `scale_x`/`scale_y` for scaling
+    /// and support `wire_thickness`. Star and Button use `radius` for uniform scaling.
+    ///
+    /// Default: TriggerShape::WireA
+    ///
+    /// BIFF tag: SHAP
     pub shape: TriggerShape,
+
+    /// Animation speed multiplier for the trigger's hit/unhit animation.
+    ///
+    /// Controls how fast the trigger moves when activated. The animation offset
+    /// is updated each frame by: `offset += delta_time_ms * anim_speed`
+    ///
+    /// Higher values make the trigger animate faster. A value of 1.0 is the
+    /// default speed.
+    ///
+    /// Default: 1.0
+    ///
+    /// BIFF tag: ANSP
     pub anim_speed: f32,
-    pub is_reflection_enabled: Option<bool>, // REEN (was missing in 10.01)
+
+    /// Whether this trigger appears in playfield reflections.
+    ///
+    /// When `true`, the ball is rendered in the reflection pass.
+    /// When `false`, the ball won't appear as a reflection on the playfield.
+    ///
+    /// BIFF tag: `REEN` (was missing in 10.01)
+    pub is_reflection_enabled: Option<bool>,
 
     // these are shared between all items
     pub is_locked: bool,

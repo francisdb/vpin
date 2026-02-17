@@ -155,9 +155,15 @@ pub struct Ramp {
     pub wire_diameter: f32,                  // 25
     pub wire_distance_x: f32,                // 26
     pub wire_distance_y: f32,                // 27
-    pub is_reflection_enabled: Option<bool>, // 28 REEN (was missing in 10.01)
-    pub physics_material: Option<String>,    // MAPH 29 (added in 10.?)
-    pub overwrite_physics: Option<bool>,     // OVPH 30 (added in 10.?)
+    /// Whether this ramp appears in playfield reflections.
+    ///
+    /// When `true`, the ball is rendered in the reflection pass.
+    /// When `false`, the ball won't appear as a reflection on the playfield.
+    ///
+    /// BIFF tag: `REEN` (was missing in 10.01)
+    pub is_reflection_enabled: Option<bool>,
+    pub physics_material: Option<String>, // MAPH 29 (added in 10.?)
+    pub overwrite_physics: Option<bool>,  // OVPH 30 (added in 10.?)
 
     pub drag_points: Vec<DragPoint>,
 

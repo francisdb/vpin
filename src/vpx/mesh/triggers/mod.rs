@@ -119,15 +119,18 @@ fn uses_wire_thickness(shape: &TriggerShape) -> bool {
 ///
 /// Ported from VPinball trigger.cpp GenerateMesh()
 ///
+/// Returns vertices centered at origin. Use `trigger.center` and `base_height`
+/// for the glTF node transform.
+///
 /// # Arguments
 /// * `trigger` - The trigger definition
 /// * `base_height` - The height of the surface the trigger sits on (from table surface lookup)
 ///
 /// # Returns
-/// Tuple of (vertices, indices) if the trigger has a visible mesh, None otherwise
+/// Tuple of (vertices, indices) if the trigger has a visible mesh, None otherwise.
 pub fn build_trigger_mesh(
     trigger: &Trigger,
-    base_height: f32,
+    _base_height: f32,
 ) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
     if !trigger.is_visible {
         return None;
@@ -148,18 +151,18 @@ pub fn build_trigger_mesh(
             let pos = Vertex3D::new(v.x, v.y, v.z);
             let rotated = full_matrix.transform_vertex(pos);
 
-            // Scale and translate
+            // Scale only (no position translation - that goes in node transform)
             let (x, y, z) = if uses_radius {
                 (
-                    rotated.x * trigger.radius + trigger.center.x,
-                    rotated.y * trigger.radius + trigger.center.y,
-                    rotated.z * trigger.radius + base_height + z_offset,
+                    rotated.x * trigger.radius,
+                    rotated.y * trigger.radius,
+                    rotated.z * trigger.radius + z_offset,
                 )
             } else {
                 (
-                    rotated.x * trigger.scale_x + trigger.center.x,
-                    rotated.y * trigger.scale_y + trigger.center.y,
-                    rotated.z * 1.0 + base_height + z_offset,
+                    rotated.x * trigger.scale_x,
+                    rotated.y * trigger.scale_y,
+                    rotated.z * 1.0 + z_offset,
                 )
             };
 
