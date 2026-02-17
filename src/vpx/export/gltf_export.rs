@@ -1529,6 +1529,14 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     ])
                 };
 
+                // Convert position to glTF coordinates (meters, Y-up)
+                // VPX (x, y, z) → glTF [x, z, y]
+                let translation = Some(Vec3::new(
+                    vpu_to_m(ball.pos.x),
+                    vpu_to_m(ball.pos.z),
+                    vpu_to_m(ball.pos.y),
+                ));
+
                 meshes.push(NamedMesh {
                     name: ball.name.clone(),
                     vertices,
@@ -1540,7 +1548,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     transmission_factor: None,
                     is_ball: true, // Pinballs need metallic, shiny material
                     roughness_texture_name,
-                    translation: None,
+                    translation,
                 });
             }
             _ => {}
