@@ -1459,13 +1459,21 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
 
                 let surface_height =
                     get_surface_height(vpx, &kicker.surface, kicker.center.x, kicker.center.y);
-                let kicker_meshes = build_kicker_meshes(kicker, surface_height);
+                let kicker_meshes = build_kicker_meshes(kicker);
                 let material_name = if kicker.material.is_empty() {
                     None
                 } else {
                     Some(kicker.material.clone())
                 };
                 let layer_name = get_layer_name(&kicker.editor_layer_name, kicker.editor_layer);
+
+                // Convert center to glTF coordinates (meters, Y-up)
+                // VPX (x, y, z) → glTF [x, z, y]
+                let translation = Some(Vec3::new(
+                    vpu_to_m(kicker.center.x),
+                    vpu_to_m(surface_height),
+                    vpu_to_m(kicker.center.y),
+                ));
 
                 // Default colors based on kicker type to approximate VPinball's built-in textures
                 // These are rough approximations since we don't have access to the actual textures
@@ -1503,7 +1511,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         transmission_factor: None,
                         is_ball: false,
                         roughness_texture_name: None,
-                        translation: None,
+                        translation,
                     });
                 }
 
@@ -1520,7 +1528,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         transmission_factor: None,
                         is_ball: false,
                         roughness_texture_name: None,
-                        translation: None,
+                        translation,
                     });
                 }
             }
