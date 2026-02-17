@@ -566,7 +566,7 @@ fn write_flasher_meshes(
     table_dims: &TableDimensions,
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
-    let Some((vertices, indices)) = build_flasher_mesh(flasher, table_dims) else {
+    let Some((vertices, indices, _center)) = build_flasher_mesh(flasher, table_dims) else {
         return Ok(());
     };
 

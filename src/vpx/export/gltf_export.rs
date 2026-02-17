@@ -104,6 +104,7 @@ use crate::vpx::gltf::{
 };
 use crate::vpx::image::{ImageData, image_has_transparency};
 use crate::vpx::material::MaterialType;
+use crate::vpx::math::Vec3;
 use crate::vpx::mesh::balls::build_ball_mesh;
 use crate::vpx::mesh::bumpers::build_bumper_meshes;
 use crate::vpx::mesh::flashers::build_flasher_mesh;
@@ -188,6 +189,11 @@ struct NamedMesh {
     /// controls surface roughness - white/opaque areas are more rough/scratched.
     /// Used as metallicRoughnessTexture in glTF (green channel = roughness).
     roughness_texture_name: Option<String>,
+    /// Optional node translation in glTF coordinates (meters, Y-up).
+    /// When set, the mesh vertices are in local space and this translation
+    /// is applied via the glTF node's "translation" property.
+    /// Coordinates: VPX X → glTF X, VPX Z → glTF Y, VPX Y → glTF Z
+    translation: Option<Vec3>,
 }
 
 impl NamedMesh {
@@ -199,7 +205,12 @@ impl NamedMesh {
 // Re-export camera types from the camera module
 use super::camera::GltfCamera;
 
-/// Transform primitive vertices using the primitive's transformation matrix.
+/// Transform primitive vertices using the primitive's transformation matrix,
+/// returning the transformed vertices and the translation for the glTF node.
+///
+/// The vertices are transformed with scale and rotation applied, but the final
+/// position translation is returned separately to be used as a glTF node transform.
+/// This preserves the transform hierarchy in the exported glTF file.
 ///
 /// All transformations are done in VPX coordinate space.
 /// The coordinate conversion to glTF happens when writing the GLB.
@@ -210,10 +221,14 @@ use super::camera::GltfCamera;
 /// RTmatrix = ((RTmatrix * MatrixRotateZ(obj_rot[8])) * MatrixRotateY(obj_rot[7])) * MatrixRotateX(obj_rot[6]);
 /// fullMatrix = (MatrixScale(size) * RTmatrix) * MatrixTranslate(position);
 /// ```
+///
+/// Returns: (transformed_vertices, translation_in_gltf_coords)
+/// - transformed_vertices: vertices with scale/rotation applied in local space
+/// - translation_in_gltf_coords: [x, y, z] in glTF coordinate system (meters, Y-up)
 fn transform_primitive_vertices(
     vertices: Vec<VertexWrapper>,
     primitive: &crate::vpx::gameitem::primitive::Primitive,
-) -> Vec<VertexWrapper> {
+) -> (Vec<VertexWrapper>, Vec3) {
     use crate::vpx::math::{Matrix3D, Vertex3D};
 
     let pos = &primitive.position;
@@ -238,17 +253,16 @@ fn transform_primitive_vertices(
         * Matrix3D::rotate_y(rot[7].to_radians())
         * Matrix3D::rotate_x(rot[6].to_radians());
 
-    // fullMatrix = Scale * RTmatrix * Translate(position)
-    let full_matrix = Matrix3D::scale(size.x, size.y, size.z)
-        * rt_matrix
-        * Matrix3D::translate(pos.x, pos.y, pos.z);
+    // Apply scale and rotation WITHOUT the final position translation
+    // The position will be applied via glTF node transform
+    let local_matrix = Matrix3D::scale(size.x, size.y, size.z) * rt_matrix;
 
-    vertices
+    let transformed_vertices = vertices
         .into_iter()
         .map(|mut vw| {
-            // Transform position
+            // Transform position (scale + rotation only, no translation)
             let v = Vertex3D::new(vw.vertex.x, vw.vertex.y, vw.vertex.z);
-            let transformed = full_matrix.transform_vertex(v);
+            let transformed = local_matrix.transform_vertex(v);
             vw.vertex.x = transformed.x;
             vw.vertex.y = transformed.y;
             vw.vertex.z = transformed.z;
@@ -259,7 +273,7 @@ fn transform_primitive_vertices(
             let nz = vw.vertex.nz;
 
             if !nx.is_nan() && !ny.is_nan() && !nz.is_nan() {
-                let normal = full_matrix.transform_normal(nx, ny, nz);
+                let normal = local_matrix.transform_normal(nx, ny, nz);
                 // Normalize
                 let len = normal.length();
                 if len > 0.0 {
@@ -271,7 +285,13 @@ fn transform_primitive_vertices(
 
             vw
         })
-        .collect()
+        .collect();
+
+    // Convert position to glTF coordinates (meters, Y-up)
+    // VPX X → glTF X, VPX Z → glTF Y (up), VPX Y → glTF Z (towards viewer)
+    let translation = Vec3::new(vpu_to_m(pos.x), vpu_to_m(pos.z), vpu_to_m(pos.y));
+
+    (transformed_vertices, translation)
 }
 
 /// A simple material representation for glTF export
@@ -696,7 +716,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     continue; // Skip invisible primitives
                 }
                 if let Ok(Some(read_mesh)) = primitive.read_mesh() {
-                    let transformed = transform_primitive_vertices(read_mesh.vertices, primitive);
+                    let (transformed, translation) =
+                        transform_primitive_vertices(read_mesh.vertices, primitive);
 
                     // If it's the playfield, VPinball assigns m_szMaterial and m_szImage from table settings
                     let is_playfield = primitive.is_playfield();
@@ -747,6 +768,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             primitive.editor_layer,
                         ),
                         transmission_factor,
+                        translation: Some(translation),
                         ..Default::default()
                     });
                 }
@@ -874,7 +896,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 if !flasher.is_visible {
                     continue; // Skip invisible flashers
                 }
-                if let Some((vertices, indices)) = build_flasher_mesh(flasher, &table_dims) {
+                if let Some((vertices, indices, center)) = build_flasher_mesh(flasher, &table_dims)
+                {
                     // Flashers use image_a as their texture
                     let texture_name = if flasher.image_a.is_empty() {
                         None
@@ -889,6 +912,13 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         flasher.color.b as f32 / 255.0,
                         flasher.alpha as f32 / 100.0,
                     ]);
+                    // Convert position to glTF coordinates (meters, Y-up)
+                    // VPX (x, y, z) → glTF [x, z, y]
+                    let translation = Some(Vec3::new(
+                        vpu_to_m(center.x),
+                        vpu_to_m(center.z),
+                        vpu_to_m(center.y),
+                    ));
                     meshes.push(NamedMesh {
                         name: flasher.name.clone(),
                         vertices,
@@ -903,6 +933,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         transmission_factor: None,
                         is_ball: false,
                         roughness_texture_name: None,
+                        translation,
                     });
                 }
             }
@@ -1083,6 +1114,13 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     } else {
                         Some(hit_target.image.clone())
                     };
+                    // Convert position to glTF coordinates (meters, Y-up)
+                    // VPX X → glTF X, VPX Z → glTF Y (up), VPX Y → glTF Z (towards viewer)
+                    let translation = Some(Vec3::new(
+                        vpu_to_m(hit_target.position.x),
+                        vpu_to_m(hit_target.position.z),
+                        vpu_to_m(hit_target.position.y),
+                    ));
                     meshes.push(NamedMesh {
                         name: hit_target.name.clone(),
                         vertices,
@@ -1093,6 +1131,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             &hit_target.editor_layer_name,
                             hit_target.editor_layer,
                         ),
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -1192,6 +1231,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             transmission_factor: None,
                             is_ball: false,
                             roughness_texture_name: None,
+                            translation: None,
                         });
                     }
 
@@ -1214,6 +1254,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             transmission_factor: None,
                             is_ball: false,
                             roughness_texture_name: None,
+                            translation: None,
                         });
                     }
                 }
@@ -1302,6 +1343,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         transmission_factor: None,
                         is_ball: false,
                         roughness_texture_name: None,
+                        translation: None,
                     });
                 }
             }
@@ -1382,6 +1424,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         transmission_factor: None,
                         is_ball: false,
                         roughness_texture_name: None,
+                        translation: None,
                     });
                 }
 
@@ -1398,6 +1441,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         transmission_factor: None,
                         is_ball: false,
                         roughness_texture_name: None,
+                        translation: None,
                     });
                 }
             }
@@ -1496,6 +1540,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     transmission_factor: None,
                     is_ball: true, // Pinballs need metallic, shiny material
                     roughness_texture_name,
+                    translation: None,
                 });
             }
             _ => {}
@@ -2150,10 +2195,17 @@ fn build_combined_gltf_payload(
 
         // Add node for this mesh
         let node_idx = nodes.len();
-        nodes.push(json!({
+        let mut node = json!({
             "mesh": mesh_idx,
             "name": mesh.name
-        }));
+        });
+
+        // Add translation if set (for primitives using node transforms)
+        if let Some(translation) = mesh.translation {
+            node["translation"] = json!([translation.x, translation.y, translation.z]);
+        }
+
+        nodes.push(node);
 
         // Organize nodes into layer groups
         if let Some(ref layer_name) = mesh.layer_name {

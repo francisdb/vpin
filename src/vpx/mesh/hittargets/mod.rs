@@ -74,13 +74,15 @@ fn get_mesh_for_type(target_type: &TargetType) -> (&'static [Vertex3dNoTex2], &'
 /// The transformation is:
 /// 1. Scale vertex by size (x, y, z)
 /// 2. Rotate by rot_z around Z axis
-/// 3. Translate to position
+///
+/// Note: Position translation is NOT applied to vertices. Use the target's
+/// `position` field for glTF node transform.
 ///
 /// # Arguments
 /// * `target` - The hit target definition
 ///
 /// # Returns
-/// A tuple of (vertices, faces) for the target mesh, or None if not visible
+/// A tuple of (vertices, faces) for the target mesh, or None if not visible.
 pub fn build_hit_target_mesh(target: &HitTarget) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
     if !target.is_visible {
         return None;
@@ -102,10 +104,8 @@ pub fn build_hit_target_mesh(target: &HitTarget) -> Option<(Vec<VertexWrapper>, 
             // Rotate by rot_z
             vert = full_matrix.multiply_vector(vert);
 
-            // Translate to position
-            let x = vert.x + target.position.x;
-            let y = vert.y + target.position.y;
-            let z = vert.z + target.position.z;
+            // Note: Position translation is NOT applied here - use target.position
+            // for glTF node transform
 
             // Transform normal (rotation only, no translation)
             let norm = full_matrix.multiply_vector_no_translate(Vec3 {
@@ -117,9 +117,9 @@ pub fn build_hit_target_mesh(target: &HitTarget) -> Option<(Vec<VertexWrapper>, 
             VertexWrapper {
                 vpx_encoded_vertex: [0u8; 32], // Not used for generated meshes
                 vertex: Vertex3dNoTex2 {
-                    x,
-                    y,
-                    z,
+                    x: vert.x,
+                    y: vert.y,
+                    z: vert.z,
                     nx: norm.x,
                     ny: norm.y,
                     nz: norm.z,
@@ -169,12 +169,12 @@ mod tests {
         assert!(!vertices.is_empty());
         assert!(!faces.is_empty());
 
-        // Check that vertices are transformed to position
+        // Vertices are now centered at origin (position not baked in)
+        // They should be within the scaled mesh bounds around origin
         for v in &vertices {
-            // All vertices should be roughly around the position
-            // (within the scaled mesh bounds)
-            assert!(v.vertex.x > 50.0 && v.vertex.x < 150.0);
-            assert!(v.vertex.y > 150.0 && v.vertex.y < 250.0);
+            // Vertices should be around origin, scaled by size
+            assert!(v.vertex.x > -50.0 && v.vertex.x < 50.0);
+            assert!(v.vertex.y > -50.0 && v.vertex.y < 50.0);
         }
     }
 

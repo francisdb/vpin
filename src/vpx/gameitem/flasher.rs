@@ -206,11 +206,26 @@ impl<'de> Deserialize<'de> for RenderMode {
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Flasher {
+    /// Height (z position) of the flasher above the playfield in VPU.
+    /// This is added to the z coordinate after rotation is applied.
+    /// BIFF tag: `FHEI`
     pub height: f32,
+    /// X position of the flasher center in table coordinates.
+    /// Changing this moves all drag points by the same delta.
+    /// BIFF tag: `FLAX`
     pub pos_x: f32,
+    /// Y position of the flasher center in table coordinates.
+    /// Changing this moves all drag points by the same delta.
+    /// BIFF tag: `FLAY`
     pub pos_y: f32,
+    /// Rotation around the X axis in degrees.
+    /// BIFF tag: `FROX`
     pub rot_x: f32,
+    /// Rotation around the Y axis in degrees.
+    /// BIFF tag: `FROY`
     pub rot_y: f32,
+    /// Rotation around the Z axis in degrees.
+    /// BIFF tag: `FROZ`
     pub rot_z: f32,
     pub color: Color,
     is_timer_enabled: bool,
@@ -220,24 +235,31 @@ pub struct Flasher {
     /// When only image_a is set (no image_b), this texture is displayed directly.
     /// When both image_a and image_b are set, they are blended together using
     /// the `filter` and `modulate_vs_add` settings.
+    /// BIFF tag: `IMAG`
     pub image_a: String,
     /// Secondary texture for blending with image_a.
     /// When set along with image_a, both textures are blended together in the shader
     /// based on `filter` (None, Additive, Overlay, Multiply, Screen) and
     /// `modulate_vs_add` settings. If only image_b is set (no image_a), it acts
     /// as the primary texture.
+    /// BIFF tag: `IMAB`
     pub image_b: String,
     /// Overall alpha/opacity of the flasher (0-100).
+    /// BIFF tag: `FALP`
     pub alpha: i32,
     /// Controls blending between image_a and image_b when both are set.
     /// Range: 0.0 to 1.0. Values close to 0 favor image_a, values close to 1 favor image_b.
     /// Clamped internally to avoid 0 (disables blend) and 1 (looks bad with day/night changes).
+    /// BIFF tag: `MOVA`
     pub modulate_vs_add: f32,
     pub is_visible: bool,
     pub add_blend: bool,
-    /// IDMD added in 10.2? Since 10.8.1 no longer written and replaced by RDMD
+    /// Indicates if this flasher is a DMD (dot matrix display).
+    /// BIFF tag: `IDMD` added in 10.2? Since 10.8.1 no longer written and replaced by RDMD
     pub is_dmd: Option<bool>,
-    /// Since 10.8.1
+    /// Render mode for the flasher, determining how it is rendered and which properties are used.
+    /// replaces `is_dmd` and changes from a bool to an enum
+    /// BIFF tag: `RDMD` Since 10.8.1
     pub render_mode: Option<RenderMode>,
     /// Since 10.8.1
     pub render_style: Option<u32>,
@@ -262,12 +284,33 @@ pub struct Flasher {
     /// See [`Filter`] for available modes.
     pub filter: Filter,
     /// Intensity of the filter effect (0-100).
+    /// BIFF tag: `FIAM`
     pub filter_amount: u32,
-    // FIAM
+    /// BIFF tag: `LMAP` added in 10.8
     pub light_map: Option<String>,
-    // BGLS added in 10.8.1
+    /// BIFF tag: `BGLS` added in 10.8.1
     pub backglass: Option<bool>,
-    // LMAP added in 10.8
+
+    /// Polygon vertices defining the flasher shape.
+    ///
+    /// These points define a 2D polygon that forms the flasher mesh. The coordinates
+    /// are stored as absolute positions in table space. The z coordinate of each
+    /// drag point is typically 0.
+    ///
+    /// Relationship with `pos_x`/`pos_y`:
+    /// - `pos_x`/`pos_y` define the center of the flasher
+    /// - When `pos_x`/`pos_y` change in the editor, all drag points are moved by
+    ///   the same delta (they move together as a group)
+    /// - The rotation center for `rot_x`/`rot_y`/`rot_z` is calculated from the
+    ///   bounding box of these drag points
+    ///
+    /// The mesh generation process:
+    /// 1. Vertices are created from these drag points
+    /// 2. The bounding box center is calculated from min/max x and y
+    /// 3. Vertices are translated to the bounding box center, rotated by `rot_z`,
+    ///    `rot_y`, `rot_x`, then translated back with `height` added to z
+    ///
+    /// Minimum 3 points required to form a valid polygon.
     pub drag_points: Vec<DragPoint>,
 
     // these are shared between all items
