@@ -23,25 +23,29 @@ pub use ball_mesh::{BALL_INDICES, BALL_NUM_INDICES, BALL_NUM_VERTICES, BALL_VERT
 
 /// Build the ball mesh
 ///
+/// Returns vertices centered at origin (scaled by radius only).
+/// Use `ball.pos` for the glTF node transform.
+///
 /// # Arguments
 /// * `ball` - The ball definition
 ///
 /// # Returns
-/// Tuple of (vertices, faces) for the ball mesh
+/// Tuple of (vertices, faces) for the ball mesh centered at origin.
 pub(crate) fn build_ball_mesh(ball: &Ball) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
     let radius = ball.radius;
 
-    // Transform the unit sphere vertices by the ball's radius and position
+    // Transform the unit sphere vertices by the ball's radius only
+    // Position is NOT baked in - it's returned separately for node transform
     let vertices: Vec<VertexWrapper> = BALL_VERTICES
         .iter()
         .map(|src| {
             VertexWrapper::new(
                 [0u8; 32],
                 Vertex3dNoTex2 {
-                    // Scale by radius and translate to ball position
-                    x: src.x * radius + ball.pos.x,
-                    y: src.y * radius + ball.pos.y,
-                    z: src.z * radius + ball.pos.z,
+                    // Scale by radius only (no position translation)
+                    x: src.x * radius,
+                    y: src.y * radius,
+                    z: src.z * radius,
                     // Normals stay the same (unit sphere normals)
                     nx: src.nx,
                     ny: src.ny,
@@ -95,11 +99,11 @@ mod tests {
     }
 
     #[test]
-    fn test_ball_mesh_position() {
+    fn test_ball_mesh_centered_at_origin() {
         let ball = create_test_ball();
         let (vertices, _) = build_ball_mesh(&ball);
 
-        // Check that the center of the ball is approximately at the ball position
+        // Check that the center of the ball is at origin (position not baked in)
         let sum_x: f32 = vertices.iter().map(|v| v.vertex.x).sum();
         let sum_y: f32 = vertices.iter().map(|v| v.vertex.y).sum();
         let sum_z: f32 = vertices.iter().map(|v| v.vertex.z).sum();
@@ -108,10 +112,10 @@ mod tests {
         let avg_y = sum_y / vertices.len() as f32;
         let avg_z = sum_z / vertices.len() as f32;
 
-        // The average should be close to the ball position
-        assert!((avg_x - ball.pos.x).abs() < 1.0);
-        assert!((avg_y - ball.pos.y).abs() < 1.0);
-        assert!((avg_z - ball.pos.z).abs() < 1.0);
+        // The average should be close to origin (0, 0, 0)
+        assert!(avg_x.abs() < 1.0);
+        assert!(avg_y.abs() < 1.0);
+        assert!(avg_z.abs() < 1.0);
     }
 
     #[test]
@@ -119,11 +123,11 @@ mod tests {
         let ball = create_test_ball();
         let (vertices, _) = build_ball_mesh(&ball);
 
-        // Check that the vertices are approximately at the correct distance from center
+        // Check that the vertices are approximately at the correct distance from origin
         for v in &vertices {
-            let dx = v.vertex.x - ball.pos.x;
-            let dy = v.vertex.y - ball.pos.y;
-            let dz = v.vertex.z - ball.pos.z;
+            let dx = v.vertex.x;
+            let dy = v.vertex.y;
+            let dz = v.vertex.z;
             let distance = (dx * dx + dy * dy + dz * dz).sqrt();
 
             // Distance should be close to radius

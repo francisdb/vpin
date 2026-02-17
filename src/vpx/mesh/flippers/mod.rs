@@ -19,12 +19,17 @@ use crate::vpx::math::{Mat3, Vec2, Vec3};
 pub use flipper_base_mesh::*;
 
 /// Result of flipper mesh generation with separate base and rubber meshes
+///
+/// Vertices are centered at the flipper's rotation pivot point (center).
+/// The center position is returned for use as a glTF node transform.
 pub struct FlipperMeshes {
     /// The base flipper mesh (uses flipper.material)
     pub base: (Vec<VertexWrapper>, Vec<VpxFace>),
     /// The rubber mesh on top of the flipper (uses flipper.rubber_material)
     /// Only present if rubber_thickness > 0
     pub rubber: Option<(Vec<VertexWrapper>, Vec<VpxFace>)>,
+    /// Center position (rotation pivot) in VPX coordinates.
+    pub center: Vec3,
 }
 
 /// Reference vertices for the flipper TIP bottom (the end that hits the ball)
@@ -610,10 +615,10 @@ pub fn build_flipper_meshes(flipper: &Flipper, surface_height: f32) -> Option<Fl
         vert.ny = rotated_normal.y;
         vert.nz = rotated_normal.z;
 
-        // Apply start angle rotation and translate to flipper center
+        // Apply start angle rotation (do NOT translate to flipper center - that goes in node transform)
         let (sin_a, cos_a) = start_angle_rad.sin_cos();
-        let final_x = vert.x * cos_a - vert.y * sin_a + flipper.center.x;
-        let final_y = vert.x * sin_a + vert.y * cos_a + flipper.center.y;
+        let final_x = vert.x * cos_a - vert.y * sin_a;
+        let final_y = vert.x * sin_a + vert.y * cos_a;
 
         // Rotate normal as well
         let final_nx = vert.nx * cos_a - vert.ny * sin_a;
@@ -741,10 +746,10 @@ pub fn build_flipper_meshes(flipper: &Flipper, surface_height: f32) -> Option<Fl
             vert.ny = rotated_normal.y;
             vert.nz = rotated_normal.z;
 
-            // Apply start angle rotation and translate to flipper center
+            // Apply start angle rotation (do NOT translate to flipper center - that goes in node transform)
             let (sin_a, cos_a) = start_angle_rad.sin_cos();
-            let final_x = vert.x * cos_a - vert.y * sin_a + flipper.center.x;
-            let final_y = vert.x * sin_a + vert.y * cos_a + flipper.center.y;
+            let final_x = vert.x * cos_a - vert.y * sin_a;
+            let final_y = vert.x * sin_a + vert.y * cos_a;
 
             // Rotate normal as well
             let final_nx = vert.nx * cos_a - vert.ny * sin_a;
@@ -783,5 +788,10 @@ pub fn build_flipper_meshes(flipper: &Flipper, surface_height: f32) -> Option<Fl
     Some(FlipperMeshes {
         base: (base_vertices, base_indices),
         rubber,
+        center: Vec3 {
+            x: flipper.center.x,
+            y: flipper.center.y,
+            z: surface_height,
+        },
     })
 }

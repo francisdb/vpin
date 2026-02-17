@@ -131,7 +131,17 @@ pub struct Plunger {
     is_timer_enabled: bool,
     timer_interval: i32,
     pub is_visible: bool,
-    pub is_reflection_enabled: Option<bool>, // REEN (was missing in 10.01)
+    /// Whether this plunger appears in playfield reflections.
+    ///
+    /// When `true`, the ball is rendered in the reflection pass.
+    /// When `false`, the ball won't appear as a reflection on the playfield.
+    ///
+    /// BIFF tag: `REEN` (was missing in 10.01)
+    pub is_reflection_enabled: Option<bool>,
+    /// Name of the surface (ramp or wall top) this plunger sits on.
+    /// Used to determine the plunger's base height (z position).
+    /// If empty, the plunger sits on the playfield.
+    /// BIFF tag: SURF
     pub surface: String,
     pub name: String,
     pub tip_shape: String,

@@ -29,6 +29,8 @@ pub use bumper_ring_mesh::*;
 pub use bumper_socket_mesh::*;
 
 /// Result of bumper mesh generation with separate meshes for each part
+///
+/// Vertices are centered at origin.
 pub struct BumperMeshes {
     /// The base mesh (uses bumper.base_material)
     pub base: Option<(Vec<VertexWrapper>, Vec<VpxFace>)>,
@@ -48,27 +50,27 @@ pub struct BumperMeshes {
 ///
 /// # Returns
 /// A BumperMeshes struct containing all visible bumper parts
-pub fn build_bumper_meshes(bumper: &Bumper, base_height: f32) -> BumperMeshes {
+pub fn build_bumper_meshes(bumper: &Bumper) -> BumperMeshes {
     let full_matrix = Mat3::rotate_z(bumper.orientation.to_radians());
 
     BumperMeshes {
         base: if bumper.is_base_visible {
-            Some(generate_base_mesh(bumper, base_height, &full_matrix))
+            Some(generate_base_mesh(bumper, &full_matrix))
         } else {
             None
         },
         socket: if bumper.is_socket_visible.unwrap_or(true) {
-            Some(generate_socket_mesh(bumper, base_height, &full_matrix))
+            Some(generate_socket_mesh(bumper, &full_matrix))
         } else {
             None
         },
         ring: if bumper.is_ring_visible.unwrap_or(true) {
-            Some(generate_ring_mesh(bumper, base_height, &full_matrix))
+            Some(generate_ring_mesh(bumper, &full_matrix))
         } else {
             None
         },
         cap: if bumper.is_cap_visible {
-            Some(generate_cap_mesh(bumper, base_height, &full_matrix))
+            Some(generate_cap_mesh(bumper, &full_matrix))
         } else {
             None
         },
@@ -77,11 +79,7 @@ pub fn build_bumper_meshes(bumper: &Bumper, base_height: f32) -> BumperMeshes {
 
 /// Generate the base mesh
 /// From VPinball Bumper::GenerateBaseMesh
-fn generate_base_mesh(
-    bumper: &Bumper,
-    base_height: f32,
-    full_matrix: &Mat3,
-) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
+fn generate_base_mesh(bumper: &Bumper, full_matrix: &Mat3) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
     let scale_xy = bumper.radius;
 
     let vertices: Vec<VertexWrapper> = BUMPER_BASE_MESH
@@ -102,9 +100,9 @@ fn generate_base_mesh(
             VertexWrapper::new(
                 [0u8; 32],
                 Vertex3dNoTex2 {
-                    x: vert.x * scale_xy + bumper.center.x,
-                    y: vert.y * scale_xy + bumper.center.y,
-                    z: vert.z * bumper.height_scale + base_height,
+                    x: vert.x * scale_xy,
+                    y: vert.y * scale_xy,
+                    z: vert.z * bumper.height_scale,
                     nx: norm.x,
                     ny: norm.y,
                     nz: norm.z,
@@ -129,11 +127,7 @@ fn generate_base_mesh(
 
 /// Generate the socket/skirt mesh
 /// From VPinball Bumper::GenerateSocketMesh
-fn generate_socket_mesh(
-    bumper: &Bumper,
-    base_height: f32,
-    full_matrix: &Mat3,
-) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
+fn generate_socket_mesh(bumper: &Bumper, full_matrix: &Mat3) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
     let scale_xy = bumper.radius;
 
     let vertices: Vec<VertexWrapper> = BUMPER_SOCKET_MESH
@@ -154,10 +148,10 @@ fn generate_socket_mesh(
             VertexWrapper::new(
                 [0u8; 32],
                 Vertex3dNoTex2 {
-                    x: vert.x * scale_xy + bumper.center.x,
-                    y: vert.y * scale_xy + bumper.center.y,
+                    x: vert.x * scale_xy,
+                    y: vert.y * scale_xy,
                     // Socket is offset by 5.0 from base height
-                    z: vert.z * bumper.height_scale + (base_height + 5.0),
+                    z: vert.z * bumper.height_scale + 5.0,
                     nx: norm.x,
                     ny: norm.y,
                     nz: norm.z,
@@ -182,11 +176,7 @@ fn generate_socket_mesh(
 
 /// Generate the ring mesh
 /// From VPinball Bumper::GenerateRingMesh
-fn generate_ring_mesh(
-    bumper: &Bumper,
-    base_height: f32,
-    full_matrix: &Mat3,
-) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
+fn generate_ring_mesh(bumper: &Bumper, full_matrix: &Mat3) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
     let scale_xy = bumper.radius;
 
     let vertices: Vec<VertexWrapper> = BUMPER_RING_MESH
@@ -207,9 +197,9 @@ fn generate_ring_mesh(
             VertexWrapper::new(
                 [0u8; 32],
                 Vertex3dNoTex2 {
-                    x: vert.x * scale_xy + bumper.center.x,
-                    y: vert.y * scale_xy + bumper.center.y,
-                    z: vert.z * bumper.height_scale + base_height,
+                    x: vert.x * scale_xy,
+                    y: vert.y * scale_xy,
+                    z: vert.z * bumper.height_scale,
                     nx: norm.x,
                     ny: norm.y,
                     nz: norm.z,
@@ -234,11 +224,7 @@ fn generate_ring_mesh(
 
 /// Generate the cap mesh
 /// From VPinball Bumper::GenerateCapMesh
-fn generate_cap_mesh(
-    bumper: &Bumper,
-    base_height: f32,
-    full_matrix: &Mat3,
-) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
+fn generate_cap_mesh(bumper: &Bumper, full_matrix: &Mat3) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
     // Cap uses 2x the radius for scaling
     let scale_xy = bumper.radius * 2.0;
 
@@ -260,10 +246,10 @@ fn generate_cap_mesh(
             VertexWrapper::new(
                 [0u8; 32],
                 Vertex3dNoTex2 {
-                    x: vert.x * scale_xy + bumper.center.x,
-                    y: vert.y * scale_xy + bumper.center.y,
-                    // Cap Z is offset by height_scale from base + height_scale
-                    z: vert.z * bumper.height_scale + (bumper.height_scale + base_height),
+                    x: vert.x * scale_xy,
+                    y: vert.y * scale_xy,
+                    // Cap Z is offset by height_scale from base
+                    z: vert.z * bumper.height_scale + bumper.height_scale,
                     nx: norm.x,
                     ny: norm.y,
                     nz: norm.z,
@@ -303,7 +289,7 @@ mod tests {
         bumper.is_ring_visible = Some(true);
         bumper.is_socket_visible = Some(true);
 
-        let meshes = build_bumper_meshes(&bumper, 0.0);
+        let meshes = build_bumper_meshes(&bumper);
 
         // Check base mesh
         assert!(meshes.base.is_some());
@@ -342,7 +328,7 @@ mod tests {
         bumper.is_ring_visible = Some(false);
         bumper.is_socket_visible = Some(false);
 
-        let meshes = build_bumper_meshes(&bumper, 0.0);
+        let meshes = build_bumper_meshes(&bumper);
 
         assert!(meshes.base.is_none());
         assert!(meshes.socket.is_none());

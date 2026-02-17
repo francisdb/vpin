@@ -42,6 +42,8 @@ pub use kicker_t1_mesh::*;
 pub use kicker_williams_mesh::*;
 
 /// Result of kicker mesh generation with separate meshes for plate and kicker body
+///
+/// Vertices are centered at origin.
 pub struct KickerMeshes {
     /// The plate mesh (flat circular base)
     pub plate: Option<(Vec<VertexWrapper>, Vec<VpxFace>)>,
@@ -51,13 +53,14 @@ pub struct KickerMeshes {
 
 /// Generate all kicker meshes based on the kicker parameters
 ///
+/// Vertices are centered at origin.
+///
 /// # Arguments
 /// * `kicker` - The kicker definition
-/// * `base_height` - The height of the surface the kicker sits on (from table surface lookup)
 ///
 /// # Returns
 /// A KickerMeshes struct containing plate and kicker body meshes
-pub fn build_kicker_meshes(kicker: &Kicker, base_height: f32) -> KickerMeshes {
+pub fn build_kicker_meshes(kicker: &Kicker) -> KickerMeshes {
     // Invisible kickers have no mesh
     if matches!(kicker.kicker_type, KickerType::Invisible) {
         return KickerMeshes {
@@ -67,8 +70,8 @@ pub fn build_kicker_meshes(kicker: &Kicker, base_height: f32) -> KickerMeshes {
     }
 
     KickerMeshes {
-        plate: Some(generate_plate_mesh(kicker, base_height)),
-        kicker: Some(generate_kicker_mesh(kicker, base_height)),
+        plate: Some(generate_plate_mesh(kicker)),
+        kicker: Some(generate_kicker_mesh(kicker)),
     }
 }
 
@@ -77,8 +80,10 @@ pub fn build_kicker_meshes(kicker: &Kicker, base_height: f32) -> KickerMeshes {
 /// The plate is a flat circular base that's the same for all kicker types,
 /// but scaled differently based on kicker type.
 ///
+/// Vertices are centered at origin, scaled by radius.
+///
 /// Ported from VPinball kicker.cpp RenderSetup() plate section
-fn generate_plate_mesh(kicker: &Kicker, base_height: f32) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
+fn generate_plate_mesh(kicker: &Kicker) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
     // Calculate plate radius based on kicker type
     // From kicker.cpp lines 211-218
     let rad = match kicker.kicker_type {
@@ -93,12 +98,12 @@ fn generate_plate_mesh(kicker: &Kicker, base_height: f32) -> (Vec<VertexWrapper>
 
     let mut vertices = Vec::with_capacity(num_vertices);
 
-    // Transform vertices
+    // Transform vertices (centered at origin)
     // From kicker.cpp lines 219-229
     for src in &KICKER_PLATE_VERTICES {
-        let x = src.x * rad + kicker.center.x;
-        let y = src.y * rad + kicker.center.y;
-        let z = src.z * rad + base_height;
+        let x = src.x * rad;
+        let y = src.y * rad;
+        let z = src.z * rad;
 
         vertices.push(VertexWrapper::new(
             [0u8; 32],
@@ -133,8 +138,10 @@ fn generate_plate_mesh(kicker: &Kicker, base_height: f32) -> (Vec<VertexWrapper>
 /// The mesh used depends on the kicker type. Each mesh is scaled by radius
 /// and rotated by orientation.
 ///
+/// Vertices are centered at origin, scaled by radius and rotated by orientation.
+///
 /// Ported from VPinball kicker.cpp GenerateMesh()
-fn generate_kicker_mesh(kicker: &Kicker, base_height: f32) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
+fn generate_kicker_mesh(kicker: &Kicker) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
     // Get mesh data and parameters based on kicker type
     // From kicker.cpp GenerateMesh() lines 470-526
     let (mesh_vertices, mesh_indices, z_offset, z_rot) = match kicker.kicker_type {
@@ -184,7 +191,7 @@ fn generate_kicker_mesh(kicker: &Kicker, base_height: f32) -> (Vec<VertexWrapper
 
     let mut vertices = Vec::with_capacity(num_vertices);
 
-    // Transform vertices
+    // Transform vertices (centered at origin)
     // From kicker.cpp GenerateMesh() lines 528-541
     for src in mesh_vertices {
         // Apply z offset and rotate
@@ -194,10 +201,10 @@ fn generate_kicker_mesh(kicker: &Kicker, base_height: f32) -> (Vec<VertexWrapper
             src.z + z_offset,
         ));
 
-        // Scale by radius and translate to position
-        let x = vert.x * kicker.radius + kicker.center.x;
-        let y = vert.y * kicker.radius + kicker.center.y;
-        let z = vert.z * kicker.radius + base_height;
+        // Scale by radius (no translation - use node transform)
+        let x = vert.x * kicker.radius;
+        let y = vert.y * kicker.radius;
+        let z = vert.z * kicker.radius;
 
         // Rotate normals (no translation)
         let normal = full_matrix.transform_normal(src.nx, src.ny, src.nz);
@@ -248,7 +255,7 @@ mod tests {
     #[test]
     fn test_invisible_kicker_has_no_mesh() {
         let kicker = create_test_kicker(KickerType::Invisible);
-        let meshes = build_kicker_meshes(&kicker, 0.0);
+        let meshes = build_kicker_meshes(&kicker);
         assert!(meshes.plate.is_none());
         assert!(meshes.kicker.is_none());
     }
@@ -256,7 +263,7 @@ mod tests {
     #[test]
     fn test_cup_kicker_has_meshes() {
         let kicker = create_test_kicker(KickerType::Cup);
-        let meshes = build_kicker_meshes(&kicker, 0.0);
+        let meshes = build_kicker_meshes(&kicker);
         assert!(meshes.plate.is_some());
         assert!(meshes.kicker.is_some());
 
@@ -272,7 +279,7 @@ mod tests {
     #[test]
     fn test_williams_kicker_rotation() {
         let kicker = create_test_kicker(KickerType::Williams);
-        let meshes = build_kicker_meshes(&kicker, 0.0);
+        let meshes = build_kicker_meshes(&kicker);
         assert!(meshes.kicker.is_some());
 
         let (kicker_verts, _) = meshes.kicker.unwrap();
@@ -290,7 +297,7 @@ mod tests {
             KickerType::Gottlieb,
         ] {
             let kicker = create_test_kicker(kicker_type.clone());
-            let meshes = build_kicker_meshes(&kicker, 0.0);
+            let meshes = build_kicker_meshes(&kicker);
             assert!(
                 meshes.plate.is_some(),
                 "Plate should exist for {:?}",

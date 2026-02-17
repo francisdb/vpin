@@ -29,9 +29,15 @@ pub struct Rubber {
     pub rot_x: f32,
     pub rot_y: f32,
     pub rot_z: f32,
-    pub is_reflection_enabled: Option<bool>, // REEN (was missing in 10.01)
-    pub physics_material: Option<String>,    // MAPH (added in 10.?)
-    pub overwrite_physics: Option<bool>,     // OVPH (added in 10.?)
+    /// Whether this rubber appears in playfield reflections.
+    ///
+    /// When `true`, the ball is rendered in the reflection pass.
+    /// When `false`, the ball won't appear as a reflection on the playfield.
+    ///
+    /// BIFF tag: `REEN` (was missing in 10.01)
+    pub is_reflection_enabled: Option<bool>,
+    pub physics_material: Option<String>, // MAPH (added in 10.?)
+    pub overwrite_physics: Option<bool>,  // OVPH (added in 10.?)
 
     // these are shared between all items
     pub is_locked: bool,

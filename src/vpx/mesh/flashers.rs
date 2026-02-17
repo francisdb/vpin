@@ -8,6 +8,7 @@ use crate::vpx::TableDimensions;
 use crate::vpx::gameitem::flasher::Flasher;
 use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
+use crate::vpx::math::Vec3;
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 use std::f32::consts::PI;
@@ -184,19 +185,23 @@ fn point_in_triangle(
 }
 
 /// Apply rotation transformation to flasher mesh
+///
+/// Vertices are transformed relative to the center point and remain centered at origin.
+/// Height is NOT applied here - it should be part of the glTF node translation.
 fn apply_rotation(
     vertices: &mut [Vertex3dNoTex2],
     rot_x: f32,
     rot_y: f32,
     rot_z: f32,
-    height: f32,
     center_x: f32,
     center_y: f32,
 ) {
     if rot_x == 0.0 && rot_y == 0.0 && rot_z == 0.0 {
-        // Just apply height offset
+        // Just center vertices (no rotation needed)
         for v in vertices.iter_mut() {
-            v.z = height;
+            v.x -= center_x;
+            v.y -= center_y;
+            v.z = 0.0;
         }
         return;
     }
@@ -225,7 +230,7 @@ fn apply_rotation(
     let m22 = cos_y * cos_x;
 
     for v in vertices.iter_mut() {
-        // Translate to center
+        // Translate to center (vertices will stay centered at origin)
         let x = v.x - center_x;
         let y = v.y - center_y;
         let z = 0.0; // Flashers start flat
@@ -235,10 +240,10 @@ fn apply_rotation(
         let new_y = m10 * x + m11 * y + m12 * z;
         let new_z = m20 * x + m21 * y + m22 * z;
 
-        // Translate back and apply height
-        v.x = new_x + center_x;
-        v.y = new_y + center_y;
-        v.z = new_z + height;
+        // Keep centered at origin (height will be in node translation)
+        v.x = new_x;
+        v.y = new_y;
+        v.z = new_z;
 
         // Also rotate normals
         let nx = v.nx;
@@ -252,10 +257,17 @@ fn apply_rotation(
 }
 
 /// Build the complete flasher mesh
+///
+/// Returns vertices centered at origin, along with the center position in VPX coordinates.
+/// The center position should be used as a glTF node transform.
+///
+/// # Returns
+/// A tuple of (vertices, faces, position) or None if invalid.
+/// Position is (x, y, z) in VPX coordinates (center_x, center_y, height).
 pub(crate) fn build_flasher_mesh(
     flasher: &Flasher,
     table_dims: &TableDimensions,
-) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
+) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>, Vec3)> {
     if flasher.drag_points.len() < 3 {
         return None;
     }
@@ -342,17 +354,16 @@ pub(crate) fn build_flasher_mesh(
         return None;
     }
 
-    // Calculate center for rotation
+    // Calculate center for rotation and node transform
     let center_x = (minx + maxx) * 0.5;
     let center_y = (miny + maxy) * 0.5;
 
-    // Apply rotation transformation
+    // Apply rotation transformation (vertices will be centered at origin)
     apply_rotation(
         &mut vertices,
         flasher.rot_x,
         flasher.rot_y,
         flasher.rot_z,
-        flasher.height,
         center_x,
         center_y,
     );
@@ -367,7 +378,11 @@ pub(crate) fn build_flasher_mesh(
         .map(|tri| VpxFace::new(tri[0] as i64, tri[1] as i64, tri[2] as i64))
         .collect();
 
-    Some((wrapped, faces))
+    Some((
+        wrapped,
+        faces,
+        Vec3::new(center_x, center_y, flasher.height),
+    ))
 }
 
 #[cfg(test)]
@@ -413,9 +428,14 @@ mod tests {
         let result = build_flasher_mesh(&flasher, &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0));
         assert!(result.is_some());
 
-        let (vertices, indices) = result.unwrap();
+        let (vertices, indices, position) = result.unwrap();
         assert_eq!(vertices.len(), 4);
         assert_eq!(indices.len(), 2); // 2 triangles for a quad
+
+        // Center should be at (50, 50) for a 0-100 x 0-100 quad, height = 50
+        assert!((position.x - 50.0).abs() < 0.01);
+        assert!((position.y - 50.0).abs() < 0.01);
+        assert!((position.z - 50.0).abs() < 0.01);
     }
 
     #[test]
@@ -459,11 +479,9 @@ mod tests {
         let result = build_flasher_mesh(&flasher, &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0));
         assert!(result.is_some());
 
-        let (vertices, _indices) = result.unwrap();
-        // Verify height is not just flat at flasher.height due to rotation
-        let has_varied_z = vertices
-            .iter()
-            .any(|v| (v.vertex.z - flasher.height).abs() > 0.01);
+        let (vertices, _indices, _position) = result.unwrap();
+        // Verify z values vary due to rotation (not all at 0)
+        let has_varied_z = vertices.iter().any(|v| v.vertex.z.abs() > 0.01);
         assert!(has_varied_z, "Rotation should cause varied z values");
     }
 
@@ -498,7 +516,7 @@ mod tests {
         let result = build_flasher_mesh(&flasher, &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0));
         assert!(result.is_some());
 
-        let (vertices, indices) = result.unwrap();
+        let (vertices, indices, _position) = result.unwrap();
         assert_eq!(vertices.len(), 3);
         assert_eq!(indices.len(), 1); // 1 triangle
     }
@@ -545,7 +563,7 @@ mod tests {
             "Clockwise winding flasher should generate a mesh"
         );
 
-        let (vertices, indices) = result.unwrap();
+        let (vertices, indices, _position) = result.unwrap();
         assert_eq!(vertices.len(), 4);
         assert_eq!(indices.len(), 2); // 2 triangles for a quad
     }

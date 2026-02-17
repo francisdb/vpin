@@ -189,7 +189,7 @@ fn write_gate_meshes(
     mesh_format: PrimitiveMeshFormat,
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
-    let Some(gate_meshes) = build_gate_meshes(gate, 0.0) else {
+    let Some(gate_meshes) = build_gate_meshes(gate) else {
         return Ok(());
     };
 
@@ -236,7 +236,7 @@ fn write_bumper_meshes(
     mesh_format: PrimitiveMeshFormat,
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
-    let bumper_meshes = build_bumper_meshes(bumper, 0.0);
+    let bumper_meshes = build_bumper_meshes(bumper);
     let file_name_base = json_file_name.trim_end_matches(".json");
 
     // Write base mesh
@@ -355,7 +355,7 @@ fn write_plunger_meshes(
     mesh_format: PrimitiveMeshFormat,
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
-    let plunger_meshes = build_plunger_meshes(plunger, 0.0);
+    let plunger_meshes = build_plunger_meshes(plunger);
     let file_name_base = json_file_name.trim_end_matches(".json");
 
     // Write flat rod mesh
@@ -449,7 +449,7 @@ fn write_spinner_meshes(
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
     // TODO: get surface height from the table
-    let meshes = build_spinner_meshes(spinner, 0.0);
+    let meshes = build_spinner_meshes(spinner);
 
     // Write bracket mesh if present
     if let Some((bracket_vertices, bracket_indices)) = meshes.bracket {
@@ -488,7 +488,7 @@ fn write_trigger_mesh(
     mesh_format: PrimitiveMeshFormat,
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
-    let Some((vertices, indices)) = build_trigger_mesh(trigger, 0.0) else {
+    let Some((vertices, indices)) = build_trigger_mesh(trigger) else {
         return Ok(());
     };
 
@@ -528,7 +528,7 @@ fn write_rubber_meshes(
     mesh_format: PrimitiveMeshFormat,
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
-    let Some((vertices, indices)) = build_rubber_mesh(rubber) else {
+    let Some((vertices, indices, _center)) = build_rubber_mesh(rubber) else {
         return Ok(());
     };
 
@@ -566,7 +566,7 @@ fn write_flasher_meshes(
     table_dims: &TableDimensions,
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
-    let Some((vertices, indices)) = build_flasher_mesh(flasher, table_dims) else {
+    let Some((vertices, indices, _center)) = build_flasher_mesh(flasher, table_dims) else {
         return Ok(());
     };
 

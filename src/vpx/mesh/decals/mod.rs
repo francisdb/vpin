@@ -21,17 +21,15 @@ use log::warn;
 
 /// Generate the decal mesh
 ///
+/// Vertices are centered at origin.
+///
 /// # Arguments
 /// * `decal` - The decal definition
-/// * `surface_height` - The height of the surface the decal sits on
 ///
 /// # Returns
 /// Tuple of (vertices, faces) or None if the decal should not be rendered
 /// (e.g., text decals which we can't render without a font renderer)
-pub fn build_decal_mesh(
-    decal: &Decal,
-    surface_height: f32,
-) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
+pub fn build_decal_mesh(decal: &Decal) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
     // Skip text decals - we can't render text without a font renderer
     // In VPinball, text is rendered to a texture at runtime
     if decal.decal_type == DecalType::Text {
@@ -72,10 +70,10 @@ pub fn build_decal_mesh(
     let sn = radangle.sin();
     let cs = radangle.cos();
 
-    // Z position: surface height + 0.2 offset (from decal.cpp line 646)
-    let z = surface_height + 0.2;
+    // Z position: 0 (node transform will add surface_height + 0.2)
+    let z = 0.0;
 
-    // Build the 4 vertices of the quad
+    // Build the 4 vertices of the quad (centered at origin)
     // From decal.cpp lines 653-688
     // Note: VPinball uses TRIANGLESTRIP order, we'll convert to indexed triangles
     let vertices = vec![
@@ -83,8 +81,8 @@ pub fn build_decal_mesh(
         VertexWrapper::new(
             [0u8; 32],
             Vertex3dNoTex2 {
-                x: decal.center.x + sn * (halfheight + leading) - cs * halfwidth,
-                y: decal.center.y - cs * (halfheight + leading) - sn * halfwidth,
+                x: sn * (halfheight + leading) - cs * halfwidth,
+                y: -cs * (halfheight + leading) - sn * halfwidth,
                 z,
                 nx: 0.0,
                 ny: 0.0,
@@ -97,8 +95,8 @@ pub fn build_decal_mesh(
         VertexWrapper::new(
             [0u8; 32],
             Vertex3dNoTex2 {
-                x: decal.center.x + sn * (halfheight + leading) + cs * halfwidth,
-                y: decal.center.y - cs * (halfheight + leading) + sn * halfwidth,
+                x: sn * (halfheight + leading) + cs * halfwidth,
+                y: -cs * (halfheight + leading) + sn * halfwidth,
                 z,
                 nx: 0.0,
                 ny: 0.0,
@@ -111,8 +109,8 @@ pub fn build_decal_mesh(
         VertexWrapper::new(
             [0u8; 32],
             Vertex3dNoTex2 {
-                x: decal.center.x - sn * (halfheight + descent) - cs * halfwidth,
-                y: decal.center.y + cs * (halfheight + descent) - sn * halfwidth,
+                x: -sn * (halfheight + descent) - cs * halfwidth,
+                y: cs * (halfheight + descent) - sn * halfwidth,
                 z,
                 nx: 0.0,
                 ny: 0.0,
@@ -125,8 +123,8 @@ pub fn build_decal_mesh(
         VertexWrapper::new(
             [0u8; 32],
             Vertex3dNoTex2 {
-                x: decal.center.x - sn * (halfheight + descent) + cs * halfwidth,
-                y: decal.center.y + cs * (halfheight + descent) + sn * halfwidth,
+                x: -sn * (halfheight + descent) + cs * halfwidth,
+                y: cs * (halfheight + descent) + sn * halfwidth,
                 z,
                 nx: 0.0,
                 ny: 0.0,
@@ -177,7 +175,7 @@ mod tests {
     #[test]
     fn test_image_decal_generates_mesh() {
         let decal = create_test_decal(DecalType::Image);
-        let result = build_decal_mesh(&decal, 0.0);
+        let result = build_decal_mesh(&decal);
         assert!(result.is_some());
 
         let (vertices, faces) = result.unwrap();
@@ -188,7 +186,7 @@ mod tests {
     #[test]
     fn test_text_decal_returns_none() {
         let decal = create_test_decal(DecalType::Text);
-        let result = build_decal_mesh(&decal, 0.0);
+        let result = build_decal_mesh(&decal);
         assert!(result.is_none());
     }
 
@@ -196,7 +194,7 @@ mod tests {
     fn test_image_decal_without_image_returns_none() {
         let mut decal = create_test_decal(DecalType::Image);
         decal.image = String::new();
-        let result = build_decal_mesh(&decal, 0.0);
+        let result = build_decal_mesh(&decal);
         assert!(result.is_none());
     }
 
@@ -204,26 +202,25 @@ mod tests {
     fn test_backglass_decal_returns_none() {
         let mut decal = create_test_decal(DecalType::Image);
         decal.backglass = true;
-        let result = build_decal_mesh(&decal, 0.0);
+        let result = build_decal_mesh(&decal);
         assert!(result.is_none());
     }
 
     #[test]
-    fn test_decal_z_offset() {
+    fn test_decal_z_at_origin() {
         let decal = create_test_decal(DecalType::Image);
-        let surface_height = 10.0;
-        let (vertices, _) = build_decal_mesh(&decal, surface_height).unwrap();
+        let (vertices, _) = build_decal_mesh(&decal).unwrap();
 
-        // All vertices should have z = surface_height + 0.2
+        // All vertices should have z = 0 (node transform adds surface_height + 0.2)
         for v in &vertices {
-            assert!((v.vertex.z - 10.2).abs() < 0.001);
+            assert!(v.vertex.z.abs() < 0.001);
         }
     }
 
     #[test]
     fn test_decal_uv_coordinates() {
         let decal = create_test_decal(DecalType::Image);
-        let (vertices, _) = build_decal_mesh(&decal, 0.0).unwrap();
+        let (vertices, _) = build_decal_mesh(&decal).unwrap();
 
         // Check UV corners
         assert!((vertices[0].vertex.tu - 0.0).abs() < 0.001); // top-left

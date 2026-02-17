@@ -140,6 +140,10 @@ pub struct Kicker {
     is_timer_enabled: bool,
     timer_interval: i32,
     pub material: String,
+    /// Name of the surface (ramp or wall top) this kicker sits on.
+    /// Used to determine the kicker's base height (z position).
+    /// If empty, the kicker sits on the playfield.
+    /// BIFF tag: SURF
     pub surface: String,
     pub is_enabled: bool,
     pub name: String,

@@ -9,6 +9,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Spinner {
     pub name: String,
+    /// BIFF tag: VCEN
     pub center: Vertex2D,
     /// Rotation in degrees, where 0 is the default position,
     /// positive is clockwise, and negative is counterclockwise
@@ -17,18 +18,110 @@ pub struct Spinner {
     pub rotation: f32,
     is_timer_enabled: bool,
     timer_interval: i32,
+    /// Height offset of the spinner above its surface in VPU.
+    ///
+    /// The spinner's z position is calculated as: `surface_height + height`
+    ///
+    /// Default: 60.0
+    ///
+    /// BIFF tag: HIGH
     pub height: f32,
+    /// Length of the spinner plate in VPU.
+    ///
+    /// This value is used to scale the spinner mesh uniformly in x, y, and z.
+    /// The mesh vertices are multiplied by this value.
+    ///
+    /// Default: 80.0
+    ///
+    /// BIFF tag: LGTH
     pub length: f32,
+    /// Damping (anti-friction) factor for the spinner's rotation.
+    ///
+    /// Controls how quickly the spinner loses rotational energy.
+    /// Higher values mean less friction and longer spin times.
+    /// Range: 0.0 to 1.0, where 1.0 is no friction.
+    ///
+    /// Also known as "AntiFriction" in the VPinball UI.
+    ///
+    /// Default: 0.9879
+    ///
+    /// BIFF tag: AFRC
     pub damping: f32,
+    /// Maximum rotation angle in degrees (for limited angle mode).
+    ///
+    /// When `angle_max` equals `angle_min`, the spinner rotates freely (360°).
+    /// When they differ, the spinner is constrained between these angles.
+    ///
+    /// Default: 0.0
+    ///
+    /// BIFF tag: SMAX
     pub angle_max: f32,
+    /// Minimum rotation angle in degrees (for limited angle mode).
+    ///
+    /// When `angle_max` equals `angle_min`, the spinner rotates freely (360°).
+    /// When they differ, the spinner is constrained between these angles.
+    ///
+    /// Default: 0.0
+    ///
+    /// BIFF tag: SMIN
     pub angle_min: f32,
+    /// Elasticity (bounciness) of the spinner when hit by the ball.
+    ///
+    /// Higher values mean more energy is transferred to the ball on collision.
+    ///
+    /// Default: 0.3
+    ///
+    /// BIFF tag: SELA
     pub elasticity: f32,
+    /// Whether the spinner plate is visible.
+    ///
+    /// When `false`, the spinner is invisible but still interacts with the ball.
+    ///
+    /// Default: true
+    ///
+    /// BIFF tag: SVIS
     pub is_visible: bool,
+    /// Whether to show the mounting bracket.
+    ///
+    /// The bracket is the fixed metal frame that holds the spinner plate.
+    ///
+    /// Default: true
+    ///
+    /// BIFF tag: SSUP
     pub show_bracket: bool,
+    /// Material name for the spinner plate.
+    ///
+    /// References a material defined in the table's material list.
+    /// Controls the appearance (color, reflectivity, etc.) of the plate.
+    ///
+    /// Default: empty string (uses default material)
+    ///
+    /// BIFF tag: MATR
     pub material: String,
+    /// Image/texture name for the spinner plate.
+    ///
+    /// References an image defined in the table's image list.
+    /// Applied to the plate mesh surface.
+    ///
+    /// The texture is a texture atlas, you can base it on the "Spinner" texture
+    /// in the example table.
+    ///
+    /// Default: empty string (no texture)
+    ///
+    /// BIFF tag: IMGF
     pub image: String,
+    /// Name of the surface (ramp or wall top) this spinner sits on.
+    /// Used to determine the spinner's base height (z position).
+    /// If empty, the spinner sits on the playfield.
+    /// BIFF tag: SURF
     pub surface: String,
-    pub is_reflection_enabled: Option<bool>, // added in ?
+    /// Whether this spinner appears in playfield reflections.
+    ///
+    /// When `true`, the ball is rendered in the reflection pass.
+    /// When `false`, the ball won't appear as a reflection on the playfield.
+    ///
+    /// BIFF tag: `REEN` (was missing in 10.01)
+    pub is_reflection_enabled: Option<bool>,
 
     // these are shared between all items
     pub is_locked: bool,

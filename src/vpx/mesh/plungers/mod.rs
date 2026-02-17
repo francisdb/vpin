@@ -78,6 +78,8 @@ use std::f32::consts::PI;
 const N_LATHE_POINTS: usize = 16;
 
 /// Result of plunger mesh generation with separate meshes for each part
+///
+/// Vertices are generated relative to the plunger center (0, 0) and base height (z=0).
 pub struct PlungerMeshes {
     /// The flat rod mesh (for Flat type only)
     pub flat_rod: Option<(Vec<VertexWrapper>, Vec<VpxFace>)>,
@@ -141,12 +143,9 @@ fn parse_tip_shape(tip_shape: &str) -> Vec<TipShapePoint> {
 ///
 /// This means angle=0 is at the TOP of the cylinder (maximum Z, cos(0)=1).
 /// The angle increases counter-clockwise when viewed from the +Y direction.
-fn generate_lathe_ring(
-    center_y: f32,
-    center_z: f32,
-    radius: f32,
-    center_x: f32,
-) -> Vec<(f32, f32, f32)> {
+///
+/// Note: Vertices are centered at X=0. Use node transform for final positioning.
+fn generate_lathe_ring(y: f32, center_z: f32, radius: f32) -> Vec<(f32, f32, f32)> {
     let mut ring = Vec::with_capacity(N_LATHE_POINTS);
 
     for i in 0..N_LATHE_POINTS {
@@ -158,9 +157,9 @@ fn generate_lathe_ring(
         // As angle increases, sin increases (moves +X), cos decreases (moves -Z)
         // This goes: top -> right -> bottom -> left -> top (clockwise from +Y view)
         // To maintain correct winding, we negate the angle to go counter-clockwise
-        let x = center_x + radius * (-angle).sin();
+        let x = radius * (-angle).sin();
         let z = center_z + radius * (-angle).cos();
-        ring.push((x, center_y, z));
+        ring.push((x, y, z));
     }
 
     ring
@@ -170,14 +169,12 @@ fn generate_lathe_ring(
 ///
 /// Normals point outward from the cylinder center.
 /// The normal direction is from center to vertex, normalized.
-fn generate_ring_normals(
-    center_x: f32,
-    center_z: f32,
-    ring: &[(f32, f32, f32)],
-) -> Vec<(f32, f32, f32)> {
+///
+/// Note: Assumes ring is centered at X=0.
+fn generate_ring_normals(center_z: f32, ring: &[(f32, f32, f32)]) -> Vec<(f32, f32, f32)> {
     ring.iter()
         .map(|(x, _y, z)| {
-            let nx = x - center_x;
+            let nx = *x; // center_x = 0
             let nz = z - center_z;
             let len = (nx * nx + nz * nz).sqrt();
             if len > 0.0 {
@@ -275,10 +272,10 @@ fn connect_rings(
 
 /// Generate a flat plunger rod mesh
 /// From VPinball: PlungerMoverObject::RenderFlat
-fn generate_flat_rod_mesh(
-    plunger: &Plunger,
-    base_height: f32,
-) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
+///
+/// Vertices are centered at X=0, Y=0 is at the base (player end).
+/// Y extends towards -stroke (playfield end).
+fn generate_flat_rod_mesh(plunger: &Plunger) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
 
@@ -286,25 +283,20 @@ fn generate_flat_rod_mesh(
     // So rod_radius = (rod_diam / 2) * width = width * rod_diam * 0.5
     let rod_radius = plunger.width * plunger.rod_diam * 0.5;
 
-    // In VPinball, Y increases towards the player (bottom of table)
-    // The plunger tip points towards the playfield (lower Y), base towards player (higher Y)
-    // center.y is at the player end, tip extends towards playfield by stroke amount
-    let y_base = plunger.center.y; // Player end (higher Y)
-    let y_tip = y_base - plunger.stroke; // Playfield end (lower Y)
+    // Centered at origin:
+    // Y=0 is at the base (player end), tip extends to Y=-stroke (playfield end)
+    let y_base = 0.0; // Player end
+    let y_tip = -plunger.stroke; // Playfield end
 
-    let z_bottom = base_height + plunger.z_adjust;
-    let _z_top = z_bottom + plunger.height;
-
-    // For flat plunger, we create a simple rectangular rod
-    // The rod goes from y_base to y_tip
-    let cx = plunger.center.x;
+    // Z is relative to z_adjust, centered at height/2
+    let z_center = plunger.height * 0.5;
 
     // Generate two rings: one at the base (y_base) and one at the tip (y_tip)
-    let ring_base = generate_lathe_ring(y_base, z_bottom + plunger.height * 0.5, rod_radius, cx);
-    let ring_tip = generate_lathe_ring(y_tip, z_bottom + plunger.height * 0.5, rod_radius, cx);
+    let ring_base = generate_lathe_ring(y_base, z_center, rod_radius);
+    let ring_tip = generate_lathe_ring(y_tip, z_center, rod_radius);
 
-    let normals_base = generate_ring_normals(cx, z_bottom + plunger.height * 0.5, &ring_base);
-    let normals_tip = generate_ring_normals(cx, z_bottom + plunger.height * 0.5, &ring_tip);
+    let normals_base = generate_ring_normals(z_center, &ring_base);
+    let normals_tip = generate_ring_normals(z_center, &ring_tip);
 
     // Connect the rings
     // Texture mapping: base (player side) at v=1, tip (playfield side) at v=0
@@ -419,7 +411,9 @@ fn add_disc_cap(
 /// - Ring:   tv 0.25 - 0.50 (second quarter)
 /// - Rod:    tv 0.51 - 0.75 (third quarter)
 /// - Spring: tv 0.76 - 0.98 (bottom quarter)
-fn generate_rod_mesh(plunger: &Plunger, base_height: f32) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
+///
+/// Vertices are centered at X=0, Y=0 is at the base (player end).
+fn generate_rod_mesh(plunger: &Plunger) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
 
@@ -436,21 +430,20 @@ fn generate_rod_mesh(plunger: &Plunger, base_height: f32) -> (Vec<VertexWrapper>
         0.0
     };
 
-    // In VPinball, Y increases towards the player (bottom of table)
-    // The plunger tip points towards the playfield (lower Y), base towards player (higher Y)
-    let y_tip = plunger.center.y - plunger.stroke; // Tip when fully extended (lower Y)
+    // Centered at origin:
+    // Y=0 is at the base (player end), tip extends to Y=-stroke (playfield end)
+    let y_tip = -plunger.stroke; // Tip when fully extended (lower Y)
 
     // The rod needs to be long enough to cover the full stroke range.
-    // rody extends beyond center.y by height, plus stroke to reach the cabinet edge.
-    let rody = plunger.center.y - plunger.height + plunger.stroke; // Rod base (highest Y)
+    // rody extends beyond Y=0 by height, plus stroke to reach the cabinet edge.
+    let rody = -plunger.height + plunger.stroke; // Rod base (highest Y, relative to center)
 
     // Rod runs from rody to where the ring ends (after tip + ring_gap + ring_width)
     let y_ring_top = y_tip + tip_length + plunger.ring_gap + plunger.ring_width;
     let y_rod_start = rody; // Start at rod base (player end, highest Y)
     let y_rod_end = y_ring_top; // End where ring ends (towards tip)
 
-    let z_center = base_height + plunger.z_adjust + plunger.height * 0.5;
-    let cx = plunger.center.x;
+    let z_center = plunger.height * 0.5;
 
     // Generate rod as a series of rings along its length
     // Generate from lower Y (ring end) to higher Y (rod base) to match tip direction
@@ -462,8 +455,8 @@ fn generate_rod_mesh(plunger: &Plunger, base_height: f32) -> (Vec<VertexWrapper>
         let t = i as f32 / num_segments as f32;
         // Go from y_rod_end (lower Y, near ring) to y_rod_start (higher Y, rod base)
         let y = y_rod_end + (y_rod_start - y_rod_end) * t;
-        let ring = generate_lathe_ring(y, z_center, rod_radius, cx);
-        let normals = generate_ring_normals(cx, z_center, &ring);
+        let ring = generate_lathe_ring(y, z_center, rod_radius);
+        let normals = generate_ring_normals(z_center, &ring);
         rings.push(ring);
         normals_list.push(normals);
     }
@@ -517,7 +510,9 @@ fn generate_rod_mesh(plunger: &Plunger, base_height: f32) -> (Vec<VertexWrapper>
 /// - Front spiral: tv = 0.76
 /// - Top spiral:   tv = 0.85
 /// - Back spiral:  tv = 0.98
-fn generate_spring_mesh(plunger: &Plunger, base_height: f32) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
+///
+/// Vertices are centered at X=0, Y=0 is at the base (player end).
+fn generate_spring_mesh(plunger: &Plunger) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
 
@@ -536,11 +531,9 @@ fn generate_spring_mesh(plunger: &Plunger, base_height: f32) -> (Vec<VertexWrapp
         0.0
     };
 
-    // In VPinball, the spring extends from the ring (y0) to the rod base (rody)
-    // y0 is at the top of the shaft, just after the ring
-    // rody extends beyond center.y by height + stroke
-    let y_tip = plunger.center.y - plunger.stroke; // Tip when fully extended (lower Y)
-    let rody = plunger.center.y - plunger.height + plunger.stroke; // Rod base (highest Y)
+    // Centered at origin: Y=0 is at base, tip extends to Y=-stroke
+    let y_tip = -plunger.stroke; // Tip when fully extended (lower Y)
+    let rody = -plunger.height + plunger.stroke; // Rod base (highest Y)
 
     // Spring starts at ring top (after tip + ring_gap + ring_width)
     let y_ring_top = y_tip + tip_length + plunger.ring_gap + plunger.ring_width;
@@ -550,8 +543,8 @@ fn generate_spring_mesh(plunger: &Plunger, base_height: f32) -> (Vec<VertexWrapp
 
     let spring_length = y_spring_end - y_spring_start;
 
-    let z_center = base_height + plunger.z_adjust + plunger.height * 0.5;
-    let cx = plunger.center.x;
+    let z_center = plunger.height * 0.5;
+    let cx = 0.0; // Centered at X=0
 
     // Total number of turns (including end loops)
     let total_turns = plunger.spring_loops + plunger.spring_end_loops * 2.0;
@@ -746,7 +739,9 @@ fn generate_spring_mesh(plunger: &Plunger, base_height: f32) -> (Vec<VertexWrapp
 /// 4. Outer top edge (rRing, y+ringWidth) tv=0.42
 /// 5. Outer top (rRing, y+ringWidth) tv=0.42
 /// 6. Inner top (rRod, y+ringWidth) tv=0.49
-fn generate_ring_mesh(plunger: &Plunger, base_height: f32) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
+///
+/// Vertices are centered at X=0, Y=0 is at the base (player end).
+fn generate_ring_mesh(plunger: &Plunger) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
 
@@ -764,41 +759,38 @@ fn generate_ring_mesh(plunger: &Plunger, base_height: f32) -> (Vec<VertexWrapper
         0.0
     };
 
-    // Ring position: after tip + ring_gap
-    // In world space: tip is at lower Y (towards playfield)
-    let y_base = plunger.center.y; // Player end (higher Y)
-    let y_tip_end = y_base - plunger.stroke; // Playfield end (lower Y)
+    // Centered at origin: Y=0 is at base, tip extends to Y=-stroke
+    let y_tip_end = -plunger.stroke; // Playfield end (lower Y)
 
     // Ring starts at tip_end + tip_length + ring_gap
     let y_ring_bottom = y_tip_end + tip_length + plunger.ring_gap;
     let y_ring_top = y_ring_bottom + plunger.ring_width;
 
-    let z_center = base_height + plunger.z_adjust + plunger.height * 0.5;
-    let cx = plunger.center.x;
+    let z_center = plunger.height * 0.5;
 
     // Generate rings for the collar profile
     // Bottom inner (rod radius)
-    let ring_bottom_inner = generate_lathe_ring(y_ring_bottom, z_center, r_rod, cx);
+    let ring_bottom_inner = generate_lathe_ring(y_ring_bottom, z_center, r_rod);
     let normals_bottom_inner = vec![(0.0, -1.0, 0.0); N_LATHE_POINTS]; // facing down
 
     // Bottom outer (ring radius)
-    let ring_bottom_outer = generate_lathe_ring(y_ring_bottom, z_center, r_ring, cx);
+    let ring_bottom_outer = generate_lathe_ring(y_ring_bottom, z_center, r_ring);
     let normals_bottom_outer = vec![(0.0, -1.0, 0.0); N_LATHE_POINTS]; // facing down
 
     // Side bottom (ring radius, facing outward)
-    let ring_side_bottom = generate_lathe_ring(y_ring_bottom, z_center, r_ring, cx);
-    let normals_side_bottom = generate_ring_normals(cx, z_center, &ring_side_bottom);
+    let ring_side_bottom = generate_lathe_ring(y_ring_bottom, z_center, r_ring);
+    let normals_side_bottom = generate_ring_normals(z_center, &ring_side_bottom);
 
     // Side top (ring radius, facing outward)
-    let ring_side_top = generate_lathe_ring(y_ring_top, z_center, r_ring, cx);
-    let normals_side_top = generate_ring_normals(cx, z_center, &ring_side_top);
+    let ring_side_top = generate_lathe_ring(y_ring_top, z_center, r_ring);
+    let normals_side_top = generate_ring_normals(z_center, &ring_side_top);
 
     // Top outer (ring radius)
-    let ring_top_outer = generate_lathe_ring(y_ring_top, z_center, r_ring, cx);
+    let ring_top_outer = generate_lathe_ring(y_ring_top, z_center, r_ring);
     let normals_top_outer = vec![(0.0, 1.0, 0.0); N_LATHE_POINTS]; // facing up
 
     // Top inner (rod radius)
-    let ring_top_inner = generate_lathe_ring(y_ring_top, z_center, r_rod, cx);
+    let ring_top_inner = generate_lathe_ring(y_ring_top, z_center, r_rod);
     let normals_top_inner = vec![(0.0, 1.0, 0.0); N_LATHE_POINTS]; // facing up
 
     // Connect the rings with proper texture mapping
@@ -872,7 +864,9 @@ fn generate_ring_mesh(plunger: &Plunger, base_height: f32) -> (Vec<VertexWrapper
 /// This matches VPinball's rendering behavior exactly - the lathe surface is left open.
 ///
 /// Texture mapping: tv = 0.24 * point.y / tip_length
-fn generate_tip_mesh(plunger: &Plunger, base_height: f32) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
+///
+/// Vertices are centered at X=0, Y=0 is at the base (player end).
+fn generate_tip_mesh(plunger: &Plunger) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
 
@@ -882,12 +876,9 @@ fn generate_tip_mesh(plunger: &Plunger, base_height: f32) -> (Vec<VertexWrapper>
         return (vertices, indices);
     }
 
-    // In VPinball, the tip is at the playfield end (lower Y)
-    // tip_shape points define the profile from tip (y=0) going back towards the rod
-    let y_base = plunger.center.y; // Player end (higher Y)
-    let y_tip_end = y_base - plunger.stroke; // Playfield end (lower Y)
-    let z_center = base_height + plunger.z_adjust + plunger.height * 0.5;
-    let cx = plunger.center.x;
+    // Centered at origin: Y=0 is at base, tip extends to Y=-stroke
+    let y_tip_end = -plunger.stroke; // Playfield end (lower Y)
+    let z_center = plunger.height * 0.5;
 
     // Get the tip length (max y value from tip points)
     let tip_len = tip_points.last().map(|p| p.y).unwrap_or(1.0);
@@ -903,8 +894,8 @@ fn generate_tip_mesh(plunger: &Plunger, base_height: f32) -> (Vec<VertexWrapper>
         // point.r is already multiplied by 0.5 during parsing (see parse_tip_shape)
         // VPinball usage: r * m_d.m_width (plunger.cpp line 518)
         let radius = plunger.width * point.r;
-        let ring = generate_lathe_ring(y, z_center, radius, cx);
-        let normals = generate_ring_normals(cx, z_center, &ring);
+        let ring = generate_lathe_ring(y, z_center, radius);
+        let normals = generate_ring_normals(z_center, &ring);
         rings.push(ring);
         normals_list.push(normals);
         // VPinball texture mapping: tip uses tv 0.0 to 0.24
@@ -938,13 +929,15 @@ fn generate_tip_mesh(plunger: &Plunger, base_height: f32) -> (Vec<VertexWrapper>
 
 /// Generate all plunger meshes based on the plunger parameters
 ///
+/// Vertices are centered at X=0, Y=0 is at the base (player end).
+/// Use `plunger.center` and `surface_height + plunger.z_adjust` for the glTF node transform.
+///
 /// # Arguments
 /// * `plunger` - The plunger definition
-/// * `base_height` - The height of the surface the plunger sits on (from table surface lookup)
 ///
 /// # Returns
 /// A PlungerMeshes struct containing all visible plunger parts
-pub fn build_plunger_meshes(plunger: &Plunger, base_height: f32) -> PlungerMeshes {
+pub fn build_plunger_meshes(plunger: &Plunger) -> PlungerMeshes {
     if !plunger.is_visible {
         return PlungerMeshes {
             flat_rod: None,
@@ -959,7 +952,7 @@ pub fn build_plunger_meshes(plunger: &Plunger, base_height: f32) -> PlungerMeshe
         PlungerType::Unknown | PlungerType::Flat => {
             // Flat plunger: just a simple rod
             PlungerMeshes {
-                flat_rod: Some(generate_flat_rod_mesh(plunger, base_height)),
+                flat_rod: Some(generate_flat_rod_mesh(plunger)),
                 rod: None,
                 spring: None,
                 ring: None,
@@ -970,10 +963,10 @@ pub fn build_plunger_meshes(plunger: &Plunger, base_height: f32) -> PlungerMeshe
             // Modern/Custom plunger: rod + spring + ring + tip
             PlungerMeshes {
                 flat_rod: None,
-                rod: Some(generate_rod_mesh(plunger, base_height)),
-                spring: Some(generate_spring_mesh(plunger, base_height)),
-                ring: Some(generate_ring_mesh(plunger, base_height)),
-                tip: Some(generate_tip_mesh(plunger, base_height)),
+                rod: Some(generate_rod_mesh(plunger)),
+                spring: Some(generate_spring_mesh(plunger)),
+                ring: Some(generate_ring_mesh(plunger)),
+                tip: Some(generate_tip_mesh(plunger)),
             }
         }
     }
@@ -1017,7 +1010,7 @@ mod tests {
         plunger.plunger_type = PlungerType::Flat;
         plunger.is_visible = true;
 
-        let meshes = build_plunger_meshes(&plunger, 0.0);
+        let meshes = build_plunger_meshes(&plunger);
 
         assert!(meshes.flat_rod.is_some());
         assert!(meshes.rod.is_none());
@@ -1044,7 +1037,7 @@ mod tests {
         plunger.plunger_type = PlungerType::Modern;
         plunger.is_visible = true;
 
-        let meshes = build_plunger_meshes(&plunger, 0.0);
+        let meshes = build_plunger_meshes(&plunger);
 
         assert!(meshes.flat_rod.is_none());
         assert!(meshes.rod.is_some());
@@ -1102,7 +1095,7 @@ mod tests {
         let mut plunger = Plunger::default();
         plunger.is_visible = false;
 
-        let meshes = build_plunger_meshes(&plunger, 0.0);
+        let meshes = build_plunger_meshes(&plunger);
 
         assert!(meshes.flat_rod.is_none());
         assert!(meshes.rod.is_none());
@@ -1115,26 +1108,24 @@ mod tests {
     fn test_lathe_ring_angle_zero_at_top() {
         // VPinball places angle=0 at the TOP of the cylinder (maximum Z)
         // This is achieved by using sin for X and cos for Z:
-        //   pm->x = r * sin(angle) + center.x
+        //   pm->x = r * sin(angle)  // centered at X=0
         //   pm->z = r * cos(angle) + center.z
-        // When angle=0: sin(0)=0, cos(0)=1, so x=center.x, z=center.z+radius (TOP)
+        // When angle=0: sin(0)=0, cos(0)=1, so x=0, z=center.z+radius (TOP)
 
-        let center_y = 100.0;
+        let y = 100.0;
         let center_z = 50.0;
         let radius = 10.0;
-        let center_x = 200.0;
 
-        let ring = generate_lathe_ring(center_y, center_z, radius, center_x);
+        let ring = generate_lathe_ring(y, center_z, radius);
 
         // First vertex (angle=0) should be at the TOP (maximum Z)
         let (x0, y0, z0) = ring[0];
 
-        // At angle=0: x should be at center_x (sin(0)=0), z should be at center_z + radius (cos(0)=1)
+        // At angle=0: x should be at 0 (sin(0)=0), z should be at center_z + radius (cos(0)=1)
         assert!(
-            (x0 - center_x).abs() < 0.001,
-            "First vertex X {} should be at center_x {} (angle=0, sin(0)=0)",
+            x0.abs() < 0.001,
+            "First vertex X {} should be at 0 (angle=0, sin(0)=0)",
             x0,
-            center_x
         );
         assert!(
             (z0 - (center_z + radius)).abs() < 0.001,
@@ -1142,7 +1133,7 @@ mod tests {
             z0,
             center_z + radius
         );
-        assert!((y0 - center_y).abs() < 0.001, "Y should be center_y");
+        assert!((y0 - y).abs() < 0.001, "Y should be y");
 
         // Verify first vertex has maximum Z (is at the top)
         let max_z = ring
@@ -1173,7 +1164,7 @@ mod tests {
         plunger.plunger_type = PlungerType::Modern;
         plunger.is_visible = true;
 
-        let meshes = build_plunger_meshes(&plunger, 0.0);
+        let meshes = build_plunger_meshes(&plunger);
 
         // Check the rod mesh - find vertices at the top (maximum Z for each Y position)
         let (rod_vertices, _) = meshes.rod.as_ref().unwrap();

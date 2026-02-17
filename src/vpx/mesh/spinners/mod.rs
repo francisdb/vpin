@@ -23,6 +23,8 @@ pub use spinner_bracket_mesh::*;
 pub use spinner_plate_mesh::*;
 
 /// Result of spinner mesh generation with separate meshes for each part
+///
+/// Vertices are centered at origin.
 pub struct SpinnerMeshes {
     /// The bracket mesh (uses a default metal material)
     /// Only present if `spinner.show_bracket` is true
@@ -39,17 +41,16 @@ pub struct SpinnerMeshes {
 ///
 /// # Returns
 /// A SpinnerMeshes struct containing all spinner parts
-pub fn build_spinner_meshes(spinner: &Spinner, base_height: f32) -> SpinnerMeshes {
-    let pos_z = base_height + spinner.height;
+pub fn build_spinner_meshes(spinner: &Spinner) -> SpinnerMeshes {
     let full_matrix = Mat3::rotate_z(spinner.rotation.to_radians());
 
     SpinnerMeshes {
         bracket: if spinner.show_bracket {
-            Some(generate_bracket_mesh(spinner, pos_z, &full_matrix))
+            Some(generate_bracket_mesh(spinner, &full_matrix))
         } else {
             None
         },
-        plate: generate_plate_mesh(spinner, pos_z, &full_matrix),
+        plate: generate_plate_mesh(spinner, &full_matrix),
     }
 }
 
@@ -57,7 +58,6 @@ pub fn build_spinner_meshes(spinner: &Spinner, base_height: f32) -> SpinnerMeshe
 /// From VPinball Spinner::ExportMesh (bracket section)
 fn generate_bracket_mesh(
     spinner: &Spinner,
-    pos_z: f32,
     full_matrix: &Mat3,
 ) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
     let length = spinner.length;
@@ -80,9 +80,9 @@ fn generate_bracket_mesh(
             VertexWrapper::new(
                 [0u8; 32],
                 Vertex3dNoTex2 {
-                    x: vert.x * length + spinner.center.x,
-                    y: vert.y * length + spinner.center.y,
-                    z: vert.z * length + pos_z,
+                    x: vert.x * length,
+                    y: vert.y * length,
+                    z: vert.z * length,
                     nx: norm.x,
                     ny: norm.y,
                     nz: norm.z,
@@ -112,7 +112,6 @@ fn generate_bracket_mesh(
 /// For static export, we export at angle 0 (upright position).
 fn generate_plate_mesh(
     spinner: &Spinner,
-    pos_z: f32,
     full_matrix: &Mat3,
 ) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
     let length = spinner.length;
@@ -139,9 +138,9 @@ fn generate_plate_mesh(
             VertexWrapper::new(
                 [0u8; 32],
                 Vertex3dNoTex2 {
-                    x: vert.x * length + spinner.center.x,
-                    y: vert.y * length + spinner.center.y,
-                    z: vert.z * length + pos_z,
+                    x: vert.x * length,
+                    y: vert.y * length,
+                    z: vert.z * length,
                     nx: norm.x,
                     ny: norm.y,
                     nz: norm.z,
@@ -179,7 +178,7 @@ mod tests {
         spinner.show_bracket = true;
         spinner.is_visible = true;
 
-        let meshes = build_spinner_meshes(&spinner, 0.0);
+        let meshes = build_spinner_meshes(&spinner);
 
         // Check bracket mesh
         assert!(meshes.bracket.is_some());
@@ -203,7 +202,7 @@ mod tests {
         spinner.show_bracket = false;
         spinner.is_visible = true;
 
-        let meshes = build_spinner_meshes(&spinner, 0.0);
+        let meshes = build_spinner_meshes(&spinner);
 
         // Bracket should not be present
         assert!(meshes.bracket.is_none());

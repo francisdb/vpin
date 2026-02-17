@@ -104,6 +104,7 @@ use crate::vpx::gltf::{
 };
 use crate::vpx::image::{ImageData, image_has_transparency};
 use crate::vpx::material::MaterialType;
+use crate::vpx::math::Vec3;
 use crate::vpx::mesh::balls::build_ball_mesh;
 use crate::vpx::mesh::bumpers::build_bumper_meshes;
 use crate::vpx::mesh::flashers::build_flasher_mesh;
@@ -188,6 +189,11 @@ struct NamedMesh {
     /// controls surface roughness - white/opaque areas are more rough/scratched.
     /// Used as metallicRoughnessTexture in glTF (green channel = roughness).
     roughness_texture_name: Option<String>,
+    /// Optional node translation in glTF coordinates (meters, Y-up).
+    /// When set, the mesh vertices are in local space and this translation
+    /// is applied via the glTF node's "translation" property.
+    /// Coordinates: VPX X → glTF X, VPX Z → glTF Y, VPX Y → glTF Z
+    translation: Option<Vec3>,
 }
 
 impl NamedMesh {
@@ -199,7 +205,12 @@ impl NamedMesh {
 // Re-export camera types from the camera module
 use super::camera::GltfCamera;
 
-/// Transform primitive vertices using the primitive's transformation matrix.
+/// Transform primitive vertices using the primitive's transformation matrix,
+/// returning the transformed vertices and the translation for the glTF node.
+///
+/// The vertices are transformed with scale and rotation applied, but the final
+/// position translation is returned separately to be used as a glTF node transform.
+/// This preserves the transform hierarchy in the exported glTF file.
 ///
 /// All transformations are done in VPX coordinate space.
 /// The coordinate conversion to glTF happens when writing the GLB.
@@ -210,10 +221,14 @@ use super::camera::GltfCamera;
 /// RTmatrix = ((RTmatrix * MatrixRotateZ(obj_rot[8])) * MatrixRotateY(obj_rot[7])) * MatrixRotateX(obj_rot[6]);
 /// fullMatrix = (MatrixScale(size) * RTmatrix) * MatrixTranslate(position);
 /// ```
+///
+/// Returns: (transformed_vertices, translation_in_gltf_coords)
+/// - transformed_vertices: vertices with scale/rotation applied in local space
+/// - translation_in_gltf_coords: [x, y, z] in glTF coordinate system (meters, Y-up)
 fn transform_primitive_vertices(
     vertices: Vec<VertexWrapper>,
     primitive: &crate::vpx::gameitem::primitive::Primitive,
-) -> Vec<VertexWrapper> {
+) -> (Vec<VertexWrapper>, Vec3) {
     use crate::vpx::math::{Matrix3D, Vertex3D};
 
     let pos = &primitive.position;
@@ -238,17 +253,16 @@ fn transform_primitive_vertices(
         * Matrix3D::rotate_y(rot[7].to_radians())
         * Matrix3D::rotate_x(rot[6].to_radians());
 
-    // fullMatrix = Scale * RTmatrix * Translate(position)
-    let full_matrix = Matrix3D::scale(size.x, size.y, size.z)
-        * rt_matrix
-        * Matrix3D::translate(pos.x, pos.y, pos.z);
+    // Apply scale and rotation WITHOUT the final position translation
+    // The position will be applied via glTF node transform
+    let local_matrix = Matrix3D::scale(size.x, size.y, size.z) * rt_matrix;
 
-    vertices
+    let transformed_vertices = vertices
         .into_iter()
         .map(|mut vw| {
-            // Transform position
+            // Transform position (scale + rotation only, no translation)
             let v = Vertex3D::new(vw.vertex.x, vw.vertex.y, vw.vertex.z);
-            let transformed = full_matrix.transform_vertex(v);
+            let transformed = local_matrix.transform_vertex(v);
             vw.vertex.x = transformed.x;
             vw.vertex.y = transformed.y;
             vw.vertex.z = transformed.z;
@@ -259,7 +273,7 @@ fn transform_primitive_vertices(
             let nz = vw.vertex.nz;
 
             if !nx.is_nan() && !ny.is_nan() && !nz.is_nan() {
-                let normal = full_matrix.transform_normal(nx, ny, nz);
+                let normal = local_matrix.transform_normal(nx, ny, nz);
                 // Normalize
                 let len = normal.length();
                 if len > 0.0 {
@@ -271,7 +285,13 @@ fn transform_primitive_vertices(
 
             vw
         })
-        .collect()
+        .collect();
+
+    // Convert position to glTF coordinates (meters, Y-up)
+    // VPX X → glTF X, VPX Z → glTF Y (up), VPX Y → glTF Z (towards viewer)
+    let translation = Vec3::new(vpu_to_m(pos.x), vpu_to_m(pos.z), vpu_to_m(pos.y));
+
+    (transformed_vertices, translation)
 }
 
 /// A simple material representation for glTF export
@@ -696,7 +716,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     continue; // Skip invisible primitives
                 }
                 if let Ok(Some(read_mesh)) = primitive.read_mesh() {
-                    let transformed = transform_primitive_vertices(read_mesh.vertices, primitive);
+                    let (transformed, translation) =
+                        transform_primitive_vertices(read_mesh.vertices, primitive);
 
                     // If it's the playfield, VPinball assigns m_szMaterial and m_szImage from table settings
                     let is_playfield = primitive.is_playfield();
@@ -747,6 +768,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             primitive.editor_layer,
                         ),
                         transmission_factor,
+                        translation: Some(translation),
                         ..Default::default()
                     });
                 }
@@ -852,12 +874,19 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 if !rubber.is_visible {
                     continue; // Skip invisible rubbers
                 }
-                if let Some((vertices, indices)) = build_rubber_mesh(rubber) {
+                if let Some((vertices, indices, center)) = build_rubber_mesh(rubber) {
                     let material_name = if rubber.material.is_empty() {
                         None
                     } else {
                         Some(rubber.material.clone())
                     };
+                    // Convert center to glTF coordinates (meters, Y-up)
+                    // VPX (x, y, z) → glTF [x, z, y]
+                    let translation = Some(Vec3::new(
+                        vpu_to_m(center.x),
+                        vpu_to_m(center.z),
+                        vpu_to_m(center.y),
+                    ));
                     meshes.push(NamedMesh {
                         name: rubber.name.clone(),
                         vertices,
@@ -865,7 +894,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         material_name,
                         texture_name: None,
                         layer_name: get_layer_name(&rubber.editor_layer_name, rubber.editor_layer),
-
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -874,7 +903,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 if !flasher.is_visible {
                     continue; // Skip invisible flashers
                 }
-                if let Some((vertices, indices)) = build_flasher_mesh(flasher, &table_dims) {
+                if let Some((vertices, indices, center)) = build_flasher_mesh(flasher, &table_dims)
+                {
                     // Flashers use image_a as their texture
                     let texture_name = if flasher.image_a.is_empty() {
                         None
@@ -889,6 +919,13 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         flasher.color.b as f32 / 255.0,
                         flasher.alpha as f32 / 100.0,
                     ]);
+                    // Convert position to glTF coordinates (meters, Y-up)
+                    // VPX (x, y, z) → glTF [x, z, y]
+                    let translation = Some(Vec3::new(
+                        vpu_to_m(center.x),
+                        vpu_to_m(center.z),
+                        vpu_to_m(center.y),
+                    ));
                     meshes.push(NamedMesh {
                         name: flasher.name.clone(),
                         vertices,
@@ -903,6 +940,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         transmission_factor: None,
                         is_ball: false,
                         roughness_texture_name: None,
+                        translation,
                     });
                 }
             }
@@ -912,6 +950,14 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 }
                 // TODO: get surface height from the table
                 if let Some(flipper_meshes) = build_flipper_meshes(flipper, 0.0) {
+                    // Convert center to glTF coordinates (meters, Y-up)
+                    // VPX (x, y, z) → glTF [x, z, y]
+                    let translation = Some(Vec3::new(
+                        vpu_to_m(flipper_meshes.center.x),
+                        vpu_to_m(flipper_meshes.center.z),
+                        vpu_to_m(flipper_meshes.center.y),
+                    ));
+
                     // Add base flipper mesh
                     let (base_vertices, base_indices) = flipper_meshes.base;
                     let base_material = if flipper.material.is_empty() {
@@ -924,11 +970,11 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         vertices: base_vertices,
                         indices: base_indices,
                         material_name: base_material,
-
                         layer_name: get_layer_name(
                             &flipper.editor_layer_name,
                             flipper.editor_layer,
                         ),
+                        translation,
                         ..Default::default()
                     });
 
@@ -944,11 +990,11 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             vertices: rubber_vertices,
                             indices: rubber_indices,
                             material_name: rubber_material,
-
                             layer_name: get_layer_name(
                                 &flipper.editor_layer_name,
                                 flipper.editor_layer,
                             ),
+                            translation,
                             ..Default::default()
                         });
                     }
@@ -957,7 +1003,15 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
             GameItemEnum::Bumper(bumper) => {
                 let surface_height =
                     get_surface_height(vpx, &bumper.surface, bumper.center.x, bumper.center.y);
-                let bumper_meshes = build_bumper_meshes(bumper, surface_height);
+                let bumper_meshes = build_bumper_meshes(bumper);
+
+                // Convert center to glTF coordinates (meters, Y-up)
+                // VPX (x, y, z) → glTF [x, z, y]
+                let translation = Some(Vec3::new(
+                    vpu_to_m(bumper.center.x),
+                    vpu_to_m(surface_height),
+                    vpu_to_m(bumper.center.y),
+                ));
 
                 // Add base mesh if visible
                 if let Some((base_vertices, base_indices)) = bumper_meshes.base {
@@ -972,6 +1026,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         indices: base_indices,
                         material_name: base_material,
                         layer_name: get_layer_name(&bumper.editor_layer_name, bumper.editor_layer),
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -989,6 +1044,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         indices: socket_indices,
                         material_name: socket_material,
                         layer_name: get_layer_name(&bumper.editor_layer_name, bumper.editor_layer),
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -1005,6 +1061,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         indices: ring_indices,
                         material_name: ring_material,
                         layer_name: get_layer_name(&bumper.editor_layer_name, bumper.editor_layer),
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -1022,6 +1079,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         indices: cap_indices,
                         material_name: cap_material,
                         layer_name: get_layer_name(&bumper.editor_layer_name, bumper.editor_layer),
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -1032,7 +1090,16 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 }
                 let surface_height =
                     get_surface_height(vpx, &spinner.surface, spinner.center.x, spinner.center.y);
-                let spinner_meshes = build_spinner_meshes(spinner, surface_height);
+                let spinner_meshes = build_spinner_meshes(spinner);
+
+                // Convert center to glTF coordinates (meters, Y-up)
+                // VPX (x, y, z) → glTF [x, z, y]
+                // pos_z = surface_height + spinner.height
+                let translation = Some(Vec3::new(
+                    vpu_to_m(spinner.center.x),
+                    vpu_to_m(surface_height + spinner.height),
+                    vpu_to_m(spinner.center.y),
+                ));
 
                 // Add bracket mesh if visible
                 if let Some((bracket_vertices, bracket_indices)) = spinner_meshes.bracket {
@@ -1045,6 +1112,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             &spinner.editor_layer_name,
                             spinner.editor_layer,
                         ),
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -1068,6 +1136,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     material_name: plate_material,
                     texture_name: plate_texture,
                     layer_name: get_layer_name(&spinner.editor_layer_name, spinner.editor_layer),
+                    translation,
                     ..Default::default()
                 });
             }
@@ -1083,6 +1152,13 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     } else {
                         Some(hit_target.image.clone())
                     };
+                    // Convert position to glTF coordinates (meters, Y-up)
+                    // VPX X → glTF X, VPX Z → glTF Y (up), VPX Y → glTF Z (towards viewer)
+                    let translation = Some(Vec3::new(
+                        vpu_to_m(hit_target.position.x),
+                        vpu_to_m(hit_target.position.z),
+                        vpu_to_m(hit_target.position.y),
+                    ));
                     meshes.push(NamedMesh {
                         name: hit_target.name.clone(),
                         vertices,
@@ -1093,6 +1169,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             &hit_target.editor_layer_name,
                             hit_target.editor_layer,
                         ),
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -1100,12 +1177,20 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
             GameItemEnum::Gate(gate) => {
                 let surface_height =
                     get_surface_height(vpx, &gate.surface, gate.center.x, gate.center.y);
-                if let Some(gate_meshes) = build_gate_meshes(gate, surface_height) {
+                if let Some(gate_meshes) = build_gate_meshes(gate) {
                     let material_name = if gate.material.is_empty() {
                         None
                     } else {
                         Some(gate.material.clone())
                     };
+
+                    // Convert center to glTF coordinates (meters, Y-up)
+                    // VPX (x, y, z) → glTF [x, z, y]
+                    let translation = Some(Vec3::new(
+                        vpu_to_m(gate.center.x),
+                        vpu_to_m(surface_height + gate.height),
+                        vpu_to_m(gate.center.y),
+                    ));
 
                     // Add bracket mesh if visible
                     if let Some((bracket_vertices, bracket_indices)) = gate_meshes.bracket {
@@ -1115,6 +1200,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             indices: bracket_indices,
                             material_name: material_name.clone(),
                             layer_name: get_layer_name(&gate.editor_layer_name, gate.editor_layer),
+                            translation,
                             ..Default::default()
                         });
                     }
@@ -1127,6 +1213,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         indices: wire_indices,
                         material_name,
                         layer_name: get_layer_name(&gate.editor_layer_name, gate.editor_layer),
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -1137,12 +1224,20 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 }
                 let surface_height =
                     get_surface_height(vpx, &trigger.surface, trigger.center.x, trigger.center.y);
-                if let Some((vertices, indices)) = build_trigger_mesh(trigger, surface_height) {
+                if let Some((vertices, indices)) = build_trigger_mesh(trigger) {
                     let material_name = if trigger.material.is_empty() {
                         None
                     } else {
                         Some(trigger.material.clone())
                     };
+
+                    // Convert center to glTF coordinates (meters, Y-up)
+                    // VPX (x, y, z) → glTF [x, z, y]
+                    let translation = Some(Vec3::new(
+                        vpu_to_m(trigger.center.x),
+                        vpu_to_m(surface_height),
+                        vpu_to_m(trigger.center.y),
+                    ));
 
                     meshes.push(NamedMesh {
                         name: trigger.name.clone(),
@@ -1153,7 +1248,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             &trigger.editor_layer_name,
                             trigger.editor_layer,
                         ),
-
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -1168,7 +1263,17 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 let surface_height =
                     get_surface_height(vpx, &light.surface, light.center.x, light.center.y);
 
-                if let Some(light_meshes) = build_light_meshes(light, surface_height) {
+                if let Some(light_meshes) = build_light_meshes(light) {
+                    // Convert center to glTF coordinates (meters, Y-up)
+                    // VPX (x, y, z) → glTF [x, z, y]
+                    // VPinball places the bulb mesh at surface height only, NOT surface + light.height
+                    // The light.height is used for the light emission point (halo), not the physical mesh
+                    let translation = Some(Vec3::new(
+                        vpu_to_m(light.center.x),
+                        vpu_to_m(surface_height),
+                        vpu_to_m(light.center.y),
+                    ));
+
                     // Add bulb mesh
                     // VPinball bulb material (light.cpp lines 679-691):
                     //   m_bOpacityActive = true, m_fOpacity = 0.2f (20% opacity = 80% transparent)
@@ -1192,6 +1297,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             transmission_factor: None,
                             is_ball: false,
                             roughness_texture_name: None,
+                            translation,
                         });
                     }
 
@@ -1214,6 +1320,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             transmission_factor: None,
                             is_ball: false,
                             roughness_texture_name: None,
+                            translation,
                         });
                     }
                 }
@@ -1224,7 +1331,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 }
                 let surface_height =
                     get_surface_height(vpx, &plunger.surface, plunger.center.x, plunger.center.y);
-                let plunger_meshes = build_plunger_meshes(plunger, surface_height);
+                let plunger_meshes = build_plunger_meshes(plunger);
                 let material_name = if plunger.material.is_empty() {
                     None
                 } else {
@@ -1237,6 +1344,15 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 };
                 let layer_name = get_layer_name(&plunger.editor_layer_name, plunger.editor_layer);
 
+                // Convert center to glTF coordinates (meters, Y-up)
+                // VPX (x, y, z) → glTF [x, z, y]
+                // Note: z_adjust is already baked into mesh z coordinates relative to height/2
+                let translation = Some(Vec3::new(
+                    vpu_to_m(plunger.center.x),
+                    vpu_to_m(surface_height + plunger.z_adjust),
+                    vpu_to_m(plunger.center.y),
+                ));
+
                 // Add flat rod mesh (for Flat type)
                 if let Some((vertices, indices)) = plunger_meshes.flat_rod {
                     meshes.push(NamedMesh {
@@ -1246,6 +1362,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         material_name: material_name.clone(),
                         texture_name: texture_name.clone(),
                         layer_name: layer_name.clone(),
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -1259,6 +1376,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         material_name: material_name.clone(),
                         texture_name: texture_name.clone(),
                         layer_name: layer_name.clone(),
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -1272,6 +1390,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         material_name: material_name.clone(),
                         texture_name: texture_name.clone(),
                         layer_name: layer_name.clone(),
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -1285,6 +1404,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         material_name: material_name.clone(),
                         texture_name: texture_name.clone(),
                         layer_name: layer_name.clone(),
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -1302,6 +1422,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         transmission_factor: None,
                         is_ball: false,
                         roughness_texture_name: None,
+                        translation,
                     });
                 }
             }
@@ -1338,13 +1459,21 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
 
                 let surface_height =
                     get_surface_height(vpx, &kicker.surface, kicker.center.x, kicker.center.y);
-                let kicker_meshes = build_kicker_meshes(kicker, surface_height);
+                let kicker_meshes = build_kicker_meshes(kicker);
                 let material_name = if kicker.material.is_empty() {
                     None
                 } else {
                     Some(kicker.material.clone())
                 };
                 let layer_name = get_layer_name(&kicker.editor_layer_name, kicker.editor_layer);
+
+                // Convert center to glTF coordinates (meters, Y-up)
+                // VPX (x, y, z) → glTF [x, z, y]
+                let translation = Some(Vec3::new(
+                    vpu_to_m(kicker.center.x),
+                    vpu_to_m(surface_height),
+                    vpu_to_m(kicker.center.y),
+                ));
 
                 // Default colors based on kicker type to approximate VPinball's built-in textures
                 // These are rough approximations since we don't have access to the actual textures
@@ -1382,6 +1511,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         transmission_factor: None,
                         is_ball: false,
                         roughness_texture_name: None,
+                        translation,
                     });
                 }
 
@@ -1398,6 +1528,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         transmission_factor: None,
                         is_ball: false,
                         roughness_texture_name: None,
+                        translation,
                     });
                 }
             }
@@ -1410,7 +1541,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 let surface_height =
                     get_surface_height(vpx, &decal.surface, decal.center.x, decal.center.y);
 
-                if let Some((vertices, indices)) = build_decal_mesh(decal, surface_height) {
+                if let Some((vertices, indices)) = build_decal_mesh(decal) {
                     let texture_name = if !decal.image.is_empty() {
                         Some(decal.image.clone())
                     } else {
@@ -1422,6 +1553,15 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         None
                     };
 
+                    // Convert center to glTF coordinates (meters, Y-up)
+                    // VPX (x, y, z) → glTF [x, z, y]
+                    // Add 0.2 VPU offset for decal (from decal.cpp line 646)
+                    let translation = Some(Vec3::new(
+                        vpu_to_m(decal.center.x),
+                        vpu_to_m(surface_height + 0.2),
+                        vpu_to_m(decal.center.y),
+                    ));
+
                     meshes.push(NamedMesh {
                         name: decal.name.clone(),
                         vertices,
@@ -1429,6 +1569,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         material_name,
                         texture_name,
                         layer_name: get_layer_name(&decal.editor_layer_name, decal.editor_layer),
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -1485,6 +1626,14 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     ])
                 };
 
+                // Convert position to glTF coordinates (meters, Y-up)
+                // VPX (x, y, z) → glTF [x, z, y]
+                let translation = Some(Vec3::new(
+                    vpu_to_m(ball.pos.x),
+                    vpu_to_m(ball.pos.z),
+                    vpu_to_m(ball.pos.y),
+                ));
+
                 meshes.push(NamedMesh {
                     name: ball.name.clone(),
                     vertices,
@@ -1496,6 +1645,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     transmission_factor: None,
                     is_ball: true, // Pinballs need metallic, shiny material
                     roughness_texture_name,
+                    translation,
                 });
             }
             _ => {}
@@ -2150,10 +2300,17 @@ fn build_combined_gltf_payload(
 
         // Add node for this mesh
         let node_idx = nodes.len();
-        nodes.push(json!({
+        let mut node = json!({
             "mesh": mesh_idx,
             "name": mesh.name
-        }));
+        });
+
+        // Add translation if set (for primitives using node transforms)
+        if let Some(translation) = mesh.translation {
+            node["translation"] = json!([translation.x, translation.y, translation.z]);
+        }
+
+        nodes.push(node);
 
         // Organize nodes into layer groups
         if let Some(ref layer_name) = mesh.layer_name {
@@ -2286,16 +2443,23 @@ fn build_combined_gltf_payload(
                 continue;
             }
 
-            // Get light height (use provided height or default to 0)
-            let mut light_z = light.height.unwrap_or(0.0);
+            // Get surface height for this light
+            let surface_height =
+                get_surface_height(vpx, &light.surface, light.center.x, light.center.y);
 
-            // If a GI light has Z 0, move the light up ~1cm
+            // Get light height offset (use provided height or default to 0)
+            let mut light_height_offset = light.height.unwrap_or(0.0);
+
+            // If a GI light has height 0, move the light up ~1cm
             // so it appears inside the bulb rather than at the base
             // We might want to filter later on to only be for lights that have a bulb mesh.
             // TODO we might want to let the user configure these tweaks
-            if light_z.abs() < 0.001 {
-                light_z = mm_to_vpu(10.0);
+            if light_height_offset.abs() < 0.001 {
+                light_height_offset = mm_to_vpu(10.0);
             }
+
+            // Final light Z position = surface height + light height offset
+            let light_z = surface_height + light_height_offset;
 
             // Light color (normalized to 0-1)
             let color = [
