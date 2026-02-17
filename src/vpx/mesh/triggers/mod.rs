@@ -124,14 +124,10 @@ fn uses_wire_thickness(shape: &TriggerShape) -> bool {
 ///
 /// # Arguments
 /// * `trigger` - The trigger definition
-/// * `base_height` - The height of the surface the trigger sits on (from table surface lookup)
 ///
 /// # Returns
 /// Tuple of (vertices, indices) if the trigger has a visible mesh, None otherwise.
-pub fn build_trigger_mesh(
-    trigger: &Trigger,
-    _base_height: f32,
-) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
+pub fn build_trigger_mesh(trigger: &Trigger) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
     if !trigger.is_visible {
         return None;
     }
@@ -230,7 +226,7 @@ mod tests {
     #[test]
     fn test_build_trigger_mesh_wire_a() {
         let trigger = make_test_trigger(TriggerShape::WireA, true);
-        let result = build_trigger_mesh(&trigger, 0.0);
+        let result = build_trigger_mesh(&trigger);
         assert!(result.is_some());
 
         let (vertices, faces) = result.unwrap();
@@ -241,7 +237,7 @@ mod tests {
     #[test]
     fn test_build_trigger_mesh_star() {
         let trigger = make_test_trigger(TriggerShape::Star, true);
-        let result = build_trigger_mesh(&trigger, 0.0);
+        let result = build_trigger_mesh(&trigger);
         assert!(result.is_some());
 
         let (vertices, faces) = result.unwrap();
@@ -252,7 +248,7 @@ mod tests {
     #[test]
     fn test_build_trigger_mesh_button() {
         let trigger = make_test_trigger(TriggerShape::Button, true);
-        let result = build_trigger_mesh(&trigger, 0.0);
+        let result = build_trigger_mesh(&trigger);
         assert!(result.is_some());
 
         let (vertices, faces) = result.unwrap();
@@ -263,7 +259,7 @@ mod tests {
     #[test]
     fn test_build_trigger_mesh_wire_d() {
         let trigger = make_test_trigger(TriggerShape::WireD, true);
-        let result = build_trigger_mesh(&trigger, 0.0);
+        let result = build_trigger_mesh(&trigger);
         assert!(result.is_some());
 
         let (vertices, faces) = result.unwrap();
@@ -274,7 +270,7 @@ mod tests {
     #[test]
     fn test_build_trigger_mesh_inder() {
         let trigger = make_test_trigger(TriggerShape::Inder, true);
-        let result = build_trigger_mesh(&trigger, 0.0);
+        let result = build_trigger_mesh(&trigger);
         assert!(result.is_some());
 
         let (vertices, faces) = result.unwrap();
@@ -285,14 +281,14 @@ mod tests {
     #[test]
     fn test_build_trigger_mesh_none_shape() {
         let trigger = make_test_trigger(TriggerShape::None, true);
-        let result = build_trigger_mesh(&trigger, 0.0);
+        let result = build_trigger_mesh(&trigger);
         assert!(result.is_none());
     }
 
     #[test]
     fn test_build_trigger_mesh_invisible() {
         let trigger = make_test_trigger(TriggerShape::WireA, false);
-        let result = build_trigger_mesh(&trigger, 0.0);
+        let result = build_trigger_mesh(&trigger);
         assert!(result.is_none());
     }
 
@@ -304,7 +300,7 @@ mod tests {
             TriggerShape::WireC,
         ] {
             let trigger = make_test_trigger(shape.clone(), true);
-            let result = build_trigger_mesh(&trigger, 0.0);
+            let result = build_trigger_mesh(&trigger);
             assert!(result.is_some(), "Failed for shape {:?}", shape);
 
             let (vertices, _) = result.unwrap();

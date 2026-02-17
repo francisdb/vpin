@@ -1177,12 +1177,20 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
             GameItemEnum::Gate(gate) => {
                 let surface_height =
                     get_surface_height(vpx, &gate.surface, gate.center.x, gate.center.y);
-                if let Some(gate_meshes) = build_gate_meshes(gate, surface_height) {
+                if let Some(gate_meshes) = build_gate_meshes(gate) {
                     let material_name = if gate.material.is_empty() {
                         None
                     } else {
                         Some(gate.material.clone())
                     };
+
+                    // Convert center to glTF coordinates (meters, Y-up)
+                    // VPX (x, y, z) → glTF [x, z, y]
+                    let translation = Some(Vec3::new(
+                        vpu_to_m(gate.center.x),
+                        vpu_to_m(surface_height + gate.height),
+                        vpu_to_m(gate.center.y),
+                    ));
 
                     // Add bracket mesh if visible
                     if let Some((bracket_vertices, bracket_indices)) = gate_meshes.bracket {
@@ -1192,6 +1200,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             indices: bracket_indices,
                             material_name: material_name.clone(),
                             layer_name: get_layer_name(&gate.editor_layer_name, gate.editor_layer),
+                            translation,
                             ..Default::default()
                         });
                     }
@@ -1204,6 +1213,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         indices: wire_indices,
                         material_name,
                         layer_name: get_layer_name(&gate.editor_layer_name, gate.editor_layer),
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -1214,7 +1224,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 }
                 let surface_height =
                     get_surface_height(vpx, &trigger.surface, trigger.center.x, trigger.center.y);
-                if let Some((vertices, indices)) = build_trigger_mesh(trigger, surface_height) {
+                if let Some((vertices, indices)) = build_trigger_mesh(trigger) {
                     let material_name = if trigger.material.is_empty() {
                         None
                     } else {

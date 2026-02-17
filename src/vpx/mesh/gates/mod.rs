@@ -32,6 +32,8 @@ use gate_wire_mesh::{GATE_WIRE_INDICES, GATE_WIRE_MESH};
 use gate_wire_rectangle_mesh::{GATE_WIRE_RECTANGLE_INDICES, GATE_WIRE_RECTANGLE_MESH};
 
 /// Result of gate mesh generation with separate meshes for bracket and wire/plate
+///
+/// Vertices are centered at origin.
 pub struct GateMeshes {
     /// The bracket mesh (if show_bracket is true)
     pub bracket: Option<(Vec<VertexWrapper>, Vec<VpxFace>)>,
@@ -59,16 +61,16 @@ fn get_mesh_for_type(gate_type: &GateType) -> (&'static [Vertex3dNoTex2], &'stat
 /// vertMatrix.TransformPositions(gateBracket, buf, gateBracketNumVertices);
 /// rotMatrix.TransformNormals(gateBracket, buf, gateBracketNumVertices);
 /// ```
-fn generate_bracket_mesh(gate: &Gate, base_height: f32) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
+///
+/// Note: Translation is NOT applied here - use gate.center and height for node transform.
+fn generate_bracket_mesh(gate: &Gate) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
     let rot_matrix = Matrix3D::rotate_z(gate.rotation.to_radians());
-    let vert_matrix = rot_matrix
-        * Matrix3D::scale_uniform(gate.length)
-        * Matrix3D::translate(gate.center.x, gate.center.y, gate.height + base_height);
+    let vert_matrix = rot_matrix * Matrix3D::scale_uniform(gate.length);
 
     let vertices: Vec<VertexWrapper> = GATE_BRACKET_MESH
         .iter()
         .map(|v| {
-            // Transform position
+            // Transform position (rotation and scale only, no translation)
             let pos = Vertex3D::new(v.x, v.y, v.z);
             let transformed_pos = vert_matrix.transform_vertex(pos);
 
@@ -106,32 +108,34 @@ fn generate_bracket_mesh(gate: &Gate, base_height: f32) -> (Vec<VertexWrapper>, 
 
 /// Generate gate wire/plate mesh
 ///
-/// From VPinball Gate::GenerateWireMesh:
+/// From VPinball Gate::RenderDynamic (line 417-418):
 /// ```cpp
-/// const Matrix3D world = Matrix3D::MatrixRotateZ(ANGTORAD(m_d.m_rotation))
+/// const Matrix3D vertMatrix = (fullMatrix
+///     * Matrix3D::MatrixScale(m_d.m_length, m_d.m_length, m_d.m_length))
 ///     * Matrix3D::MatrixTranslate(m_d.m_vCenter.x, m_d.m_vCenter.y, m_d.m_height + m_baseHeight);
-/// world.TransformVertices(m_vertices, buf, m_numVertices);
 /// ```
 ///
-/// Note: The wire mesh is NOT scaled by length, unlike the bracket.
-/// The mesh already has the proper size built-in.
+/// Note: The wire mesh IS scaled by length, same as the bracket.
+/// Translation is NOT applied here - use gate.center and height for node transform.
 fn generate_wire_mesh(
     gate: &Gate,
-    base_height: f32,
     mesh: &[Vertex3dNoTex2],
     indices: &[u16],
 ) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
-    let world_matrix = Matrix3D::rotate_z(gate.rotation.to_radians())
-        * Matrix3D::translate(gate.center.x, gate.center.y, gate.height + base_height);
+    // Rotation and scale (no translation - that goes in node transform)
+    let world_matrix =
+        Matrix3D::rotate_z(gate.rotation.to_radians()) * Matrix3D::scale_uniform(gate.length);
 
     let vertices: Vec<VertexWrapper> = mesh
         .iter()
         .map(|v| {
-            // Transform position and normal together (TransformVertices does both)
+            // Transform position (rotation and scale)
             let pos = Vertex3D::new(v.x, v.y, v.z);
             let transformed_pos = world_matrix.transform_vertex(pos);
 
-            let normal = world_matrix.transform_normal(v.nx, v.ny, v.nz);
+            // Transform normal (rotation only, not scale)
+            let rot_matrix = Matrix3D::rotate_z(gate.rotation.to_radians());
+            let normal = rot_matrix.transform_normal(v.nx, v.ny, v.nz);
             let normal = normal.normalized();
 
             VertexWrapper {
@@ -164,13 +168,15 @@ fn generate_wire_mesh(
 
 /// Generate all gate meshes based on the gate parameters
 ///
+/// Vertices are centered at origin. Use `gate.center` and
+/// `base_height + gate.height` for the glTF node transform.
+///
 /// # Arguments
 /// * `gate` - The gate definition
-/// * `base_height` - The height of the surface the gate sits on (from table surface lookup)
 ///
 /// # Returns
 /// A GateMeshes struct containing bracket (optional) and wire/plate meshes
-pub fn build_gate_meshes(gate: &Gate, base_height: f32) -> Option<GateMeshes> {
+pub fn build_gate_meshes(gate: &Gate) -> Option<GateMeshes> {
     if !gate.is_visible {
         return None;
     }
@@ -181,11 +187,11 @@ pub fn build_gate_meshes(gate: &Gate, base_height: f32) -> Option<GateMeshes> {
 
     Some(GateMeshes {
         bracket: if gate.show_bracket {
-            Some(generate_bracket_mesh(gate, base_height))
+            Some(generate_bracket_mesh(gate))
         } else {
             None
         },
-        wire: generate_wire_mesh(gate, base_height, mesh, indices),
+        wire: generate_wire_mesh(gate, mesh, indices),
     })
 }
 
@@ -209,7 +215,7 @@ mod tests {
     #[test]
     fn test_build_gate_meshes_wire_w() {
         let gate = make_test_gate(GateType::WireW, true, true);
-        let result = build_gate_meshes(&gate, 0.0);
+        let result = build_gate_meshes(&gate);
         assert!(result.is_some());
 
         let meshes = result.unwrap();
@@ -227,7 +233,7 @@ mod tests {
     #[test]
     fn test_build_gate_meshes_no_bracket() {
         let gate = make_test_gate(GateType::WireW, false, true);
-        let result = build_gate_meshes(&gate, 0.0);
+        let result = build_gate_meshes(&gate);
         assert!(result.is_some());
 
         let meshes = result.unwrap();
@@ -237,7 +243,7 @@ mod tests {
     #[test]
     fn test_build_gate_meshes_invisible() {
         let gate = make_test_gate(GateType::WireW, true, false);
-        let result = build_gate_meshes(&gate, 0.0);
+        let result = build_gate_meshes(&gate);
         assert!(result.is_none());
     }
 
@@ -252,7 +258,7 @@ mod tests {
 
         for gate_type in types {
             let gate = make_test_gate(gate_type.clone(), true, true);
-            let result = build_gate_meshes(&gate, 0.0);
+            let result = build_gate_meshes(&gate);
             assert!(
                 result.is_some(),
                 "Failed to generate mesh for {:?}",

@@ -74,7 +74,10 @@ impl<'de> Deserialize<'de> for GateType {
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Gate {
-    pub center: Vertex2D,     // 1 VCEN
+    /// BIFF tag: `NAME`
+    pub name: String,
+    /// BIFF tag: `VCEN`
+    pub center: Vertex2D,
     pub length: f32,          // 2 LGTH
     pub height: f32,          // 3 HGTH
     pub rotation: f32,        // 4 ROTA
@@ -88,7 +91,7 @@ pub struct Gate {
     /// Name of the surface (ramp or wall top) this gate sits on.
     /// Used to determine the gate's base height (z position).
     /// If empty, the gate sits on the playfield.
-    /// BIFF tag: SURF
+    /// BIFF tag: `SURF`
     pub surface: String,
     pub elasticity: f32,             // 11 ELAS
     pub angle_max: f32,              // 12 GAMA
@@ -97,8 +100,24 @@ pub struct Gate {
     pub damping: Option<f32>,        // 15 AFRC (added in 10.?)
     pub gravity_factor: Option<f32>, // 16 GGFC (added in 10.?)
     pub is_visible: bool,            // 17 GVSB
-    pub name: String,                // 18 NAME
-    pub two_way: bool,               // 19 TWWA
+
+    /// Whether the gate can swing in both directions.
+    ///
+    /// When `false` (one-way): The gate only swings in one direction and has a
+    /// line segment collider that prevents the ball from passing through from
+    /// one side.
+    ///
+    /// When `true` (two-way): The gate can swing both directions freely, like
+    /// a saloon door. No blocking line segment is created.
+    ///
+    /// This also affects the rotation direction during animation:
+    /// - One-way gates rotate in the negative X direction
+    /// - Two-way gates rotate in both X directions
+    ///
+    /// Default: true
+    ///
+    /// BIFF tag: `TWWA`
+    pub two_way: bool,
     /// Whether this gate appears in playfield reflections.
     ///
     /// When `true`, the ball is rendered in the reflection pass.
@@ -106,7 +125,9 @@ pub struct Gate {
     ///
     /// BIFF tag: `REEN` (was missing in 10.01)
     pub is_reflection_enabled: Option<bool>,
-    pub gate_type: Option<GateType>, // 21 GATY (was missing in 10.01)
+    /// The type of gate, which determines the mesh used for rendering and collision.
+    /// BIFF tag: `GATY` (was missing in 10.01)
+    pub gate_type: Option<GateType>,
 
     // these are shared between all items
     pub is_locked: bool,

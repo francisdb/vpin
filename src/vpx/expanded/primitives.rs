@@ -189,7 +189,7 @@ fn write_gate_meshes(
     mesh_format: PrimitiveMeshFormat,
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
-    let Some(gate_meshes) = build_gate_meshes(gate, 0.0) else {
+    let Some(gate_meshes) = build_gate_meshes(gate) else {
         return Ok(());
     };
 
@@ -488,7 +488,7 @@ fn write_trigger_mesh(
     mesh_format: PrimitiveMeshFormat,
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
-    let Some((vertices, indices)) = build_trigger_mesh(trigger, 0.0) else {
+    let Some((vertices, indices)) = build_trigger_mesh(trigger) else {
         return Ok(());
     };
 
