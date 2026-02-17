@@ -1090,7 +1090,16 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 }
                 let surface_height =
                     get_surface_height(vpx, &spinner.surface, spinner.center.x, spinner.center.y);
-                let spinner_meshes = build_spinner_meshes(spinner, surface_height);
+                let spinner_meshes = build_spinner_meshes(spinner);
+
+                // Convert center to glTF coordinates (meters, Y-up)
+                // VPX (x, y, z) → glTF [x, z, y]
+                // pos_z = surface_height + spinner.height
+                let translation = Some(Vec3::new(
+                    vpu_to_m(spinner.center.x),
+                    vpu_to_m(surface_height + spinner.height),
+                    vpu_to_m(spinner.center.y),
+                ));
 
                 // Add bracket mesh if visible
                 if let Some((bracket_vertices, bracket_indices)) = spinner_meshes.bracket {
@@ -1103,6 +1112,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             &spinner.editor_layer_name,
                             spinner.editor_layer,
                         ),
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -1126,6 +1136,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     material_name: plate_material,
                     texture_name: plate_texture,
                     layer_name: get_layer_name(&spinner.editor_layer_name, spinner.editor_layer),
+                    translation,
                     ..Default::default()
                 });
             }

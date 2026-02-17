@@ -449,7 +449,7 @@ fn write_spinner_meshes(
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
     // TODO: get surface height from the table
-    let meshes = build_spinner_meshes(spinner, 0.0);
+    let meshes = build_spinner_meshes(spinner);
 
     // Write bracket mesh if present
     if let Some((bracket_vertices, bracket_indices)) = meshes.bracket {
