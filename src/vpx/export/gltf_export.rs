@@ -1263,7 +1263,17 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 let surface_height =
                     get_surface_height(vpx, &light.surface, light.center.x, light.center.y);
 
-                if let Some(light_meshes) = build_light_meshes(light, surface_height) {
+                if let Some(light_meshes) = build_light_meshes(light) {
+                    // Convert center to glTF coordinates (meters, Y-up)
+                    // VPX (x, y, z) → glTF [x, z, y]
+                    // VPinball places the bulb mesh at surface height only, NOT surface + light.height
+                    // The light.height is used for the light emission point (halo), not the physical mesh
+                    let translation = Some(Vec3::new(
+                        vpu_to_m(light.center.x),
+                        vpu_to_m(surface_height),
+                        vpu_to_m(light.center.y),
+                    ));
+
                     // Add bulb mesh
                     // VPinball bulb material (light.cpp lines 679-691):
                     //   m_bOpacityActive = true, m_fOpacity = 0.2f (20% opacity = 80% transparent)
@@ -1287,7 +1297,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             transmission_factor: None,
                             is_ball: false,
                             roughness_texture_name: None,
-                            translation: None,
+                            translation,
                         });
                     }
 
@@ -1310,7 +1320,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             transmission_factor: None,
                             is_ball: false,
                             roughness_texture_name: None,
-                            translation: None,
+                            translation,
                         });
                     }
                 }
@@ -2402,16 +2412,23 @@ fn build_combined_gltf_payload(
                 continue;
             }
 
-            // Get light height (use provided height or default to 0)
-            let mut light_z = light.height.unwrap_or(0.0);
+            // Get surface height for this light
+            let surface_height =
+                get_surface_height(vpx, &light.surface, light.center.x, light.center.y);
 
-            // If a GI light has Z 0, move the light up ~1cm
+            // Get light height offset (use provided height or default to 0)
+            let mut light_height_offset = light.height.unwrap_or(0.0);
+
+            // If a GI light has height 0, move the light up ~1cm
             // so it appears inside the bulb rather than at the base
             // We might want to filter later on to only be for lights that have a bulb mesh.
             // TODO we might want to let the user configure these tweaks
-            if light_z.abs() < 0.001 {
-                light_z = mm_to_vpu(10.0);
+            if light_height_offset.abs() < 0.001 {
+                light_height_offset = mm_to_vpu(10.0);
             }
+
+            // Final light Z position = surface height + light height offset
+            let light_z = surface_height + light_height_offset;
 
             // Light color (normalized to 0-1)
             let color = [
