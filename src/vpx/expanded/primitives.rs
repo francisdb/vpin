@@ -355,7 +355,7 @@ fn write_plunger_meshes(
     mesh_format: PrimitiveMeshFormat,
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
-    let plunger_meshes = build_plunger_meshes(plunger, 0.0);
+    let plunger_meshes = build_plunger_meshes(plunger);
     let file_name_base = json_file_name.trim_end_matches(".json");
 
     // Write flat rod mesh

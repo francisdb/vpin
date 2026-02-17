@@ -1331,7 +1331,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 }
                 let surface_height =
                     get_surface_height(vpx, &plunger.surface, plunger.center.x, plunger.center.y);
-                let plunger_meshes = build_plunger_meshes(plunger, surface_height);
+                let plunger_meshes = build_plunger_meshes(plunger);
                 let material_name = if plunger.material.is_empty() {
                     None
                 } else {
@@ -1344,6 +1344,15 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 };
                 let layer_name = get_layer_name(&plunger.editor_layer_name, plunger.editor_layer);
 
+                // Convert center to glTF coordinates (meters, Y-up)
+                // VPX (x, y, z) → glTF [x, z, y]
+                // Note: z_adjust is already baked into mesh z coordinates relative to height/2
+                let translation = Some(Vec3::new(
+                    vpu_to_m(plunger.center.x),
+                    vpu_to_m(surface_height + plunger.z_adjust),
+                    vpu_to_m(plunger.center.y),
+                ));
+
                 // Add flat rod mesh (for Flat type)
                 if let Some((vertices, indices)) = plunger_meshes.flat_rod {
                     meshes.push(NamedMesh {
@@ -1353,6 +1362,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         material_name: material_name.clone(),
                         texture_name: texture_name.clone(),
                         layer_name: layer_name.clone(),
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -1366,6 +1376,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         material_name: material_name.clone(),
                         texture_name: texture_name.clone(),
                         layer_name: layer_name.clone(),
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -1379,6 +1390,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         material_name: material_name.clone(),
                         texture_name: texture_name.clone(),
                         layer_name: layer_name.clone(),
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -1392,6 +1404,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         material_name: material_name.clone(),
                         texture_name: texture_name.clone(),
                         layer_name: layer_name.clone(),
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -1409,7 +1422,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         transmission_factor: None,
                         is_ball: false,
                         roughness_texture_name: None,
-                        translation: None,
+                        translation,
                     });
                 }
             }
