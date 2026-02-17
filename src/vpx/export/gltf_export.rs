@@ -1541,7 +1541,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 let surface_height =
                     get_surface_height(vpx, &decal.surface, decal.center.x, decal.center.y);
 
-                if let Some((vertices, indices)) = build_decal_mesh(decal, surface_height) {
+                if let Some((vertices, indices)) = build_decal_mesh(decal) {
                     let texture_name = if !decal.image.is_empty() {
                         Some(decal.image.clone())
                     } else {
@@ -1553,6 +1553,15 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         None
                     };
 
+                    // Convert center to glTF coordinates (meters, Y-up)
+                    // VPX (x, y, z) → glTF [x, z, y]
+                    // Add 0.2 VPU offset for decal (from decal.cpp line 646)
+                    let translation = Some(Vec3::new(
+                        vpu_to_m(decal.center.x),
+                        vpu_to_m(surface_height + 0.2),
+                        vpu_to_m(decal.center.y),
+                    ));
+
                     meshes.push(NamedMesh {
                         name: decal.name.clone(),
                         vertices,
@@ -1560,6 +1569,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         material_name,
                         texture_name,
                         layer_name: get_layer_name(&decal.editor_layer_name, decal.editor_layer),
+                        translation,
                         ..Default::default()
                     });
                 }
