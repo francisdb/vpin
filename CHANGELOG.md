@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.2](https://github.com/francisdb/vpin/compare/v0.21.1...v0.21.2) - 2026-02-17
+
+### Added
+
+- proper translate for gltf ([#254](https://github.com/francisdb/vpin/pull/254))
+- gltf export ([#251](https://github.com/francisdb/vpin/pull/251))
+- better transparent pixels check
+
+### Other
+
+- document light related fields
+
 ## [0.21.1](https://github.com/francisdb/vpin/compare/v0.21.0...v0.21.1) - 2026-02-16
 
 ### Added
