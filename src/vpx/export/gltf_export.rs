@@ -1003,7 +1003,15 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
             GameItemEnum::Bumper(bumper) => {
                 let surface_height =
                     get_surface_height(vpx, &bumper.surface, bumper.center.x, bumper.center.y);
-                let bumper_meshes = build_bumper_meshes(bumper, surface_height);
+                let bumper_meshes = build_bumper_meshes(bumper);
+
+                // Convert center to glTF coordinates (meters, Y-up)
+                // VPX (x, y, z) → glTF [x, z, y]
+                let translation = Some(Vec3::new(
+                    vpu_to_m(bumper.center.x),
+                    vpu_to_m(surface_height),
+                    vpu_to_m(bumper.center.y),
+                ));
 
                 // Add base mesh if visible
                 if let Some((base_vertices, base_indices)) = bumper_meshes.base {
@@ -1018,6 +1026,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         indices: base_indices,
                         material_name: base_material,
                         layer_name: get_layer_name(&bumper.editor_layer_name, bumper.editor_layer),
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -1035,6 +1044,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         indices: socket_indices,
                         material_name: socket_material,
                         layer_name: get_layer_name(&bumper.editor_layer_name, bumper.editor_layer),
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -1051,6 +1061,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         indices: ring_indices,
                         material_name: ring_material,
                         layer_name: get_layer_name(&bumper.editor_layer_name, bumper.editor_layer),
+                        translation,
                         ..Default::default()
                     });
                 }
@@ -1068,6 +1079,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         indices: cap_indices,
                         material_name: cap_material,
                         layer_name: get_layer_name(&bumper.editor_layer_name, bumper.editor_layer),
+                        translation,
                         ..Default::default()
                     });
                 }

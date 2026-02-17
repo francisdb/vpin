@@ -236,7 +236,7 @@ fn write_bumper_meshes(
     mesh_format: PrimitiveMeshFormat,
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
-    let bumper_meshes = build_bumper_meshes(bumper, 0.0);
+    let bumper_meshes = build_bumper_meshes(bumper);
     let file_name_base = json_file_name.trim_end_matches(".json");
 
     // Write base mesh
