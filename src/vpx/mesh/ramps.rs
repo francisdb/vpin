@@ -110,36 +110,32 @@ impl CatmullCurve3D {
 }
 
 /// Check if three points are collinear within the given accuracy
+/// Matches VPinball's FlatWithAccuracy from mesh.h
 fn flat_with_accuracy(
     v1: &RenderVertex3D,
     v2: &RenderVertex3D,
     vmid: &RenderVertex3D,
     accuracy: f32,
 ) -> bool {
-    // Calculate perpendicular distance from vmid to line v1-v2
-    let dx = v2.x - v1.x;
-    let dy = v2.y - v1.y;
-    let dz = v2.z - v1.z;
+    // Compute (vmid - v1) and (v2 - v1)
+    let mid_v1 = Vec3 {
+        x: vmid.x - v1.x,
+        y: vmid.y - v1.y,
+        z: vmid.z - v1.z,
+    };
+    let v2_v1 = Vec3 {
+        x: v2.x - v1.x,
+        y: v2.y - v1.y,
+        z: v2.z - v1.z,
+    };
 
-    let line_len_sq = dx * dx + dy * dy + dz * dz;
-    if line_len_sq < 1e-10 {
-        return true;
-    }
+    // Compute the square of double the signed area of the triangle (v1, vMid, v2)
+    // This is the cross product length squared
+    let cross = Vec3::cross(&mid_v1, &v2_v1);
+    let dblareasq = cross.x * cross.x + cross.y * cross.y + cross.z * cross.z;
 
-    // Vector from v1 to vmid
-    let px = vmid.x - v1.x;
-    let py = vmid.y - v1.y;
-    let pz = vmid.z - v1.z;
-
-    // Cross product gives perpendicular distance * line_length
-    let cross_x = dy * pz - dz * py;
-    let cross_y = dz * px - dx * pz;
-    let cross_z = dx * py - dy * px;
-
-    let cross_len_sq = cross_x * cross_x + cross_y * cross_y + cross_z * cross_z;
-    let dist_sq = cross_len_sq / line_len_sq;
-
-    dist_sq < accuracy * accuracy
+    // VPinball compares area squared directly against accuracy (not accuracy squared!)
+    dblareasq < accuracy
 }
 
 /// Recursively subdivide a curve segment until it's flat enough
@@ -1092,5 +1088,93 @@ mod tests {
         let (vertices, indices) = result.unwrap();
         assert!(!vertices.is_empty());
         assert!(!indices.is_empty());
+    }
+
+    #[test]
+    fn test_one_wire_ramp_with_smoothing() {
+        // Test a one-wire ramp with smooth corners
+        // This ensures the Catmull-Rom smoothing is properly applied
+        let mut ramp = Ramp::default();
+        ramp.ramp_type = RampType::OneWire;
+        ramp.wire_diameter = 6.0;
+        ramp.drag_points = vec![
+            DragPoint {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                smooth: true,
+                ..Default::default()
+            },
+            DragPoint {
+                x: 50.0,
+                y: 50.0,
+                z: 10.0,
+                smooth: true,
+                ..Default::default()
+            },
+            DragPoint {
+                x: 100.0,
+                y: 0.0,
+                z: 20.0,
+                smooth: true,
+                ..Default::default()
+            },
+        ];
+
+        let result = build_ramp_mesh(&ramp, &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0));
+        assert!(result.is_some(), "One-wire ramp should generate mesh");
+
+        let (vertices, indices) = result.unwrap();
+        assert!(!vertices.is_empty(), "Should have vertices");
+        assert!(!indices.is_empty(), "Should have faces");
+
+        // With smoothing, we should have more than 3 rings (original control points)
+        // The exact number depends on accuracy, but should be > 3 due to subdivision
+        let num_segments = 8;
+        let num_vertices = vertices.len();
+        let num_rings = num_vertices / num_segments;
+        assert!(
+            num_rings > 3,
+            "Smoothed one-wire ramp should have more rings than control points due to Catmull-Rom subdivision, got {} rings",
+            num_rings
+        );
+    }
+
+    #[test]
+    fn test_one_wire_ramp_without_smoothing() {
+        // Test a one-wire ramp with non-smooth corners
+        // This should have fewer vertices since no subdivision occurs
+        let mut ramp = Ramp::default();
+        ramp.ramp_type = RampType::OneWire;
+        ramp.wire_diameter = 6.0;
+        ramp.drag_points = vec![
+            DragPoint {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                smooth: false,
+                ..Default::default()
+            },
+            DragPoint {
+                x: 50.0,
+                y: 50.0,
+                z: 10.0,
+                smooth: false,
+                ..Default::default()
+            },
+            DragPoint {
+                x: 100.0,
+                y: 0.0,
+                z: 20.0,
+                smooth: false,
+                ..Default::default()
+            },
+        ];
+
+        let result = build_ramp_mesh(&ramp, &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0));
+        assert!(result.is_some(), "One-wire ramp should generate mesh");
+
+        let (vertices, _) = result.unwrap();
+        assert!(!vertices.is_empty(), "Should have vertices");
     }
 }
