@@ -165,7 +165,6 @@ fn mime_type_for_image(image: &ImageData) -> &'static str {
 }
 
 /// A named mesh ready for GLTF export
-#[derive(Default)]
 struct NamedMesh {
     name: String,
     vertices: Vec<VertexWrapper>,
@@ -194,6 +193,29 @@ struct NamedMesh {
     /// is applied via the glTF node's "translation" property.
     /// Coordinates: VPX X → glTF X, VPX Z → glTF Y, VPX Y → glTF Z
     translation: Option<Vec3>,
+    /// Whether the node is visible.
+    /// When false, the node will be exported with the KHR_node_visibility extension
+    /// set to `visible: false`. Defaults to true.
+    visible: bool,
+}
+
+impl Default for NamedMesh {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            vertices: Vec::new(),
+            indices: Vec::new(),
+            material_name: None,
+            texture_name: None,
+            color_tint: None,
+            layer_name: None,
+            transmission_factor: None,
+            is_ball: false,
+            roughness_texture_name: None,
+            translation: None,
+            visible: true,
+        }
+    }
 }
 
 impl NamedMesh {
@@ -408,7 +430,7 @@ fn get_surface_height(vpx: &VPX, surface_name: &str, _x: f32, _y: f32) -> f32 {
                 if ramp.name.eq_ignore_ascii_case(surface_name) {
                     // TODO: Proper ramp height interpolation based on (x, y) position
                     warn!(
-                        "Ramp height interpolation not implemented, returning average height for ramp '{}'",
+                        "Ramp surface placement interpolation not implemented, returning average height for ramp '{}'",
                         ramp.name
                     );
                     // For now, return average of bottom and top heights
@@ -689,7 +711,7 @@ fn calculate_light_range(light: &Light) -> f32 {
 }
 
 /// Collect all meshes from a VPX file
-fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
+fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
     let mut meshes = Vec::new();
     let mut has_explicit_playfield = false;
 
@@ -712,8 +734,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
     for gameitem in &vpx.gameitems {
         match gameitem {
             GameItemEnum::Primitive(primitive) => {
-                if !primitive.is_visible {
-                    continue; // Skip invisible primitives
+                if !options.export_invisible_items && !primitive.is_visible {
+                    continue;
                 }
                 if let Ok(Some(read_mesh)) = primitive.read_mesh() {
                     let (transformed, translation) =
@@ -769,17 +791,21 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         ),
                         transmission_factor,
                         translation: Some(translation),
+                        visible: primitive.is_visible,
                         ..Default::default()
                     });
                 }
             }
             GameItemEnum::Wall(wall) => {
-                if !wall.is_top_bottom_visible && !wall.is_side_visible {
-                    continue; // Skip fully invisible walls
+                if !options.export_invisible_items
+                    && !wall.is_top_bottom_visible
+                    && !wall.is_side_visible
+                {
+                    continue;
                 }
                 if let Some(wall_meshes) = build_wall_meshes(wall, &table_dims) {
-                    // Add top mesh if visible
-                    if wall.is_top_bottom_visible
+                    // Add top mesh
+                    if (options.export_invisible_items || wall.is_top_bottom_visible)
                         && let Some((vertices, indices)) = wall_meshes.top
                     {
                         // Top surface: use image (texture) AND top_material (for opacity settings)
@@ -806,12 +832,13 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             texture_name,
                             layer_name: get_layer_name(&wall.editor_layer_name, wall.editor_layer),
                             transmission_factor,
+                            visible: wall.is_top_bottom_visible,
                             ..Default::default()
                         });
                     }
 
-                    // Add side mesh if visible
-                    if wall.is_side_visible
+                    // Add side mesh
+                    if (options.export_invisible_items || wall.is_side_visible)
                         && let Some((vertices, indices)) = wall_meshes.side
                     {
                         // Side surface: use side_image (texture) AND side_material (for opacity settings)
@@ -838,14 +865,15 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             texture_name,
                             layer_name: get_layer_name(&wall.editor_layer_name, wall.editor_layer),
                             transmission_factor,
+                            visible: wall.is_side_visible,
                             ..Default::default()
                         });
                     }
                 }
             }
             GameItemEnum::Ramp(ramp) => {
-                if !ramp.is_visible {
-                    continue; // Skip invisible ramps
+                if !options.export_invisible_items && !ramp.is_visible {
+                    continue;
                 }
                 if let Some((vertices, indices)) = build_ramp_mesh(ramp, &table_dims) {
                     // Ramps can have both material (for opacity settings) and texture
@@ -866,13 +894,14 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         material_name,
                         texture_name,
                         layer_name: get_layer_name(&ramp.editor_layer_name, ramp.editor_layer),
+                        visible: ramp.is_visible,
                         ..Default::default()
                     });
                 }
             }
             GameItemEnum::Rubber(rubber) => {
-                if !rubber.is_visible {
-                    continue; // Skip invisible rubbers
+                if !options.export_invisible_items && !rubber.is_visible {
+                    continue;
                 }
                 if let Some((vertices, indices, center)) = build_rubber_mesh(rubber) {
                     let material_name = if rubber.material.is_empty() {
@@ -895,13 +924,14 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         texture_name: None,
                         layer_name: get_layer_name(&rubber.editor_layer_name, rubber.editor_layer),
                         translation,
+                        visible: rubber.is_visible,
                         ..Default::default()
                     });
                 }
             }
             GameItemEnum::Flasher(flasher) => {
-                if !flasher.is_visible {
-                    continue; // Skip invisible flashers
+                if !options.export_invisible_items && !flasher.is_visible {
+                    continue;
                 }
                 if let Some((vertices, indices, center)) = build_flasher_mesh(flasher, &table_dims)
                 {
@@ -930,23 +960,21 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         name: flasher.name.clone(),
                         vertices,
                         indices,
-                        material_name: None,
                         texture_name,
                         color_tint,
                         layer_name: get_layer_name(
                             &flasher.editor_layer_name,
                             flasher.editor_layer,
                         ),
-                        transmission_factor: None,
-                        is_ball: false,
-                        roughness_texture_name: None,
                         translation,
+                        visible: flasher.is_visible,
+                        ..Default::default()
                     });
                 }
             }
             GameItemEnum::Flipper(flipper) => {
-                if !flipper.is_visible {
-                    continue; // Skip invisible flippers
+                if !options.export_invisible_items && !flipper.is_visible {
+                    continue;
                 }
                 // TODO: get surface height from the table
                 if let Some(flipper_meshes) = build_flipper_meshes(flipper, 0.0) {
@@ -975,6 +1003,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             flipper.editor_layer,
                         ),
                         translation,
+                        visible: flipper.is_visible,
                         ..Default::default()
                     });
 
@@ -995,6 +1024,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                                 flipper.editor_layer,
                             ),
                             translation,
+                            visible: flipper.is_visible,
                             ..Default::default()
                         });
                     }
@@ -1085,8 +1115,8 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                 }
             }
             GameItemEnum::Spinner(spinner) => {
-                if !spinner.is_visible {
-                    continue; // Skip invisible spinners
+                if !options.export_invisible_items && !spinner.is_visible {
+                    continue;
                 }
                 let surface_height =
                     get_surface_height(vpx, &spinner.surface, spinner.center.x, spinner.center.y);
@@ -1113,6 +1143,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             spinner.editor_layer,
                         ),
                         translation,
+                        visible: spinner.is_visible,
                         ..Default::default()
                     });
                 }
@@ -1137,10 +1168,14 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     texture_name: plate_texture,
                     layer_name: get_layer_name(&spinner.editor_layer_name, spinner.editor_layer),
                     translation,
+                    visible: spinner.is_visible,
                     ..Default::default()
                 });
             }
             GameItemEnum::HitTarget(hit_target) => {
+                if !options.export_invisible_items && !hit_target.is_visible {
+                    continue;
+                }
                 if let Some((vertices, indices)) = build_hit_target_mesh(hit_target) {
                     let material_name = if hit_target.material.is_empty() {
                         None
@@ -1170,11 +1205,15 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             hit_target.editor_layer,
                         ),
                         translation,
+                        visible: hit_target.is_visible,
                         ..Default::default()
                     });
                 }
             }
             GameItemEnum::Gate(gate) => {
+                if !options.export_invisible_items && !gate.is_visible {
+                    continue;
+                }
                 let surface_height =
                     get_surface_height(vpx, &gate.surface, gate.center.x, gate.center.y);
                 if let Some(gate_meshes) = build_gate_meshes(gate) {
@@ -1201,6 +1240,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             material_name: material_name.clone(),
                             layer_name: get_layer_name(&gate.editor_layer_name, gate.editor_layer),
                             translation,
+                            visible: gate.is_visible,
                             ..Default::default()
                         });
                     }
@@ -1214,13 +1254,14 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         material_name,
                         layer_name: get_layer_name(&gate.editor_layer_name, gate.editor_layer),
                         translation,
+                        visible: gate.is_visible,
                         ..Default::default()
                     });
                 }
             }
             GameItemEnum::Trigger(trigger) => {
-                if !trigger.is_visible {
-                    continue; // Skip invisible triggers
+                if !options.export_invisible_items && !trigger.is_visible {
+                    continue;
                 }
                 let surface_height =
                     get_surface_height(vpx, &trigger.surface, trigger.center.x, trigger.center.y);
@@ -1249,6 +1290,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             trigger.editor_layer,
                         ),
                         translation,
+                        visible: trigger.is_visible,
                         ..Default::default()
                     });
                 }
@@ -1285,8 +1327,6 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             name: format!("{}_bulb", light.name),
                             vertices,
                             indices,
-                            material_name: None,
-                            texture_name: None,
                             // VPinball: m_fOpacity = 0.2f (20% opacity, 80% transparent)
                             // Using a white tint with low alpha to match VPinball's glass effect
                             color_tint: Some([1.0, 1.0, 1.0, 0.2]),
@@ -1294,10 +1334,9 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                                 &light.editor_layer_name,
                                 light.editor_layer,
                             ),
-                            transmission_factor: None,
-                            is_ball: false,
-                            roughness_texture_name: None,
                             translation,
+                            visible: light.visible.unwrap_or(true),
+                            ..Default::default()
                         });
                     }
 
@@ -1309,25 +1348,22 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                             name: format!("{}_socket", light.name),
                             vertices,
                             indices,
-                            material_name: None,
-                            texture_name: None,
                             // Dark metallic socket - VPinball uses m_cBase = 0x181818
                             color_tint: Some([0.094, 0.094, 0.094, 1.0]), // 0x18/0xFF ≈ 0.094
                             layer_name: get_layer_name(
                                 &light.editor_layer_name,
                                 light.editor_layer,
                             ),
-                            transmission_factor: None,
-                            is_ball: false,
-                            roughness_texture_name: None,
                             translation,
+                            visible: light.visible.unwrap_or(true),
+                            ..Default::default()
                         });
                     }
                 }
             }
             GameItemEnum::Plunger(plunger) => {
-                if !plunger.is_visible {
-                    continue; // Skip invisible plungers
+                if !options.export_invisible_items && !plunger.is_visible {
+                    continue;
                 }
                 let surface_height =
                     get_surface_height(vpx, &plunger.surface, plunger.center.x, plunger.center.y);
@@ -1363,6 +1399,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         texture_name: texture_name.clone(),
                         layer_name: layer_name.clone(),
                         translation,
+                        visible: plunger.is_visible,
                         ..Default::default()
                     });
                 }
@@ -1377,6 +1414,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         texture_name: texture_name.clone(),
                         layer_name: layer_name.clone(),
                         translation,
+                        visible: plunger.is_visible,
                         ..Default::default()
                     });
                 }
@@ -1391,6 +1429,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         texture_name: texture_name.clone(),
                         layer_name: layer_name.clone(),
                         translation,
+                        visible: plunger.is_visible,
                         ..Default::default()
                     });
                 }
@@ -1405,6 +1444,7 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         texture_name: texture_name.clone(),
                         layer_name: layer_name.clone(),
                         translation,
+                        visible: plunger.is_visible,
                         ..Default::default()
                     });
                 }
@@ -1417,12 +1457,10 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         indices,
                         material_name,
                         texture_name,
-                        color_tint: None,
                         layer_name,
-                        transmission_factor: None,
-                        is_ball: false,
-                        roughness_texture_name: None,
                         translation,
+                        visible: plunger.is_visible,
+                        ..Default::default()
                     });
                 }
             }
@@ -1505,13 +1543,10 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         vertices,
                         indices,
                         material_name: material_name.clone(),
-                        texture_name: None,
                         color_tint: Some([0.02, 0.02, 0.02, 1.0]), // Near-black for hole effect
                         layer_name: layer_name.clone(),
-                        transmission_factor: None,
-                        is_ball: false,
-                        roughness_texture_name: None,
                         translation,
+                        ..Default::default()
                     });
                 }
 
@@ -1522,13 +1557,10 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                         vertices,
                         indices,
                         material_name,
-                        texture_name: None,
                         color_tint: kicker_color,
                         layer_name,
-                        transmission_factor: None,
-                        is_ball: false,
-                        roughness_texture_name: None,
                         translation,
+                        ..Default::default()
                     });
                 }
             }
@@ -1642,10 +1674,10 @@ fn collect_meshes(vpx: &VPX) -> Vec<NamedMesh> {
                     texture_name,
                     color_tint,
                     layer_name: get_layer_name(&ball.editor_layer_name, ball.editor_layer),
-                    transmission_factor: None,
                     is_ball: true, // Pinballs need metallic, shiny material
                     roughness_texture_name,
                     translation,
+                    ..Default::default()
                 });
             }
             _ => {}
@@ -1751,6 +1783,9 @@ fn build_combined_gltf_payload(
 
     // Track whether we use the KHR_materials_transmission extension
     let mut uses_transmission_extension = false;
+
+    // Track whether we use the KHR_node_visibility extension
+    let uses_node_visibility_extension = meshes.iter().any(|m| !m.visible);
 
     // Track per-mesh material indices for meshes with color tint (unique materials)
     // Key: mesh index, Value: material index
@@ -2310,6 +2345,15 @@ fn build_combined_gltf_payload(
             node["translation"] = json!([translation.x, translation.y, translation.z]);
         }
 
+        // Add KHR_node_visibility extension for invisible nodes
+        if !mesh.visible {
+            node["extensions"] = json!({
+                "KHR_node_visibility": {
+                    "visible": false
+                }
+            });
+        }
+
         nodes.push(node);
 
         // Organize nodes into layer groups
@@ -2588,6 +2632,9 @@ fn build_combined_gltf_payload(
     if uses_transmission_extension {
         extensions_used.push("KHR_materials_transmission");
     }
+    if uses_node_visibility_extension {
+        extensions_used.push("KHR_node_visibility");
+    }
 
     let mut gltf_json = json!({
         "asset": {
@@ -2683,6 +2730,48 @@ pub enum GltfFormat {
     Gltf,
 }
 
+/// Options for controlling glTF/GLB export behavior
+#[derive(Debug, Clone, Default)]
+pub struct GltfExportOptions {
+    /// The output format (GLB or glTF)
+    pub format: GltfFormat,
+    /// Whether to include invisible items in the export.
+    ///
+    /// When `true`, items marked as invisible in the VPX table are still exported
+    /// with the `KHR_node_visibility` extension set to `visible: false`.
+    /// This preserves the full table structure but requires glTF viewer support
+    /// for the extension (e.g., some game engines).
+    ///
+    /// When `false` (default), invisible items are skipped entirely.
+    /// This is recommended for tools like Blender that don't support
+    /// `KHR_node_visibility`.
+    pub export_invisible_items: bool,
+}
+
+impl GltfExportOptions {
+    /// Create options for GLB export with default settings
+    pub fn glb() -> Self {
+        Self {
+            format: GltfFormat::Glb,
+            ..Default::default()
+        }
+    }
+
+    /// Create options for glTF export with default settings
+    pub fn gltf() -> Self {
+        Self {
+            format: GltfFormat::Gltf,
+            ..Default::default()
+        }
+    }
+
+    /// Set whether to export invisible items using `KHR_node_visibility`
+    pub fn with_export_invisible_items(mut self, export_invisible: bool) -> Self {
+        self.export_invisible_items = export_invisible;
+        self
+    }
+}
+
 /// Export the entire VPX table as a GLB file
 ///
 /// This creates a single GLB file containing all meshes from the table:
@@ -2713,7 +2802,7 @@ pub enum GltfFormat {
 /// export_glb(&vpx, Path::new("table.glb"), &RealFileSystem).unwrap();
 /// ```
 pub fn export_glb(vpx: &VPX, path: &Path, fs: &dyn FileSystem) -> io::Result<()> {
-    export(vpx, path, fs, GltfFormat::Glb)
+    export_with_options(vpx, path, fs, &GltfExportOptions::glb())
 }
 
 /// Export the entire VPX table as glTF files (JSON + separate binary)
@@ -2740,7 +2829,7 @@ pub fn export_glb(vpx: &VPX, path: &Path, fs: &dyn FileSystem) -> io::Result<()>
 /// export_gltf(&vpx, Path::new("table.gltf"), &RealFileSystem).unwrap();
 /// ```
 pub fn export_gltf(vpx: &VPX, path: &Path, fs: &dyn FileSystem) -> io::Result<()> {
-    export(vpx, path, fs, GltfFormat::Gltf)
+    export_with_options(vpx, path, fs, &GltfExportOptions::gltf())
 }
 
 /// Export the entire VPX table in the specified format (GLB or glTF)
@@ -2751,7 +2840,31 @@ pub fn export_gltf(vpx: &VPX, path: &Path, fs: &dyn FileSystem) -> io::Result<()
 /// * `fs` - The filesystem to write to
 /// * `format` - The output format (GLB or glTF)
 pub fn export(vpx: &VPX, path: &Path, fs: &dyn FileSystem, format: GltfFormat) -> io::Result<()> {
-    let meshes = collect_meshes(vpx);
+    export_with_options(
+        vpx,
+        path,
+        fs,
+        &GltfExportOptions {
+            format,
+            ..Default::default()
+        },
+    )
+}
+
+/// Export the entire VPX table with full control over export options
+///
+/// # Arguments
+/// * `vpx` - The VPX table to export
+/// * `path` - The output path (.glb or .gltf)
+/// * `fs` - The filesystem to write to
+/// * `options` - Export options controlling format and behavior
+pub fn export_with_options(
+    vpx: &VPX,
+    path: &Path,
+    fs: &dyn FileSystem,
+    options: &GltfExportOptions,
+) -> io::Result<()> {
+    let meshes = collect_meshes(vpx, options);
 
     if meshes.is_empty() {
         return Err(io::Error::new(
@@ -2782,7 +2895,7 @@ pub fn export(vpx: &VPX, path: &Path, fs: &dyn FileSystem, format: GltfFormat) -
         playfield_material_name,
     )?;
 
-    match format {
+    match options.format {
         GltfFormat::Glb => {
             let mut buffer = Vec::new();
             write_glb(&json, &bin_data, &mut buffer)?;
@@ -2830,10 +2943,65 @@ mod tests {
     #[test]
     fn test_collect_meshes_empty_vpx_has_implicit_playfield() {
         let vpx = VPX::default();
-        let meshes = collect_meshes(&vpx);
+        let meshes = collect_meshes(&vpx, &GltfExportOptions::default());
         // Even an empty VPX gets an implicit playfield mesh
         assert_eq!(meshes.len(), 1);
         assert_eq!(meshes[0].name, "playfield_mesh");
+    }
+
+    #[test]
+    fn test_invisible_primitive_skipped_by_default() {
+        let mut vpx = VPX::default();
+        let (compressed_vertices, compressed_indices, num_vertices, num_indices) =
+            create_minimal_mesh_data();
+
+        let primitive = Primitive {
+            name: "invisible_prim".to_string(),
+            is_visible: false,
+            compressed_vertices_data: Some(compressed_vertices),
+            compressed_vertices_len: Some(0),
+            compressed_indices_data: Some(compressed_indices),
+            compressed_indices_len: Some(0),
+            num_vertices: Some(num_vertices),
+            num_indices: Some(num_indices),
+            ..Default::default()
+        };
+        vpx.gameitems.push(GameItemEnum::Primitive(primitive));
+
+        let meshes = collect_meshes(&vpx, &GltfExportOptions::default());
+        // Should only have the playfield, invisible primitive is skipped
+        assert_eq!(meshes.len(), 1);
+        assert_eq!(meshes[0].name, "playfield_mesh");
+    }
+
+    #[test]
+    fn test_invisible_primitive_included_with_option() {
+        let mut vpx = VPX::default();
+        let (compressed_vertices, compressed_indices, num_vertices, num_indices) =
+            create_minimal_mesh_data();
+
+        let primitive = Primitive {
+            name: "invisible_prim".to_string(),
+            is_visible: false,
+            compressed_vertices_data: Some(compressed_vertices),
+            compressed_vertices_len: Some(0),
+            compressed_indices_data: Some(compressed_indices),
+            compressed_indices_len: Some(0),
+            num_vertices: Some(num_vertices),
+            num_indices: Some(num_indices),
+            ..Default::default()
+        };
+        vpx.gameitems.push(GameItemEnum::Primitive(primitive));
+
+        let options = GltfExportOptions::default().with_export_invisible_items(true);
+        let meshes = collect_meshes(&vpx, &options);
+        // Should have both playfield and the invisible primitive
+        assert_eq!(meshes.len(), 2);
+        let invisible_mesh = meshes.iter().find(|m| m.name == "invisible_prim").unwrap();
+        assert!(
+            !invisible_mesh.visible,
+            "Mesh should be marked as not visible"
+        );
     }
 
     #[test]
@@ -2911,7 +3079,7 @@ mod tests {
         vpx.gameitems.push(GameItemEnum::Primitive(primitive));
 
         // Collect meshes - this calls the actual code we fixed
-        let meshes = collect_meshes(&vpx);
+        let meshes = collect_meshes(&vpx, &GltfExportOptions::default());
 
         // Find our test mesh (skip the implicit playfield)
         let test_mesh = meshes.iter().find(|m| m.name == "test_screw");
