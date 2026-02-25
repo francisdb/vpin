@@ -337,6 +337,7 @@ pub(crate) struct FlipperJson {
     base_radius: f32,
     end_radius: f32,
     flipper_radius_max: f32,
+    #[serde(rename = "return", alias = "return_")]
     return_: f32,
     start_angle: f32,
     end_angle: f32,
