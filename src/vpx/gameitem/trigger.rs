@@ -180,7 +180,6 @@ pub struct Trigger {
     pub wire_thickness: Option<f32>,
     pub scale_x: f32,
     pub scale_y: f32,
-    pub timer: TimerData,
     pub material: String,
     /// Name of the surface (ramp or wall top) this trigger sits on.
     /// Used to determine the trigger's base height (z position).
@@ -223,6 +222,10 @@ pub struct Trigger {
     ///
     /// BIFF tag: `REEN` (was missing in 10.01)
     pub is_reflection_enabled: Option<bool>,
+
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
 
     // these are shared between all items
     pub is_locked: bool,
@@ -364,7 +367,6 @@ impl Default for Trigger {
     }
 }
 
-
 impl BiffRead for Trigger {
     fn biff_read(reader: &mut BiffReader<'_>) -> Trigger {
         let mut trigger = Trigger::default();
@@ -430,7 +432,8 @@ impl BiffRead for Trigger {
                 }
                 _ => {
                     if !trigger.timer.biff_read_tag(tag_str, reader)
-                        && !trigger.read_shared_attribute(tag_str, reader) {
+                        && !trigger.read_shared_attribute(tag_str, reader)
+                    {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -497,7 +500,10 @@ mod tests {
             wire_thickness: Some(4.0),
             scale_x: 5.0,
             scale_y: 6.0,
-            timer: TimerData { is_enabled: true, interval: 7 },
+            timer: TimerData {
+                is_enabled: true,
+                interval: 7,
+            },
             material: "test material".to_string(),
             surface: "test surface".to_string(),
             is_visible: false,

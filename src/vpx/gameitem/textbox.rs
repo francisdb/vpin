@@ -114,12 +114,15 @@ pub struct TextBox {
     pub font_color: Color,    // CLRF
     pub intensity_scale: f32, // INSC
     pub text: String,         // TEXT
-    pub timer: TimerData,
     pub name: String,         // NAME
     pub align: TextAlignment, // ALGN
     pub is_transparent: bool, // TRNS
     pub is_dmd: Option<bool>, // IDMD added in 10.2?
     pub font: Font,           // FONT
+
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
 
     // these are shared between all items
     pub is_locked: bool,
@@ -242,7 +245,6 @@ impl Default for TextBox {
     }
 }
 
-
 impl BiffRead for TextBox {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
         let mut textbox = TextBox::default();
@@ -291,7 +293,8 @@ impl BiffRead for TextBox {
                 }
                 _ => {
                     if !textbox.timer.biff_read_tag(tag_str, reader)
-                        && !textbox.read_shared_attribute(tag_str, reader) {
+                        && !textbox.read_shared_attribute(tag_str, reader)
+                    {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -349,7 +352,10 @@ mod tests {
             font_color: Faker.fake(),
             intensity_scale: 1.0,
             text: "test text".to_string(),
-            timer: TimerData { is_enabled: true, interval: 3 },
+            timer: TimerData {
+                is_enabled: true,
+                interval: 3,
+            },
             name: "test timer".to_string(),
             align: Faker.fake(),
             is_transparent: false,

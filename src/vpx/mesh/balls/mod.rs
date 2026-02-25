@@ -78,15 +78,16 @@ mod tests {
     use crate::vpx::gameitem::vertex3d::Vertex3D;
 
     fn create_test_ball() -> Ball {
-        let mut ball = Ball::default();
-        ball.name = "TestBall".to_string();
-        ball.pos = Vertex3D {
-            x: 100.0,
-            y: 200.0,
-            z: 25.0,
-        };
-        ball.radius = 25.0;
-        ball
+        Ball {
+            name: "TestBall".to_string(),
+            pos: Vertex3D {
+                x: 100.0,
+                y: 200.0,
+                z: 25.0,
+            },
+            radius: 25.0,
+            ..Default::default()
+        }
     }
 
     #[test]

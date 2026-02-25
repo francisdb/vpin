@@ -860,23 +860,25 @@ mod tests {
 
     #[test]
     fn test_simple_ramp() {
-        let mut ramp = Ramp::default();
-        ramp.drag_points = vec![
-            DragPoint {
-                x: 0.0,
-                y: 0.0,
-                z: 0.0,
-                smooth: false,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 100.0,
-                y: 0.0,
-                z: 0.0,
-                smooth: false,
-                ..Default::default()
-            },
-        ];
+        let ramp = Ramp {
+            drag_points: vec![
+                DragPoint {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                    smooth: false,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 100.0,
+                    y: 0.0,
+                    z: 0.0,
+                    smooth: false,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
 
         let result = build_ramp_mesh(&ramp, &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0));
         assert!(result.is_some());
@@ -890,32 +892,34 @@ mod tests {
     fn test_one_wire_ramp_with_smoothing() {
         // Test a one-wire ramp with smooth corners
         // This ensures the Catmull-Rom smoothing is properly applied
-        let mut ramp = Ramp::default();
-        ramp.ramp_type = RampType::OneWire;
-        ramp.wire_diameter = 6.0;
-        ramp.drag_points = vec![
-            DragPoint {
-                x: 0.0,
-                y: 0.0,
-                z: 0.0,
-                smooth: true,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 50.0,
-                y: 50.0,
-                z: 10.0,
-                smooth: true,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 100.0,
-                y: 0.0,
-                z: 20.0,
-                smooth: true,
-                ..Default::default()
-            },
-        ];
+        let ramp = Ramp {
+            ramp_type: RampType::OneWire,
+            wire_diameter: 6.0,
+            drag_points: vec![
+                DragPoint {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                    smooth: true,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 50.0,
+                    y: 50.0,
+                    z: 10.0,
+                    smooth: true,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 100.0,
+                    y: 0.0,
+                    z: 20.0,
+                    smooth: true,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
 
         let result = build_ramp_mesh(&ramp, &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0));
         assert!(result.is_some(), "One-wire ramp should generate mesh");
@@ -940,32 +944,34 @@ mod tests {
     fn test_one_wire_ramp_without_smoothing() {
         // Test a one-wire ramp with non-smooth corners
         // This should have fewer vertices since no subdivision occurs
-        let mut ramp = Ramp::default();
-        ramp.ramp_type = RampType::OneWire;
-        ramp.wire_diameter = 6.0;
-        ramp.drag_points = vec![
-            DragPoint {
-                x: 0.0,
-                y: 0.0,
-                z: 0.0,
-                smooth: false,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 50.0,
-                y: 50.0,
-                z: 10.0,
-                smooth: false,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 100.0,
-                y: 0.0,
-                z: 20.0,
-                smooth: false,
-                ..Default::default()
-            },
-        ];
+        let ramp = Ramp {
+            ramp_type: RampType::OneWire,
+            wire_diameter: 6.0,
+            drag_points: vec![
+                DragPoint {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                    smooth: false,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 50.0,
+                    y: 50.0,
+                    z: 10.0,
+                    smooth: false,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 100.0,
+                    y: 0.0,
+                    z: 20.0,
+                    smooth: false,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
 
         let result = build_ramp_mesh(&ramp, &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0));
         assert!(result.is_some(), "One-wire ramp should generate mesh");

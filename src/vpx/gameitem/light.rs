@@ -219,7 +219,6 @@ pub struct Light {
     /// creating a color gradient effect from the center outward.
     /// BIFF tag: `COL2`
     pub color2: Color,
-    pub timer: TimerData,
     /// Blink pattern string used when the light state is "blinking" (state = 2).
     ///
     /// Each character represents one frame of the blink cycle:
@@ -368,6 +367,10 @@ pub struct Light {
     pub shadows: Option<ShadowMode>,        // SHDW added in 10.8
     pub fader: Option<Fader>,               // FADE added in 10.8
     pub visible: Option<bool>,              // VSBL added in 10.8
+
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
 
     // these are shared between all items
     pub is_locked: bool,

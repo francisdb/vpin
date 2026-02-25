@@ -13,7 +13,6 @@ pub struct Rubber {
     pub thickness: i32,
     pub hit_event: bool,
     pub material: String,
-    pub timer: TimerData,
     pub name: String,
     pub image: String,
     pub elasticity: f32,
@@ -37,6 +36,10 @@ pub struct Rubber {
     pub is_reflection_enabled: Option<bool>,
     pub physics_material: Option<String>, // MAPH (added in 10.?)
     pub overwrite_physics: Option<bool>,  // OVPH (added in 10.?)
+
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
 
     // these are shared between all items
     pub is_locked: bool,

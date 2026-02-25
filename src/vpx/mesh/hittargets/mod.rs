@@ -149,13 +149,14 @@ mod tests {
     use crate::vpx::gameitem::vertex3d::Vertex3D;
 
     fn make_test_target(target_type: TargetType, is_visible: bool) -> HitTarget {
-        let mut target = HitTarget::default();
-        target.position = Vertex3D::new(100.0, 200.0, 0.0);
-        target.size = Vertex3D::new(32.0, 32.0, 32.0);
-        target.rot_z = 0.0;
-        target.target_type = target_type;
-        target.is_visible = is_visible;
-        target
+        HitTarget {
+            position: Vertex3D::new(100.0, 200.0, 0.0),
+            size: Vertex3D::new(32.0, 32.0, 32.0),
+            rot_z: 0.0,
+            target_type,
+            is_visible,
+            ..Default::default()
+        }
     }
 
     #[test]

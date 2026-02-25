@@ -818,8 +818,10 @@ mod tests {
     #[test]
     fn test_validate_part_group_order_correct_order() {
         // PartGroup comes first, then item referencing it
-        let mut part_group = partgroup::PartGroup::default();
-        part_group.name = "TestGroup".to_string();
+        let part_group = partgroup::PartGroup {
+            name: "TestGroup".to_string(),
+            ..Default::default()
+        };
 
         let primitive = primitive::Primitive {
             name: "TestPrimitive".to_string(),
@@ -845,8 +847,10 @@ mod tests {
             ..Default::default()
         };
 
-        let mut part_group = partgroup::PartGroup::default();
-        part_group.name = "TestGroup".to_string();
+        let part_group = partgroup::PartGroup {
+            name: "TestGroup".to_string(),
+            ..Default::default()
+        };
 
         let gameitems = vec![
             GameItemEnum::Primitive(primitive),

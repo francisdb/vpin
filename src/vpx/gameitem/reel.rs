@@ -14,7 +14,7 @@ pub struct Reel {
     pub ver1: Vertex2D,    // position on map (top right corner)
     pub ver2: Vertex2D,    // position on map (top right corner)
     pub back_color: Color, // colour of the background
-    pub timer: TimerData,
+
     pub is_transparent: bool, // is the background transparent
     pub image: String,
     pub sound: String, // sound to play for each turn of a digit
@@ -29,6 +29,10 @@ pub struct Reel {
     pub use_image_grid: bool,
     pub is_visible: bool,
     pub images_per_grid_row: u32,
+
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
 
     // these are shared between all items
     pub is_locked: bool,
@@ -172,7 +176,6 @@ impl<'de> Deserialize<'de> for Reel {
     }
 }
 
-
 impl BiffRead for Reel {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
         let mut reel = Reel::default();
@@ -238,7 +241,8 @@ impl BiffRead for Reel {
                 }
                 _ => {
                     if !reel.timer.biff_read_tag(tag_str, reader)
-                        && !reel.read_shared_attribute(tag_str, reader) {
+                        && !reel.read_shared_attribute(tag_str, reader)
+                    {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -298,7 +302,10 @@ mod tests {
             ver1: Vertex2D::new(rng.random(), rng.random()),
             ver2: Vertex2D::new(rng.random(), rng.random()),
             back_color: Faker.fake(),
-            timer: TimerData { is_enabled: rng.random(), interval: rng.random() },
+            timer: TimerData {
+                is_enabled: rng.random(),
+                interval: rng.random(),
+            },
             is_transparent: rng.random(),
             image: "test image".to_string(),
             sound: "test sound".to_string(),

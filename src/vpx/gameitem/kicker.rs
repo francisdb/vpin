@@ -137,7 +137,6 @@ impl<'de> Deserialize<'de> for KickerType {
 pub struct Kicker {
     pub center: Vertex2D,
     pub radius: f32,
-    pub timer: TimerData,
     pub material: String,
     /// Name of the surface (ramp or wall top) this kicker sits on.
     /// Used to determine the kicker's base height (z position).
@@ -153,6 +152,10 @@ pub struct Kicker {
     pub orientation: f32,
     pub fall_through: bool,
     pub legacy_mode: bool,
+
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
 
     // these are shared between all items
     pub is_locked: bool,
@@ -281,7 +284,6 @@ impl Default for Kicker {
     }
 }
 
-
 impl BiffRead for Kicker {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
         let mut kicker = Kicker::default();
@@ -335,7 +337,8 @@ impl BiffRead for Kicker {
                 }
                 _ => {
                     if !kicker.timer.biff_read_tag(tag_str, reader)
-                        && !kicker.read_shared_attribute(tag_str, reader) {
+                        && !kicker.read_shared_attribute(tag_str, reader)
+                    {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -389,7 +392,10 @@ mod tests {
         let kicker = Kicker {
             center: Vertex2D::new(1.0, 2.0),
             radius: 3.0,
-            timer: TimerData { is_enabled: true, interval: 4 },
+            timer: TimerData {
+                is_enabled: true,
+                interval: 4,
+            },
             material: "material".to_string(),
             surface: "surface".to_string(),
             is_enabled: false,

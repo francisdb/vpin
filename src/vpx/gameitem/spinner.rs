@@ -16,7 +16,6 @@ pub struct Spinner {
     ///
     /// BIFF tag: ROTA
     pub rotation: f32,
-    pub timer: TimerData,
     /// Height offset of the spinner above its surface in VPU.
     ///
     /// The spinner's z position is calculated as: `surface_height + height`
@@ -121,6 +120,10 @@ pub struct Spinner {
     ///
     /// BIFF tag: `REEN` (was missing in 10.01)
     pub is_reflection_enabled: Option<bool>,
+
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
 
     // these are shared between all items
     pub is_locked: bool,
@@ -257,7 +260,6 @@ impl<'de> Deserialize<'de> for Spinner {
     }
 }
 
-
 impl BiffRead for Spinner {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
         let mut spinner = Self::default();
@@ -316,7 +318,8 @@ impl BiffRead for Spinner {
                 }
                 _ => {
                     if !spinner.timer.biff_read_tag(tag_str, reader)
-                        && !spinner.read_shared_attribute(tag_str, reader) {
+                        && !spinner.read_shared_attribute(tag_str, reader)
+                    {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -374,7 +377,10 @@ mod tests {
         let spinner = Spinner {
             center: Vertex2D::new(rng.random(), rng.random()),
             rotation: rng.random(),
-            timer: TimerData { is_enabled: rng.random(), interval: rng.random() },
+            timer: TimerData {
+                is_enabled: rng.random(),
+                interval: rng.random(),
+            },
             height: rng.random(),
             length: rng.random(),
             damping: rng.random(),

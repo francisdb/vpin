@@ -82,7 +82,6 @@ pub struct Gate {
     pub height: f32,          // 3 HGTH
     pub rotation: f32,        // 4 ROTA
     pub material: String,     // 5 MATR
-    pub timer: TimerData,
     pub show_bracket: bool,   // 7 GSUP
     pub is_collidable: bool,  // 8 GCOL
     pub imgf: Option<String>, // IMGF (was in use in 10.01)
@@ -127,6 +126,10 @@ pub struct Gate {
     /// The type of gate, which determines the mesh used for rendering and collision.
     /// BIFF tag: `GATY` (was missing in 10.01)
     pub gate_type: Option<GateType>,
+
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
 
     // these are shared between all items
     pub is_locked: bool,
@@ -286,7 +289,6 @@ impl<'de> Deserialize<'de> for Gate {
     }
 }
 
-
 impl BiffRead for Gate {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
         let mut gate = Gate::default();
@@ -364,7 +366,8 @@ impl BiffRead for Gate {
                 }
                 _ => {
                     if !gate.timer.biff_read_tag(tag_str, reader)
-                        && !gate.read_shared_attribute(tag_str, reader) {
+                        && !gate.read_shared_attribute(tag_str, reader)
+                    {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -439,7 +442,10 @@ mod tests {
             height: 4.0,
             rotation: 5.0,
             material: "material".to_string(),
-            timer: TimerData { is_enabled: true, interval: 6 },
+            timer: TimerData {
+                is_enabled: true,
+                interval: 6,
+            },
             show_bracket: false,
             is_collidable: false,
             imgf: Some("imgf".to_string()),

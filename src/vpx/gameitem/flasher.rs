@@ -228,7 +228,6 @@ pub struct Flasher {
     /// BIFF tag: `FROZ`
     pub rot_z: f32,
     pub color: Color,
-    pub timer: TimerData,
     pub name: String,
     /// Primary texture for the flasher.
     /// When only image_a is set (no image_b), this texture is displayed directly.
@@ -311,6 +310,10 @@ pub struct Flasher {
     ///
     /// Minimum 3 points required to form a valid polygon.
     pub drag_points: Vec<DragPoint>,
+
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
 
     // these are shared between all items
     pub is_locked: bool,
@@ -515,7 +518,6 @@ impl<'de> Deserialize<'de> for Flasher {
     }
 }
 
-
 impl BiffRead for Flasher {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
         let mut flasher = Flasher::default();
@@ -627,7 +629,8 @@ impl BiffRead for Flasher {
                 }
                 _ => {
                     if !flasher.timer.biff_read_tag(tag_str, reader)
-                        && !flasher.read_shared_attribute(tag_str, reader) {
+                        && !flasher.read_shared_attribute(tag_str, reader)
+                    {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -734,7 +737,10 @@ mod tests {
             rot_y: rng.random(),
             rot_z: rng.random(),
             color: Faker.fake(),
-            timer: TimerData { is_enabled: rng.random(), interval: rng.random() },
+            timer: TimerData {
+                is_enabled: rng.random(),
+                interval: rng.random(),
+            },
             name: "test name".to_string(),
             image_a: "test image a".to_string(),
             image_b: "test image b".to_string(),

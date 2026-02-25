@@ -18,7 +18,6 @@ pub struct Wall {
     pub is_flipbook: bool,
     pub is_bottom_solid: bool,
     pub is_collidable: bool,
-    pub timer: TimerData,
     pub threshold: f32,
     pub image: String,
     pub side_image: String,
@@ -78,6 +77,10 @@ pub struct Wall {
     pub is_reflection_enabled: Option<bool>,
     pub physics_material: Option<String>, // MAPH (added in 10.?)
     pub overwrite_physics: Option<bool>,  // OVPH (added in 10.?)
+
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
 
     // these are shared between all items
     pub is_locked: bool,
@@ -279,7 +282,6 @@ impl Default for Wall {
     }
 }
 
-
 impl BiffRead for Wall {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
         let mut wall = Wall::default();
@@ -450,7 +452,8 @@ impl BiffRead for Wall {
                 }
                 _ => {
                     if !wall.timer.biff_read_tag(tag_str, reader)
-                        && !wall.read_shared_attribute(tag_str, reader) {
+                        && !wall.read_shared_attribute(tag_str, reader)
+                    {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -540,7 +543,10 @@ mod tests {
             is_flipbook: true,
             is_bottom_solid: true,
             is_collidable: true,
-            timer: TimerData { is_enabled: true, interval: 1 },
+            timer: TimerData {
+                is_enabled: true,
+                interval: 1,
+            },
             threshold: 2.0,
             image: "image".to_string(),
             side_image: "side_image".to_string(),

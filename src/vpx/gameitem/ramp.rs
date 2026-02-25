@@ -128,12 +128,11 @@ impl<'de> Deserialize<'de> for RampType {
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Ramp {
-    pub height_bottom: f32, // 1
-    pub height_top: f32,    // 2
-    pub width_bottom: f32,  // 3
-    pub width_top: f32,     // 4
-    pub material: String,   // 5
-    pub timer: TimerData,
+    pub height_bottom: f32,                  // 1
+    pub height_top: f32,                     // 2
+    pub width_bottom: f32,                   // 3
+    pub width_top: f32,                      // 4
+    pub material: String,                    // 5
     pub ramp_type: RampType,                 // TYPE 8
     pub name: String,                        // 9
     pub image: String,                       // 10
@@ -165,6 +164,10 @@ pub struct Ramp {
     pub overwrite_physics: Option<bool>,  // OVPH 30 (added in 10.?)
 
     pub drag_points: Vec<DragPoint>,
+
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
 
     // these are shared between all items
     pub is_locked: bool,

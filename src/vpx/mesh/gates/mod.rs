@@ -201,15 +201,16 @@ mod tests {
     use crate::vpx::gameitem::vertex2d::Vertex2D;
 
     fn make_test_gate(gate_type: GateType, show_bracket: bool, is_visible: bool) -> Gate {
-        let mut gate = Gate::default();
-        gate.center = Vertex2D { x: 100.0, y: 200.0 };
-        gate.length = 50.0;
-        gate.height = 30.0;
-        gate.rotation = 45.0;
-        gate.gate_type = Some(gate_type);
-        gate.show_bracket = show_bracket;
-        gate.is_visible = is_visible;
-        gate
+        Gate {
+            center: Vertex2D { x: 100.0, y: 200.0 },
+            length: 50.0,
+            height: 30.0,
+            rotation: 45.0,
+            gate_type: Some(gate_type),
+            show_bracket,
+            is_visible,
+            ..Default::default()
+        }
     }
 
     #[test]

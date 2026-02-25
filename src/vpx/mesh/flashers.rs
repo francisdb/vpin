@@ -221,38 +221,40 @@ mod tests {
 
     #[test]
     fn test_simple_flasher() {
-        let mut flasher = Flasher::default();
-        flasher.height = 50.0;
-        flasher.drag_points = vec![
-            DragPoint {
-                x: 0.0,
-                y: 0.0,
-                z: 0.0,
-                smooth: false,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 100.0,
-                y: 0.0,
-                z: 0.0,
-                smooth: false,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 100.0,
-                y: 100.0,
-                z: 0.0,
-                smooth: false,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 0.0,
-                y: 100.0,
-                z: 0.0,
-                smooth: false,
-                ..Default::default()
-            },
-        ];
+        let flasher = Flasher {
+            height: 50.0,
+            drag_points: vec![
+                DragPoint {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                    smooth: false,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 100.0,
+                    y: 0.0,
+                    z: 0.0,
+                    smooth: false,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 100.0,
+                    y: 100.0,
+                    z: 0.0,
+                    smooth: false,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 0.0,
+                    y: 100.0,
+                    z: 0.0,
+                    smooth: false,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
 
         let result = build_flasher_mesh(&flasher, &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0));
         assert!(result.is_some());
@@ -269,41 +271,43 @@ mod tests {
 
     #[test]
     fn test_flasher_with_rotation() {
-        let mut flasher = Flasher::default();
-        flasher.height = 50.0;
-        flasher.rot_x = 45.0;
-        flasher.rot_y = 30.0;
-        flasher.rot_z = 15.0;
-        flasher.drag_points = vec![
-            DragPoint {
-                x: 0.0,
-                y: 0.0,
-                z: 0.0,
-                smooth: false,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 100.0,
-                y: 0.0,
-                z: 0.0,
-                smooth: false,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 100.0,
-                y: 100.0,
-                z: 0.0,
-                smooth: false,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 0.0,
-                y: 100.0,
-                z: 0.0,
-                smooth: false,
-                ..Default::default()
-            },
-        ];
+        let flasher = Flasher {
+            height: 50.0,
+            rot_x: 45.0,
+            rot_y: 30.0,
+            rot_z: 15.0,
+            drag_points: vec![
+                DragPoint {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                    smooth: false,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 100.0,
+                    y: 0.0,
+                    z: 0.0,
+                    smooth: false,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 100.0,
+                    y: 100.0,
+                    z: 0.0,
+                    smooth: false,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 0.0,
+                    y: 100.0,
+                    z: 0.0,
+                    smooth: false,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
 
         let result = build_flasher_mesh(&flasher, &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0));
         assert!(result.is_some());
@@ -316,31 +320,33 @@ mod tests {
 
     #[test]
     fn test_triangle_flasher() {
-        let mut flasher = Flasher::default();
-        flasher.height = 25.0;
-        flasher.drag_points = vec![
-            DragPoint {
-                x: 50.0,
-                y: 0.0,
-                z: 0.0,
-                smooth: false,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 100.0,
-                y: 100.0,
-                z: 0.0,
-                smooth: false,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 0.0,
-                y: 100.0,
-                z: 0.0,
-                smooth: false,
-                ..Default::default()
-            },
-        ];
+        let flasher = Flasher {
+            height: 25.0,
+            drag_points: vec![
+                DragPoint {
+                    x: 50.0,
+                    y: 0.0,
+                    z: 0.0,
+                    smooth: false,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 100.0,
+                    y: 100.0,
+                    z: 0.0,
+                    smooth: false,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 0.0,
+                    y: 100.0,
+                    z: 0.0,
+                    smooth: false,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
 
         let result = build_flasher_mesh(&flasher, &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0));
         assert!(result.is_some());
@@ -353,38 +359,40 @@ mod tests {
     #[test]
     fn test_clockwise_flasher() {
         // This matches the Flasher.4Points001.json example which has clockwise winding
-        let mut flasher = Flasher::default();
-        flasher.height = 50.0;
-        flasher.drag_points = vec![
-            DragPoint {
-                x: 810.0,
-                y: 1350.0,
-                z: 0.0,
-                smooth: false,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 883.0,
-                y: 1930.0,
-                z: 0.0,
-                smooth: false,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 952.0,
-                y: 1930.0,
-                z: 0.0,
-                smooth: false,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 952.0,
-                y: 1350.0,
-                z: 0.0,
-                smooth: false,
-                ..Default::default()
-            },
-        ];
+        let flasher = Flasher {
+            height: 50.0,
+            drag_points: vec![
+                DragPoint {
+                    x: 810.0,
+                    y: 1350.0,
+                    z: 0.0,
+                    smooth: false,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 883.0,
+                    y: 1930.0,
+                    z: 0.0,
+                    smooth: false,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 952.0,
+                    y: 1930.0,
+                    z: 0.0,
+                    smooth: false,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 952.0,
+                    y: 1350.0,
+                    z: 0.0,
+                    smooth: false,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
 
         let result = build_flasher_mesh(&flasher, &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0));
         assert!(

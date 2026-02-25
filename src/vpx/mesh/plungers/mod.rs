@@ -998,17 +998,19 @@ mod tests {
 
     #[test]
     fn test_build_flat_plunger_meshes() {
-        let mut plunger = Plunger::default();
-        plunger.center = Vertex2D {
-            x: 500.0,
-            y: 1900.0,
+        let plunger = Plunger {
+            center: Vertex2D {
+                x: 500.0,
+                y: 1900.0,
+            },
+            width: 25.0,
+            height: 20.0,
+            z_adjust: 0.0,
+            stroke: 80.0,
+            plunger_type: PlungerType::Flat,
+            is_visible: true,
+            ..Default::default()
         };
-        plunger.width = 25.0;
-        plunger.height = 20.0;
-        plunger.z_adjust = 0.0;
-        plunger.stroke = 80.0;
-        plunger.plunger_type = PlungerType::Flat;
-        plunger.is_visible = true;
 
         let meshes = build_plunger_meshes(&plunger);
 
@@ -1025,17 +1027,19 @@ mod tests {
 
     #[test]
     fn test_build_modern_plunger_meshes() {
-        let mut plunger = Plunger::default();
-        plunger.center = Vertex2D {
-            x: 500.0,
-            y: 1900.0,
+        let plunger = Plunger {
+            center: Vertex2D {
+                x: 500.0,
+                y: 1900.0,
+            },
+            width: 25.0,
+            height: 20.0,
+            z_adjust: 0.0,
+            stroke: 80.0,
+            plunger_type: PlungerType::Modern,
+            is_visible: true,
+            ..Default::default()
         };
-        plunger.width = 25.0;
-        plunger.height = 20.0;
-        plunger.z_adjust = 0.0;
-        plunger.stroke = 80.0;
-        plunger.plunger_type = PlungerType::Modern;
-        plunger.is_visible = true;
 
         let meshes = build_plunger_meshes(&plunger);
 
@@ -1092,8 +1096,10 @@ mod tests {
 
     #[test]
     fn test_invisible_plunger_no_meshes() {
-        let mut plunger = Plunger::default();
-        plunger.is_visible = false;
+        let plunger = Plunger {
+            is_visible: false,
+            ..Default::default()
+        };
 
         let meshes = build_plunger_meshes(&plunger);
 
@@ -1153,16 +1159,18 @@ mod tests {
         // VPinball starts TU at 0.51 for the first vertex (angle=0, top of cylinder)
         // This maps the center of the texture to the top of the plunger
 
-        let mut plunger = Plunger::default();
-        plunger.center = Vertex2D {
-            x: 500.0,
-            y: 1900.0,
+        let plunger = Plunger {
+            center: Vertex2D {
+                x: 500.0,
+                y: 1900.0,
+            },
+            width: 25.0,
+            height: 20.0,
+            stroke: 80.0,
+            plunger_type: PlungerType::Modern,
+            is_visible: true,
+            ..Default::default()
         };
-        plunger.width = 25.0;
-        plunger.height = 20.0;
-        plunger.stroke = 80.0;
-        plunger.plunger_type = PlungerType::Modern;
-        plunger.is_visible = true;
 
         let meshes = build_plunger_meshes(&plunger);
 

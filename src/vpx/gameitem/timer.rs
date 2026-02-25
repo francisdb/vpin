@@ -9,9 +9,12 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Timer {
     pub center: Vertex2D,
-    pub timer: TimerData,
     pub name: String,
     pub backglass: bool,
+
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
 
     // these are shared between all items
     pub is_locked: bool,
@@ -99,7 +102,6 @@ impl Default for Timer {
     }
 }
 
-
 impl BiffRead for Timer {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
         let mut timer = Timer::default();
@@ -122,7 +124,8 @@ impl BiffRead for Timer {
                 }
                 _ => {
                     if !timer.timer.biff_read_tag(tag_str, reader)
-                        && !timer.read_shared_attribute(tag_str, reader) {
+                        && !timer.read_shared_attribute(tag_str, reader)
+                    {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -162,7 +165,10 @@ mod tests {
         // values not equal to the defaults
         let timer = Timer {
             center: Vertex2D::new(1.0, 2.0),
-            timer: TimerData { is_enabled: true, interval: 3 },
+            timer: TimerData {
+                is_enabled: true,
+                interval: 3,
+            },
             name: "test timer".to_string(),
             backglass: false,
             is_locked: true,

@@ -128,7 +128,6 @@ pub struct Plunger {
     pub park_position: f32,
     pub scatter_velocity: f32,
     pub momentum_xfer: f32,
-    pub timer: TimerData,
     pub is_visible: bool,
     /// Whether this plunger appears in playfield reflections.
     ///
@@ -152,6 +151,10 @@ pub struct Plunger {
     pub spring_gauge: f32,
     pub spring_loops: f32,
     pub spring_end_loops: f32,
+
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
 
     // these are shared between all items
     pub is_locked: bool,
@@ -349,7 +352,6 @@ impl<'de> Deserialize<'de> for Plunger {
     }
 }
 
-
 impl BiffRead for Plunger {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
         // for reading to be backwards compatible some fields need to be None by default
@@ -458,7 +460,8 @@ impl BiffRead for Plunger {
 
                 _ => {
                     if !plunger.timer.biff_read_tag(tag_str, reader)
-                        && !plunger.read_shared_attribute(tag_str, reader) {
+                        && !plunger.read_shared_attribute(tag_str, reader)
+                    {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,

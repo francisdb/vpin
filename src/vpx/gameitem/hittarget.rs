@@ -204,12 +204,15 @@ pub struct HitTarget {
     pub is_reflection_enabled: bool,
     pub is_dropped: bool,
     pub drop_speed: f32,
-    pub timer: TimerData,
     pub raise_delay: Option<u32>,
     // RADE (added in 10.?)
     pub physics_material: Option<String>,
     // MAPH (added in 10.?)
     pub overwrite_physics: Option<bool>, // OVPH (added in 10.?)
+
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
 
     // these are shared between all items
     pub is_locked: bool,

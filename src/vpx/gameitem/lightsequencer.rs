@@ -12,9 +12,12 @@ pub struct LightSequencer {
     pub pos_x: f32,
     pub pos_y: f32,
     pub update_interval: u32,
-    pub timer: TimerData,
     pub name: String,
     pub backglass: bool,
+
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
 
     // these are shared between all items
     pub is_locked: Option<bool>,
