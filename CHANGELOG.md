@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0](https://github.com/francisdb/vpin/compare/v0.21.1...v0.22.0) - 2026-02-25
+
+### Added
+
+- ramp surface height interpolation
+- [**breaking**] light insert mesh
+- add support for exporting invisible items in glTF/GLB ([#258](https://github.com/francisdb/vpin/pull/258))
+- proper translate for gltf ([#254](https://github.com/francisdb/vpin/pull/254))
+- gltf export ([#251](https://github.com/francisdb/vpin/pull/251))
+- better transparent pixels check
+
+### Fixed
+
+- ramp mesh smoothing ([#257](https://github.com/francisdb/vpin/pull/257))
+
+### Other
+
+- document light related fields
+
 ## [0.21.1](https://github.com/francisdb/vpin/compare/v0.21.0...v0.21.1) - 2026-02-16
 
 ### Added
