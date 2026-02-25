@@ -391,6 +391,217 @@ pub(super) fn get_rg_vertex_2d(
     vv
 }
 
+// ---- Polygon triangulation ----
+// Ported from VPinball's math/mesh.h: PolygonToTriangles, AdvancePoint, GetDot, FLinesIntersect,
+// FindCornerVertex, DetermineWindingOrder
+
+/// Find the corner vertex (minimum Y, in case of tie also minimum X)
+/// This matches VPinball's FindCornerVertex function
+fn find_corner_vertex(vertices: &[RenderVertex2D]) -> usize {
+    let mut min_vertex = 0;
+    let mut min_y = f32::MAX;
+    let mut min_x_at_min_y = f32::MAX;
+
+    for (i, vert) in vertices.iter().enumerate() {
+        if vert.y > min_y {
+            continue;
+        }
+        if vert.y == min_y && vert.x >= min_x_at_min_y {
+            continue;
+        }
+        min_vertex = i;
+        min_y = vert.y;
+        min_x_at_min_y = vert.x;
+    }
+
+    min_vertex
+}
+
+/// Determine the winding order of a polygon
+/// Returns true if clockwise, false if counter-clockwise
+/// This matches VPinball's DetermineWindingOrder function
+fn is_clockwise(vertices: &[RenderVertex2D]) -> bool {
+    let n = vertices.len();
+    if n < 3 {
+        return false;
+    }
+
+    let i_min = find_corner_vertex(vertices);
+
+    let a = &vertices[(i_min + n - 1) % n];
+    let b = &vertices[i_min];
+    let c = &vertices[(i_min + 1) % n];
+
+    let det_orient = (b.x * c.y + a.x * b.y + a.y * c.x) - (a.y * b.x + b.y * c.x + a.x * c.y);
+    det_orient > 0.0
+}
+
+/// Cross product of two vectors defined by (pvEnd1→pvJoint) and (pvEnd2→pvJoint)
+/// This matches VPinball's GetDot function from mesh.h
+/// Returns positive for CCW turn, negative for CW turn
+fn get_dot(end1: &RenderVertex2D, joint: &RenderVertex2D, end2: &RenderVertex2D) -> f32 {
+    (joint.x - end1.x) * (joint.y - end2.y) - (joint.y - end1.y) * (joint.x - end2.x)
+}
+
+/// Check if two line segments intersect
+/// This matches VPinball's FLinesIntersect function from mesh.h
+fn lines_intersect(
+    start1: &RenderVertex2D,
+    start2: &RenderVertex2D,
+    end1: &RenderVertex2D,
+    end2: &RenderVertex2D,
+) -> bool {
+    let x1 = start1.x;
+    let y1 = start1.y;
+    let x2 = start2.x;
+    let y2 = start2.y;
+    let x3 = end1.x;
+    let y3 = end1.y;
+    let x4 = end2.x;
+    let y4 = end2.y;
+
+    let d123 = (x2 - x1) * (y3 - y1) - (x3 - x1) * (y2 - y1);
+    if d123 == 0.0 {
+        return x3 >= x1.min(x2) && x3 <= x2.max(x1);
+    }
+
+    let d124 = (x2 - x1) * (y4 - y1) - (x4 - x1) * (y2 - y1);
+    if d124 == 0.0 {
+        return x4 >= x1.min(x2) && x4 <= x2.max(x1);
+    }
+
+    if d123 * d124 >= 0.0 {
+        return false;
+    }
+
+    let d341 = (x3 - x1) * (y4 - y1) - (x4 - x1) * (y3 - y1);
+    if d341 == 0.0 {
+        return x1 >= x3.min(x4) && x1 <= x3.max(x4);
+    }
+
+    let d342 = d123 - d124 + d341;
+    if d342 == 0.0 {
+        return x2 >= x3.min(x4) && x2 <= x3.max(x4);
+    }
+
+    d341 * d342 < 0.0
+}
+
+/// Check if vertex b can be removed to form triangle (a, c, b)
+/// This matches VPinball's AdvancePoint function from mesh.h
+fn advance_point(
+    vertices: &[RenderVertex2D],
+    pvpoly: &[u32],
+    a: u32,
+    b: u32,
+    c: u32,
+    pre: u32,
+    post: u32,
+) -> bool {
+    let pv1 = &vertices[a as usize];
+    let pv2 = &vertices[b as usize];
+    let pv3 = &vertices[c as usize];
+    let pv_pre = &vertices[pre as usize];
+    let pv_post = &vertices[post as usize];
+
+    if get_dot(pv1, pv2, pv3) < 0.0 {
+        return false;
+    }
+    // Make sure angle created by new triangle line falls inside existing angles
+    if (get_dot(pv_pre, pv1, pv2) > 0.0) && (get_dot(pv_pre, pv1, pv3) < 0.0) {
+        return false;
+    }
+    if (get_dot(pv2, pv3, pv_post) > 0.0) && (get_dot(pv1, pv3, pv_post) < 0.0) {
+        return false;
+    }
+
+    // Now make sure the interior segment of this triangle (line a→c) does not
+    // intersect the polygon anywhere
+    let minx = pv1.x.min(pv3.x);
+    let maxx = pv1.x.max(pv3.x);
+    let miny = pv1.y.min(pv3.y);
+    let maxy = pv1.y.max(pv3.y);
+
+    for i in 0..pvpoly.len() {
+        let pv_cross1 = &vertices[pvpoly[i] as usize];
+        let next_i = if i < pvpoly.len() - 1 { i + 1 } else { 0 };
+        let pv_cross2 = &vertices[pvpoly[next_i] as usize];
+
+        // Skip edges that share a vertex with the diagonal
+        if std::ptr::eq(pv_cross1, pv1)
+            || std::ptr::eq(pv_cross2, pv1)
+            || std::ptr::eq(pv_cross1, pv3)
+            || std::ptr::eq(pv_cross2, pv3)
+        {
+            continue;
+        }
+
+        // Bounding box early-out (matching VPinball's checks)
+        if (pv_cross1.y < miny && pv_cross2.y < miny)
+            || (pv_cross1.y > maxy && pv_cross2.y > maxy)
+            || (pv_cross1.x < minx && pv_cross2.x < minx)
+            || (pv_cross1.x > maxx && pv_cross2.y > maxx)
+        {
+            continue;
+        }
+
+        if lines_intersect(pv1, pv3, pv_cross1, pv_cross2) {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Triangulate a polygon using VPinball's PolygonToTriangles algorithm
+/// Returns indices into the vertex array forming triangles
+///
+/// This is a direct port of VPinball's PolygonToTriangles from mesh.h
+/// with support_both_winding_orders=true
+pub(super) fn polygon_to_triangles(vertices: &[RenderVertex2D]) -> Vec<u32> {
+    let n = vertices.len();
+    if n < 3 {
+        return vec![];
+    }
+
+    let mut pvpoly: Vec<u32> = (0..n as u32).collect();
+    if is_clockwise(vertices) {
+        pvpoly.reverse();
+    }
+
+    let tricount = pvpoly.len() - 2;
+    let mut pvtri: Vec<u32> = Vec::with_capacity(tricount * 3);
+
+    for _ in 0..tricount {
+        let s = pvpoly.len();
+        let mut found = false;
+
+        for i in 0..s {
+            let pre = pvpoly[if i == 0 { s - 1 } else { i - 1 }];
+            let a = pvpoly[i];
+            let b = pvpoly[if i < s - 1 { i + 1 } else { 0 }];
+            let c = pvpoly[if i < s - 2 { i + 2 } else { (i + 2) - s }];
+            let post = pvpoly[if i < s - 3 { i + 3 } else { (i + 3) - s }];
+
+            if advance_point(vertices, &pvpoly, a, b, c, pre, post) {
+                pvtri.push(a);
+                pvtri.push(c);
+                pvtri.push(b);
+                let remove_idx = if i < s - 1 { i + 1 } else { 0 };
+                pvpoly.remove(remove_idx);
+                found = true;
+                break;
+            }
+        }
+
+        if !found {
+            break;
+        }
+    }
+
+    pvtri
+}
+
 #[cfg(test)]
 pub mod test_utils {
     use crate::vpx::gameitem::primitive::compress_mesh_data;

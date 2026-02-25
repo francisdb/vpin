@@ -3,7 +3,7 @@
 //! This module ports the flasher mesh generation from Visual Pinball's flasher.cpp.
 //! Flashers are flat polygons defined by drag points, with optional rotation and height.
 
-use super::super::mesh::{RenderVertex2D, detail_level_to_accuracy, get_rg_vertex_2d};
+use super::super::mesh::{detail_level_to_accuracy, get_rg_vertex_2d, polygon_to_triangles};
 use crate::vpx::TableDimensions;
 use crate::vpx::gameitem::flasher::Flasher;
 use crate::vpx::gameitem::primitive::VertexWrapper;
@@ -12,177 +12,6 @@ use crate::vpx::math::Vec3;
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
 use std::f32::consts::PI;
-
-/// Find the corner vertex (minimum Y, in case of tie also minimum X)
-/// This matches VPinball's FindCornerVertex function
-fn find_corner_vertex(vertices: &[RenderVertex2D]) -> usize {
-    let mut min_vertex = 0;
-    let mut min_y = f32::MAX;
-    let mut min_x_at_min_y = f32::MAX;
-
-    for (i, vert) in vertices.iter().enumerate() {
-        if vert.y > min_y {
-            continue;
-        }
-        if vert.y == min_y && vert.x >= min_x_at_min_y {
-            continue;
-        }
-        // Minimum so far
-        min_vertex = i;
-        min_y = vert.y;
-        min_x_at_min_y = vert.x;
-    }
-
-    min_vertex
-}
-
-/// Determine the winding order of a polygon
-/// Returns true if clockwise, false if counter-clockwise
-/// This matches VPinball's DetermineWindingOrder function
-fn is_clockwise(vertices: &[RenderVertex2D]) -> bool {
-    let n = vertices.len();
-    if n < 3 {
-        return false;
-    }
-
-    let i_min = find_corner_vertex(vertices);
-
-    // Get the three vertices around the corner
-    let a = &vertices[(i_min + n - 1) % n];
-    let b = &vertices[i_min];
-    let c = &vertices[(i_min + 1) % n];
-
-    // Orientation matrix determinant:
-    // det(O) = (xb*yc + xa*yb + ya*xc) - (ya*xb + yb*xc + xa*yc)
-    let det_orient = (b.x * c.y + a.x * b.y + a.y * c.x) - (a.y * b.x + b.y * c.x + a.x * c.y);
-
-    // VPinball: detOrient > 0 means Clockwise
-    det_orient > 0.0
-}
-
-/// Triangulate a polygon using ear clipping algorithm
-/// Returns indices into the vertex array forming triangles
-///
-/// This follows VPinball's PolygonToTriangles with support_both_winding_orders=true
-fn polygon_to_triangles(vertices: &[RenderVertex2D]) -> Vec<u32> {
-    let n = vertices.len();
-    if n < 3 {
-        return vec![];
-    }
-
-    // Check winding order - if clockwise, we'll process in reverse order
-    // This matches VPinball's approach of reversing the polygon for clockwise winding
-    let clockwise = is_clockwise(vertices);
-
-    // Simple ear clipping triangulation
-    let mut indices = Vec::with_capacity((n - 2) * 3);
-    let mut remaining: Vec<usize> = if clockwise {
-        // Reverse the order for clockwise polygons (same as VPinball)
-        (0..n).rev().collect()
-    } else {
-        (0..n).collect()
-    };
-
-    while remaining.len() > 3 {
-        let len = remaining.len();
-        let mut ear_found = false;
-
-        for i in 0..len {
-            let prev = remaining[(i + len - 1) % len];
-            let curr = remaining[i];
-            let next = remaining[(i + 1) % len];
-
-            // After reversing for CW, we always check for CCW ears
-            if is_ear(vertices, &remaining, prev, curr, next) {
-                indices.push(prev as u32);
-                indices.push(curr as u32);
-                indices.push(next as u32);
-                remaining.remove(i);
-                ear_found = true;
-                break;
-            }
-        }
-
-        if !ear_found {
-            // Fallback: just create a fan from first vertex
-            // This handles degenerate cases
-            for i in 1..remaining.len() - 1 {
-                indices.push(remaining[0] as u32);
-                indices.push(remaining[i] as u32);
-                indices.push(remaining[i + 1] as u32);
-            }
-            break;
-        }
-    }
-
-    // Add the last triangle
-    if remaining.len() == 3 {
-        indices.push(remaining[0] as u32);
-        indices.push(remaining[1] as u32);
-        indices.push(remaining[2] as u32);
-    }
-
-    indices
-}
-
-/// Check if vertex at index `curr` forms an ear (convex and no other vertices inside)
-/// Since we normalize all polygons to CCW order, we always check for positive cross product
-fn is_ear(
-    vertices: &[RenderVertex2D],
-    remaining: &[usize],
-    prev: usize,
-    curr: usize,
-    next: usize,
-) -> bool {
-    let a = &vertices[prev];
-    let b = &vertices[curr];
-    let c = &vertices[next];
-
-    // Check if the triangle is convex (CCW winding - positive cross product)
-    let cross = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-    if cross <= 0.0 {
-        return false;
-    }
-
-    // Check if any other vertex is inside this triangle
-    for &idx in remaining {
-        if idx == prev || idx == curr || idx == next {
-            continue;
-        }
-        if point_in_triangle(&vertices[idx], a, b, c) {
-            return false;
-        }
-    }
-
-    true
-}
-
-/// Check if point p is inside triangle abc
-fn point_in_triangle(
-    p: &RenderVertex2D,
-    a: &RenderVertex2D,
-    b: &RenderVertex2D,
-    c: &RenderVertex2D,
-) -> bool {
-    let v0x = c.x - a.x;
-    let v0y = c.y - a.y;
-    let v1x = b.x - a.x;
-    let v1y = b.y - a.y;
-    let v2x = p.x - a.x;
-    let v2y = p.y - a.y;
-
-    let dot00 = v0x * v0x + v0y * v0y;
-    let dot01 = v0x * v1x + v0y * v1y;
-    let dot02 = v0x * v2x + v0y * v2y;
-    let dot11 = v1x * v1x + v1y * v1y;
-    let dot12 = v1x * v2x + v1y * v2y;
-
-    let inv_denom = 1.0 / (dot00 * dot11 - dot01 * dot01);
-    let u = (dot11 * dot02 - dot01 * dot12) * inv_denom;
-    let v = (dot00 * dot12 - dot01 * dot02) * inv_denom;
-
-    u >= 0.0 && v >= 0.0 && (u + v) < 1.0
-}
 
 /// Apply rotation transformation to flasher mesh
 ///
@@ -566,5 +395,98 @@ mod tests {
         let (vertices, indices, _position) = result.unwrap();
         assert_eq!(vertices.len(), 4);
         assert_eq!(indices.len(), 2); // 2 triangles for a quad
+    }
+
+    #[test]
+    fn test_concave_l_shaped_polygon() {
+        // L-shaped concave polygon (6 vertices):
+        //   (0,0)---(100,0)
+        //     |         |
+        //     |    (100,50)---(200,50)
+        //     |                  |
+        //   (0,100)----------(200,100)
+        //
+        // This is concave at (100,50) — the old ear-clipping fallback
+        // would fill it as convex, creating incorrect triangles.
+        use crate::vpx::mesh::RenderVertex2D;
+        let vertices = vec![
+            RenderVertex2D {
+                x: 0.0,
+                y: 0.0,
+                ..Default::default()
+            },
+            RenderVertex2D {
+                x: 100.0,
+                y: 0.0,
+                ..Default::default()
+            },
+            RenderVertex2D {
+                x: 100.0,
+                y: 50.0,
+                ..Default::default()
+            },
+            RenderVertex2D {
+                x: 200.0,
+                y: 50.0,
+                ..Default::default()
+            },
+            RenderVertex2D {
+                x: 200.0,
+                y: 100.0,
+                ..Default::default()
+            },
+            RenderVertex2D {
+                x: 0.0,
+                y: 100.0,
+                ..Default::default()
+            },
+        ];
+
+        let indices = polygon_to_triangles(&vertices);
+
+        // 6 vertices should produce 4 triangles (n-2 = 4)
+        assert_eq!(
+            indices.len(),
+            4 * 3,
+            "L-shape (6 vertices) should produce 4 triangles, got {} indices",
+            indices.len()
+        );
+
+        // Verify no triangle covers the concave "notch" area
+        // The point (150, 25) is inside the bounding box but outside the L-shape
+        // (it's in the cut-out rectangle between (100,0)→(200,50))
+        // None of the triangles should contain this point.
+        let test_point = (150.0_f32, 25.0_f32);
+        for tri in indices.chunks(3) {
+            let a = &vertices[tri[0] as usize];
+            let b = &vertices[tri[1] as usize];
+            let c = &vertices[tri[2] as usize];
+            // Barycentric point-in-triangle test
+            let v0x = c.x - a.x;
+            let v0y = c.y - a.y;
+            let v1x = b.x - a.x;
+            let v1y = b.y - a.y;
+            let v2x = test_point.0 - a.x;
+            let v2y = test_point.1 - a.y;
+            let dot00 = v0x * v0x + v0y * v0y;
+            let dot01 = v0x * v1x + v0y * v1y;
+            let dot02 = v0x * v2x + v0y * v2y;
+            let dot11 = v1x * v1x + v1y * v1y;
+            let dot12 = v1x * v2x + v1y * v2y;
+            let inv_denom = 1.0 / (dot00 * dot11 - dot01 * dot01);
+            let u = (dot11 * dot02 - dot01 * dot12) * inv_denom;
+            let v = (dot00 * dot12 - dot01 * dot02) * inv_denom;
+            assert!(
+                !(u >= 0.0 && v >= 0.0 && (u + v) < 1.0),
+                "Point (150, 25) should NOT be inside any triangle of the L-shape, \
+                 but was found inside triangle ({},{}) ({},{}) ({},{})",
+                a.x,
+                a.y,
+                b.x,
+                b.y,
+                c.x,
+                c.y
+            );
+        }
     }
 }
