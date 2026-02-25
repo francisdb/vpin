@@ -413,7 +413,7 @@ fn find_image_by_name<'a>(images: &'a [ImageData], name: &str) -> Option<&'a Ima
 /// * `surface_name` - The name of the surface to look up
 /// * `_x` - The X position (used for ramp height interpolation, not yet implemented)
 /// * `_y` - The Y position (used for ramp height interpolation, not yet implemented)
-fn get_surface_height(vpx: &VPX, surface_name: &str, _x: f32, _y: f32) -> f32 {
+fn get_surface_height(vpx: &VPX, surface_name: &str, x: f32, y: f32) -> f32 {
     if surface_name.is_empty() {
         return 0.0;
     }
@@ -428,13 +428,7 @@ fn get_surface_height(vpx: &VPX, surface_name: &str, _x: f32, _y: f32) -> f32 {
             }
             GameItemEnum::Ramp(ramp) => {
                 if ramp.name.eq_ignore_ascii_case(surface_name) {
-                    // TODO: Proper ramp height interpolation based on (x, y) position
-                    warn!(
-                        "Ramp surface placement interpolation not implemented, returning average height for ramp '{}'",
-                        ramp.name
-                    );
-                    // For now, return average of bottom and top heights
-                    return (ramp.height_bottom + ramp.height_top) / 2.0;
+                    return crate::vpx::mesh::ramps::get_ramp_surface_height(ramp, x, y);
                 }
             }
             _ => {}
