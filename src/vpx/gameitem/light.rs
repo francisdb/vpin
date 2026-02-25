@@ -196,31 +196,96 @@ impl<'de> Deserialize<'de> for Fader {
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Light {
+    /// The name of the light, used for identification and referencing in scripts.
+    /// BIFF tag: `NAME` (wide string)
+    pub name: String,
     pub center: Vertex2D,    // VCEN
     pub height: Option<f32>, // HGHT added in 10.8
     pub falloff_radius: f32, // RADI
     pub falloff_power: f32,  // FAPO
     /// 0 = off, 1 = on, 2 = blinking
     /// m_d.m_state == 0.f ? 0 : (m_d.m_state == 2.f ? 2 : 1);
-    /// BIFF tag: STAT deprecated, planned or removal in to 10.9+
+    /// BIFF tag: `STAT` deprecated, planned or removal in to 10.9+
     pub state_u32: u32,
     /// 0..1 is modulated from off to on, 2 is blinking
-    /// BIFF tag: STTF added in 10.8
+    /// BIFF tag: `STTF` added in 10.8
     pub state: Option<f32>,
     /// Light color at the center/near the light source.
     /// The shader interpolates between this color and color2 based on distance.
-    /// BIFF tag: COLR
+    /// BIFF tag: `COLR`
     pub color: Color,
     /// Light color at the falloff edge/far from the light source (also called "ColorFull").
     /// The shader interpolates between color and this color based on distance,
     /// creating a color gradient effect from the center outward.
-    /// BIFF tag: COL2
+    /// BIFF tag: `COL2`
     pub color2: Color,
-    is_timer_enabled: bool,    // TMON
-    timer_interval: i32,       // TMIN
-    pub blink_pattern: String, // BPAT
-    pub off_image: String,     // IMG1
-    pub blink_interval: u32,   // BINT
+    is_timer_enabled: bool, // TMON
+    timer_interval: i32,    // TMIN
+    /// Blink pattern string used when the light state is "blinking" (state = 2).
+    ///
+    /// Each character represents one frame of the blink cycle:
+    /// - `'1'`: light is ON during this frame
+    /// - `'0'`: light is OFF during this frame
+    ///
+    /// The pattern repeats cyclically. For example, `"10"` alternates on/off every
+    /// `blink_interval` milliseconds, while `"1100"` creates a longer on/off cycle.
+    ///
+    /// The runtime intensity when blinking is:
+    /// ```text
+    /// currentIntensity = intensity * intensity_scale * (pattern[frame] == '1' ? 1.0 : 0.0)
+    /// ```
+    ///
+    /// If set to an empty string at runtime, VPinball forces it to `"0"` (always off).
+    ///
+    /// ## Default
+    /// `"10"` (alternating on/off)
+    ///
+    /// BIFF tag: `BPAT`
+    pub blink_pattern: String,
+    /// Texture image name displayed on the light's polygon mesh.
+    ///
+    /// In VPinball this is the "Image" property (COM: `get_Image`/`put_Image`),
+    /// internally `m_szImage` inherited from `BaseProperty`.
+    /// It defines the texture applied to the light's flat polygon (the "insert"
+    /// shape defined by drag points) on the playfield.
+    ///
+    /// ## UV Mapping
+    /// When an image is set, UV coordinates use table-space mapping:
+    /// ```text
+    /// tu = x / table_width
+    /// tv = y / table_height
+    /// ```
+    /// When no image is set, UVs are radial from the light center:
+    /// ```text
+    /// tu = 0.5 + (x - center.x) * inv_maxdist
+    /// tv = 0.5 + (y - center.y) * inv_maxdist
+    /// ```
+    ///
+    /// ## Rendering
+    /// For non-bulb lights, this texture is bound as `SHADER_tex_light_color` and
+    /// rendered with the `light_with_texture` shader technique. The light color
+    /// modulates/blends with this texture based on the current intensity.
+    /// For bulb lights (`is_bulb_light = true`), this image is ignored.
+    ///
+    /// ## Default
+    /// Empty string (no image)
+    ///
+    /// BIFF tag: `IMG1`
+    pub image: String,
+    /// Time in milliseconds between each step of the blink pattern.
+    ///
+    /// Controls the speed of the blinking animation when the light state is "blinking"
+    /// (state = 2). Each character in `blink_pattern` is displayed for this duration
+    /// before advancing to the next character.
+    ///
+    /// For example, with `blink_pattern = "10"` and `blink_interval = 125`:
+    /// - The light is ON for 125ms, then OFF for 125ms (4 Hz blink rate)
+    ///
+    /// ## Default
+    /// `125` (milliseconds)
+    ///
+    /// BIFF tag: `BINT`
+    pub blink_interval: u32,
     /// Light intensity/brightness multiplier.
     ///
     /// ## Range
@@ -289,7 +354,6 @@ pub struct Light {
     /// If empty, the light sits on the playfield.
     /// BIFF tag: SURF
     pub surface: String,
-    pub name: String,                       // NAME
     pub is_backglass: bool,                 // BGLS
     pub depth_bias: f32,                    // LIDB
     pub fade_speed_up: f32,                 // FASP, can be Inf (Dr. Dude (Bally 1990)v3.0.vpx)
@@ -333,7 +397,8 @@ struct LightJson {
     is_timer_enabled: bool,
     timer_interval: i32,
     blink_pattern: String,
-    off_image: String,
+    #[serde(alias = "off_image")]
+    image: String,
     blink_interval: u32,
     intensity: f32,
     transmission_scale: f32,
@@ -374,7 +439,7 @@ impl LightJson {
             is_timer_enabled: light.is_timer_enabled,
             timer_interval: light.timer_interval,
             blink_pattern: light.blink_pattern.clone(),
-            off_image: light.off_image.clone(),
+            image: light.image.clone(),
             blink_interval: light.blink_interval,
             intensity: light.intensity,
             transmission_scale: light.transmission_scale,
@@ -413,7 +478,7 @@ impl LightJson {
             is_timer_enabled: self.is_timer_enabled,
             timer_interval: self.timer_interval,
             blink_pattern: self.blink_pattern.clone(),
-            off_image: self.off_image.clone(),
+            image: self.image.clone(),
             blink_interval: self.blink_interval,
             intensity: self.intensity,
             transmission_scale: self.transmission_scale,
@@ -483,7 +548,7 @@ impl Default for Light {
         let is_timer_enabled: bool = false;
         let timer_interval: i32 = Default::default();
         let blink_pattern: String = "10".to_owned();
-        let off_image: String = Default::default();
+        let image: String = Default::default();
         let blink_interval: u32 = Default::default();
         let intensity: f32 = 1.0;
         let transmission_scale: f32 = 0.5;
@@ -522,7 +587,7 @@ impl Default for Light {
             is_timer_enabled,
             timer_interval,
             blink_pattern,
-            off_image,
+            image,
             blink_interval,
             intensity,
             transmission_scale,
@@ -584,7 +649,7 @@ impl BiffRead for Light {
                 "TMON" => light.is_timer_enabled = reader.get_bool(),
                 "TMIN" => light.timer_interval = reader.get_i32(),
                 "BPAT" => light.blink_pattern = reader.get_string(),
-                "IMG1" => light.off_image = reader.get_string(),
+                "IMG1" => light.image = reader.get_string(),
                 "BINT" => light.blink_interval = reader.get_u32(),
                 "BWTH" => light.intensity = reader.get_f32(),
                 "TRMS" => light.transmission_scale = reader.get_f32(),
@@ -646,7 +711,7 @@ impl BiffWrite for Light {
         writer.write_tagged_bool("TMON", self.is_timer_enabled);
         writer.write_tagged_i32("TMIN", self.timer_interval);
         writer.write_tagged_string("BPAT", &self.blink_pattern);
-        writer.write_tagged_string("IMG1", &self.off_image);
+        writer.write_tagged_string("IMG1", &self.image);
         writer.write_tagged_u32("BINT", self.blink_interval);
         writer.write_tagged_f32("BWTH", self.intensity);
         writer.write_tagged_f32("TRMS", self.transmission_scale);
@@ -711,7 +776,7 @@ mod tests {
             is_timer_enabled: true,
             timer_interval: 7,
             blink_pattern: "test pattern".to_string(),
-            off_image: "test image".to_string(),
+            image: "test image".to_string(),
             blink_interval: 8,
             intensity: 9.0,
             transmission_scale: 10.0,

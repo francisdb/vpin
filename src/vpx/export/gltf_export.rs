@@ -112,7 +112,7 @@ use crate::vpx::mesh::flippers::build_flipper_meshes;
 use crate::vpx::mesh::gates::build_gate_meshes;
 use crate::vpx::mesh::hittargets::build_hit_target_mesh;
 use crate::vpx::mesh::kickers::build_kicker_meshes;
-use crate::vpx::mesh::lights::build_light_meshes;
+use crate::vpx::mesh::lights::{build_light_insert_mesh, build_light_meshes};
 use crate::vpx::mesh::playfields::build_playfield_mesh;
 use crate::vpx::mesh::plungers::build_plunger_meshes;
 use crate::vpx::mesh::ramps::build_ramp_mesh;
@@ -1296,20 +1296,24 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                 }
             }
             GameItemEnum::Light(light) => {
-                // Only generate bulb meshes for lights with show_bulb_mesh enabled
-                // Skip backglass lights
-                if light.is_backglass || !light.show_bulb_mesh {
+                // Skip backglass lights entirely
+                if light.is_backglass {
                     continue;
                 }
 
                 let surface_height =
                     get_surface_height(vpx, &light.surface, light.center.x, light.center.y);
 
-                if let Some(light_meshes) = build_light_meshes(light) {
+                let is_visible = light.visible.unwrap_or(true);
+
+                // Generate bulb meshes for lights with show_bulb_mesh enabled
+                if light.show_bulb_mesh
+                    && let Some(light_meshes) = build_light_meshes(light)
+                {
                     // Convert center to glTF coordinates (meters, Y-up)
                     // VPX (x, y, z) → glTF [x, z, y]
-                    // VPinball places the bulb mesh at surface height only, NOT surface + light.height
-                    // The light.height is used for the light emission point (halo), not the physical mesh
+                    // VPinball places the bulb mesh at surface height (light.cpp: bulb_z = m_surfaceHeight)
+                    // Note: light.height only affects the light emission point, not the mesh
                     let translation = Some(Vec3::new(
                         vpu_to_m(light.center.x),
                         vpu_to_m(surface_height),
@@ -1335,7 +1339,7 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                                 light.editor_layer,
                             ),
                             translation,
-                            visible: light.visible.unwrap_or(true),
+                            visible: is_visible,
                             ..Default::default()
                         });
                     }
@@ -1355,10 +1359,54 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                                 light.editor_layer,
                             ),
                             translation,
-                            visible: light.visible.unwrap_or(true),
+                            visible: is_visible,
                             ..Default::default()
                         });
                     }
+                }
+
+                // Generate insert mesh from drag points (flat polygon on the playfield)
+                // This is useful for boolean-cutting holes in the playfield mesh
+                if let Some((vertices, indices, center)) =
+                    build_light_insert_mesh(light, &table_dims)
+                {
+                    // Convert center to glTF coordinates (meters, Y-up)
+                    // VPX (x, y, z) → glTF [x, z, y]
+                    // VPinball offsets light meshes 0.1 VPU above the surface to avoid
+                    // z-fighting with the playfield (light.cpp: buf[t].z = height + 0.1f)
+                    // Note: light.height only affects the light emission point, not the mesh
+                    let translation = Some(Vec3::new(
+                        vpu_to_m(center.x),
+                        vpu_to_m(surface_height + 0.1),
+                        vpu_to_m(center.y),
+                    ));
+
+                    // VPinball uses the image as the light polygon texture (SHADER_tex_light_color)
+                    let texture_name = if !light.image.is_empty() {
+                        Some(light.image.clone())
+                    } else {
+                        None
+                    };
+
+                    // Use the light's color with 30% opacity so the insert shape
+                    // is visible on the playfield but semi-transparent
+                    let color_tint = Some([
+                        light.color.r as f32 / 255.0,
+                        light.color.g as f32 / 255.0,
+                        light.color.b as f32 / 255.0,
+                        0.3,
+                    ]);
+                    meshes.push(NamedMesh {
+                        name: format!("{}_insert", light.name),
+                        vertices,
+                        indices,
+                        texture_name,
+                        color_tint,
+                        layer_name: get_layer_name(&light.editor_layer_name, light.editor_layer),
+                        translation,
+                        visible: is_visible,
+                        ..Default::default()
+                    });
                 }
             }
             GameItemEnum::Plunger(plunger) => {
