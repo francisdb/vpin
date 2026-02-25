@@ -987,11 +987,13 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                     } else {
                         Some(flipper.material.clone())
                     };
+                    let base_texture = flipper.image.as_ref().filter(|s| !s.is_empty()).cloned();
                     meshes.push(NamedMesh {
                         name: format!("{}Base", flipper.name),
                         vertices: base_vertices,
                         indices: base_indices,
                         material_name: base_material,
+                        texture_name: base_texture,
                         layer_name: get_layer_name(
                             &flipper.editor_layer_name,
                             flipper.editor_layer,
