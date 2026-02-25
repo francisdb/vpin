@@ -1,7 +1,7 @@
 use super::vertex3d::Vertex3D;
 use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
-use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use crate::vpx::math::{dequantize_unsigned, quantize_unsigned};
 use log::warn;
 use serde::{Deserialize, Serialize};
@@ -204,13 +204,15 @@ pub struct HitTarget {
     pub is_reflection_enabled: bool,
     pub is_dropped: bool,
     pub drop_speed: f32,
-    is_timer_enabled: bool,
-    timer_interval: i32,
     pub raise_delay: Option<u32>,
     // RADE (added in 10.?)
     pub physics_material: Option<String>,
     // MAPH (added in 10.?)
     pub overwrite_physics: Option<bool>, // OVPH (added in 10.?)
+
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
 
     // these are shared between all items
     pub is_locked: bool,
@@ -248,8 +250,7 @@ impl Default for HitTarget {
         let is_reflection_enabled: bool = true;
         let is_dropped: bool = false;
         let drop_speed: f32 = 0.5;
-        let is_timer_enabled: bool = false;
-        let timer_interval: i32 = 0;
+        let timer = TimerData::default();
         let raise_delay: Option<u32> = None; //100;
         let physics_material: Option<String> = None;
         let overwrite_physics: Option<bool> = None; //false;
@@ -284,8 +285,7 @@ impl Default for HitTarget {
             is_reflection_enabled,
             is_dropped,
             drop_speed,
-            is_timer_enabled,
-            timer_interval,
+            timer,
             raise_delay,
             physics_material,
             overwrite_physics,
@@ -323,8 +323,8 @@ struct HitTargetJson {
     is_reflection_enabled: bool,
     is_dropped: bool,
     drop_speed: f32,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+    #[serde(flatten)]
+    pub timer: TimerData,
     raise_delay: Option<u32>,
     physics_material: Option<String>,
     overwrite_physics: Option<bool>,
@@ -358,8 +358,7 @@ impl HitTargetJson {
             is_reflection_enabled: hit_target.is_reflection_enabled,
             is_dropped: hit_target.is_dropped,
             drop_speed: hit_target.drop_speed,
-            is_timer_enabled: hit_target.is_timer_enabled,
-            timer_interval: hit_target.timer_interval,
+            timer: hit_target.timer.clone(),
             raise_delay: hit_target.raise_delay,
             physics_material: hit_target.physics_material.clone(),
             overwrite_physics: hit_target.overwrite_physics,
@@ -392,8 +391,7 @@ impl HitTargetJson {
             is_reflection_enabled: self.is_reflection_enabled,
             is_dropped: self.is_dropped,
             drop_speed: self.drop_speed,
-            is_timer_enabled: self.is_timer_enabled,
-            timer_interval: self.timer_interval,
+            timer: self.timer.clone(),
             raise_delay: self.raise_delay,
             physics_material: self.physics_material.clone(),
             overwrite_physics: self.overwrite_physics,
@@ -426,15 +424,6 @@ impl<'de> Deserialize<'de> for HitTarget {
     {
         let json = HitTargetJson::deserialize(deserializer)?;
         Ok(json.to_hit_target())
-    }
-}
-
-impl TimerDataRoot for HitTarget {
-    fn is_timer_enabled(&self) -> bool {
-        self.is_timer_enabled
-    }
-    fn timer_interval(&self) -> i32 {
-        self.timer_interval
     }
 }
 
@@ -521,15 +510,13 @@ impl BiffRead for HitTarget {
                 "DRSP" => {
                     hit_target.drop_speed = reader.get_f32();
                 }
-                "TMON" => {
-                    hit_target.is_timer_enabled = reader.get_bool();
-                }
-                "TMIN" => hit_target.timer_interval = reader.get_i32(),
                 "RADE" => hit_target.raise_delay = Some(reader.get_u32()),
                 "MAPH" => hit_target.physics_material = Some(reader.get_string()),
                 "OVPH" => hit_target.overwrite_physics = Some(reader.get_bool()),
                 _ => {
-                    if !hit_target.read_shared_attribute(tag_str, reader) {
+                    if !hit_target.timer.biff_read_tag(tag_str, reader)
+                        && !hit_target.read_shared_attribute(tag_str, reader)
+                    {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -575,8 +562,7 @@ impl BiffWrite for HitTarget {
         writer.write_tagged_f32("PIDB", self.depth_bias);
         writer.write_tagged_bool("ISDR", self.is_dropped);
         writer.write_tagged_f32("DRSP", self.drop_speed);
-        writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_i32("TMIN", self.timer_interval);
+        self.timer.biff_write(writer);
         if let Some(raise_delay) = self.raise_delay {
             writer.write_tagged_u32("RADE", raise_delay);
         }
@@ -631,8 +617,10 @@ mod tests {
             depth_bias: rng.random(),
             is_dropped: rng.random(),
             drop_speed: rng.random(),
-            is_timer_enabled: rng.random(),
-            timer_interval: rng.random(),
+            timer: TimerData {
+                is_enabled: rng.random(),
+                interval: rng.random(),
+            },
             raise_delay: rng.random_option(),
             physics_material: Some("test physics material".to_string()),
             overwrite_physics: rng.random_option(),

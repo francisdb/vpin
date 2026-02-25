@@ -1,7 +1,7 @@
 use super::vertex2d::Vertex2D;
 use crate::impl_shared_attributes;
 use crate::vpx::gameitem::font::FontJson;
-use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
@@ -114,13 +114,15 @@ pub struct TextBox {
     pub font_color: Color,    // CLRF
     pub intensity_scale: f32, // INSC
     pub text: String,         // TEXT
-    is_timer_enabled: bool,   // TMON
-    timer_interval: i32,      // TMIN
     pub name: String,         // NAME
     pub align: TextAlignment, // ALGN
     pub is_transparent: bool, // TRNS
     pub is_dmd: Option<bool>, // IDMD added in 10.2?
     pub font: Font,           // FONT
+
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
 
     // these are shared between all items
     pub is_locked: bool,
@@ -143,8 +145,8 @@ struct TextBoxJson {
     font_color: Color,
     intensity_scale: f32,
     text: String,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+    #[serde(flatten)]
+    pub timer: TimerData,
     name: String,
     align: TextAlignment,
     is_transparent: bool,
@@ -163,8 +165,7 @@ impl TextBoxJson {
             font_color: textbox.font_color,
             intensity_scale: textbox.intensity_scale,
             text: textbox.text.clone(),
-            is_timer_enabled: textbox.is_timer_enabled,
-            timer_interval: textbox.timer_interval,
+            timer: textbox.timer.clone(),
             name: textbox.name.clone(),
             align: textbox.align.clone(),
             is_transparent: textbox.is_transparent,
@@ -182,8 +183,7 @@ impl TextBoxJson {
             font_color: self.font_color,
             intensity_scale: self.intensity_scale,
             text: self.text,
-            is_timer_enabled: self.is_timer_enabled,
-            timer_interval: self.timer_interval,
+            timer: self.timer.clone(),
             name: self.name,
             align: self.align,
             is_transparent: self.is_transparent,
@@ -230,8 +230,7 @@ impl Default for TextBox {
             font_color: Color::WHITE,
             intensity_scale: 1.0,
             text: Default::default(),
-            is_timer_enabled: false,
-            timer_interval: Default::default(),
+            timer: TimerData::default(),
             name: Default::default(),
             align: Default::default(),
             is_transparent: false,
@@ -243,15 +242,6 @@ impl Default for TextBox {
             editor_layer_visibility: None,
             part_group_name: None,
         }
-    }
-}
-
-impl TimerDataRoot for TextBox {
-    fn is_timer_enabled(&self) -> bool {
-        self.is_timer_enabled
-    }
-    fn timer_interval(&self) -> i32 {
-        self.timer_interval
     }
 }
 
@@ -285,12 +275,6 @@ impl BiffRead for TextBox {
                 "TEXT" => {
                     textbox.text = reader.get_string();
                 }
-                "TMON" => {
-                    textbox.is_timer_enabled = reader.get_bool();
-                }
-                "TMIN" => {
-                    textbox.timer_interval = reader.get_i32();
-                }
                 "NAME" => {
                     textbox.name = reader.get_wide_string();
                 }
@@ -308,7 +292,9 @@ impl BiffRead for TextBox {
                     textbox.font = Font::biff_read(reader);
                 }
                 _ => {
-                    if !textbox.read_shared_attribute(tag_str, reader) {
+                    if !textbox.timer.biff_read_tag(tag_str, reader)
+                        && !textbox.read_shared_attribute(tag_str, reader)
+                    {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -331,8 +317,7 @@ impl BiffWrite for TextBox {
         writer.write_tagged_with("CLRF", &self.font_color, Color::biff_write);
         writer.write_tagged_f32("INSC", self.intensity_scale);
         writer.write_tagged_string("TEXT", &self.text);
-        writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_i32("TMIN", self.timer_interval);
+        self.timer.biff_write(writer);
         writer.write_tagged_wide_string("NAME", &self.name);
         writer.write_tagged_u32("ALGN", (&self.align).into());
         writer.write_tagged_bool("TRNS", self.is_transparent);
@@ -367,8 +352,10 @@ mod tests {
             font_color: Faker.fake(),
             intensity_scale: 1.0,
             text: "test text".to_string(),
-            is_timer_enabled: true,
-            timer_interval: 3,
+            timer: TimerData {
+                is_enabled: true,
+                interval: 3,
+            },
             name: "test timer".to_string(),
             align: Faker.fake(),
             is_transparent: false,

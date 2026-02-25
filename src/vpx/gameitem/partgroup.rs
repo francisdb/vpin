@@ -1,6 +1,6 @@
 use crate::vpx::biff;
 use crate::vpx::biff::{BiffRead, BiffReader, BiffWrite};
-use crate::vpx::gameitem::select::TimerDataRoot;
+use crate::vpx::gameitem::select::TimerData;
 use crate::vpx::gameitem::vertex2d::Vertex2D;
 use log::warn;
 use serde::{Deserialize, Serialize};
@@ -130,8 +130,7 @@ pub struct PartGroup {
     pub name: String,
     /// In vpinball this is just v, but I wanted to unify the naming.
     pub center: Vertex2D,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+    pub timer: TimerData,
     pub backglass: bool,
     pub visibility_mask: Option<u32>,
     pub space_reference: SpaceReference,
@@ -151,8 +150,7 @@ impl Default for PartGroup {
         PartGroup {
             name: Default::default(),
             center: Vertex2D::default(),
-            is_timer_enabled: false,
-            timer_interval: 0,
+            timer: TimerData::default(),
             backglass: false,
             visibility_mask: None,
             space_reference: SpaceReference::Inherit,
@@ -168,8 +166,8 @@ impl Default for PartGroup {
 struct PartGroupJson {
     name: String,
     center: Vertex2D,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+    #[serde(flatten)]
+    pub timer: TimerData,
     backglass: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     visibility_mask: Option<u32>,
@@ -187,8 +185,7 @@ impl PartGroupJson {
         PartGroupJson {
             name: part_group.name.clone(),
             center: part_group.center,
-            is_timer_enabled: part_group.is_timer_enabled,
-            timer_interval: part_group.timer_interval,
+            timer: part_group.timer.clone(),
             backglass: part_group.backglass,
             visibility_mask: part_group.visibility_mask,
             space_reference: part_group.space_reference.clone(),
@@ -203,8 +200,7 @@ impl PartGroupJson {
         PartGroup {
             name: self.name.clone(),
             center: self.center,
-            is_timer_enabled: self.is_timer_enabled,
-            timer_interval: self.timer_interval,
+            timer: self.timer.clone(),
             backglass: self.backglass,
             visibility_mask: self.visibility_mask,
             space_reference: self.space_reference.clone(),
@@ -236,15 +232,6 @@ impl<'de> serde::Deserialize<'de> for PartGroup {
     }
 }
 
-impl TimerDataRoot for PartGroup {
-    fn is_timer_enabled(&self) -> bool {
-        self.is_timer_enabled
-    }
-    fn timer_interval(&self) -> i32 {
-        self.timer_interval
-    }
-}
-
 impl BiffRead for PartGroup {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
         let mut part_group = PartGroup::default();
@@ -259,12 +246,6 @@ impl BiffRead for PartGroup {
             match tag_str {
                 "NAME" => part_group.name = reader.get_wide_string(),
                 "VCEN" => part_group.center = Vertex2D::biff_read(reader),
-                "TMON" => {
-                    part_group.is_timer_enabled = reader.get_bool();
-                }
-                "TMIN" => {
-                    part_group.timer_interval = reader.get_i32();
-                }
                 "BGLS" => {
                     part_group.backglass = reader.get_bool();
                 }
@@ -293,12 +274,14 @@ impl BiffRead for PartGroup {
                 //     part_group.part_group_name = Some(reader.get_string());
                 // }
                 _ => {
-                    warn!(
-                        "Unknown tag {} for {}",
-                        tag_str,
-                        std::any::type_name::<Self>()
-                    );
-                    reader.skip_tag();
+                    if !part_group.timer.biff_read_tag(tag_str, reader) {
+                        warn!(
+                            "Unknown tag {} for {}",
+                            tag_str,
+                            std::any::type_name::<Self>()
+                        );
+                        reader.skip_tag();
+                    }
                 }
             }
         }
@@ -310,8 +293,7 @@ impl BiffWrite for PartGroup {
     fn biff_write(&self, writer: &mut biff::BiffWriter) {
         writer.write_tagged_wide_string("NAME", &self.name);
         writer.write_tagged("VCEN", &self.center);
-        writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_i32("TMIN", self.timer_interval);
+        self.timer.biff_write(writer);
         writer.write_tagged_bool("BGLS", self.backglass);
         if let Some(vmsk) = self.visibility_mask {
             writer.write_tagged_u32("VMSK", vmsk);
@@ -347,8 +329,10 @@ mod tests {
         let part_group = PartGroup {
             name: "Test".to_string(),
             center: Vertex2D::new(1.0, 2.0),
-            is_timer_enabled: true,
-            timer_interval: 1000,
+            timer: TimerData {
+                is_enabled: true,
+                interval: 1000,
+            },
             backglass: true,
             visibility_mask: Some(VisibilityMask::Playfield.into()),
             space_reference: SpaceReference::Cabinet,

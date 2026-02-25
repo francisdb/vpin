@@ -170,13 +170,15 @@ mod tests {
 
     #[test]
     fn test_build_spinner_meshes_with_bracket() {
-        let mut spinner = Spinner::default();
-        spinner.center = Vertex2D::new(500.0, 500.0);
-        spinner.length = 80.0;
-        spinner.height = 60.0;
-        spinner.rotation = 0.0;
-        spinner.show_bracket = true;
-        spinner.is_visible = true;
+        let spinner = Spinner {
+            center: Vertex2D::new(500.0, 500.0),
+            length: 80.0,
+            height: 60.0,
+            rotation: 0.0,
+            show_bracket: true,
+            is_visible: true,
+            ..Default::default()
+        };
 
         let meshes = build_spinner_meshes(&spinner);
 
@@ -194,13 +196,15 @@ mod tests {
 
     #[test]
     fn test_build_spinner_meshes_without_bracket() {
-        let mut spinner = Spinner::default();
-        spinner.center = Vertex2D::new(500.0, 500.0);
-        spinner.length = 80.0;
-        spinner.height = 60.0;
-        spinner.rotation = 0.0;
-        spinner.show_bracket = false;
-        spinner.is_visible = true;
+        let spinner = Spinner {
+            center: Vertex2D::new(500.0, 500.0),
+            length: 80.0,
+            height: 60.0,
+            rotation: 0.0,
+            show_bracket: false,
+            is_visible: true,
+            ..Default::default()
+        };
 
         let meshes = build_spinner_meshes(&spinner);
 

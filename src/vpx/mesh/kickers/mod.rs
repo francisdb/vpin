@@ -243,13 +243,14 @@ mod tests {
     use crate::vpx::gameitem::vertex2d::Vertex2D;
 
     fn create_test_kicker(kicker_type: KickerType) -> Kicker {
-        let mut kicker = Kicker::default();
-        kicker.center = Vertex2D { x: 100.0, y: 200.0 };
-        kicker.radius = 25.0;
-        kicker.orientation = 0.0;
-        kicker.kicker_type = kicker_type;
-        kicker.name = "TestKicker".to_string();
-        kicker
+        Kicker {
+            center: Vertex2D { x: 100.0, y: 200.0 },
+            radius: 25.0,
+            orientation: 0.0,
+            kicker_type,
+            name: "TestKicker".to_string(),
+            ..Default::default()
+        }
     }
 
     #[test]

@@ -2,7 +2,7 @@ use super::dragpoint::DragPoint;
 use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
-use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -133,8 +133,6 @@ pub struct Ramp {
     pub width_bottom: f32,                   // 3
     pub width_top: f32,                      // 4
     pub material: String,                    // 5
-    is_timer_enabled: bool,                  // 6
-    timer_interval: i32,                     // 7
     pub ramp_type: RampType,                 // TYPE 8
     pub name: String,                        // 9
     pub image: String,                       // 10
@@ -167,6 +165,10 @@ pub struct Ramp {
 
     pub drag_points: Vec<DragPoint>,
 
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
+
     // these are shared between all items
     pub is_locked: bool,
     pub editor_layer: Option<u32>,
@@ -185,8 +187,8 @@ struct RampJson {
     width_bottom: f32,
     width_top: f32,
     material: String,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+    #[serde(flatten)]
+    pub timer: TimerData,
     ramp_type: RampType,
     name: String,
     image: String,
@@ -223,8 +225,7 @@ impl RampJson {
             width_bottom: ramp.width_bottom,
             width_top: ramp.width_top,
             material: ramp.material.clone(),
-            is_timer_enabled: ramp.is_timer_enabled,
-            timer_interval: ramp.timer_interval,
+            timer: ramp.timer.clone(),
             ramp_type: ramp.ramp_type.clone(),
             name: ramp.name.clone(),
             image: ramp.image.clone(),
@@ -260,8 +261,7 @@ impl RampJson {
             width_bottom: self.width_bottom,
             width_top: self.width_top,
             material: self.material.clone(),
-            is_timer_enabled: self.is_timer_enabled,
-            timer_interval: self.timer_interval,
+            timer: self.timer.clone(),
             ramp_type: self.ramp_type.clone(),
             name: self.name.clone(),
             image: self.image.clone(),
@@ -326,8 +326,7 @@ impl Default for Ramp {
             width_bottom: 75.0,
             width_top: 60.0,
             material: Default::default(),
-            is_timer_enabled: Default::default(),
-            timer_interval: Default::default(),
+            timer: TimerData::default(),
             ramp_type: RampType::Flat,
             name: Default::default(),
             image: Default::default(),
@@ -361,15 +360,6 @@ impl Default for Ramp {
     }
 }
 
-impl TimerDataRoot for Ramp {
-    fn is_timer_enabled(&self) -> bool {
-        self.is_timer_enabled
-    }
-    fn timer_interval(&self) -> i32 {
-        self.timer_interval
-    }
-}
-
 impl BiffRead for Ramp {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
         let mut ramp = Ramp::default();
@@ -396,12 +386,6 @@ impl BiffRead for Ramp {
                 }
                 "MATR" => {
                     ramp.material = reader.get_string();
-                }
-                "TMON" => {
-                    ramp.is_timer_enabled = reader.get_bool();
-                }
-                "TMIN" => {
-                    ramp.timer_interval = reader.get_i32();
                 }
                 "TYPE" => {
                     ramp.ramp_type = reader.get_u32().into();
@@ -480,7 +464,9 @@ impl BiffRead for Ramp {
                     ramp.drag_points.push(point);
                 }
                 _ => {
-                    if !ramp.read_shared_attribute(tag_str, reader) {
+                    if !ramp.timer.biff_read_tag(tag_str, reader)
+                        && !ramp.read_shared_attribute(tag_str, reader)
+                    {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -502,8 +488,7 @@ impl BiffWrite for Ramp {
         writer.write_tagged_f32("WDBT", self.width_bottom);
         writer.write_tagged_f32("WDTP", self.width_top);
         writer.write_tagged_string("MATR", &self.material);
-        writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_i32("TMIN", self.timer_interval);
+        self.timer.biff_write(writer);
         writer.write_tagged_u32("TYPE", (&self.ramp_type).into());
         writer.write_tagged_wide_string("NAME", &self.name);
         writer.write_tagged_string("IMAG", &self.image);
@@ -569,8 +554,10 @@ mod tests {
             width_bottom: 3.0,
             width_top: 4.0,
             material: "material".to_string(),
-            is_timer_enabled: rng.random(),
-            timer_interval: 5,
+            timer: TimerData {
+                is_enabled: rng.random(),
+                interval: rng.random(),
+            },
             ramp_type: Faker.fake(),
             name: "name".to_string(),
             image: "image".to_string(),

@@ -470,37 +470,39 @@ mod tests {
 
     #[test]
     fn test_simple_rubber() {
-        let mut rubber = Rubber::default();
-        rubber.drag_points = vec![
-            DragPoint {
-                x: 50.0,
-                y: 0.0,
-                z: 0.0,
-                smooth: true,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 0.0,
-                y: 50.0,
-                z: 0.0,
-                smooth: true,
-                ..Default::default()
-            },
-            DragPoint {
-                x: -50.0,
-                y: 0.0,
-                z: 0.0,
-                smooth: true,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 0.0,
-                y: -50.0,
-                z: 0.0,
-                smooth: true,
-                ..Default::default()
-            },
-        ];
+        let rubber = Rubber {
+            drag_points: vec![
+                DragPoint {
+                    x: 50.0,
+                    y: 0.0,
+                    z: 0.0,
+                    smooth: true,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 0.0,
+                    y: 50.0,
+                    z: 0.0,
+                    smooth: true,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: -50.0,
+                    y: 0.0,
+                    z: 0.0,
+                    smooth: true,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 0.0,
+                    y: -50.0,
+                    z: 0.0,
+                    smooth: true,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
 
         let result = build_rubber_mesh(&rubber);
         assert!(result.is_some());
@@ -512,40 +514,42 @@ mod tests {
 
     #[test]
     fn test_rubber_with_rotation() {
-        let mut rubber = Rubber::default();
-        rubber.rot_x = 45.0;
-        rubber.rot_y = 30.0;
-        rubber.rot_z = 15.0;
-        rubber.drag_points = vec![
-            DragPoint {
-                x: 50.0,
-                y: 0.0,
-                z: 0.0,
-                smooth: true,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 0.0,
-                y: 50.0,
-                z: 0.0,
-                smooth: true,
-                ..Default::default()
-            },
-            DragPoint {
-                x: -50.0,
-                y: 0.0,
-                z: 0.0,
-                smooth: true,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 0.0,
-                y: -50.0,
-                z: 0.0,
-                smooth: true,
-                ..Default::default()
-            },
-        ];
+        let rubber = Rubber {
+            rot_x: 45.0,
+            rot_y: 30.0,
+            rot_z: 15.0,
+            drag_points: vec![
+                DragPoint {
+                    x: 50.0,
+                    y: 0.0,
+                    z: 0.0,
+                    smooth: true,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 0.0,
+                    y: 50.0,
+                    z: 0.0,
+                    smooth: true,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: -50.0,
+                    y: 0.0,
+                    z: 0.0,
+                    smooth: true,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 0.0,
+                    y: -50.0,
+                    z: 0.0,
+                    smooth: true,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
 
         let result = build_rubber_mesh(&rubber);
         assert!(result.is_some());
@@ -561,10 +565,12 @@ mod tests {
         // This should produce a smooth, rounded rubber mesh
         let drag_points = create_octagon_drag_points(100.0, true);
 
-        let mut rubber = Rubber::default();
-        rubber.thickness = 8;
-        rubber.height = 25.0;
-        rubber.drag_points = drag_points;
+        let rubber = Rubber {
+            thickness: 8,
+            height: 25.0,
+            drag_points,
+            ..Default::default()
+        };
 
         let result = build_rubber_mesh(&rubber);
         assert!(result.is_some(), "Octagon rubber mesh should be generated");
@@ -648,10 +654,12 @@ mod tests {
         // This should produce sharper corners in the curve
         let drag_points = create_octagon_drag_points(100.0, false);
 
-        let mut rubber = Rubber::default();
-        rubber.thickness = 8;
-        rubber.height = 25.0;
-        rubber.drag_points = drag_points;
+        let rubber = Rubber {
+            thickness: 8,
+            height: 25.0,
+            drag_points,
+            ..Default::default()
+        };
 
         let result = build_rubber_mesh(&rubber);
         assert!(
@@ -673,72 +681,74 @@ mod tests {
     fn test_rubber_ring003_from_table() {
         // This is the actual Ring003 rubber from example_with_balls.vpx
         // It has 8 drag points in a circle but should render as a smooth ring
-        let mut rubber = Rubber::default();
-        rubber.height = 102.0;
-        rubber.hit_height = Some(25.0);
-        rubber.thickness = 8;
-        rubber.static_rendering = true;
-        rubber.rot_x = 90.0;
-        rubber.rot_y = 0.0;
-        rubber.rot_z = 0.0;
-        rubber.drag_points = vec![
-            DragPoint {
-                x: 50.00001,
-                y: 910.0,
-                z: 0.0,
-                smooth: true,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 21.715734,
-                y: 921.7157,
-                z: 0.0,
-                smooth: true,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 10.0,
-                y: 950.0,
-                z: 0.0,
-                smooth: true,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 21.715723,
-                y: 978.2843,
-                z: 0.0,
-                smooth: true,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 50.0,
-                y: 990.0,
-                z: 0.0,
-                smooth: true,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 78.28428,
-                y: 978.2843,
-                z: 0.0,
-                smooth: true,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 90.0,
-                y: 950.0,
-                z: 0.0,
-                smooth: true,
-                ..Default::default()
-            },
-            DragPoint {
-                x: 78.28428,
-                y: 921.7157,
-                z: 0.0,
-                smooth: true,
-                ..Default::default()
-            },
-        ];
+        let rubber = Rubber {
+            height: 102.0,
+            hit_height: Some(25.0),
+            thickness: 8,
+            static_rendering: true,
+            rot_x: 90.0,
+            rot_y: 0.0,
+            rot_z: 0.0,
+            drag_points: vec![
+                DragPoint {
+                    x: 50.00001,
+                    y: 910.0,
+                    z: 0.0,
+                    smooth: true,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 21.715734,
+                    y: 921.7157,
+                    z: 0.0,
+                    smooth: true,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 10.0,
+                    y: 950.0,
+                    z: 0.0,
+                    smooth: true,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 21.715723,
+                    y: 978.2843,
+                    z: 0.0,
+                    smooth: true,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 50.0,
+                    y: 990.0,
+                    z: 0.0,
+                    smooth: true,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 78.28428,
+                    y: 978.2843,
+                    z: 0.0,
+                    smooth: true,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 90.0,
+                    y: 950.0,
+                    z: 0.0,
+                    smooth: true,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 78.28428,
+                    y: 921.7157,
+                    z: 0.0,
+                    smooth: true,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
 
         let result = build_rubber_mesh(&rubber);
         assert!(result.is_some(), "Ring003 rubber mesh should be generated");

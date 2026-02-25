@@ -1,7 +1,7 @@
 use super::dragpoint::DragPoint;
 use crate::impl_shared_attributes;
 use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
-use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
@@ -228,8 +228,6 @@ pub struct Flasher {
     /// BIFF tag: `FROZ`
     pub rot_z: f32,
     pub color: Color,
-    is_timer_enabled: bool,
-    timer_interval: i32,
     pub name: String,
     /// Primary texture for the flasher.
     /// When only image_a is set (no image_b), this texture is displayed directly.
@@ -313,6 +311,10 @@ pub struct Flasher {
     /// Minimum 3 points required to form a valid polygon.
     pub drag_points: Vec<DragPoint>,
 
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
+
     // these are shared between all items
     pub is_locked: bool,
     pub editor_layer: Option<u32>,
@@ -334,8 +336,7 @@ impl Default for Flasher {
             rot_y: 0.0,
             rot_z: 0.0,
             color: Color::WHITE,
-            is_timer_enabled: false,
-            timer_interval: 0,
+            timer: TimerData::default(),
             name: "".to_string(),
             image_a: "".to_string(),
             image_b: "".to_string(),
@@ -380,8 +381,8 @@ pub(crate) struct FlasherJson {
     rot_y: f32,
     rot_z: f32,
     color: Color,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+    #[serde(flatten)]
+    pub timer: TimerData,
     name: String,
     image_a: String,
     image_b: String,
@@ -421,8 +422,7 @@ impl FlasherJson {
             rot_y: flasher.rot_y,
             rot_z: flasher.rot_z,
             color: flasher.color,
-            is_timer_enabled: flasher.is_timer_enabled,
-            timer_interval: flasher.timer_interval,
+            timer: flasher.timer.clone(),
             name: flasher.name.clone(),
             image_a: flasher.image_a.clone(),
             image_b: flasher.image_b.clone(),
@@ -460,8 +460,7 @@ impl FlasherJson {
             rot_y: self.rot_y,
             rot_z: self.rot_z,
             color: self.color,
-            is_timer_enabled: self.is_timer_enabled,
-            timer_interval: self.timer_interval,
+            timer: self.timer.clone(),
             name: self.name.clone(),
             image_a: self.image_a.clone(),
             image_b: self.image_b.clone(),
@@ -519,15 +518,6 @@ impl<'de> Deserialize<'de> for Flasher {
     }
 }
 
-impl TimerDataRoot for Flasher {
-    fn is_timer_enabled(&self) -> bool {
-        self.is_timer_enabled
-    }
-    fn timer_interval(&self) -> i32 {
-        self.timer_interval
-    }
-}
-
 impl BiffRead for Flasher {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
         let mut flasher = Flasher::default();
@@ -560,12 +550,6 @@ impl BiffRead for Flasher {
                 }
                 "COLR" => {
                     flasher.color = Color::biff_read(reader);
-                }
-                "TMON" => {
-                    flasher.is_timer_enabled = reader.get_bool();
-                }
-                "TMIN" => {
-                    flasher.timer_interval = reader.get_i32();
                 }
                 "NAME" => {
                     flasher.name = reader.get_wide_string();
@@ -644,7 +628,9 @@ impl BiffRead for Flasher {
                     flasher.drag_points.push(point);
                 }
                 _ => {
-                    if !flasher.read_shared_attribute(tag_str, reader) {
+                    if !flasher.timer.biff_read_tag(tag_str, reader)
+                        && !flasher.read_shared_attribute(tag_str, reader)
+                    {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -668,8 +654,7 @@ impl BiffWrite for Flasher {
         writer.write_tagged_f32("FROY", self.rot_y);
         writer.write_tagged_f32("FROZ", self.rot_z);
         writer.write_tagged_with("COLR", &self.color, Color::biff_write);
-        writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_i32("TMIN", self.timer_interval);
+        self.timer.biff_write(writer);
         writer.write_tagged_wide_string("NAME", &self.name);
         writer.write_tagged_string("IMAG", &self.image_a);
         writer.write_tagged_string("IMAB", &self.image_b);
@@ -752,8 +737,10 @@ mod tests {
             rot_y: rng.random(),
             rot_z: rng.random(),
             color: Faker.fake(),
-            is_timer_enabled: rng.random(),
-            timer_interval: rng.random(),
+            timer: TimerData {
+                is_enabled: rng.random(),
+                interval: rng.random(),
+            },
             name: "test name".to_string(),
             image_a: "test image a".to_string(),
             image_b: "test image b".to_string(),

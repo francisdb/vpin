@@ -279,15 +279,17 @@ mod tests {
 
     #[test]
     fn test_build_bumper_meshes() {
-        let mut bumper = Bumper::default();
-        bumper.center = Vertex2D::new(500.0, 500.0);
-        bumper.radius = 45.0;
-        bumper.height_scale = 90.0;
-        bumper.orientation = 0.0;
-        bumper.is_base_visible = true;
-        bumper.is_cap_visible = true;
-        bumper.is_ring_visible = Some(true);
-        bumper.is_socket_visible = Some(true);
+        let bumper = Bumper {
+            center: Vertex2D::new(500.0, 500.0),
+            radius: 45.0,
+            height_scale: 90.0,
+            orientation: 0.0,
+            is_base_visible: true,
+            is_cap_visible: true,
+            is_ring_visible: Some(true),
+            is_socket_visible: Some(true),
+            ..Default::default()
+        };
 
         let meshes = build_bumper_meshes(&bumper);
 
@@ -318,15 +320,17 @@ mod tests {
 
     #[test]
     fn test_bumper_visibility_flags() {
-        let mut bumper = Bumper::default();
-        bumper.center = Vertex2D::new(500.0, 500.0);
-        bumper.radius = 45.0;
-        bumper.height_scale = 90.0;
-        bumper.orientation = 0.0;
-        bumper.is_base_visible = false;
-        bumper.is_cap_visible = false;
-        bumper.is_ring_visible = Some(false);
-        bumper.is_socket_visible = Some(false);
+        let bumper = Bumper {
+            center: Vertex2D::new(500.0, 500.0),
+            radius: 45.0,
+            height_scale: 90.0,
+            orientation: 0.0,
+            is_base_visible: false,
+            is_cap_visible: false,
+            is_ring_visible: Some(false),
+            is_socket_visible: Some(false),
+            ..Default::default()
+        };
 
         let meshes = build_bumper_meshes(&bumper);
 

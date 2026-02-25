@@ -1,6 +1,6 @@
 use super::vertex2d::Vertex2D;
 use crate::impl_shared_attributes;
-use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
     color::Color,
@@ -14,8 +14,7 @@ pub struct Reel {
     pub ver1: Vertex2D,    // position on map (top right corner)
     pub ver2: Vertex2D,    // position on map (top right corner)
     pub back_color: Color, // colour of the background
-    is_timer_enabled: bool,
-    timer_interval: i32,
+
     pub is_transparent: bool, // is the background transparent
     pub image: String,
     pub sound: String, // sound to play for each turn of a digit
@@ -30,6 +29,10 @@ pub struct Reel {
     pub use_image_grid: bool,
     pub is_visible: bool,
     pub images_per_grid_row: u32,
+
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
 
     // these are shared between all items
     pub is_locked: bool,
@@ -47,8 +50,8 @@ struct ReelJson {
     ver1: Vertex2D,
     ver2: Vertex2D,
     back_color: Color,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+    #[serde(flatten)]
+    pub timer: TimerData,
     is_transparent: bool,
     image: String,
     sound: String,
@@ -73,8 +76,7 @@ impl ReelJson {
             ver1: reel.ver1,
             ver2: reel.ver2,
             back_color: reel.back_color,
-            is_timer_enabled: reel.is_timer_enabled,
-            timer_interval: reel.timer_interval,
+            timer: reel.timer.clone(),
             is_transparent: reel.is_transparent,
             image: reel.image.clone(),
             sound: reel.sound.clone(),
@@ -97,8 +99,7 @@ impl ReelJson {
             ver1: self.ver1,
             ver2: self.ver2,
             back_color: self.back_color,
-            is_timer_enabled: self.is_timer_enabled,
-            timer_interval: self.timer_interval,
+            timer: self.timer.clone(),
             is_transparent: self.is_transparent,
             image: self.image.clone(),
             sound: self.sound.clone(),
@@ -132,8 +133,7 @@ impl Default for Reel {
             ver1: Vertex2D::default(),
             ver2: Vertex2D::default(),
             back_color: Color::rgb(64, 64, 64),
-            is_timer_enabled: false,
-            timer_interval: Default::default(),
+            timer: TimerData::default(),
             is_transparent: false,
             image: Default::default(),
             sound: Default::default(),
@@ -176,15 +176,6 @@ impl<'de> Deserialize<'de> for Reel {
     }
 }
 
-impl TimerDataRoot for Reel {
-    fn is_timer_enabled(&self) -> bool {
-        self.is_timer_enabled
-    }
-    fn timer_interval(&self) -> i32 {
-        self.timer_interval
-    }
-}
-
 impl BiffRead for Reel {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
         let mut reel = Reel::default();
@@ -205,12 +196,6 @@ impl BiffRead for Reel {
                 }
                 "CLRB" => {
                     reel.back_color = Color::biff_read(reader);
-                }
-                "TMON" => {
-                    reel.is_timer_enabled = reader.get_bool();
-                }
-                "TMIN" => {
-                    reel.timer_interval = reader.get_i32();
                 }
                 "TRNS" => {
                     reel.is_transparent = reader.get_bool();
@@ -255,7 +240,9 @@ impl BiffRead for Reel {
                     reel.images_per_grid_row = reader.get_u32();
                 }
                 _ => {
-                    if !reel.read_shared_attribute(tag_str, reader) {
+                    if !reel.timer.biff_read_tag(tag_str, reader)
+                        && !reel.read_shared_attribute(tag_str, reader)
+                    {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -275,8 +262,7 @@ impl BiffWrite for Reel {
         writer.write_tagged("VER1", &self.ver1);
         writer.write_tagged("VER2", &self.ver2);
         writer.write_tagged_with("CLRB", &self.back_color, Color::biff_write);
-        writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_i32("TMIN", self.timer_interval);
+        self.timer.biff_write(writer);
         writer.write_tagged_bool("TRNS", self.is_transparent);
         writer.write_tagged_string("IMAG", &self.image);
         writer.write_tagged_string("SOUN", &self.sound);
@@ -316,8 +302,10 @@ mod tests {
             ver1: Vertex2D::new(rng.random(), rng.random()),
             ver2: Vertex2D::new(rng.random(), rng.random()),
             back_color: Faker.fake(),
-            is_timer_enabled: rng.random(),
-            timer_interval: rng.random(),
+            timer: TimerData {
+                is_enabled: rng.random(),
+                interval: rng.random(),
+            },
             is_transparent: rng.random(),
             image: "test image".to_string(),
             sound: "test sound".to_string(),

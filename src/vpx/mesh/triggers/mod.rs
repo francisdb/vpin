@@ -211,16 +211,17 @@ mod tests {
     use crate::vpx::gameitem::vertex2d::Vertex2D;
 
     fn make_test_trigger(shape: TriggerShape, is_visible: bool) -> Trigger {
-        let mut trigger = Trigger::default();
-        trigger.center = Vertex2D { x: 100.0, y: 200.0 };
-        trigger.radius = 25.0;
-        trigger.rotation = 45.0;
-        trigger.scale_x = 1.0;
-        trigger.scale_y = 1.0;
-        trigger.wire_thickness = Some(2.0);
-        trigger.shape = shape;
-        trigger.is_visible = is_visible;
-        trigger
+        Trigger {
+            center: Vertex2D { x: 100.0, y: 200.0 },
+            radius: 25.0,
+            rotation: 45.0,
+            scale_x: 1.0,
+            scale_y: 1.0,
+            wire_thickness: Some(2.0),
+            shape,
+            is_visible,
+            ..Default::default()
+        }
     }
 
     #[test]

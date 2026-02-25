@@ -1,7 +1,7 @@
 use super::vertex2d::Vertex2D;
 use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
-use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -82,10 +82,8 @@ pub struct Gate {
     pub height: f32,          // 3 HGTH
     pub rotation: f32,        // 4 ROTA
     pub material: String,     // 5 MATR
-    is_timer_enabled: bool,   // 6 TMON
     pub show_bracket: bool,   // 7 GSUP
     pub is_collidable: bool,  // 8 GCOL
-    timer_interval: i32,      // 9 TMIN
     pub imgf: Option<String>, // IMGF (was in use in 10.01)
     pub imgb: Option<String>, // IMGB (was in use in 10.01)
     /// Name of the surface (ramp or wall top) this gate sits on.
@@ -129,6 +127,10 @@ pub struct Gate {
     /// BIFF tag: `GATY` (was missing in 10.01)
     pub gate_type: Option<GateType>,
 
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
+
     // these are shared between all items
     pub is_locked: bool,
     pub editor_layer: Option<u32>,
@@ -148,10 +150,9 @@ impl Default for Gate {
             height: 50.0,
             rotation: -90.0,
             material: Default::default(),
-            is_timer_enabled: false,
+            timer: TimerData::default(),
             show_bracket: true,
             is_collidable: true,
-            timer_interval: Default::default(),
             imgf: None,
             imgb: None,
             surface: Default::default(),
@@ -182,10 +183,10 @@ pub(crate) struct GateJson {
     height: f32,
     rotation: f32,
     material: String,
-    is_timer_enabled: bool,
+    #[serde(flatten)]
+    pub timer: TimerData,
     show_bracket: bool,
     is_collidable: bool,
-    timer_interval: i32,
     imgf: Option<String>,
     imgb: Option<String>,
     surface: String,
@@ -212,10 +213,9 @@ impl GateJson {
             height: gate.height,
             rotation: gate.rotation,
             material: gate.material.clone(),
-            is_timer_enabled: gate.is_timer_enabled,
+            timer: gate.timer.clone(),
             show_bracket: gate.show_bracket,
             is_collidable: gate.is_collidable,
-            timer_interval: gate.timer_interval,
             imgf: gate.imgf.clone(),
             imgb: gate.imgb.clone(),
             surface: gate.surface.clone(),
@@ -240,10 +240,9 @@ impl GateJson {
             height: self.height,
             rotation: self.rotation,
             material: self.material.clone(),
-            is_timer_enabled: self.is_timer_enabled,
+            timer: self.timer.clone(),
             show_bracket: self.show_bracket,
             is_collidable: self.is_collidable,
-            timer_interval: self.timer_interval,
             imgf: self.imgf.clone(),
             imgb: self.imgb.clone(),
             surface: self.surface.clone(),
@@ -290,15 +289,6 @@ impl<'de> Deserialize<'de> for Gate {
     }
 }
 
-impl TimerDataRoot for Gate {
-    fn is_timer_enabled(&self) -> bool {
-        self.is_timer_enabled
-    }
-    fn timer_interval(&self) -> i32 {
-        self.timer_interval
-    }
-}
-
 impl BiffRead for Gate {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
         let mut gate = Gate::default();
@@ -326,17 +316,11 @@ impl BiffRead for Gate {
                 "MATR" => {
                     gate.material = reader.get_string();
                 }
-                "TMON" => {
-                    gate.is_timer_enabled = reader.get_bool();
-                }
                 "GSUP" => {
                     gate.show_bracket = reader.get_bool();
                 }
                 "GCOL" => {
                     gate.is_collidable = reader.get_bool();
-                }
-                "TMIN" => {
-                    gate.timer_interval = reader.get_i32();
                 }
                 "IMGF" => {
                     gate.imgf = Some(reader.get_string());
@@ -381,7 +365,9 @@ impl BiffRead for Gate {
                     gate.gate_type = Some(reader.get_u32().into());
                 }
                 _ => {
-                    if !gate.read_shared_attribute(tag_str, reader) {
+                    if !gate.timer.biff_read_tag(tag_str, reader)
+                        && !gate.read_shared_attribute(tag_str, reader)
+                    {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -403,10 +389,9 @@ impl BiffWrite for Gate {
         writer.write_tagged_f32("HGTH", self.height);
         writer.write_tagged_f32("ROTA", self.rotation);
         writer.write_tagged_string("MATR", &self.material);
-        writer.write_tagged_bool("TMON", self.is_timer_enabled);
+        self.timer.biff_write(writer);
         writer.write_tagged_bool("GSUP", self.show_bracket);
         writer.write_tagged_bool("GCOL", self.is_collidable);
-        writer.write_tagged_i32("TMIN", self.timer_interval);
         if let Some(imgf) = &self.imgf {
             writer.write_tagged_string("IMGF", imgf);
         }
@@ -457,10 +442,12 @@ mod tests {
             height: 4.0,
             rotation: 5.0,
             material: "material".to_string(),
-            is_timer_enabled: true,
+            timer: TimerData {
+                is_enabled: true,
+                interval: 6,
+            },
             show_bracket: false,
             is_collidable: false,
-            timer_interval: 6,
             imgf: Some("imgf".to_string()),
             imgb: Some("imgb".to_string()),
             surface: "surface".to_string(),

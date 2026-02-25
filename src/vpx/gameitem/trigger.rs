@@ -1,7 +1,7 @@
 use super::{dragpoint::DragPoint, vertex2d::Vertex2D};
 use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
-use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -180,8 +180,6 @@ pub struct Trigger {
     pub wire_thickness: Option<f32>,
     pub scale_x: f32,
     pub scale_y: f32,
-    is_timer_enabled: bool,
-    timer_interval: i32,
     pub material: String,
     /// Name of the surface (ramp or wall top) this trigger sits on.
     /// Used to determine the trigger's base height (z position).
@@ -225,6 +223,10 @@ pub struct Trigger {
     /// BIFF tag: `REEN` (was missing in 10.01)
     pub is_reflection_enabled: Option<bool>,
 
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
+
     // these are shared between all items
     pub is_locked: bool,
     pub editor_layer: Option<u32>,
@@ -246,8 +248,8 @@ struct TriggerJson {
     wire_thickness: Option<f32>,
     scale_x: f32,
     scale_y: f32,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+    #[serde(flatten)]
+    pub timer: TimerData,
     material: String,
     surface: String,
     is_visible: bool,
@@ -271,8 +273,7 @@ impl TriggerJson {
             wire_thickness: trigger.wire_thickness,
             scale_x: trigger.scale_x,
             scale_y: trigger.scale_y,
-            is_timer_enabled: trigger.is_timer_enabled,
-            timer_interval: trigger.timer_interval,
+            timer: trigger.timer.clone(),
             material: trigger.material.clone(),
             surface: trigger.surface.clone(),
             is_visible: trigger.is_visible,
@@ -294,8 +295,7 @@ impl TriggerJson {
             wire_thickness: self.wire_thickness,
             scale_x: self.scale_x,
             scale_y: self.scale_y,
-            is_timer_enabled: self.is_timer_enabled,
-            timer_interval: self.timer_interval,
+            timer: self.timer.clone(),
             material: self.material.clone(),
             surface: self.surface.clone(),
             is_visible: self.is_visible,
@@ -347,8 +347,7 @@ impl Default for Trigger {
             wire_thickness: Default::default(),
             scale_x: Default::default(),
             scale_y: Default::default(),
-            is_timer_enabled: false,
-            timer_interval: Default::default(),
+            timer: TimerData::default(),
             material: Default::default(),
             surface: Default::default(),
             is_visible: true,
@@ -365,15 +364,6 @@ impl Default for Trigger {
             part_group_name: None,
             drag_points: Default::default(),
         }
-    }
-}
-
-impl TimerDataRoot for Trigger {
-    fn is_timer_enabled(&self) -> bool {
-        self.is_timer_enabled
-    }
-    fn timer_interval(&self) -> i32 {
-        self.timer_interval
     }
 }
 
@@ -409,12 +399,6 @@ impl BiffRead for Trigger {
                 "SCAY" => {
                     trigger.scale_y = reader.get_f32();
                 }
-                "TMON" => {
-                    trigger.is_timer_enabled = reader.get_bool();
-                }
-                "TMIN" => {
-                    trigger.timer_interval = reader.get_i32();
-                }
                 "MATR" => {
                     trigger.material = reader.get_string();
                 }
@@ -447,7 +431,9 @@ impl BiffRead for Trigger {
                     trigger.drag_points.push(point);
                 }
                 _ => {
-                    if !trigger.read_shared_attribute(tag_str, reader) {
+                    if !trigger.timer.biff_read_tag(tag_str, reader)
+                        && !trigger.read_shared_attribute(tag_str, reader)
+                    {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -472,8 +458,7 @@ impl BiffWrite for Trigger {
         }
         writer.write_tagged_f32("SCAX", self.scale_x);
         writer.write_tagged_f32("SCAY", self.scale_y);
-        writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_i32("TMIN", self.timer_interval);
+        self.timer.biff_write(writer);
         writer.write_tagged_string("SURF", &self.surface);
         writer.write_tagged_string("MATR", &self.material);
         writer.write_tagged_bool("EBLD", self.is_enabled);
@@ -515,8 +500,10 @@ mod tests {
             wire_thickness: Some(4.0),
             scale_x: 5.0,
             scale_y: 6.0,
-            is_timer_enabled: true,
-            timer_interval: 7,
+            timer: TimerData {
+                is_enabled: true,
+                interval: 7,
+            },
             material: "test material".to_string(),
             surface: "test surface".to_string(),
             is_visible: false,
