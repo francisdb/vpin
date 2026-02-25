@@ -280,7 +280,6 @@ impl<'de> Deserialize<'de> for Ball {
     }
 }
 
-
 impl BiffRead for Ball {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
         let mut ball = Ball::default();
@@ -334,7 +333,8 @@ impl BiffRead for Ball {
                 }
                 _ => {
                     if !ball.timer.biff_read_tag(tag_str, reader)
-                        && !ball.read_shared_attribute(tag_str, reader) {
+                        && !ball.read_shared_attribute(tag_str, reader)
+                    {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -394,7 +394,10 @@ mod tests {
             color: Color::rgb(128, 64, 32),
             spherical_mapping: true,
             is_reflection_enabled: false,
-            timer: TimerData { is_enabled: true, interval: 500 },
+            timer: TimerData {
+                is_enabled: true,
+                interval: 500,
+            },
             name: "test ball".to_string(),
             is_locked: true,
             editor_layer: Some(3),
