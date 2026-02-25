@@ -4,273 +4,15 @@
 //! Ramps can be either flat (with optional walls) or wire ramps (1-4 wire types).
 
 use super::super::mesh::{
-    RenderVertex3D, compute_normals, detail_level_to_accuracy, init_nonuniform_catmull_coeffs,
+    RenderVertex3D, compute_normals, detail_level_to_accuracy, get_rg_vertex_3d,
 };
 use crate::vpx::TableDimensions;
-use crate::vpx::gameitem::dragpoint::DragPoint;
 use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::gameitem::ramp::{Ramp, RampType};
 use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
 use crate::vpx::math::{Vec2, Vec3, get_rotated_axis};
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
-
-/// Catmull-Rom spline coefficients for cubic interpolation
-struct CatmullCurve3D {
-    cx0: f32,
-    cx1: f32,
-    cx2: f32,
-    cx3: f32,
-    cy0: f32,
-    cy1: f32,
-    cy2: f32,
-    cy3: f32,
-    cz0: f32,
-    cz1: f32,
-    cz2: f32,
-    cz3: f32,
-}
-
-impl CatmullCurve3D {
-    fn new(
-        v0: &RenderVertex3D,
-        v1: &RenderVertex3D,
-        v2: &RenderVertex3D,
-        v3: &RenderVertex3D,
-    ) -> Self {
-        let p0 = Vec3 {
-            x: v0.x,
-            y: v0.y,
-            z: v0.z,
-        };
-        let p1 = Vec3 {
-            x: v1.x,
-            y: v1.y,
-            z: v1.z,
-        };
-        let p2 = Vec3 {
-            x: v2.x,
-            y: v2.y,
-            z: v2.z,
-        };
-        let p3 = Vec3 {
-            x: v3.x,
-            y: v3.y,
-            z: v3.z,
-        };
-
-        let mut dt0 = (p1 - p0).length().sqrt();
-        let mut dt1 = (p2 - p1).length().sqrt();
-        let mut dt2 = (p3 - p2).length().sqrt();
-
-        // Check for repeated control points
-        if dt1 < 1e-4 {
-            dt1 = 1.0;
-        }
-        if dt0 < 1e-4 {
-            dt0 = dt1;
-        }
-        if dt2 < 1e-4 {
-            dt2 = dt1;
-        }
-
-        let (cx0, cx1, cx2, cx3) =
-            init_nonuniform_catmull_coeffs(p0.x, p1.x, p2.x, p3.x, dt0, dt1, dt2);
-        let (cy0, cy1, cy2, cy3) =
-            init_nonuniform_catmull_coeffs(p0.y, p1.y, p2.y, p3.y, dt0, dt1, dt2);
-        let (cz0, cz1, cz2, cz3) =
-            init_nonuniform_catmull_coeffs(p0.z, p1.z, p2.z, p3.z, dt0, dt1, dt2);
-
-        Self {
-            cx0,
-            cx1,
-            cx2,
-            cx3,
-            cy0,
-            cy1,
-            cy2,
-            cy3,
-            cz0,
-            cz1,
-            cz2,
-            cz3,
-        }
-    }
-
-    fn get_point_at(&self, t: f32) -> (f32, f32, f32) {
-        let t2 = t * t;
-        let t3 = t2 * t;
-
-        let x = self.cx3 * t3 + self.cx2 * t2 + self.cx1 * t + self.cx0;
-        let y = self.cy3 * t3 + self.cy2 * t2 + self.cy1 * t + self.cy0;
-        let z = self.cz3 * t3 + self.cz2 * t2 + self.cz1 * t + self.cz0;
-
-        (x, y, z)
-    }
-}
-
-/// Check if three points are collinear within the given accuracy
-/// Matches VPinball's FlatWithAccuracy from mesh.h
-fn flat_with_accuracy(
-    v1: &RenderVertex3D,
-    v2: &RenderVertex3D,
-    vmid: &RenderVertex3D,
-    accuracy: f32,
-) -> bool {
-    // Compute (vmid - v1) and (v2 - v1)
-    let mid_v1 = Vec3 {
-        x: vmid.x - v1.x,
-        y: vmid.y - v1.y,
-        z: vmid.z - v1.z,
-    };
-    let v2_v1 = Vec3 {
-        x: v2.x - v1.x,
-        y: v2.y - v1.y,
-        z: v2.z - v1.z,
-    };
-
-    // Compute the square of double the signed area of the triangle (v1, vMid, v2)
-    // This is the cross product length squared
-    let cross = Vec3::cross(&mid_v1, &v2_v1);
-    let dblareasq = cross.x * cross.x + cross.y * cross.y + cross.z * cross.z;
-
-    // VPinball compares area squared directly against accuracy (not accuracy squared!)
-    dblareasq < accuracy
-}
-
-/// Recursively subdivide a curve segment until it's flat enough
-fn recurse_smooth_line(
-    cc: &CatmullCurve3D,
-    t1: f32,
-    t2: f32,
-    vt1: &RenderVertex3D,
-    vt2: &RenderVertex3D,
-    vv: &mut Vec<RenderVertex3D>,
-    accuracy: f32,
-) {
-    let t_mid = (t1 + t2) * 0.5;
-    let (x, y, z) = cc.get_point_at(t_mid);
-    let vmid = RenderVertex3D {
-        x,
-        y,
-        z,
-        smooth: true,
-        ..Default::default()
-    };
-
-    if flat_with_accuracy(vt1, vt2, &vmid, accuracy) {
-        vv.push(*vt1);
-    } else {
-        recurse_smooth_line(cc, t1, t_mid, vt1, &vmid, vv, accuracy);
-        recurse_smooth_line(cc, t_mid, t2, &vmid, vt2, vv, accuracy);
-    }
-}
-
-/// Get the interpolated central curve of the ramp from drag points
-fn get_central_curve(drag_points: &[DragPoint], accuracy: f32) -> Vec<RenderVertex3D> {
-    let cpoint = drag_points.len();
-    if cpoint < 2 {
-        return vec![];
-    }
-
-    let mut vv = Vec::new();
-
-    // Ramps don't loop, so we go from 0 to cpoint-1
-    let endpoint = cpoint - 1;
-
-    for i in 0..endpoint {
-        let pdp1 = &drag_points[i];
-        let pdp2 = &drag_points[i + 1];
-
-        // Skip if two points coincide
-        if (pdp1.x - pdp2.x).abs() < 1e-6
-            && (pdp1.y - pdp2.y).abs() < 1e-6
-            && (pdp1.z - pdp2.z).abs() < 1e-6
-        {
-            continue;
-        }
-
-        // Ramps don't loop
-        let iprev = if pdp1.smooth && i > 0 { i - 1 } else { i };
-        let inext = if pdp2.smooth && i + 2 < cpoint {
-            i + 2
-        } else {
-            i + 1
-        };
-
-        let pdp0 = &drag_points[iprev];
-        let pdp3 = &drag_points[inext];
-
-        let v0 = RenderVertex3D {
-            x: pdp0.x,
-            y: pdp0.y,
-            z: pdp0.z,
-            smooth: pdp0.smooth,
-            control_point: true,
-            ..Default::default()
-        };
-        let v1 = RenderVertex3D {
-            x: pdp1.x,
-            y: pdp1.y,
-            z: pdp1.z,
-            smooth: pdp1.smooth,
-            control_point: true,
-            ..Default::default()
-        };
-        let v2 = RenderVertex3D {
-            x: pdp2.x,
-            y: pdp2.y,
-            z: pdp2.z,
-            smooth: pdp2.smooth,
-            control_point: true,
-            ..Default::default()
-        };
-        let v3 = RenderVertex3D {
-            x: pdp3.x,
-            y: pdp3.y,
-            z: pdp3.z,
-            smooth: pdp3.smooth,
-            control_point: true,
-            ..Default::default()
-        };
-
-        let cc = CatmullCurve3D::new(&v0, &v1, &v2, &v3);
-
-        let rendv1 = RenderVertex3D {
-            x: v1.x,
-            y: v1.y,
-            z: v1.z,
-            smooth: pdp1.smooth,
-            control_point: true,
-            ..Default::default()
-        };
-
-        let rendv2 = RenderVertex3D {
-            x: v2.x,
-            y: v2.y,
-            z: v2.z,
-            smooth: pdp2.smooth,
-            control_point: true,
-            ..Default::default()
-        };
-
-        recurse_smooth_line(&cc, 0.0, 1.0, &rendv1, &rendv2, &mut vv, accuracy);
-    }
-
-    // Add the very last point
-    if let Some(last) = drag_points.last() {
-        vv.push(RenderVertex3D {
-            x: last.x,
-            y: last.y,
-            z: last.z,
-            smooth: true,
-            control_point: true,
-            ..Default::default()
-        });
-    }
-
-    vv
-}
 
 /// Compute the 2D outline vertices of the ramp along with heights and ratios
 fn get_ramp_vertex(
@@ -983,6 +725,59 @@ fn build_wire_ramp_mesh(
     Some((wrapped, faces))
 }
 
+/// Get the surface height of a ramp at a given (x, y) position.
+///
+/// Ported from VPinball's `Ramp::GetSurfaceHeight(float x, float y)` in ramp.cpp.
+///
+/// This finds the closest point on the ramp's central curve to the given position,
+/// then interpolates the height based on the distance along the curve.
+pub(crate) fn get_ramp_surface_height(ramp: &Ramp, x: f32, y: f32) -> f32 {
+    let accuracy = detail_level_to_accuracy(10.0);
+    let vvertex = get_rg_vertex_3d(&ramp.drag_points, accuracy);
+
+    if vvertex.len() < 2 {
+        return 0.0;
+    }
+
+    let result = super::closest_point_on_polyline(&vvertex, x, y);
+
+    let Some((v_out, i_seg)) = result else {
+        return 0.0; // Object is not on ramp path
+    };
+
+    // Go through vertices counting lengths until iSeg
+    let cvertex = vvertex.len();
+    let mut totallength = 0.0_f32;
+    let mut startlength = 0.0_f32;
+
+    for i2 in 1..cvertex {
+        let dx = vvertex[i2].x - vvertex[i2 - 1].x;
+        let dy = vvertex[i2].y - vvertex[i2 - 1].y;
+        let len = (dx * dx + dy * dy).sqrt();
+        if i2 <= i_seg {
+            startlength += len;
+        }
+        totallength += len;
+    }
+
+    // Add the distance from the segment start to the closest point
+    let dx = v_out.x - vvertex[i_seg].x;
+    let dy = v_out.y - vvertex[i_seg].y;
+    let len = (dx * dx + dy * dy).sqrt();
+    startlength += len;
+
+    let top_height = ramp.height_top;
+    let bottom_height = ramp.height_bottom;
+
+    if totallength > 0.0 {
+        vvertex[i_seg].z
+            + (startlength / totallength) * (top_height - bottom_height)
+            + bottom_height
+    } else {
+        bottom_height
+    }
+}
+
 /// Build the complete ramp mesh
 pub(crate) fn build_ramp_mesh(
     ramp: &Ramp,
@@ -998,7 +793,7 @@ pub(crate) fn build_ramp_mesh(
     // From VPinball mesh.h GetRgVertex: accuracy = 4.0 is highest detail level
     // detail_level_to_accuracy(10.0) = 4.0
     let accuracy = detail_level_to_accuracy(10.0);
-    let vvertex = get_central_curve(&ramp.drag_points, accuracy);
+    let vvertex = get_rg_vertex_3d(&ramp.drag_points, accuracy);
 
     if vvertex.len() < 2 {
         return None;
@@ -1014,6 +809,7 @@ pub(crate) fn build_ramp_mesh(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vpx::gameitem::dragpoint::DragPoint;
 
     #[test]
     fn test_catmull_curve() {
@@ -1050,7 +846,7 @@ mod tests {
             ..Default::default()
         };
 
-        let curve = CatmullCurve3D::new(&v0, &v1, &v2, &v3);
+        let curve = crate::vpx::mesh::CatmullCurve3D::new(&v0, &v1, &v2, &v3);
         let (x, y, z) = curve.get_point_at(0.0);
         assert!((x - 1.0).abs() < 0.01);
         assert!((y - 0.0).abs() < 0.01);

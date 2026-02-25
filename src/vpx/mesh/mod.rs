@@ -391,6 +391,267 @@ pub(super) fn get_rg_vertex_2d(
     vv
 }
 
+/// Catmull-Rom spline curve for 3D interpolation
+///
+/// https://en.wikipedia.org/wiki/Catmull%E2%80%93Rom_spline
+pub(super) struct CatmullCurve3D {
+    cx0: f32,
+    cx1: f32,
+    cx2: f32,
+    cx3: f32,
+    cy0: f32,
+    cy1: f32,
+    cy2: f32,
+    cy3: f32,
+    cz0: f32,
+    cz1: f32,
+    cz2: f32,
+    cz3: f32,
+}
+
+impl CatmullCurve3D {
+    pub fn new(
+        v0: &RenderVertex3D,
+        v1: &RenderVertex3D,
+        v2: &RenderVertex3D,
+        v3: &RenderVertex3D,
+    ) -> Self {
+        let p0 = Vec3 {
+            x: v0.x,
+            y: v0.y,
+            z: v0.z,
+        };
+        let p1 = Vec3 {
+            x: v1.x,
+            y: v1.y,
+            z: v1.z,
+        };
+        let p2 = Vec3 {
+            x: v2.x,
+            y: v2.y,
+            z: v2.z,
+        };
+        let p3 = Vec3 {
+            x: v3.x,
+            y: v3.y,
+            z: v3.z,
+        };
+
+        let mut dt0 = (p1 - p0).length().sqrt();
+        let mut dt1 = (p2 - p1).length().sqrt();
+        let mut dt2 = (p3 - p2).length().sqrt();
+
+        // Check for repeated control points
+        if dt1 < 1e-4 {
+            dt1 = 1.0;
+        }
+        if dt0 < 1e-4 {
+            dt0 = dt1;
+        }
+        if dt2 < 1e-4 {
+            dt2 = dt1;
+        }
+
+        let (cx0, cx1, cx2, cx3) =
+            init_nonuniform_catmull_coeffs(p0.x, p1.x, p2.x, p3.x, dt0, dt1, dt2);
+        let (cy0, cy1, cy2, cy3) =
+            init_nonuniform_catmull_coeffs(p0.y, p1.y, p2.y, p3.y, dt0, dt1, dt2);
+        let (cz0, cz1, cz2, cz3) =
+            init_nonuniform_catmull_coeffs(p0.z, p1.z, p2.z, p3.z, dt0, dt1, dt2);
+
+        Self {
+            cx0,
+            cx1,
+            cx2,
+            cx3,
+            cy0,
+            cy1,
+            cy2,
+            cy3,
+            cz0,
+            cz1,
+            cz2,
+            cz3,
+        }
+    }
+
+    pub fn get_point_at(&self, t: f32) -> (f32, f32, f32) {
+        let t2 = t * t;
+        let t3 = t2 * t;
+
+        let x = self.cx3 * t3 + self.cx2 * t2 + self.cx1 * t + self.cx0;
+        let y = self.cy3 * t3 + self.cy2 * t2 + self.cy1 * t + self.cy0;
+        let z = self.cz3 * t3 + self.cz2 * t2 + self.cz1 * t + self.cz0;
+
+        (x, y, z)
+    }
+}
+
+/// Check if three 3D points are collinear within the given accuracy
+/// Matches VPinball's FlatWithAccuracy from mesh.h (3D version)
+pub(super) fn flat_with_accuracy_3d(
+    v1: &RenderVertex3D,
+    v2: &RenderVertex3D,
+    vmid: &RenderVertex3D,
+    accuracy: f32,
+) -> bool {
+    let mid_v1 = Vec3 {
+        x: vmid.x - v1.x,
+        y: vmid.y - v1.y,
+        z: vmid.z - v1.z,
+    };
+    let v2_v1 = Vec3 {
+        x: v2.x - v1.x,
+        y: v2.y - v1.y,
+        z: v2.z - v1.z,
+    };
+
+    let cross = Vec3::cross(&mid_v1, &v2_v1);
+    let dblareasq = cross.x * cross.x + cross.y * cross.y + cross.z * cross.z;
+
+    dblareasq < accuracy
+}
+
+/// Recursively subdivide a 3D curve segment until it's flat enough
+pub(super) fn recurse_smooth_line_3d(
+    cc: &CatmullCurve3D,
+    t1: f32,
+    t2: f32,
+    vt1: &RenderVertex3D,
+    vt2: &RenderVertex3D,
+    vv: &mut Vec<RenderVertex3D>,
+    accuracy: f32,
+) {
+    let t_mid = (t1 + t2) * 0.5;
+    let (x, y, z) = cc.get_point_at(t_mid);
+    let vmid = RenderVertex3D {
+        x,
+        y,
+        z,
+        smooth: true,
+        ..Default::default()
+    };
+
+    if flat_with_accuracy_3d(vt1, vt2, &vmid, accuracy) {
+        vv.push(*vt1);
+    } else {
+        recurse_smooth_line_3d(cc, t1, t_mid, vt1, &vmid, vv, accuracy);
+        recurse_smooth_line_3d(cc, t_mid, t2, &vmid, vt2, vv, accuracy);
+    }
+}
+
+/// Get the 3D vertices from drag points using spline interpolation.
+/// The curve is always open (not looped).
+///
+/// This is the 3D counterpart of `get_rg_vertex_2d`, used for ramp central curves.
+pub(super) fn get_rg_vertex_3d(
+    drag_points: &[crate::vpx::gameitem::dragpoint::DragPoint],
+    accuracy: f32,
+) -> Vec<RenderVertex3D> {
+    let cpoint = drag_points.len();
+    if cpoint < 2 {
+        return vec![];
+    }
+
+    let mut vv = Vec::new();
+
+    // Open curve: go from 0 to cpoint-1
+    let endpoint = cpoint - 1;
+
+    for i in 0..endpoint {
+        let pdp1 = &drag_points[i];
+        let pdp2 = &drag_points[i + 1];
+
+        // Skip if two points coincide
+        if (pdp1.x - pdp2.x).abs() < 1e-6
+            && (pdp1.y - pdp2.y).abs() < 1e-6
+            && (pdp1.z - pdp2.z).abs() < 1e-6
+        {
+            continue;
+        }
+
+        // Open curve: don't wrap around
+        let iprev = if pdp1.smooth && i > 0 { i - 1 } else { i };
+        let inext = if pdp2.smooth && i + 2 < cpoint {
+            i + 2
+        } else {
+            i + 1
+        };
+
+        let pdp0 = &drag_points[iprev];
+        let pdp3 = &drag_points[inext];
+
+        let v0 = RenderVertex3D {
+            x: pdp0.x,
+            y: pdp0.y,
+            z: pdp0.z,
+            smooth: pdp0.smooth,
+            control_point: true,
+            ..Default::default()
+        };
+        let v1 = RenderVertex3D {
+            x: pdp1.x,
+            y: pdp1.y,
+            z: pdp1.z,
+            smooth: pdp1.smooth,
+            control_point: true,
+            ..Default::default()
+        };
+        let v2 = RenderVertex3D {
+            x: pdp2.x,
+            y: pdp2.y,
+            z: pdp2.z,
+            smooth: pdp2.smooth,
+            control_point: true,
+            ..Default::default()
+        };
+        let v3 = RenderVertex3D {
+            x: pdp3.x,
+            y: pdp3.y,
+            z: pdp3.z,
+            smooth: pdp3.smooth,
+            control_point: true,
+            ..Default::default()
+        };
+
+        let cc = CatmullCurve3D::new(&v0, &v1, &v2, &v3);
+
+        let rendv1 = RenderVertex3D {
+            x: v1.x,
+            y: v1.y,
+            z: v1.z,
+            smooth: pdp1.smooth,
+            control_point: true,
+            ..Default::default()
+        };
+
+        let rendv2 = RenderVertex3D {
+            x: v2.x,
+            y: v2.y,
+            z: v2.z,
+            smooth: pdp2.smooth,
+            control_point: true,
+            ..Default::default()
+        };
+
+        recurse_smooth_line_3d(&cc, 0.0, 1.0, &rendv1, &rendv2, &mut vv, accuracy);
+    }
+
+    // Add the very last point
+    if let Some(last) = drag_points.last() {
+        vv.push(RenderVertex3D {
+            x: last.x,
+            y: last.y,
+            z: last.z,
+            smooth: true,
+            control_point: true,
+            ..Default::default()
+        });
+    }
+
+    vv
+}
+
 // ---- Polygon triangulation ----
 // Ported from VPinball's math/mesh.h: PolygonToTriangles, AdvancePoint, GetDot, FLinesIntersect,
 // FindCornerVertex, DetermineWindingOrder
@@ -600,6 +861,78 @@ pub(super) fn polygon_to_triangles(vertices: &[RenderVertex2D]) -> Vec<u32> {
     }
 
     pvtri
+}
+
+/// Find the closest point on an open polyline to a given 2D point.
+///
+/// Ported from VPinball's `ClosestPointOnPolygon` (mesh.h) with `closed=false`.
+///
+/// Returns `(closest_point, segment_index)` where `segment_index` is the index of
+/// the segment start vertex, or `None` if the point is not near any segment.
+pub(super) fn closest_point_on_polyline(
+    vertices: &[RenderVertex3D],
+    px: f32,
+    py: f32,
+) -> Option<(Vec2, usize)> {
+    let count = vertices.len();
+    if count < 2 {
+        return None;
+    }
+
+    let mut mindist = f32::MAX;
+    let mut best_seg: Option<usize> = None;
+    let mut best_point = Vec2 { x: 0.0, y: 0.0 };
+
+    // Open polyline: don't check segment from last to first
+    let cloop = count - 1;
+
+    for i in 0..cloop {
+        let p2 = i + 1;
+
+        let v1x = vertices[i].x;
+        let v1y = vertices[i].y;
+        let v2x = vertices[p2].x;
+        let v2y = vertices[p2].y;
+
+        // Line equation: Ax + By + C = 0
+        let a = v1y - v2y;
+        let b = v2x - v1x;
+        let c = -(a * v1x + b * v1y);
+
+        let denom = (a * a + b * b).sqrt();
+        if denom < 1e-12 {
+            continue; // degenerate segment
+        }
+
+        let dist = (a * px + b * py + c).abs() / denom;
+
+        if dist < mindist {
+            // Calculate perpendicular intersection point
+            let d = -b;
+            let f = -(d * px + a * py);
+
+            let det = a * a - b * d;
+            let inv_det = if det != 0.0 { 1.0 / det } else { 0.0 };
+            let intersectx = (b * f - a * c) * inv_det;
+            let intersecty = (c * d - a * f) * inv_det;
+
+            // Check if intersection lies on the segment (with 0.1 tolerance like VPinball)
+            if intersectx >= (v1x.min(v2x) - 0.1)
+                && intersectx <= (v1x.max(v2x) + 0.1)
+                && intersecty >= (v1y.min(v2y) - 0.1)
+                && intersecty <= (v1y.max(v2y) + 0.1)
+            {
+                mindist = dist;
+                best_seg = Some(i);
+                best_point = Vec2 {
+                    x: intersectx,
+                    y: intersecty,
+                };
+            }
+        }
+    }
+
+    best_seg.map(|seg| (best_point, seg))
 }
 
 #[cfg(test)]
