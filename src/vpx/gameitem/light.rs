@@ -1,6 +1,6 @@
 use super::{dragpoint::DragPoint, vertex2d::Vertex2D};
 use crate::impl_shared_attributes;
-use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use crate::vpx::json::F32WithNanInf;
 use crate::vpx::{
     biff::{self, BiffRead, BiffReader, BiffWrite},
@@ -219,8 +219,7 @@ pub struct Light {
     /// creating a color gradient effect from the center outward.
     /// BIFF tag: `COL2`
     pub color2: Color,
-    is_timer_enabled: bool, // TMON
-    timer_interval: i32,    // TMIN
+    pub timer: TimerData,
     /// Blink pattern string used when the light state is "blinking" (state = 2).
     ///
     /// Each character represents one frame of the blink cycle:
@@ -394,8 +393,8 @@ struct LightJson {
     state: Option<f32>,
     color: Color,
     color2: Color,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+    #[serde(flatten)]
+    pub timer: TimerData,
     blink_pattern: String,
     #[serde(alias = "off_image")]
     image: String,
@@ -436,8 +435,7 @@ impl LightJson {
             state: light.state,
             color: light.color,
             color2: light.color2,
-            is_timer_enabled: light.is_timer_enabled,
-            timer_interval: light.timer_interval,
+            timer: light.timer.clone(),
             blink_pattern: light.blink_pattern.clone(),
             image: light.image.clone(),
             blink_interval: light.blink_interval,
@@ -475,8 +473,7 @@ impl LightJson {
             state: self.state,
             color: self.color,
             color2: self.color2,
-            is_timer_enabled: self.is_timer_enabled,
-            timer_interval: self.timer_interval,
+            timer: self.timer.clone(),
             blink_pattern: self.blink_pattern.clone(),
             image: self.image.clone(),
             blink_interval: self.blink_interval,
@@ -545,8 +542,7 @@ impl Default for Light {
         let color: Color = Color::rgb(255, 169, 87);
         // Default to 2700K incandescent bulb (burst is useless since VPX is HDR)
         let color2: Color = Color::rgb(255, 169, 87);
-        let is_timer_enabled: bool = false;
-        let timer_interval: i32 = Default::default();
+        let timer = TimerData::default();
         let blink_pattern: String = "10".to_owned();
         let image: String = Default::default();
         let blink_interval: u32 = Default::default();
@@ -584,8 +580,7 @@ impl Default for Light {
             state,
             color,
             color2,
-            is_timer_enabled,
-            timer_interval,
+            timer,
             blink_pattern,
             image,
             blink_interval,
@@ -618,15 +613,6 @@ impl Default for Light {
     }
 }
 
-impl TimerDataRoot for Light {
-    fn is_timer_enabled(&self) -> bool {
-        self.is_timer_enabled
-    }
-    fn timer_interval(&self) -> i32 {
-        self.timer_interval
-    }
-}
-
 impl BiffRead for Light {
     fn biff_read(reader: &mut BiffReader<'_>) -> Light {
         let mut light = Light::default();
@@ -646,8 +632,6 @@ impl BiffRead for Light {
                 "STTF" => light.state = Some(reader.get_f32()),
                 "COLR" => light.color = Color::biff_read(reader),
                 "COL2" => light.color2 = Color::biff_read(reader),
-                "TMON" => light.is_timer_enabled = reader.get_bool(),
-                "TMIN" => light.timer_interval = reader.get_i32(),
                 "BPAT" => light.blink_pattern = reader.get_string(),
                 "IMG1" => light.image = reader.get_string(),
                 "BINT" => light.blink_interval = reader.get_u32(),
@@ -678,7 +662,9 @@ impl BiffRead for Light {
                     light.drag_points.push(point);
                 }
                 other => {
-                    if !light.read_shared_attribute(other, reader) {
+                    if !light.timer.biff_read_tag(other, reader)
+                        && !light.read_shared_attribute(other, reader)
+                    {
                         warn!(
                             "Unknown tag {} for {}",
                             other,
@@ -708,8 +694,7 @@ impl BiffWrite for Light {
         }
         writer.write_tagged_with("COLR", &self.color, Color::biff_write);
         writer.write_tagged_with("COL2", &self.color2, Color::biff_write);
-        writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_i32("TMIN", self.timer_interval);
+        self.timer.biff_write(writer);
         writer.write_tagged_string("BPAT", &self.blink_pattern);
         writer.write_tagged_string("IMG1", &self.image);
         writer.write_tagged_u32("BINT", self.blink_interval);
@@ -773,8 +758,10 @@ mod tests {
             state: Some(5.0),
             color: Faker.fake(),
             color2: Faker.fake(),
-            is_timer_enabled: true,
-            timer_interval: 7,
+            timer: TimerData {
+                is_enabled: true,
+                interval: 7,
+            },
             blink_pattern: "test pattern".to_string(),
             image: "test image".to_string(),
             blink_interval: 8,

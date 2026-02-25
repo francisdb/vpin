@@ -1,7 +1,7 @@
 use super::vertex2d::Vertex2D;
 use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
-use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -128,8 +128,7 @@ pub struct Plunger {
     pub park_position: f32,
     pub scatter_velocity: f32,
     pub momentum_xfer: f32,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+    pub timer: TimerData,
     pub is_visible: bool,
     /// Whether this plunger appears in playfield reflections.
     ///
@@ -185,8 +184,7 @@ impl Default for Plunger {
             park_position: 0.5 / 3.0,
             scatter_velocity: 0.0,
             momentum_xfer: 1.0,
-            is_timer_enabled: false,
-            timer_interval: 0,
+            timer: TimerData::default(),
             is_visible: true,
             is_reflection_enabled: Some(true),
             surface: String::default(),
@@ -229,8 +227,8 @@ struct PlungerJson {
     park_position: f32,
     scatter_velocity: f32,
     momentum_xfer: f32,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+    #[serde(flatten)]
+    pub timer: TimerData,
     is_visible: bool,
     is_reflection_enabled: Option<bool>,
     surface: String,
@@ -268,8 +266,7 @@ impl PlungerJson {
             park_position: plunger.park_position,
             scatter_velocity: plunger.scatter_velocity,
             momentum_xfer: plunger.momentum_xfer,
-            is_timer_enabled: plunger.is_timer_enabled,
-            timer_interval: plunger.timer_interval,
+            timer: plunger.timer.clone(),
             is_visible: plunger.is_visible,
             is_reflection_enabled: plunger.is_reflection_enabled,
             surface: plunger.surface.clone(),
@@ -306,8 +303,7 @@ impl PlungerJson {
             park_position: self.park_position,
             scatter_velocity: self.scatter_velocity,
             momentum_xfer: self.momentum_xfer,
-            is_timer_enabled: self.is_timer_enabled,
-            timer_interval: self.timer_interval,
+            timer: self.timer.clone(),
             is_visible: self.is_visible,
             is_reflection_enabled: self.is_reflection_enabled,
             surface: self.surface.clone(),
@@ -353,14 +349,6 @@ impl<'de> Deserialize<'de> for Plunger {
     }
 }
 
-impl TimerDataRoot for Plunger {
-    fn is_timer_enabled(&self) -> bool {
-        self.is_timer_enabled
-    }
-    fn timer_interval(&self) -> i32 {
-        self.timer_interval
-    }
-}
 
 impl BiffRead for Plunger {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
@@ -428,12 +416,6 @@ impl BiffRead for Plunger {
                 "MOMX" => {
                     plunger.momentum_xfer = reader.get_f32();
                 }
-                "TMON" => {
-                    plunger.is_timer_enabled = reader.get_bool();
-                }
-                "TMIN" => {
-                    plunger.timer_interval = reader.get_i32();
-                }
                 "VSBL" => {
                     plunger.is_visible = reader.get_bool();
                 }
@@ -475,7 +457,8 @@ impl BiffRead for Plunger {
                 }
 
                 _ => {
-                    if !plunger.read_shared_attribute(tag_str, reader) {
+                    if !plunger.timer.biff_read_tag(tag_str, reader)
+                        && !plunger.read_shared_attribute(tag_str, reader) {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -509,8 +492,7 @@ impl BiffWrite for Plunger {
         writer.write_tagged_f32("MPRK", self.park_position);
         writer.write_tagged_f32("PSCV", self.scatter_velocity);
         writer.write_tagged_f32("MOMX", self.momentum_xfer);
-        writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_i32("TMIN", self.timer_interval);
+        self.timer.biff_write(writer);
         writer.write_tagged_bool("VSBL", self.is_visible);
         if let Some(is_reflection_enabled) = self.is_reflection_enabled {
             writer.write_tagged_bool("REEN", is_reflection_enabled);
@@ -561,8 +543,7 @@ mod tests {
             park_position: 0.5 / 3.0,
             scatter_velocity: 0.0,
             momentum_xfer: 1.0,
-            is_timer_enabled: false,
-            timer_interval: 0,
+            timer: TimerData::default(),
             is_visible: true,
             is_reflection_enabled: Some(true),
             surface: "test surface".to_string(),

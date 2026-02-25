@@ -1,20 +1,99 @@
 use super::{GameItem, vertex2d::Vertex2D};
 use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
-use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, PartialEq, Clone)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Flipper {
+    /// The name of the flipper, used for referencing in scripts and animations.
+    /// Must be unique across all game items. Not used for display purposes.
+    ///
+    /// BIFF tag: `NAME`
+    pub name: String,
+    /// Center pivot point of the flipper on the playfield (x, y).
+    ///
+    /// VPinball: `m_vCenter`
+    ///
+    /// BIFF tag: `VCEN`
     pub center: Vertex2D,
+    /// Radius of the flipper at the pivot (base) end.
+    ///
+    /// ## Default
+    /// `21.5`
+    ///
+    /// VPinball: `m_BaseRadius` (COM: `BaseRadius`)
+    ///
+    /// BIFF tag: `BASR`
     pub base_radius: f32,
+    /// Radius of the flipper at the tip (far) end.
+    ///
+    /// ## Default
+    /// `13.0`
+    ///
+    /// VPinball: `m_EndRadius` (COM: `EndRadius`)
+    ///
+    /// BIFF tag: `ENDR`
     pub end_radius: f32,
+    /// Maximum length of the flipper (distance from center to tip).
+    /// The actual length at runtime may be shorter depending on `flipper_radius_min`
+    /// and the table's global difficulty setting.
+    ///
+    /// In VPinball this is exposed as "Length" in the COM API.
+    ///
+    /// ## Default
+    /// `130.0`
+    ///
+    /// VPinball: `m_FlipperRadiusMax` (COM: `Length`)
+    ///
+    /// BIFF tag: `FLPR`
     pub flipper_radius_max: f32,
+    /// Return strength ratio, controls how fast the flipper returns to rest position.
+    /// A value of 0.0 means the flipper stays where it is, 1.0 means full strength return.
+    ///
+    /// ## Default
+    /// `0.058`
+    ///
+    /// VPinball: `m_return` (COM: `Return` / `ReturnStrength`)
+    ///
+    /// BIFF tag: `FRTN`
     pub return_: f32,
+    /// Starting angle of the flipper in degrees (rest/parked position).
+    /// Measured from the positive X axis.
+    ///
+    /// For a typical left flipper: ~121°, for a right flipper: ~121° mirrored.
+    ///
+    /// ## Default
+    /// `121.0`
+    ///
+    /// VPinball: `m_StartAngle` (COM: `StartAngle`)
+    ///
+    /// BIFF tag: `ANGS`
     pub start_angle: f32,
+    /// End angle of the flipper in degrees (fully activated position).
+    /// Measured from the positive X axis.
+    ///
+    /// ## Default
+    /// `70.0`
+    ///
+    /// VPinball: `m_EndAngle` (COM: `EndAngle`)
+    ///
+    /// BIFF tag: `ANGE`
     pub end_angle: f32,
+    /// Physics override set index. When non-zero, uses the corresponding physics
+    /// override set from the player settings instead of the flipper's own physics values.
+    ///
+    /// - `0`: No override (use flipper's own values)
+    /// - `1..N`: Use physics override set N
+    ///
+    /// ## Default
+    /// `0`
+    ///
+    /// VPinball: `m_OverridePhysics` (COM: `OverridePhysics`)
+    ///
+    /// BIFF tag: `OVRP`
     pub override_physics: u32,
 
     /// Mass of the flipper, affects physics momentum transfer.
@@ -22,49 +101,224 @@ pub struct Flipper {
     /// 1 VP mass unit = 80g (mass of a standard pinball).
     /// Default is 1.0.
     ///
+    /// VPinball: `m_mass` (COM: `Mass`, previously called "Speed")
+    ///
     /// BIFF tag: `FORC`
     pub mass: f32,
 
-    is_timer_enabled: bool,
-    timer_interval: i32,
     /// Name of the surface (ramp or wall top) this flipper sits on.
     /// Used to determine the flipper's base height (z position).
     /// If empty, the flipper sits on the playfield.
-    /// BIFF tag: SURF
+    ///
+    /// VPinball: `m_szSurface` (COM: `Surface`)
+    ///
+    /// BIFF tag: `SURF`
     pub surface: String,
+    /// Name of the material applied to the flipper body.
+    ///
+    /// VPinball: `m_szMaterial` (COM: `Material`)
+    ///
+    /// BIFF tag: `MATR`
     pub material: String,
-    pub name: String,
+    /// Name of the material applied to the rubber ring on the flipper.
+    ///
+    /// VPinball: `m_szRubberMaterial` (COM: `RubberMaterial`)
+    ///
+    /// BIFF tag: `RUMA`
     pub rubber_material: String,
-    pub rubber_thickness_int: u32,     // RTHK deprecated
-    pub rubber_thickness: Option<f32>, // RTHF (added in 10.?)
-    pub rubber_height_int: u32,        // RHGT deprecated
-    pub rubber_height: Option<f32>,    // RHGF (added in 10.?)
-    pub rubber_width_int: u32,         // RWDT deprecated
-    pub rubber_width: Option<f32>,     // RHGF (added in 10.?)
+    /// Rubber thickness as integer. Deprecated in favor of `rubber_thickness` (float).
+    /// Kept for backwards compatibility with older table files.
+    ///
+    /// BIFF tag: `RTHK` (deprecated)
+    pub rubber_thickness_int: u32,
+    /// Thickness of the rubber ring on the flipper in VPU.
+    ///
+    /// ## Default
+    /// `7.0`
+    ///
+    /// VPinball: `m_rubberthickness` (COM: `RubberThickness`)
+    ///
+    /// BIFF tag: `RTHF`
+    pub rubber_thickness: Option<f32>,
+    /// Rubber height as integer. Deprecated in favor of `rubber_height` (float).
+    /// Kept for backwards compatibility with older table files.
+    ///
+    /// BIFF tag: `RHGT` (deprecated)
+    pub rubber_height_int: u32,
+    /// Height of the rubber ring on the flipper in VPU.
+    ///
+    /// ## Default
+    /// `19.0`
+    ///
+    /// VPinball: `m_rubberheight` (COM: `RubberHeight`)
+    ///
+    /// BIFF tag: `RHGF`
+    pub rubber_height: Option<f32>,
+    /// Rubber width as integer. Deprecated in favor of `rubber_width` (float).
+    /// Kept for backwards compatibility with older table files.
+    ///
+    /// BIFF tag: `RWDT` (deprecated)
+    pub rubber_width_int: u32,
+    /// Width of the rubber ring on the flipper in VPU.
+    /// If zero after loading and `rubber_thickness > 0` and `height > 16`, VPinball
+    /// auto-corrects this to `height - 16.0`.
+    ///
+    /// ## Default
+    /// `24.0`
+    ///
+    /// VPinball: `m_rubberwidth` (COM: `RubberWidth`)
+    ///
+    /// BIFF tag: `RWDF`
+    pub rubber_width: Option<f32>,
+    /// Flipper solenoid strength. Controls the force applied when the flipper
+    /// is activated. Higher values mean the ball is hit harder.
+    ///
+    /// ## Default
+    /// `2200.0`
+    ///
+    /// VPinball: `m_strength` (COM: `Strength`)
+    ///
+    /// BIFF tag: `STRG`
     pub strength: f32,
+    /// Elasticity (bounciness) of ball-flipper collisions.
+    /// `0.0` = no bounce, `1.0` = perfectly elastic.
+    ///
+    /// ## Default
+    /// `0.8`
+    ///
+    /// VPinball: `m_elasticity` (COM: `Elasticity`)
+    ///
+    /// BIFF tag: `ELAS`
     pub elasticity: f32,
+    /// How much the elasticity decreases at higher impact speeds.
+    /// Higher values mean the flipper absorbs more energy at high speed hits.
+    ///
+    /// ## Default
+    /// `0.43`
+    ///
+    /// VPinball: `m_elasticityFalloff` (COM: `ElasticityFalloff`)
+    ///
+    /// BIFF tag: `ELFO`
     pub elasticity_falloff: f32,
+    /// Friction coefficient for ball-flipper contact.
+    /// Affects how much the ball's velocity is reduced along the flipper surface.
+    ///
+    /// ## Default
+    /// `0.6`
+    ///
+    /// VPinball: `m_friction` (COM: `Friction`)
+    ///
+    /// BIFF tag: `FRIC`
     pub friction: f32,
+    /// Coil ramp-up time. Controls how quickly the flipper reaches full speed
+    /// after activation. Higher values = slower acceleration to full speed.
+    ///
+    /// ## Default
+    /// `3.0`
+    ///
+    /// VPinball: `m_rampUp` (COM: `RampUp`)
+    ///
+    /// BIFF tag: `RPUP`
     pub ramp_up: f32,
-    /// BIFF tag: SCTR (added in 10.?)
+    /// Scatter angle in degrees. Random angular deviation applied to the ball
+    /// direction after hitting the flipper.
+    ///
+    /// ## Default
+    /// `0.0`
+    ///
+    /// VPinball: `m_scatter` (COM: `Scatter`)
+    ///
+    /// BIFF tag: `SCTR`
     pub scatter: Option<f32>,
-    /// BIFF tag: TODA (added in 10.?)
+    /// End-of-stroke (EOS) torque damping. Controls the deceleration force applied
+    /// as the flipper reaches its end angle. Simulates the mechanical EOS switch
+    /// behavior in real pinball machines where the flipper loses holding power.
+    ///
+    /// ## Default
+    /// `0.75`
+    ///
+    /// VPinball: `m_torqueDamping` (COM: `EOSTorque`)
+    ///
+    /// BIFF tag: `TODA`
     pub torque_damping: Option<f32>,
-    /// BIFF tag: TDAA (added in 10.?)
+    /// End-of-stroke (EOS) torque damping angle in degrees. The angular range
+    /// before the end angle where EOS torque damping starts to apply.
+    ///
+    /// ## Default
+    /// `6.0`
+    ///
+    /// VPinball: `m_torqueDampingAngle` (COM: `EOSTorqueAngle`)
+    ///
+    /// BIFF tag: `TDAA`
     pub torque_damping_angle: Option<f32>,
 
+    /// Minimum flipper length at maximum table difficulty.
+    /// When the table's global difficulty is increased, the flipper length is reduced
+    /// from `flipper_radius_max` toward this minimum, making the game harder.
+    ///
+    /// The actual runtime length is:
+    /// ```text
+    /// radius = max - (max - min) * difficulty
+    /// radius = max(radius, base_radius - end_radius + 0.05)
+    /// ```
+    ///
+    /// A value of `0.0` means the flipper length is not affected by difficulty.
+    ///
+    /// ## Default
+    /// `0.0`
+    ///
+    /// VPinball: `m_FlipperRadiusMin` (COM: `FlipperRadiusMin` / `MaxDifLength`)
+    ///
+    /// BIFF tag: `FRMN`
     pub flipper_radius_min: f32,
+    /// Whether the flipper is rendered.
+    ///
+    /// ## Default
+    /// `true`
+    ///
+    /// VPinball: `m_visible` (COM: `Visible`)
+    ///
+    /// BIFF tag: `VSBL`
     pub is_visible: bool,
+    /// Whether the flipper responds to input and participates in physics.
+    /// A disabled flipper is still rendered (if `is_visible` is true) but cannot be activated.
+    ///
+    /// ## Default
+    /// `true`
+    ///
+    /// VPinball: `m_enabled` (COM: `Enabled`)
+    ///
+    /// BIFF tag: `ENBL`
     pub is_enabled: bool,
+    /// Height of the flipper above its surface in VPU.
+    /// If greater than 1000, VPinball auto-corrects to 50.
+    ///
+    /// ## Default
+    /// `50.0`
+    ///
+    /// VPinball: `m_height` (COM: `Height`)
+    ///
+    /// BIFF tag: `FHGT`
     pub height: f32,
-    pub image: Option<String>, // IMAG (was missing in 10.01)
+    /// Texture image name applied to the flipper surface.
+    ///
+    /// VPinball: `m_szImage` inherited from `BaseProperty` (COM: `Image`)
+    ///
+    /// BIFF tag: `IMAG` (was missing in 10.01)
+    pub image: Option<String>,
     /// Whether this flipper appears in playfield reflections.
     ///
-    /// When `true`, the ball is rendered in the reflection pass.
-    /// When `false`, the ball won't appear as a reflection on the playfield.
+    /// ## Default
+    /// `true`
+    ///
+    /// VPinball: `m_reflectionEnabled` inherited from `BaseProperty` (COM: `ReflectionEnabled`)
     ///
     /// BIFF tag: `REEN` (was missing in 10.01)
     pub is_reflection_enabled: Option<bool>,
+
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
 
     // these are shared between all items
     pub is_locked: bool,
@@ -88,8 +342,8 @@ pub(crate) struct FlipperJson {
     end_angle: f32,
     override_physics: u32,
     mass: f32,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+    #[serde(flatten)]
+    timer: TimerData,
     surface: String,
     material: String,
     name: String,
@@ -130,8 +384,7 @@ impl FlipperJson {
             end_angle: flipper.end_angle,
             override_physics: flipper.override_physics,
             mass: flipper.mass,
-            is_timer_enabled: flipper.is_timer_enabled,
-            timer_interval: flipper.timer_interval,
+            timer: flipper.timer.clone(),
             surface: flipper.surface.clone(),
             material: flipper.material.clone(),
             name: flipper.name.clone(),
@@ -171,8 +424,7 @@ impl FlipperJson {
             end_angle: self.end_angle,
             override_physics: self.override_physics,
             mass: self.mass,
-            is_timer_enabled: self.is_timer_enabled,
-            timer_interval: self.timer_interval,
+            timer: self.timer.clone(),
             surface: self.surface.clone(),
             material: self.material.clone(),
             name: self.name.clone(),
@@ -247,8 +499,7 @@ impl Default for Flipper {
             end_angle: 70.0,
             override_physics: 0,
             mass: 1.0,
-            is_timer_enabled: false,
-            timer_interval: 0,
+            timer: TimerData::default(),
             surface: String::default(),
             material: String::default(),
             name: String::default(),
@@ -279,15 +530,6 @@ impl Default for Flipper {
             editor_layer_visibility: None,
             part_group_name: None,
         }
-    }
-}
-
-impl TimerDataRoot for Flipper {
-    fn is_timer_enabled(&self) -> bool {
-        self.is_timer_enabled
-    }
-    fn timer_interval(&self) -> i32 {
-        self.timer_interval
     }
 }
 
@@ -329,12 +571,6 @@ impl BiffRead for Flipper {
                 }
                 "FORC" => {
                     flipper.mass = reader.get_f32();
-                }
-                "TMON" => {
-                    flipper.is_timer_enabled = reader.get_bool();
-                }
-                "TMIN" => {
-                    flipper.timer_interval = reader.get_i32();
                 }
                 "SURF" => {
                     flipper.surface = reader.get_string();
@@ -409,7 +645,9 @@ impl BiffRead for Flipper {
                     flipper.is_reflection_enabled = Some(reader.get_bool());
                 }
                 _ => {
-                    if !flipper.read_shared_attribute(tag_str, reader) {
+                    if !flipper.timer.biff_read_tag(tag_str, reader)
+                        && !flipper.read_shared_attribute(tag_str, reader)
+                    {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -435,8 +673,7 @@ impl BiffWrite for Flipper {
         writer.write_tagged_f32("ANGE", self.end_angle);
         writer.write_tagged_u32("OVRP", self.override_physics);
         writer.write_tagged_f32("FORC", self.mass);
-        writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_i32("TMIN", self.timer_interval);
+        self.timer.biff_write(writer);
         writer.write_tagged_string("SURF", &self.surface);
         writer.write_tagged_string("MATR", &self.material);
         writer.write_tagged_wide_string("NAME", &self.name);
@@ -503,8 +740,10 @@ mod tests {
             end_angle: 70.0,
             override_physics: 0,
             mass: 1.0,
-            is_timer_enabled: false,
-            timer_interval: 0,
+            timer: TimerData {
+                is_enabled: false,
+                interval: 0,
+            },
             surface: String::from("test surface"),
             material: String::from("test material"),
             name: String::from("test name"),

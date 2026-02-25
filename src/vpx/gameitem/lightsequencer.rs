@@ -1,6 +1,6 @@
 use super::vertex2d::Vertex2D;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
-use crate::vpx::gameitem::select::TimerDataRoot;
+use crate::vpx::gameitem::select::TimerData;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -12,8 +12,7 @@ pub struct LightSequencer {
     pub pos_x: f32,
     pub pos_y: f32,
     pub update_interval: u32,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+    pub timer: TimerData,
     pub name: String,
     pub backglass: bool,
 
@@ -36,8 +35,8 @@ struct LightSequencerJson {
     pos_x: f32,
     pos_y: f32,
     update_interval: u32,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+    #[serde(flatten)]
+    pub timer: TimerData,
     name: String,
     backglass: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -52,8 +51,7 @@ impl LightSequencerJson {
             pos_x: light_sequencer.pos_x,
             pos_y: light_sequencer.pos_y,
             update_interval: light_sequencer.update_interval,
-            is_timer_enabled: light_sequencer.is_timer_enabled,
-            timer_interval: light_sequencer.timer_interval,
+            timer: light_sequencer.timer.clone(),
             name: light_sequencer.name.clone(),
             backglass: light_sequencer.backglass,
             part_group_name: light_sequencer.part_group_name.clone(),
@@ -66,8 +64,7 @@ impl LightSequencerJson {
             pos_x: self.pos_x,
             pos_y: self.pos_y,
             update_interval: self.update_interval,
-            is_timer_enabled: self.is_timer_enabled,
-            timer_interval: self.timer_interval,
+            timer: self.timer.clone(),
             name: self.name.clone(),
             backglass: self.backglass,
             // this is populated from a different file
@@ -110,8 +107,7 @@ impl Default for LightSequencer {
             pos_x: Default::default(),
             pos_y: Default::default(),
             update_interval: 25,
-            is_timer_enabled: false,
-            timer_interval: 0,
+            timer: TimerData::default(),
             name: Default::default(),
             backglass: false,
             is_locked: None,
@@ -120,15 +116,6 @@ impl Default for LightSequencer {
             editor_layer_visibility: None,
             part_group_name: None,
         }
-    }
-}
-
-impl TimerDataRoot for LightSequencer {
-    fn is_timer_enabled(&self) -> bool {
-        self.is_timer_enabled
-    }
-    fn timer_interval(&self) -> i32 {
-        self.timer_interval
     }
 }
 
@@ -158,12 +145,6 @@ impl BiffRead for LightSequencer {
                 "UPTM" => {
                     light_sequencer.update_interval = reader.get_u32();
                 }
-                "TMON" => {
-                    light_sequencer.is_timer_enabled = reader.get_bool();
-                }
-                "TMIN" => {
-                    light_sequencer.timer_interval = reader.get_i32();
-                }
                 "NAME" => {
                     light_sequencer.name = reader.get_wide_string();
                 }
@@ -188,12 +169,14 @@ impl BiffRead for LightSequencer {
                     light_sequencer.part_group_name = Some(reader.get_string());
                 }
                 _ => {
-                    warn!(
-                        "Unknown tag {} for {}",
-                        tag_str,
-                        std::any::type_name::<Self>()
-                    );
-                    reader.skip_tag();
+                    if !light_sequencer.timer.biff_read_tag(tag_str, reader) {
+                        warn!(
+                            "Unknown tag {} for {}",
+                            tag_str,
+                            std::any::type_name::<Self>()
+                        );
+                        reader.skip_tag();
+                    }
                 }
             }
         }
@@ -208,8 +191,7 @@ impl BiffWrite for LightSequencer {
         writer.write_tagged_f32("CTRX", self.pos_x);
         writer.write_tagged_f32("CTRY", self.pos_y);
         writer.write_tagged_u32("UPTM", self.update_interval);
-        writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_i32("TMIN", self.timer_interval);
+        self.timer.biff_write(writer);
         writer.write_tagged_wide_string("NAME", &self.name);
         writer.write_tagged_bool("BGLS", self.backglass);
 
@@ -254,8 +236,10 @@ mod tests {
             pos_x: rng.random(),
             pos_y: rng.random(),
             update_interval: rng.random(),
-            is_timer_enabled: rng.random(),
-            timer_interval: rng.random(),
+            timer: TimerData {
+                is_enabled: rng.random(),
+                interval: rng.random(),
+            },
             name: "test name".to_string(),
             backglass: rng.random(),
             is_locked: rng.random_option(),

@@ -1,7 +1,7 @@
 use super::dragpoint::DragPoint;
 use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
-use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -13,8 +13,7 @@ pub struct Rubber {
     pub thickness: i32,
     pub hit_event: bool,
     pub material: String,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+    pub timer: TimerData,
     pub name: String,
     pub image: String,
     pub elasticity: f32,
@@ -59,8 +58,8 @@ struct RubberJson {
     thickness: i32,
     hit_event: bool,
     material: String,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+    #[serde(flatten)]
+    pub timer: TimerData,
     name: String,
     image: String,
     elasticity: f32,
@@ -91,8 +90,7 @@ impl RubberJson {
             thickness: rubber.thickness,
             hit_event: rubber.hit_event,
             material: rubber.material.clone(),
-            is_timer_enabled: rubber.is_timer_enabled,
-            timer_interval: rubber.timer_interval,
+            timer: rubber.timer.clone(),
             name: rubber.name.clone(),
             image: rubber.image.clone(),
             elasticity: rubber.elasticity,
@@ -122,8 +120,7 @@ impl RubberJson {
             thickness: self.thickness,
             hit_event: self.hit_event,
             material: self.material.clone(),
-            is_timer_enabled: self.is_timer_enabled,
-            timer_interval: self.timer_interval,
+            timer: self.timer.clone(),
             name: self.name.clone(),
             image: self.image.clone(),
             elasticity: self.elasticity,
@@ -162,8 +159,7 @@ impl Default for Rubber {
         let thickness: i32 = 8;
         let hit_event: bool = false;
         let material: String = Default::default();
-        let is_timer_enabled: bool = false;
-        let timer_interval: i32 = Default::default();
+        let timer = TimerData::default();
         let name: String = Default::default();
         let image: String = Default::default();
         let elasticity: f32 = Default::default();
@@ -195,8 +191,7 @@ impl Default for Rubber {
             thickness,
             hit_event,
             material,
-            is_timer_enabled,
-            timer_interval,
+            timer,
             name,
             image,
             elasticity,
@@ -243,15 +238,6 @@ impl<'de> Deserialize<'de> for Rubber {
     }
 }
 
-impl TimerDataRoot for Rubber {
-    fn is_timer_enabled(&self) -> bool {
-        self.is_timer_enabled
-    }
-    fn timer_interval(&self) -> i32 {
-        self.timer_interval
-    }
-}
-
 impl BiffRead for Rubber {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
         let mut rubber = Rubber::default();
@@ -278,12 +264,6 @@ impl BiffRead for Rubber {
                 }
                 "MATR" => {
                     rubber.material = reader.get_string();
-                }
-                "TMON" => {
-                    rubber.is_timer_enabled = reader.get_bool();
-                }
-                "TMIN" => {
-                    rubber.timer_interval = reader.get_i32();
                 }
                 "NAME" => {
                     rubber.name = reader.get_wide_string();
@@ -344,7 +324,9 @@ impl BiffRead for Rubber {
                     rubber.drag_points.push(point);
                 }
                 _ => {
-                    if !rubber.read_shared_attribute(tag_str, reader) {
+                    if !rubber.timer.biff_read_tag(tag_str, reader)
+                        && !rubber.read_shared_attribute(tag_str, reader)
+                    {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -368,8 +350,7 @@ impl BiffWrite for Rubber {
         writer.write_tagged_i32("WDTP", self.thickness);
         writer.write_tagged_bool("HTEV", self.hit_event);
         writer.write_tagged_string("MATR", &self.material);
-        writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_i32("TMIN", self.timer_interval);
+        self.timer.biff_write(writer);
         writer.write_tagged_wide_string("NAME", &self.name);
         writer.write_tagged_string("IMAG", &self.image);
         writer.write_tagged_f32("ELAS", self.elasticity);
@@ -427,8 +408,10 @@ mod tests {
             thickness: 3,
             hit_event: rng.random(),
             material: "material".to_string(),
-            is_timer_enabled: rng.random(),
-            timer_interval: 4,
+            timer: TimerData {
+                is_enabled: rng.random(),
+                interval: rng.random(),
+            },
             name: "name".to_string(),
             image: "image".to_string(),
             elasticity: 5.0,

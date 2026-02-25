@@ -1,7 +1,7 @@
 use super::vertex2d::Vertex2D;
 use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
-use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -137,8 +137,7 @@ impl<'de> Deserialize<'de> for KickerType {
 pub struct Kicker {
     pub center: Vertex2D,
     pub radius: f32,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+    pub timer: TimerData,
     pub material: String,
     /// Name of the surface (ramp or wall top) this kicker sits on.
     /// Used to determine the kicker's base height (z position).
@@ -170,8 +169,8 @@ impl_shared_attributes!(Kicker);
 struct KickerJson {
     center: Vertex2D,
     radius: f32,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+    #[serde(flatten)]
+    pub timer: TimerData,
     material: String,
     surface: String,
     is_enabled: bool,
@@ -192,8 +191,7 @@ impl KickerJson {
         Self {
             center: kicker.center,
             radius: kicker.radius,
-            is_timer_enabled: kicker.is_timer_enabled,
-            timer_interval: kicker.timer_interval,
+            timer: kicker.timer.clone(),
             material: kicker.material.clone(),
             surface: kicker.surface.clone(),
             is_enabled: kicker.is_enabled,
@@ -213,8 +211,7 @@ impl KickerJson {
         Kicker {
             center: self.center,
             radius: self.radius,
-            is_timer_enabled: self.is_timer_enabled,
-            timer_interval: self.timer_interval,
+            timer: self.timer.clone(),
             material: self.material,
             surface: self.surface,
             is_enabled: self.is_enabled,
@@ -263,8 +260,7 @@ impl Default for Kicker {
         Self {
             center: Default::default(),
             radius: 25.0,
-            is_timer_enabled: false,
-            timer_interval: 0,
+            timer: TimerData::default(),
             material: Default::default(),
             surface: Default::default(),
             is_enabled: true,
@@ -285,14 +281,6 @@ impl Default for Kicker {
     }
 }
 
-impl TimerDataRoot for Kicker {
-    fn is_timer_enabled(&self) -> bool {
-        self.is_timer_enabled
-    }
-    fn timer_interval(&self) -> i32 {
-        self.timer_interval
-    }
-}
 
 impl BiffRead for Kicker {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
@@ -311,12 +299,6 @@ impl BiffRead for Kicker {
                 }
                 "RADI" => {
                     kicker.radius = reader.get_f32();
-                }
-                "TMON" => {
-                    kicker.is_timer_enabled = reader.get_bool();
-                }
-                "TMIN" => {
-                    kicker.timer_interval = reader.get_i32();
                 }
                 "MATR" => {
                     kicker.material = reader.get_string();
@@ -352,7 +334,8 @@ impl BiffRead for Kicker {
                     kicker.legacy_mode = reader.get_bool();
                 }
                 _ => {
-                    if !kicker.read_shared_attribute(tag_str, reader) {
+                    if !kicker.timer.biff_read_tag(tag_str, reader)
+                        && !kicker.read_shared_attribute(tag_str, reader) {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -371,8 +354,7 @@ impl BiffWrite for Kicker {
     fn biff_write(&self, writer: &mut biff::BiffWriter) {
         writer.write_tagged("VCEN", &self.center);
         writer.write_tagged_f32("RADI", self.radius);
-        writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_i32("TMIN", self.timer_interval);
+        self.timer.biff_write(writer);
         writer.write_tagged_string("MATR", &self.material);
         writer.write_tagged_string("SURF", &self.surface);
         writer.write_tagged_bool("EBLD", self.is_enabled);
@@ -407,8 +389,7 @@ mod tests {
         let kicker = Kicker {
             center: Vertex2D::new(1.0, 2.0),
             radius: 3.0,
-            is_timer_enabled: true,
-            timer_interval: 4,
+            timer: TimerData { is_enabled: true, interval: 4 },
             material: "material".to_string(),
             surface: "surface".to_string(),
             is_enabled: false,

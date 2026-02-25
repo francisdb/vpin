@@ -1,7 +1,7 @@
 use super::vertex2d::Vertex2D;
 use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
-use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -16,8 +16,7 @@ pub struct Spinner {
     ///
     /// BIFF tag: ROTA
     pub rotation: f32,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+    pub timer: TimerData,
     /// Height offset of the spinner above its surface in VPU.
     ///
     /// The spinner's z position is calculated as: `surface_height + height`
@@ -138,8 +137,8 @@ impl_shared_attributes!(Spinner);
 struct SpinnerJson {
     center: Vertex2D,
     rotation: f32,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+    #[serde(flatten)]
+    pub timer: TimerData,
     height: f32,
     length: f32,
     damping: f32,
@@ -162,8 +161,7 @@ impl SpinnerJson {
         Self {
             center: spinner.center,
             rotation: spinner.rotation,
-            is_timer_enabled: spinner.is_timer_enabled,
-            timer_interval: spinner.timer_interval,
+            timer: spinner.timer.clone(),
             height: spinner.height,
             length: spinner.length,
             damping: spinner.damping,
@@ -185,8 +183,7 @@ impl SpinnerJson {
         Spinner {
             center: self.center,
             rotation: self.rotation,
-            is_timer_enabled: self.is_timer_enabled,
-            timer_interval: self.timer_interval,
+            timer: self.timer.clone(),
             height: self.height,
             length: self.length,
             damping: self.damping,
@@ -218,8 +215,7 @@ impl Default for Spinner {
         Self {
             center: Default::default(),
             rotation: 0.0,
-            is_timer_enabled: false,
-            timer_interval: 0,
+            timer: TimerData::default(),
             height: 60.0,
             length: 80.0,
             damping: 0.9879,
@@ -261,14 +257,6 @@ impl<'de> Deserialize<'de> for Spinner {
     }
 }
 
-impl TimerDataRoot for Spinner {
-    fn is_timer_enabled(&self) -> bool {
-        self.is_timer_enabled
-    }
-    fn timer_interval(&self) -> i32 {
-        self.timer_interval
-    }
-}
 
 impl BiffRead for Spinner {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
@@ -286,12 +274,6 @@ impl BiffRead for Spinner {
                 }
                 "ROTA" => {
                     spinner.rotation = reader.get_f32();
-                }
-                "TMON" => {
-                    spinner.is_timer_enabled = reader.get_bool();
-                }
-                "TMIN" => {
-                    spinner.timer_interval = reader.get_i32();
                 }
                 "HIGH" => {
                     spinner.height = reader.get_f32();
@@ -333,7 +315,8 @@ impl BiffRead for Spinner {
                     spinner.is_reflection_enabled = Some(reader.get_bool());
                 }
                 _ => {
-                    if !spinner.read_shared_attribute(tag_str, reader) {
+                    if !spinner.timer.biff_read_tag(tag_str, reader)
+                        && !spinner.read_shared_attribute(tag_str, reader) {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -352,8 +335,7 @@ impl BiffWrite for Spinner {
     fn biff_write(&self, writer: &mut biff::BiffWriter) {
         writer.write_tagged("VCEN", &self.center);
         writer.write_tagged_f32("ROTA", self.rotation);
-        writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_i32("TMIN", self.timer_interval);
+        self.timer.biff_write(writer);
         writer.write_tagged_f32("HIGH", self.height);
         writer.write_tagged_f32("LGTH", self.length);
         writer.write_tagged_f32("AFRC", self.damping);
@@ -392,8 +374,7 @@ mod tests {
         let spinner = Spinner {
             center: Vertex2D::new(rng.random(), rng.random()),
             rotation: rng.random(),
-            is_timer_enabled: rng.random(),
-            timer_interval: rng.random(),
+            timer: TimerData { is_enabled: rng.random(), interval: rng.random() },
             height: rng.random(),
             length: rng.random(),
             damping: rng.random(),

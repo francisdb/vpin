@@ -1,7 +1,7 @@
 use super::dragpoint::DragPoint;
 use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite, BiffWriter};
-use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use crate::vpx::math::{dequantize_unsigned, quantize_unsigned};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -18,8 +18,7 @@ pub struct Wall {
     pub is_flipbook: bool,
     pub is_bottom_solid: bool,
     pub is_collidable: bool,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+    pub timer: TimerData,
     pub threshold: f32,
     pub image: String,
     pub side_image: String,
@@ -99,8 +98,8 @@ struct WallJson {
     is_flipbook: bool,
     is_bottom_solid: bool,
     is_collidable: bool,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+    #[serde(flatten)]
+    pub timer: TimerData,
     threshold: f32,
     image: String,
     side_image: String,
@@ -139,8 +138,7 @@ impl WallJson {
             is_flipbook: wall.is_flipbook,
             is_bottom_solid: wall.is_bottom_solid,
             is_collidable: wall.is_collidable,
-            is_timer_enabled: wall.is_timer_enabled,
-            timer_interval: wall.timer_interval,
+            timer: wall.timer.clone(),
             threshold: wall.threshold,
             image: wall.image.clone(),
             side_image: wall.side_image.clone(),
@@ -178,8 +176,7 @@ impl WallJson {
             is_flipbook: self.is_flipbook,
             is_bottom_solid: self.is_bottom_solid,
             is_collidable: self.is_collidable,
-            is_timer_enabled: self.is_timer_enabled,
-            timer_interval: self.timer_interval,
+            timer: self.timer.clone(),
             threshold: self.threshold,
             image: self.image.clone(),
             side_image: self.side_image.clone(),
@@ -246,8 +243,7 @@ impl Default for Wall {
             is_flipbook: false,
             is_bottom_solid: false,
             is_collidable: true,
-            is_timer_enabled: false,
-            timer_interval: 0,
+            timer: TimerData::default(),
             threshold: 2.0,
             image: Default::default(),
             side_image: Default::default(),
@@ -283,14 +279,6 @@ impl Default for Wall {
     }
 }
 
-impl TimerDataRoot for Wall {
-    fn is_timer_enabled(&self) -> bool {
-        self.is_timer_enabled
-    }
-    fn timer_interval(&self) -> i32 {
-        self.timer_interval
-    }
-}
 
 impl BiffRead for Wall {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
@@ -386,10 +374,7 @@ impl BiffRead for Wall {
                     wall.is_reflection_enabled = Some(reader.get_bool());
                 }
                 "TMRN" => {
-                    wall.is_timer_enabled = reader.get_bool();
-                }
-                "TMIN" => {
-                    wall.timer_interval = reader.get_i32();
+                    wall.timer.is_enabled = reader.get_bool();
                 }
                 "PMAT" => {
                     wall.physics_material = Some(reader.get_string());
@@ -399,9 +384,6 @@ impl BiffRead for Wall {
                 }
                 "CLDW" => {
                     wall.is_collidable = reader.get_bool();
-                }
-                "TMON" => {
-                    wall.is_timer_enabled = reader.get_bool();
                 }
                 "VSBL" => {
                     wall.is_top_bottom_visible = reader.get_bool();
@@ -467,7 +449,8 @@ impl BiffRead for Wall {
                     wall.drag_points.push(point);
                 }
                 _ => {
-                    if !wall.read_shared_attribute(tag_str, reader) {
+                    if !wall.timer.biff_read_tag(tag_str, reader)
+                        && !wall.read_shared_attribute(tag_str, reader) {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -489,8 +472,7 @@ impl BiffWrite for Wall {
         writer.write_tagged_bool("FLIP", self.is_flipbook);
         writer.write_tagged_bool("ISBS", self.is_bottom_solid);
         writer.write_tagged_bool("CLDW", self.is_collidable);
-        writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_i32("TMIN", self.timer_interval);
+        self.timer.biff_write(writer);
         writer.write_tagged_f32("THRS", self.threshold);
         writer.write_tagged_string("IMAG", &self.image);
         writer.write_tagged_string("SIMG", &self.side_image);
@@ -558,8 +540,7 @@ mod tests {
             is_flipbook: true,
             is_bottom_solid: true,
             is_collidable: true,
-            is_timer_enabled: true,
-            timer_interval: 1,
+            timer: TimerData { is_enabled: true, interval: 1 },
             threshold: 2.0,
             image: "image".to_string(),
             side_image: "side_image".to_string(),

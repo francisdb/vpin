@@ -1,7 +1,7 @@
 use super::{GameItem, vertex2d::Vertex2D};
 use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
-use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use crate::vpx::json::F32WithNanInf;
 use log::warn;
 use serde::{Deserialize, Serialize};
@@ -9,11 +9,12 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Bumper {
+    /// The name of the bumper. This is used for scripting and identifying the bumper in the editor.
+    /// Must be unique across all bumpers in the playfield.
+    /// BIFF tag: `NAME`
     pub name: String,
     pub center: Vertex2D,
     pub radius: f32,
-    is_timer_enabled: bool,
-    timer_interval: i32,
     pub threshold: f32,
     pub force: f32,
     // BSCT (added in ?)
@@ -47,6 +48,10 @@ pub struct Bumper {
     /// BIFF tag: `REEN` (was missing in 10.01)
     pub is_reflection_enabled: Option<bool>,
 
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
+
     // these are shared between all items
     pub is_locked: bool,
     pub editor_layer: Option<u32>,
@@ -62,8 +67,8 @@ impl_shared_attributes!(Bumper);
 struct BumperJson {
     center: Vertex2D,
     radius: f32,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+    #[serde(flatten)]
+    timer: TimerData,
     threshold: f32,
     force: f32,
     scatter: Option<f32>,
@@ -96,8 +101,7 @@ impl From<&Bumper> for BumperJson {
         Self {
             center: bumper.center,
             radius: bumper.radius,
-            is_timer_enabled: bumper.is_timer_enabled,
-            timer_interval: bumper.timer_interval,
+            timer: bumper.timer.clone(),
             threshold: bumper.threshold,
             force: bumper.force,
             scatter: bumper.scatter,
@@ -128,8 +132,7 @@ impl Default for Bumper {
         Self {
             center: Vertex2D::default(),
             radius: 45.0,
-            is_timer_enabled: false,
-            timer_interval: 0,
+            timer: TimerData::default(),
             threshold: 1.0,
             force: 15.0,
             scatter: None, //0.0
@@ -178,8 +181,7 @@ impl<'de> Deserialize<'de> for Bumper {
         let bumper = Bumper {
             center: bumper_json.center,
             radius: bumper_json.radius,
-            is_timer_enabled: bumper_json.is_timer_enabled,
-            timer_interval: bumper_json.timer_interval,
+            timer: bumper_json.timer,
             threshold: bumper_json.threshold,
             force: bumper_json.force,
             scatter: bumper_json.scatter,
@@ -220,15 +222,6 @@ impl GameItem for Bumper {
     }
 }
 
-impl TimerDataRoot for Bumper {
-    fn is_timer_enabled(&self) -> bool {
-        self.is_timer_enabled
-    }
-    fn timer_interval(&self) -> i32 {
-        self.timer_interval
-    }
-}
-
 impl BiffRead for Bumper {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
         let mut bumper = Bumper::default();
@@ -246,12 +239,6 @@ impl BiffRead for Bumper {
                 }
                 "RADI" => {
                     bumper.radius = reader.get_f32();
-                }
-                "TMON" => {
-                    bumper.is_timer_enabled = reader.get_bool();
-                }
-                "TMIN" => {
-                    bumper.timer_interval = reader.get_i32();
                 }
                 "THRS" => {
                     bumper.threshold = reader.get_f32();
@@ -314,7 +301,9 @@ impl BiffRead for Bumper {
                     bumper.is_reflection_enabled = Some(reader.get_bool());
                 }
                 _ => {
-                    if !bumper.read_shared_attribute(tag_str, reader) {
+                    if !bumper.timer.biff_read_tag(tag_str, reader)
+                        && !bumper.read_shared_attribute(tag_str, reader)
+                    {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -333,8 +322,7 @@ impl BiffWrite for Bumper {
     fn biff_write(&self, writer: &mut biff::BiffWriter) {
         writer.write_tagged("VCEN", &self.center);
         writer.write_tagged_f32("RADI", self.radius);
-        writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_i32("TMIN", self.timer_interval);
+        self.timer.biff_write(writer);
         writer.write_tagged_f32("THRS", self.threshold);
         writer.write_tagged_f32("FORC", self.force);
         if let Some(scatter) = self.scatter {
@@ -391,8 +379,10 @@ mod tests {
         let bumper = Bumper {
             center: Vertex2D::new(1.0, 2.0),
             radius: 45.0,
-            is_timer_enabled: true,
-            timer_interval: 3,
+            timer: TimerData {
+                is_enabled: true,
+                interval: 3,
+            },
             threshold: 1.0,
             force: 15.0,
             scatter: Some(0.0),

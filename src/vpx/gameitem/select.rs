@@ -1,4 +1,5 @@
 use crate::vpx::biff;
+use serde::{Deserialize, Serialize};
 
 // TODO create the read side of this trait
 
@@ -27,9 +28,75 @@ pub trait HasSharedAttributes {
     fn set_part_group_name(&mut self, name: Option<String>);
 }
 
-pub trait TimerDataRoot {
-    fn is_timer_enabled(&self) -> bool;
-    fn timer_interval(&self) -> i32;
+/// Timer data shared by most game items.
+///
+/// In VPinball this is `TimerDataRoot` (defined in `timer.h`), embedded as
+/// `m_tdr` in each item's data struct.
+///
+/// When `is_enabled` is `true`, VPinball creates a `HitTimer` that calls
+/// the `{PartName}_Timer` VBScript Sub at each `interval` period, allowing
+/// periodic scripted actions on the item.
+///
+/// ## BIFF tags
+/// - `TMON`: `is_enabled` (bool)
+/// - `TMIN`: `interval` (i32, milliseconds)
+#[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]
+pub struct TimerData {
+    /// Whether the scripting timer is enabled.
+    ///
+    /// ## Default
+    /// `false`
+    ///
+    /// VPinball: `m_tdr.m_TimerEnabled` (COM: `TimerEnabled`)
+    ///
+    /// BIFF tag: `TMON`
+    #[serde(rename = "is_timer_enabled")]
+    pub is_enabled: bool,
+    /// Interval in milliseconds between `{PartName}_Timer` Sub calls.
+    /// Only used when `is_enabled` is `true`.
+    ///
+    /// ## Default
+    /// `100`
+    ///
+    /// VPinball: `m_tdr.m_TimerInterval` (COM: `TimerInterval`)
+    ///
+    /// BIFF tag: `TMIN`
+    #[serde(rename = "timer_interval")]
+    pub interval: i32,
+}
+
+#[cfg(test)]
+impl fake::Dummy<fake::Faker> for TimerData {
+    fn dummy_with_rng<R: rand::Rng + ?Sized>(_: &fake::Faker, rng: &mut R) -> Self {
+        Self {
+            is_enabled: rng.random(),
+            interval: rng.random(),
+        }
+    }
+}
+
+impl TimerData {
+    /// Try to read a BIFF tag into this timer data.
+    /// Returns `true` if the tag was consumed.
+    pub fn biff_read_tag(&mut self, tag: &str, reader: &mut biff::BiffReader) -> bool {
+        match tag {
+            "TMON" => {
+                self.is_enabled = reader.get_bool();
+                true
+            }
+            "TMIN" => {
+                self.interval = reader.get_i32();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Write the timer BIFF tags.
+    pub fn biff_write(&self, writer: &mut biff::BiffWriter) {
+        writer.write_tagged_bool("TMON", self.is_enabled);
+        writer.write_tagged_i32("TMIN", self.interval);
+    }
 }
 
 impl<T> WriteSharedAttributes for T

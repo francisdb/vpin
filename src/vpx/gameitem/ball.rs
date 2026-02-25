@@ -2,7 +2,7 @@ use super::vertex3d::Vertex3D;
 use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::color::Color;
-use crate::vpx::gameitem::select::{TimerDataRoot, WriteSharedAttributes};
+use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Serialize};
 
@@ -152,8 +152,10 @@ pub struct Ball {
     ///
     /// BIFF tag: `REEN`
     pub is_reflection_enabled: bool,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
+    pub timer: TimerData,
 
     // these are shared between all items
     pub is_locked: bool,
@@ -178,8 +180,8 @@ struct BallJson {
     color: Color,
     spherical_mapping: bool,
     is_reflection_enabled: bool,
-    is_timer_enabled: bool,
-    timer_interval: i32,
+    #[serde(flatten)]
+    pub timer: TimerData,
     name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     part_group_name: Option<String>,
@@ -200,8 +202,7 @@ impl From<&Ball> for BallJson {
             color: ball.color,
             spherical_mapping: ball.spherical_mapping,
             is_reflection_enabled: ball.is_reflection_enabled,
-            is_timer_enabled: ball.is_timer_enabled,
-            timer_interval: ball.timer_interval,
+            timer: ball.timer.clone(),
             name: ball.name.clone(),
             part_group_name: ball.part_group_name.clone(),
         }
@@ -223,8 +224,7 @@ impl Default for Ball {
             color: Color::WHITE,
             spherical_mapping: false,
             is_reflection_enabled: true,
-            is_timer_enabled: false,
-            timer_interval: 0,
+            timer: TimerData::default(),
             name: Default::default(),
             is_locked: false,
             editor_layer: Default::default(),
@@ -264,8 +264,7 @@ impl<'de> Deserialize<'de> for Ball {
             color: ball_json.color,
             spherical_mapping: ball_json.spherical_mapping,
             is_reflection_enabled: ball_json.is_reflection_enabled,
-            is_timer_enabled: ball_json.is_timer_enabled,
-            timer_interval: ball_json.timer_interval,
+            timer: ball_json.timer.clone(),
             name: ball_json.name,
             // this is populated from a different file
             is_locked: false,
@@ -281,14 +280,6 @@ impl<'de> Deserialize<'de> for Ball {
     }
 }
 
-impl TimerDataRoot for Ball {
-    fn is_timer_enabled(&self) -> bool {
-        self.is_timer_enabled
-    }
-    fn timer_interval(&self) -> i32 {
-        self.timer_interval
-    }
-}
 
 impl BiffRead for Ball {
     fn biff_read(reader: &mut BiffReader<'_>) -> Self {
@@ -338,17 +329,12 @@ impl BiffRead for Ball {
                 "REEN" => {
                     ball.is_reflection_enabled = reader.get_bool();
                 }
-                "TMON" => {
-                    ball.is_timer_enabled = reader.get_bool();
-                }
-                "TMIN" => {
-                    ball.timer_interval = reader.get_i32();
-                }
                 "NAME" => {
                     ball.name = reader.get_wide_string();
                 }
                 _ => {
-                    if !ball.read_shared_attribute(tag_str, reader) {
+                    if !ball.timer.biff_read_tag(tag_str, reader)
+                        && !ball.read_shared_attribute(tag_str, reader) {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
@@ -377,8 +363,7 @@ impl BiffWrite for Ball {
         writer.write_tagged_with("COLR", &self.color, Color::biff_write);
         writer.write_tagged_bool("SPHR", self.spherical_mapping);
         writer.write_tagged_bool("REEN", self.is_reflection_enabled);
-        writer.write_tagged_bool("TMON", self.is_timer_enabled);
-        writer.write_tagged_i32("TMIN", self.timer_interval);
+        self.timer.biff_write(writer);
         writer.write_tagged_wide_string("NAME", &self.name);
 
         self.write_shared_attributes(writer);
@@ -409,8 +394,7 @@ mod tests {
             color: Color::rgb(128, 64, 32),
             spherical_mapping: true,
             is_reflection_enabled: false,
-            is_timer_enabled: true,
-            timer_interval: 500,
+            timer: TimerData { is_enabled: true, interval: 500 },
             name: "test ball".to_string(),
             is_locked: true,
             editor_layer: Some(3),
