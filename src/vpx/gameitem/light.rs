@@ -1,3 +1,70 @@
+//! Light game item — represents a light source on the playfield.
+//!
+//! # Render Modes
+//!
+//! Lights have three modes, controlled by [`Light::visible`] and [`Light::is_bulb_light`]:
+//!
+//! | UI Mode     | `visible` | `is_bulb_light` | Description |
+//! |-------------|-----------|-----------------|-------------|
+//! | **Hidden**  | `false`   | (any)           | Not rendered at all. Still exists for scripting. |
+//! | **Classic** | `true`    | `false`         | Flat lightmap polygon on the playfield surface. |
+//! | **Halo**    | `true`    | `true`          | Radial glow effect blended over the playfield. |
+//!
+//! ## Classic Mode
+//!
+//! The light is rendered as a flat polygon (defined by drag points) on the surface
+//! of the playfield (or a wall/ramp if [`Light::surface`] is set). It uses VPinball's
+//! `basicShader` with the `light_with_texture` or `light_without_texture` technique
+//! from `ClassicLightShader.hlsl`.
+//!
+//! When [`Light::image`] is set, the texture is applied using **table-space UVs**
+//! (`x / table_width`, `y / table_height`), meaning the light polygon shows a
+//! cutout of the table texture. The light color modulates this texture via
+//! overlay/screen blending based on intensity.
+//!
+//! When no image is set, the polygon is rendered with a radial color gradient
+//! from the center outward (using [`Light::color`] at center → [`Light::color2`]
+//! at falloff edge), with UVs centered on the light position.
+//!
+//! The [`Light::is_image_mode`] flag ("Passthrough") disables the lighting
+//! calculation and just passes the texture through unmodified.
+//!
+//! ## Halo Mode (Bulb)
+//!
+//! The light is rendered as a radial glow effect using VPinball's `lightShader`
+//! with the `bulb_light` technique from `LightShader.hlsl`. The [`Light::image`]
+//! field is **ignored** — any value present is stale data from a previous Classic
+//! mode setting. (In `light.cpp`: `offTexel = m_BulbLight ? nullptr : GetImage(m_szImage)`)
+//!
+//! The halo polygon is positioned at `surface_height +`[`Light::bulb_halo_height`],
+//! allowing the glow to float above or below the surface. The blending uses a
+//! modulate-vs-add approach controlled by [`Light::bulb_modulate_vs_add`]:
+//! - Values near 0.0 → additive blending (glow adds to underlying color)
+//! - Values near 1.0 → modulate blending (glow tints the underlying color)
+//!
+//! [`Light::transmission_scale`] controls how much light bleeds through surfaces
+//! (rendered in VPinball's separate light buffer pass).
+//!
+//! ## Bulb Mesh
+//!
+//! When [`Light::show_bulb_mesh`] is enabled (typically with Halo mode), a 3D bulb
+//! and socket mesh is rendered at the light position:
+//! - **Socket**: Dark metallic mesh (`base_color = 0x181818`, `roughness = 0.9`)
+//! - **Bulb**: Translucent glass mesh (`opacity = 0.2`, `clearcoat = 0xFFFFFF`)
+//!
+//! The bulb mesh is scaled by [`Light::mesh_radius`] and positioned at surface
+//! height. An additional additive emission pass renders a faint glow over the bulb
+//! mesh itself (at 2% of intensity) to simulate light directly reaching the camera.
+//!
+//! # Fading
+//!
+//! The [`Light::fader`] controls how the light transitions between on/off states:
+//! - **None**: Instant on/off
+//! - **Linear**: Linear fade at [`Light::fade_speed_up`]/[`Light::fade_speed_down`]
+//!   rates
+//! - **Incandescent**: Physically-based filament simulation with temperature
+//!   ramping (warm glow when turning on, red fade when turning off)
+
 use super::{dragpoint::DragPoint, vertex2d::Vertex2D};
 use crate::impl_shared_attributes;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
@@ -9,10 +76,22 @@ use crate::vpx::{
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// Shadow casting mode for Halo/Bulb lights.
+///
+/// Controls whether balls cast shadows from this light source. Only applies to
+/// Halo mode ([`Light::is_bulb_light`] `= true`); Classic lights do not support
+/// shadows.
+///
+/// When enabled, the shader traces rays from the light center to each surface
+/// fragment and checks for ball occlusion (up to 8 balls). The shadow uses a
+/// soft penumbra based on a fixed 5 VPU light radius (`BallShadows.fxh`).
 #[derive(Debug, PartialEq, Clone)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum ShadowMode {
+    /// No shadow casting. Uses the `bulb_light` shader technique.
     None = 0,
+    /// Balls cast raytraced shadows from this light. Uses the
+    /// `bulb_light_with_ball_shadows` shader technique.
     RaytracedBallShadows = 1,
 }
 
@@ -98,11 +177,31 @@ impl<'de> Deserialize<'de> for ShadowMode {
     }
 }
 
+/// Controls how a light transitions between on/off states.
+///
+/// See the [Fading section](self#fading) in the module docs for an overview.
 #[derive(Debug, PartialEq, Clone)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum Fader {
+    /// Instant on/off — intensity jumps directly to the target value.
     None = 0,
+    /// Linear fade using [`Light::fade_speed_up`] and [`Light::fade_speed_down`]
+    /// as rates (intensity per ms).
     Linear = 1,
+    /// Physically-based filament simulation. Models a BULB_44 tungsten filament
+    /// with thermal inertia — it heats up when powered (warm white glow ramping
+    /// on) and cools down when unpowered (red-shifting fade off). The fade speed
+    /// parameters modulate the thermal time constant. The filament temperature
+    /// also tints the light color relative to a 2700K reference.
+    ///
+    /// The simulation (in `bulb.cpp`) is based on:
+    /// - **Stefan-Boltzmann law** for radiated power
+    /// - Coblentz & Emerson, *"Luminous radiation from a black body and the
+    ///   mechanical equivalent of light"* — temperature to visible emission
+    /// - D.C. Agrawal, *"The Coiling Factor in the Tungsten Filament Lamps"* —
+    ///   coil form factor corrections for resistivity and emissivity
+    /// - D.C. Agrawal, *"Heating-times of tungsten filament incandescent
+    ///   lamps"* — tungsten specific heat model
     Incandescent = 2,
 }
 
@@ -240,7 +339,7 @@ pub struct Light {
     ///
     /// BIFF tag: `BPAT`
     pub blink_pattern: String,
-    /// Texture image name displayed on the light's polygon mesh.
+    /// Texture image name displayed on the light's polygon mesh (Classic mode only).
     ///
     /// In VPinball this is the "Image" property (COM: `get_Image`/`put_Image`),
     /// internally `m_szImage` inherited from `BaseProperty`.
@@ -260,10 +359,16 @@ pub struct Light {
     /// ```
     ///
     /// ## Rendering
-    /// For non-bulb lights, this texture is bound as `SHADER_tex_light_color` and
-    /// rendered with the `light_with_texture` shader technique. The light color
-    /// modulates/blends with this texture based on the current intensity.
-    /// For bulb lights (`is_bulb_light = true`), this image is ignored.
+    /// In Classic mode ([`is_bulb_light`](Self::is_bulb_light) `= false`), this
+    /// texture is bound as `SHADER_tex_light_color` and rendered with the
+    /// `light_with_texture` shader technique. The light color modulates/blends
+    /// with this texture based on the current intensity.
+    ///
+    /// In Halo mode ([`is_bulb_light`](Self::is_bulb_light) `= true`), this field
+    /// is **ignored** — VPinball explicitly sets the texture to `nullptr`
+    /// (`light.cpp`: `offTexel = m_BulbLight ? nullptr : GetImage(m_szImage)`).
+    /// Any value present is stale data from a previous Classic mode setting;
+    /// the UI hides the image field when Halo mode is selected.
     ///
     /// ## Default
     /// Empty string (no image)
@@ -352,21 +457,166 @@ pub struct Light {
     /// If empty, the light sits on the playfield.
     /// BIFF tag: SURF
     pub surface: String,
-    pub is_backglass: bool,                 // BGLS
-    pub depth_bias: f32,                    // LIDB
-    pub fade_speed_up: f32,                 // FASP, can be Inf (Dr. Dude (Bally 1990)v3.0.vpx)
-    pub fade_speed_down: f32,               // FASD, can be Inf (Dr. Dude (Bally 1990)v3.0.vpx)
-    pub is_bulb_light: bool,                // BULT
-    pub is_image_mode: bool,                // IMMO
-    pub show_bulb_mesh: bool,               // SHBM
-    pub has_static_bulb_mesh: Option<bool>, // STBM (added in 10.?)
-    pub show_reflection_on_ball: bool,      // SHRB
-    pub mesh_radius: f32,                   // BMSC
-    pub bulb_modulate_vs_add: f32,          // BMVA
-    pub bulb_halo_height: f32,              // BHHI
-    pub shadows: Option<ShadowMode>,        // SHDW added in 10.8
-    pub fader: Option<Fader>,               // FADE added in 10.8
-    pub visible: Option<bool>,              // VSBL added in 10.8
+    pub is_backglass: bool,   // BGLS
+    pub depth_bias: f32,      // LIDB
+    pub fade_speed_up: f32,   // FASP, can be Inf (Dr. Dude (Bally 1990)v3.0.vpx)
+    pub fade_speed_down: f32, // FASD, can be Inf (Dr. Dude (Bally 1990)v3.0.vpx)
+    /// Selects the light render mode: Halo (`true`) or Classic (`false`).
+    ///
+    /// - **Classic** (`false`): Flat lightmap polygon using the [`image`](Self::image)
+    ///   texture with surface material properties. Uses `basicShader` and the
+    ///   `light_with_texture`/`light_without_texture` techniques.
+    /// - **Halo** (`true`): Radial glow effect using `lightShader` and the
+    ///   `bulb_light` technique. The [`image`](Self::image) field is ignored.
+    ///   The halo height is controlled by [`bulb_halo_height`](Self::bulb_halo_height),
+    ///   and the blend mode by [`bulb_modulate_vs_add`](Self::bulb_modulate_vs_add).
+    ///
+    /// Combined with [`visible`](Self::visible), this maps to the UI's three-mode
+    /// dropdown: Hidden (`visible=false`), Classic, or Halo.
+    ///
+    /// See the [module-level documentation](self) for full rendering details.
+    ///
+    /// ## Default
+    /// `false` (Classic mode)
+    ///
+    /// ## BIFF tag
+    /// `BULT`
+    pub is_bulb_light: bool,
+    /// Passthrough / image mode flag (Classic mode only).
+    ///
+    /// When `true`, the lighting calculation is disabled and the [`image`](Self::image)
+    /// texture is displayed unmodified (passthrough). When `false`, the surface
+    /// material lighting is applied to the texture.
+    ///
+    /// This has no effect in Halo mode ([`is_bulb_light`](Self::is_bulb_light) `= true`).
+    ///
+    /// ## Default
+    /// `false`
+    ///
+    /// ## BIFF tag
+    /// `IMMO`
+    pub is_image_mode: bool,
+    /// Whether to render the 3D bulb and socket mesh at the light position.
+    ///
+    /// When enabled, a translucent glass bulb and a dark metallic socket mesh
+    /// are rendered. Typically used together with Halo mode. The mesh is scaled
+    /// by [`mesh_radius`](Self::mesh_radius).
+    ///
+    /// See the [Bulb Mesh section](self#bulb-mesh) in the module docs for details.
+    ///
+    /// ## Default
+    /// `false`
+    ///
+    /// ## BIFF tag
+    /// `SHBM`
+    pub show_bulb_mesh: bool,
+    /// Whether the bulb glass mesh is rendered in the static pass.
+    ///
+    /// When `true`, the translucent bulb glass mesh is pre-rendered once in the
+    /// static render pass (not updated per frame). When `false`, it is rendered
+    /// in the dynamic pass every frame, which is necessary if the bulb's
+    /// appearance needs to change at runtime (e.g. animated emission glow).
+    ///
+    /// Note: the socket mesh is always rendered in the static pass regardless
+    /// of this setting, since bulbs are not movable.
+    ///
+    /// Only relevant when [`show_bulb_mesh`](Self::show_bulb_mesh) is enabled.
+    ///
+    /// ## Default
+    /// `true`
+    ///
+    /// ## BIFF tag
+    /// `STBM` (added in 10.?)
+    pub has_static_bulb_mesh: Option<bool>,
+    /// Whether this light is included in ball reflections.
+    ///
+    /// When `true`, this light is added to the list of lights that are reflected
+    /// on the ball surface. The renderer collects all lights with this flag
+    /// enabled (excluding backglass lights) and passes them to the ball shader
+    /// for reflection calculations.
+    ///
+    /// ## Default
+    /// `true`
+    ///
+    /// ## BIFF tag
+    /// `SHRB`
+    pub show_reflection_on_ball: bool,
+    /// Scale factor for the 3D bulb and socket mesh.
+    ///
+    /// The built-in bulb/socket meshes are multiplied by this value to determine
+    /// their size. Only relevant when [`show_bulb_mesh`](Self::show_bulb_mesh) is
+    /// enabled.
+    ///
+    /// ## Default
+    /// `20.0`
+    ///
+    /// ## BIFF tag
+    /// `BMSC`
+    pub mesh_radius: f32,
+    /// Controls the blend mode between modulation and addition for the halo
+    /// glow effect (Halo mode only).
+    ///
+    /// - Values near **0.0** → additive blending (glow brightens the scene)
+    /// - Values near **1.0** → modulate blending (glow tints the scene)
+    ///
+    /// Internally clamped to `[0.0001, 0.9999]` since 0.0 disables blending
+    /// entirely and 1.0 looks bad with day→night transitions.
+    ///
+    /// ## Default
+    /// `0.9`
+    ///
+    /// ## BIFF tag
+    /// `BMVA`
+    pub bulb_modulate_vs_add: f32,
+    /// Height offset of the halo glow polygon above the surface (Halo mode only).
+    ///
+    /// The halo is rendered at `surface_height + bulb_halo_height`. Positive values
+    /// raise the halo above the surface, negative values lower it below. This allows
+    /// the glow to appear to emanate from above or inside the playfield.
+    ///
+    /// Note: this is independent of [`height`](Self::height), which only affects the
+    /// light's emission point for point-light calculations.
+    ///
+    /// ## Default
+    /// `28.0`
+    ///
+    /// ## BIFF tag
+    /// `BHHI`
+    pub bulb_halo_height: f32,
+    /// Shadow casting mode for this light (Halo mode only).
+    ///
+    /// Only applies to Halo/Bulb lights ([`is_bulb_light`](Self::is_bulb_light)
+    /// `= true`). Classic lights do not cast shadows.
+    ///
+    /// See [`ShadowMode`] for the available options.
+    ///
+    /// ## Default
+    /// [`ShadowMode::None`]
+    ///
+    /// ## BIFF tag
+    /// `SHDW` (added in 10.8)
+    pub shadows: Option<ShadowMode>,
+    /// Controls how the light transitions between on/off states.
+    ///
+    /// See [`Fader`] for the available options.
+    ///
+    /// ## Default
+    /// [`Fader::Linear`]
+    ///
+    /// ## BIFF tag
+    /// `FADE` (added in 10.8)
+    pub fader: Option<Fader>,
+    /// Whether the light is rendered at all.
+    ///
+    /// When `false`, the light is in "Hidden" mode — it still exists for scripting
+    /// but produces no visual output. When `true`, the render mode depends on
+    /// [`is_bulb_light`](Self::is_bulb_light).
+    ///
+    /// When absent (`None`), the light defaults to visible.
+    ///
+    /// ## BIFF tag
+    /// `VSBL` (added in 10.8)
+    pub visible: Option<bool>,
 
     /// Timer data for scripting (shared across all game items).
     /// See [`TimerData`] for details.
