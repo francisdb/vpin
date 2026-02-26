@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.1](https://github.com/francisdb/vpin/compare/v0.23.0...v0.23.1) - 2026-02-26
+
+### Fixed
+
+- correct gate timer BIFF writing methods to respect order ([#270](https://github.com/francisdb/vpin/pull/270))
+
 ## [0.23.0](https://github.com/francisdb/vpin/compare/v0.22.0...v0.23.0) - 2026-02-26
 
 ### Added
