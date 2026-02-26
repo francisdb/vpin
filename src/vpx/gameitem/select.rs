@@ -94,7 +94,17 @@ impl TimerData {
 
     /// Write the timer BIFF tags.
     pub fn biff_write(&self, writer: &mut biff::BiffWriter) {
+        self.biff_write_tmon(writer);
+        self.biff_write_tmin(writer);
+    }
+
+    /// Write only the timer enable tag, used when writing timers for items that don't have an interval.
+    pub fn biff_write_tmon(&self, writer: &mut biff::BiffWriter) {
         writer.write_tagged_bool("TMON", self.is_enabled);
+    }
+
+    /// Write only the timer interval tag, used when writing timers for items that don't have an enable.
+    pub fn biff_write_tmin(&self, writer: &mut biff::BiffWriter) {
         writer.write_tagged_i32("TMIN", self.interval);
     }
 }

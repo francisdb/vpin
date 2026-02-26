@@ -389,9 +389,10 @@ impl BiffWrite for Gate {
         writer.write_tagged_f32("HGTH", self.height);
         writer.write_tagged_f32("ROTA", self.rotation);
         writer.write_tagged_string("MATR", &self.material);
-        self.timer.biff_write(writer);
+        self.timer.biff_write_tmon(writer);
         writer.write_tagged_bool("GSUP", self.show_bracket);
         writer.write_tagged_bool("GCOL", self.is_collidable);
+        self.timer.biff_write_tmin(writer);
         if let Some(imgf) = &self.imgf {
             writer.write_tagged_string("IMGF", imgf);
         }
