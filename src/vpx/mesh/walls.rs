@@ -1,22 +1,15 @@
 //! Wall mesh generation for expanded VPX export
 //!
-//! This module ports the rubber mesh generation from Visual Pinball's surface.cpp.
+//! This module ports the wall mesh generation from Visual Pinball's surface.cpp.
 //! Walls are represented as extruded polygons with optional smoothing and texture coordinates.
 
 use crate::vpx::TableDimensions;
 use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::gameitem::wall::Wall;
 use crate::vpx::math::Vec2;
+use crate::vpx::mesh::{RenderVertex2D, get_rg_vertex_2d};
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::VpxFace;
-
-struct RenderVertex {
-    x: f32,
-    y: f32,
-    smooth: bool,
-    has_auto_texture: bool,
-    tex_coord: f32,
-}
 
 /// Separate wall meshes for top and sides, each with their own material/texture
 pub(crate) struct WallMeshes {
@@ -39,7 +32,10 @@ pub(crate) fn build_wall_meshes(wall: &Wall, table_dims: &TableDimensions) -> Op
     let texture_coords = if wall.side_image.is_empty() && wall.image.is_empty() {
         None
     } else {
-        Some(compute_side_texture_coords(&render_vertices))
+        Some(compute_side_texture_coords(
+            &render_vertices,
+            &wall.drag_points,
+        ))
     };
 
     // Build side mesh
@@ -116,7 +112,10 @@ pub(crate) fn build_wall_mesh(wall: &Wall) -> Option<(Vec<VertexWrapper>, Vec<Vp
     let texture_coords = if wall.side_image.is_empty() {
         None
     } else {
-        Some(compute_side_texture_coords(&render_vertices))
+        Some(compute_side_texture_coords(
+            &render_vertices,
+            &wall.drag_points,
+        ))
     };
 
     let mut side_vertices = Vec::new();
@@ -174,54 +173,106 @@ pub(crate) fn build_wall_mesh(wall: &Wall) -> Option<(Vec<VertexWrapper>, Vec<Vp
     Some((wrapped, faces))
 }
 
-fn build_render_vertices(wall: &Wall) -> Vec<RenderVertex> {
-    wall.drag_points
-        .iter()
-        .map(|point| RenderVertex {
-            x: point.x,
-            y: point.y,
-            smooth: point.smooth,
-            has_auto_texture: point.has_auto_texture,
-            tex_coord: point.tex_coord,
-        })
-        .collect()
+/// Build smoothed render vertices from wall drag points using Catmull-Rom spline interpolation.
+/// Walls are always closed loops (like rubbers) with maximum accuracy (4.0).
+/// This matches VPinball's `GetRgVertex(vvertex)` call in surface.cpp.
+fn build_render_vertices(wall: &Wall) -> Vec<RenderVertex2D> {
+    // Walls always loop, accuracy = 4.0 (maximum precision, matching VPinball default)
+    get_rg_vertex_2d(&wall.drag_points, 4.0, true)
 }
 
-fn compute_side_texture_coords(points: &[RenderVertex]) -> Vec<f32> {
-    let mut cumulative = Vec::with_capacity(points.len());
-    let mut total = 0.0f32;
-    cumulative.push(0.0);
-    for i in 1..points.len() {
-        let dx = points[i].x - points[i - 1].x;
-        let dy = points[i].y - points[i - 1].y;
-        total += (dx * dx + dy * dy).sqrt();
-        cumulative.push(total);
-    }
+/// Compute side texture coordinates for smoothed wall vertices.
+///
+/// This matches VPinball's `IHaveDragPoints::GetTextureCoords` from dragpoint.cpp.
+/// It finds original drag points within the smoothed vertex list using the
+/// `control_point` flag, then interpolates texture coordinates between them
+/// proportionally by edge length.
+fn compute_side_texture_coords(
+    points: &[RenderVertex2D],
+    drag_points: &[crate::vpx::gameitem::dragpoint::DragPoint],
+) -> Vec<f32> {
+    let cpoints = points.len();
+    let mut coords = vec![0.0f32; cpoints];
 
-    if points.len() > 1 {
-        let dx = points[0].x - points[points.len() - 1].x;
-        let dy = points[0].y - points[points.len() - 1].y;
-        total += (dx * dx + dy * dy).sqrt();
-    }
+    // Find control points that have manual texture coordinates
+    let mut tex_points: Vec<usize> = Vec::new(); // indices into drag_points
+    let mut render_points: Vec<usize> = Vec::new(); // corresponding indices into points
+    let mut icontrol = 0usize;
+    let mut no_coords = false;
 
-    let inv_total = if total == 0.0 { 0.0 } else { 1.0 / total };
-
-    points
-        .iter()
-        .zip(cumulative)
-        .map(|(point, dist)| {
-            if point.has_auto_texture {
-                dist * inv_total
-            } else {
-                point.tex_coord
+    for (i, rv) in points.iter().enumerate() {
+        if rv.control_point {
+            if icontrol < drag_points.len() && !drag_points[icontrol].has_auto_texture {
+                tex_points.push(icontrol);
+                render_points.push(i);
             }
-        })
-        .collect()
+            icontrol += 1;
+        }
+    }
+
+    if tex_points.is_empty() {
+        // No manual texture coordinates — auto-generate from point 0
+        tex_points.push(0);
+        render_points.push(0);
+        no_coords = true;
+    }
+
+    // Wrap around to cover the last section
+    tex_points.push(tex_points[0] + drag_points.len());
+    render_points.push(render_points[0] + cpoints);
+
+    for i in 0..tex_points.len() - 1 {
+        let start_render = render_points[i] % cpoints;
+        let mut end_render = render_points[i + 1] % cpoints;
+
+        let (start_tex, end_tex) = if no_coords {
+            (0.0f32, 1.0f32)
+        } else {
+            let st = drag_points[tex_points[i] % drag_points.len()].tex_coord;
+            let et = drag_points[tex_points[i + 1] % drag_points.len()].tex_coord;
+            (st, et)
+        };
+
+        let delta_coord = end_tex - start_tex;
+
+        if end_render <= start_render {
+            end_render += cpoints;
+        }
+
+        // Compute total length of this section
+        let mut total_length = 0.0f32;
+        for l in start_render..end_render {
+            let p1 = &points[l % cpoints];
+            let p2 = &points[(l + 1) % cpoints];
+            let dx = p2.x - p1.x;
+            let dy = p2.y - p1.y;
+            total_length += (dx * dx + dy * dy).sqrt();
+        }
+
+        // Assign texture coordinates proportionally by edge length
+        let mut cur_length = 0.0f32;
+        for l in start_render..end_render {
+            let frac = if total_length > 0.0 {
+                cur_length / total_length
+            } else {
+                0.0
+            };
+            coords[l % cpoints] = start_tex + frac * delta_coord;
+
+            let p1 = &points[l % cpoints];
+            let p2 = &points[(l + 1) % cpoints];
+            let dx = p2.x - p1.x;
+            let dy = p2.y - p1.y;
+            cur_length += (dx * dx + dy * dy).sqrt();
+        }
+    }
+
+    coords
 }
 
 fn build_side_mesh(
     wall: &Wall,
-    points: &[RenderVertex],
+    points: &[RenderVertex2D],
     texture_coords: Option<&Vec<f32>>,
     out_vertices: &mut Vec<Vertex3dNoTex2>,
     out_indices: &mut Vec<u32>,
@@ -355,7 +406,7 @@ fn build_side_mesh(
 /// Build top mesh with item-space UVs (normalized to wall bounding box)
 /// Used for single item mesh export
 fn build_top_mesh_item_space(
-    points: &[RenderVertex],
+    points: &[RenderVertex2D],
     wall: &Wall,
     out_vertices: &mut Vec<Vertex3dNoTex2>,
     out_indices: &mut Vec<u32>,
@@ -394,7 +445,7 @@ fn build_top_mesh_item_space(
     }
 }
 
-fn bounds_xy(points: &[RenderVertex]) -> (f32, f32, f32, f32) {
+fn bounds_xy(points: &[RenderVertex2D]) -> (f32, f32, f32, f32) {
     let mut min_x = f32::INFINITY;
     let mut max_x = f32::NEG_INFINITY;
     let mut min_y = f32::INFINITY;
@@ -411,7 +462,7 @@ fn bounds_xy(points: &[RenderVertex]) -> (f32, f32, f32, f32) {
 /// Build top mesh with table-space UVs (normalized to table dimensions)
 /// Used for full table GLTF export where textures span the entire playfield
 fn build_top_mesh(
-    points: &[RenderVertex],
+    points: &[RenderVertex2D],
     wall: &Wall,
     table_dims: &TableDimensions,
     out_vertices: &mut Vec<Vertex3dNoTex2>,
