@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0](https://github.com/francisdb/vpin/compare/v0.22.0...v0.23.0) - 2026-02-26
+
+### Added
+
+- grouping & custom props in glTF export ([#266](https://github.com/francisdb/vpin/pull/266))
+- [**breaking**] json flipper return_ -> return ([#264](https://github.com/francisdb/vpin/pull/264))
+- flipper texture for gltf export ([#263](https://github.com/francisdb/vpin/pull/263))
+- [**breaking**] refactor timers to avoid duplication ([#261](https://github.com/francisdb/vpin/pull/261))
+
+### Fixed
+
+- wall smoothing ([#267](https://github.com/francisdb/vpin/pull/267))
+- ensure vertex normals consistency with geometric face normals after glTF transform ([#265](https://github.com/francisdb/vpin/pull/265))
+
+### Other
+
+- add incandescent light example ([#269](https://github.com/francisdb/vpin/pull/269))
+- lighting documentation ([#268](https://github.com/francisdb/vpin/pull/268))
+
 ## [0.22.0](https://github.com/francisdb/vpin/compare/v0.21.1...v0.22.0) - 2026-02-25
 
 ### Added
