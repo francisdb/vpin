@@ -92,9 +92,11 @@
 use crate::filesystem::FileSystem;
 use crate::gltf::GltfMaterialBuilder;
 use crate::vpx;
+use crate::vpx::gamedata::GameDataJson;
 use crate::vpx::gameitem::GameItemEnum;
 use crate::vpx::gameitem::light::Light;
 use crate::vpx::gameitem::primitive::VertexWrapper;
+use crate::vpx::gameitem::select::HasSharedAttributes;
 use crate::vpx::gltf::{
     GLB_BIN_CHUNK_TYPE, GLB_CHUNK_HEADER_BYTES, GLB_HEADER_BYTES, GLB_JSON_CHUNK_TYPE,
     GLTF_COMPONENT_TYPE_FLOAT, GLTF_COMPONENT_TYPE_UNSIGNED_INT,
@@ -197,6 +199,41 @@ struct NamedMesh {
     /// When false, the node will be exported with the KHR_node_visibility extension
     /// set to `visible: false`. Defaults to true.
     visible: bool,
+    /// Optional group name for grouping related meshes under a parent node.
+    /// When set, all meshes with the same group_name will be placed as children
+    /// of a single parent group node. Used for lights to group bulb, socket,
+    /// insert meshes and point light under one parent.
+    group_name: Option<String>,
+}
+
+/// Information about an item group for creating parent group nodes in the glTF scene.
+/// Each multi-mesh game item (light, bumper, etc.) produces one of these, which results
+/// in a parent node that groups the item's sub-meshes (and point light node for lights)
+/// as children, with the item's JSON data as glTF `extras`.
+struct ItemGroupInfo {
+    /// The item's name, used as the group node name
+    name: String,
+    /// Layer name for organizing the group in the scene hierarchy
+    layer_name: Option<String>,
+    /// The item's full JSON representation, attached as glTF `extras` on the group node
+    extras: serde_json::Value,
+}
+
+/// Create an `ItemGroupInfo` from any game item that implements `HasSharedAttributes + Serialize`.
+///
+/// Extracts the item's name, layer name, and serialized JSON representation
+/// to populate the group node's name and glTF `extras`.
+fn item_group_info_for(item: &(impl HasSharedAttributes + serde::Serialize)) -> ItemGroupInfo {
+    let layer_name = get_layer_name(
+        &item.editor_layer_name().map(String::from),
+        item.editor_layer(),
+    );
+    let extras = serde_json::to_value(item).unwrap_or(json!({}));
+    ItemGroupInfo {
+        name: item.name().to_string(),
+        layer_name,
+        extras,
+    }
 }
 
 impl Default for NamedMesh {
@@ -214,6 +251,7 @@ impl Default for NamedMesh {
             roughness_texture_name: None,
             translation: None,
             visible: true,
+            group_name: None,
         }
     }
 }
@@ -705,8 +743,9 @@ fn calculate_light_range(light: &Light) -> f32 {
 }
 
 /// Collect all meshes from a VPX file
-fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
+fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Vec<ItemGroupInfo>) {
     let mut meshes = Vec::new();
+    let mut item_groups = Vec::new();
     let mut has_explicit_playfield = false;
 
     // Get the playfield material name to assign to playfield primitives
@@ -741,6 +780,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                     if is_playfield {
                         has_explicit_playfield = true;
                     }
+
+                    let group_info = item_group_info_for(primitive);
+                    let prim_layer_name = group_info.layer_name.clone();
+                    item_groups.push(group_info);
 
                     // Determine material and texture:
                     // - If it's the playfield primitive, use the playfield material and playfield image
@@ -779,13 +822,11 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                         indices: read_mesh.indices,
                         material_name,
                         texture_name,
-                        layer_name: get_layer_name(
-                            &primitive.editor_layer_name,
-                            primitive.editor_layer,
-                        ),
+                        layer_name: prim_layer_name,
                         transmission_factor,
                         translation: Some(translation),
                         visible: primitive.is_visible,
+                        group_name: Some(primitive.name.clone()),
                         ..Default::default()
                     });
                 }
@@ -798,6 +839,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                     continue;
                 }
                 if let Some(wall_meshes) = build_wall_meshes(wall, &table_dims) {
+                    let group_info = item_group_info_for(wall);
+                    let wall_layer_name = group_info.layer_name.clone();
+                    item_groups.push(group_info);
+
                     // Add top mesh
                     if (options.export_invisible_items || wall.is_top_bottom_visible)
                         && let Some((vertices, indices)) = wall_meshes.top
@@ -824,9 +869,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                             indices,
                             material_name,
                             texture_name,
-                            layer_name: get_layer_name(&wall.editor_layer_name, wall.editor_layer),
+                            layer_name: wall_layer_name.clone(),
                             transmission_factor,
                             visible: wall.is_top_bottom_visible,
+                            group_name: Some(wall.name.clone()),
                             ..Default::default()
                         });
                     }
@@ -857,9 +903,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                             indices,
                             material_name,
                             texture_name,
-                            layer_name: get_layer_name(&wall.editor_layer_name, wall.editor_layer),
+                            layer_name: wall_layer_name.clone(),
                             transmission_factor,
                             visible: wall.is_side_visible,
+                            group_name: Some(wall.name.clone()),
                             ..Default::default()
                         });
                     }
@@ -870,6 +917,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                     continue;
                 }
                 if let Some((vertices, indices)) = build_ramp_mesh(ramp, &table_dims) {
+                    let group_info = item_group_info_for(ramp);
+                    let ramp_layer_name = group_info.layer_name.clone();
+                    item_groups.push(group_info);
+
                     // Ramps can have both material (for opacity settings) and texture
                     let material_name = if !ramp.material.is_empty() {
                         Some(ramp.material.clone())
@@ -887,8 +938,9 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                         indices,
                         material_name,
                         texture_name,
-                        layer_name: get_layer_name(&ramp.editor_layer_name, ramp.editor_layer),
+                        layer_name: ramp_layer_name,
                         visible: ramp.is_visible,
+                        group_name: Some(ramp.name.clone()),
                         ..Default::default()
                     });
                 }
@@ -898,6 +950,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                     continue;
                 }
                 if let Some((vertices, indices, center)) = build_rubber_mesh(rubber) {
+                    let group_info = item_group_info_for(rubber);
+                    let rubber_layer_name = group_info.layer_name.clone();
+                    item_groups.push(group_info);
+
                     let material_name = if rubber.material.is_empty() {
                         None
                     } else {
@@ -916,9 +972,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                         indices,
                         material_name,
                         texture_name: None,
-                        layer_name: get_layer_name(&rubber.editor_layer_name, rubber.editor_layer),
+                        layer_name: rubber_layer_name,
                         translation,
                         visible: rubber.is_visible,
+                        group_name: Some(rubber.name.clone()),
                         ..Default::default()
                     });
                 }
@@ -929,6 +986,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                 }
                 if let Some((vertices, indices, center)) = build_flasher_mesh(flasher, &table_dims)
                 {
+                    let group_info = item_group_info_for(flasher);
+                    let flasher_layer_name = group_info.layer_name.clone();
+                    item_groups.push(group_info);
+
                     // Flashers use image_a as their texture
                     let texture_name = if flasher.image_a.is_empty() {
                         None
@@ -956,12 +1017,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                         indices,
                         texture_name,
                         color_tint,
-                        layer_name: get_layer_name(
-                            &flasher.editor_layer_name,
-                            flasher.editor_layer,
-                        ),
+                        layer_name: flasher_layer_name,
                         translation,
                         visible: flasher.is_visible,
+                        group_name: Some(flasher.name.clone()),
                         ..Default::default()
                     });
                 }
@@ -972,6 +1031,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                 }
                 // TODO: get surface height from the table
                 if let Some(flipper_meshes) = build_flipper_meshes(flipper, 0.0) {
+                    let group_info = item_group_info_for(flipper);
+                    let flipper_layer_name = group_info.layer_name.clone();
+                    item_groups.push(group_info);
+
                     // Convert center to glTF coordinates (meters, Y-up)
                     // VPX (x, y, z) → glTF [x, z, y]
                     let translation = Some(Vec3::new(
@@ -994,12 +1057,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                         indices: base_indices,
                         material_name: base_material,
                         texture_name: base_texture,
-                        layer_name: get_layer_name(
-                            &flipper.editor_layer_name,
-                            flipper.editor_layer,
-                        ),
+                        layer_name: flipper_layer_name.clone(),
                         translation,
                         visible: flipper.is_visible,
+                        group_name: Some(flipper.name.clone()),
                         ..Default::default()
                     });
 
@@ -1015,12 +1076,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                             vertices: rubber_vertices,
                             indices: rubber_indices,
                             material_name: rubber_material,
-                            layer_name: get_layer_name(
-                                &flipper.editor_layer_name,
-                                flipper.editor_layer,
-                            ),
+                            layer_name: flipper_layer_name.clone(),
                             translation,
                             visible: flipper.is_visible,
+                            group_name: Some(flipper.name.clone()),
                             ..Default::default()
                         });
                     }
@@ -1030,6 +1089,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                 let surface_height =
                     get_surface_height(vpx, &bumper.surface, bumper.center.x, bumper.center.y);
                 let bumper_meshes = build_bumper_meshes(bumper);
+
+                let group_info = item_group_info_for(bumper);
+                let bumper_layer_name = group_info.layer_name.clone();
+                item_groups.push(group_info);
 
                 // Convert center to glTF coordinates (meters, Y-up)
                 // VPX (x, y, z) → glTF [x, z, y]
@@ -1051,8 +1114,9 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                         vertices: base_vertices,
                         indices: base_indices,
                         material_name: base_material,
-                        layer_name: get_layer_name(&bumper.editor_layer_name, bumper.editor_layer),
+                        layer_name: bumper_layer_name.clone(),
                         translation,
+                        group_name: Some(bumper.name.clone()),
                         ..Default::default()
                     });
                 }
@@ -1069,8 +1133,9 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                         vertices: socket_vertices,
                         indices: socket_indices,
                         material_name: socket_material,
-                        layer_name: get_layer_name(&bumper.editor_layer_name, bumper.editor_layer),
+                        layer_name: bumper_layer_name.clone(),
                         translation,
+                        group_name: Some(bumper.name.clone()),
                         ..Default::default()
                     });
                 }
@@ -1086,8 +1151,9 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                         vertices: ring_vertices,
                         indices: ring_indices,
                         material_name: ring_material,
-                        layer_name: get_layer_name(&bumper.editor_layer_name, bumper.editor_layer),
+                        layer_name: bumper_layer_name.clone(),
                         translation,
+                        group_name: Some(bumper.name.clone()),
                         ..Default::default()
                     });
                 }
@@ -1104,8 +1170,9 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                         vertices: cap_vertices,
                         indices: cap_indices,
                         material_name: cap_material,
-                        layer_name: get_layer_name(&bumper.editor_layer_name, bumper.editor_layer),
+                        layer_name: bumper_layer_name.clone(),
                         translation,
+                        group_name: Some(bumper.name.clone()),
                         ..Default::default()
                     });
                 }
@@ -1117,6 +1184,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                 let surface_height =
                     get_surface_height(vpx, &spinner.surface, spinner.center.x, spinner.center.y);
                 let spinner_meshes = build_spinner_meshes(spinner);
+
+                let group_info = item_group_info_for(spinner);
+                let spinner_layer_name = group_info.layer_name.clone();
+                item_groups.push(group_info);
 
                 // Convert center to glTF coordinates (meters, Y-up)
                 // VPX (x, y, z) → glTF [x, z, y]
@@ -1134,12 +1205,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                         name: format!("{}Bracket", spinner.name),
                         vertices: bracket_vertices,
                         indices: bracket_indices,
-                        layer_name: get_layer_name(
-                            &spinner.editor_layer_name,
-                            spinner.editor_layer,
-                        ),
+                        layer_name: spinner_layer_name.clone(),
                         translation,
                         visible: spinner.is_visible,
+                        group_name: Some(spinner.name.clone()),
                         ..Default::default()
                     });
                 }
@@ -1162,9 +1231,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                     indices: plate_indices,
                     material_name: plate_material,
                     texture_name: plate_texture,
-                    layer_name: get_layer_name(&spinner.editor_layer_name, spinner.editor_layer),
+                    layer_name: spinner_layer_name.clone(),
                     translation,
                     visible: spinner.is_visible,
+                    group_name: Some(spinner.name.clone()),
                     ..Default::default()
                 });
             }
@@ -1173,6 +1243,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                     continue;
                 }
                 if let Some((vertices, indices)) = build_hit_target_mesh(hit_target) {
+                    let group_info = item_group_info_for(hit_target);
+                    let hit_target_layer_name = group_info.layer_name.clone();
+                    item_groups.push(group_info);
+
                     let material_name = if hit_target.material.is_empty() {
                         None
                     } else {
@@ -1196,12 +1270,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                         indices,
                         material_name,
                         texture_name,
-                        layer_name: get_layer_name(
-                            &hit_target.editor_layer_name,
-                            hit_target.editor_layer,
-                        ),
+                        layer_name: hit_target_layer_name.clone(),
                         translation,
                         visible: hit_target.is_visible,
+                        group_name: Some(hit_target.name.clone()),
                         ..Default::default()
                     });
                 }
@@ -1213,6 +1285,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                 let surface_height =
                     get_surface_height(vpx, &gate.surface, gate.center.x, gate.center.y);
                 if let Some(gate_meshes) = build_gate_meshes(gate) {
+                    let group_info = item_group_info_for(gate);
+                    let gate_layer_name = group_info.layer_name.clone();
+                    item_groups.push(group_info);
+
                     let material_name = if gate.material.is_empty() {
                         None
                     } else {
@@ -1234,9 +1310,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                             vertices: bracket_vertices,
                             indices: bracket_indices,
                             material_name: material_name.clone(),
-                            layer_name: get_layer_name(&gate.editor_layer_name, gate.editor_layer),
+                            layer_name: gate_layer_name.clone(),
                             translation,
                             visible: gate.is_visible,
+                            group_name: Some(gate.name.clone()),
                             ..Default::default()
                         });
                     }
@@ -1248,9 +1325,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                         vertices: wire_vertices,
                         indices: wire_indices,
                         material_name,
-                        layer_name: get_layer_name(&gate.editor_layer_name, gate.editor_layer),
+                        layer_name: gate_layer_name.clone(),
                         translation,
                         visible: gate.is_visible,
+                        group_name: Some(gate.name.clone()),
                         ..Default::default()
                     });
                 }
@@ -1262,6 +1340,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                 let surface_height =
                     get_surface_height(vpx, &trigger.surface, trigger.center.x, trigger.center.y);
                 if let Some((vertices, indices)) = build_trigger_mesh(trigger) {
+                    let group_info = item_group_info_for(trigger);
+                    let trigger_layer_name = group_info.layer_name.clone();
+                    item_groups.push(group_info);
+
                     let material_name = if trigger.material.is_empty() {
                         None
                     } else {
@@ -1281,12 +1363,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                         vertices,
                         indices,
                         material_name,
-                        layer_name: get_layer_name(
-                            &trigger.editor_layer_name,
-                            trigger.editor_layer,
-                        ),
+                        layer_name: trigger_layer_name.clone(),
                         translation,
                         visible: trigger.is_visible,
+                        group_name: Some(trigger.name.clone()),
                         ..Default::default()
                     });
                 }
@@ -1301,6 +1381,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                     get_surface_height(vpx, &light.surface, light.center.x, light.center.y);
 
                 let is_visible = light.visible.unwrap_or(true);
+
+                let group_info = item_group_info_for(light);
+                let light_layer_name = group_info.layer_name.clone();
+                item_groups.push(group_info);
 
                 // Generate bulb meshes for lights with show_bulb_mesh enabled
                 if light.show_bulb_mesh
@@ -1330,12 +1414,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                             // VPinball: m_fOpacity = 0.2f (20% opacity, 80% transparent)
                             // Using a white tint with low alpha to match VPinball's glass effect
                             color_tint: Some([1.0, 1.0, 1.0, 0.2]),
-                            layer_name: get_layer_name(
-                                &light.editor_layer_name,
-                                light.editor_layer,
-                            ),
+                            layer_name: light_layer_name.clone(),
                             translation,
                             visible: is_visible,
+                            group_name: Some(light.name.clone()),
                             ..Default::default()
                         });
                     }
@@ -1350,12 +1432,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                             indices,
                             // Dark metallic socket - VPinball uses m_cBase = 0x181818
                             color_tint: Some([0.094, 0.094, 0.094, 1.0]), // 0x18/0xFF ≈ 0.094
-                            layer_name: get_layer_name(
-                                &light.editor_layer_name,
-                                light.editor_layer,
-                            ),
+                            layer_name: light_layer_name.clone(),
                             translation,
                             visible: is_visible,
+                            group_name: Some(light.name.clone()),
                             ..Default::default()
                         });
                     }
@@ -1398,9 +1478,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                         indices,
                         texture_name,
                         color_tint,
-                        layer_name: get_layer_name(&light.editor_layer_name, light.editor_layer),
+                        layer_name: light_layer_name.clone(),
                         translation,
                         visible: is_visible,
+                        group_name: Some(light.name.clone()),
                         ..Default::default()
                     });
                 }
@@ -1422,7 +1503,9 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                 } else {
                     Some(plunger.image.clone())
                 };
-                let layer_name = get_layer_name(&plunger.editor_layer_name, plunger.editor_layer);
+                let group_info = item_group_info_for(plunger);
+                let plunger_layer_name = group_info.layer_name.clone();
+                item_groups.push(group_info);
 
                 // Convert center to glTF coordinates (meters, Y-up)
                 // VPX (x, y, z) → glTF [x, z, y]
@@ -1441,9 +1524,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                         indices,
                         material_name: material_name.clone(),
                         texture_name: texture_name.clone(),
-                        layer_name: layer_name.clone(),
+                        layer_name: plunger_layer_name.clone(),
                         translation,
                         visible: plunger.is_visible,
+                        group_name: Some(plunger.name.clone()),
                         ..Default::default()
                     });
                 }
@@ -1456,9 +1540,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                         indices,
                         material_name: material_name.clone(),
                         texture_name: texture_name.clone(),
-                        layer_name: layer_name.clone(),
+                        layer_name: plunger_layer_name.clone(),
                         translation,
                         visible: plunger.is_visible,
+                        group_name: Some(plunger.name.clone()),
                         ..Default::default()
                     });
                 }
@@ -1471,9 +1556,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                         indices,
                         material_name: material_name.clone(),
                         texture_name: texture_name.clone(),
-                        layer_name: layer_name.clone(),
+                        layer_name: plunger_layer_name.clone(),
                         translation,
                         visible: plunger.is_visible,
+                        group_name: Some(plunger.name.clone()),
                         ..Default::default()
                     });
                 }
@@ -1486,9 +1572,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                         indices,
                         material_name: material_name.clone(),
                         texture_name: texture_name.clone(),
-                        layer_name: layer_name.clone(),
+                        layer_name: plunger_layer_name.clone(),
                         translation,
                         visible: plunger.is_visible,
+                        group_name: Some(plunger.name.clone()),
                         ..Default::default()
                     });
                 }
@@ -1501,9 +1588,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                         indices,
                         material_name,
                         texture_name,
-                        layer_name,
+                        layer_name: plunger_layer_name.clone(),
                         translation,
                         visible: plunger.is_visible,
+                        group_name: Some(plunger.name.clone()),
                         ..Default::default()
                     });
                 }
@@ -1547,7 +1635,9 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                 } else {
                     Some(kicker.material.clone())
                 };
-                let layer_name = get_layer_name(&kicker.editor_layer_name, kicker.editor_layer);
+                let group_info = item_group_info_for(kicker);
+                let kicker_layer_name = group_info.layer_name.clone();
+                item_groups.push(group_info);
 
                 // Convert center to glTF coordinates (meters, Y-up)
                 // VPX (x, y, z) → glTF [x, z, y]
@@ -1588,8 +1678,9 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                         indices,
                         material_name: material_name.clone(),
                         color_tint: Some([0.02, 0.02, 0.02, 1.0]), // Near-black for hole effect
-                        layer_name: layer_name.clone(),
+                        layer_name: kicker_layer_name.clone(),
                         translation,
+                        group_name: Some(kicker.name.clone()),
                         ..Default::default()
                     });
                 }
@@ -1602,8 +1693,9 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                         indices,
                         material_name,
                         color_tint: kicker_color,
-                        layer_name,
+                        layer_name: kicker_layer_name.clone(),
                         translation,
+                        group_name: Some(kicker.name.clone()),
                         ..Default::default()
                     });
                 }
@@ -1618,6 +1710,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                     get_surface_height(vpx, &decal.surface, decal.center.x, decal.center.y);
 
                 if let Some((vertices, indices)) = build_decal_mesh(decal) {
+                    let group_info = item_group_info_for(decal);
+                    let decal_layer_name = group_info.layer_name.clone();
+                    item_groups.push(group_info);
+
                     let texture_name = if !decal.image.is_empty() {
                         Some(decal.image.clone())
                     } else {
@@ -1644,8 +1740,9 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                         indices,
                         material_name,
                         texture_name,
-                        layer_name: get_layer_name(&decal.editor_layer_name, decal.editor_layer),
+                        layer_name: decal_layer_name,
                         translation,
+                        group_name: Some(decal.name.clone()),
                         ..Default::default()
                     });
                 }
@@ -1655,6 +1752,10 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                 // The ball mesh is a pre-defined unit sphere scaled by the ball's radius
 
                 let (vertices, indices) = build_ball_mesh(ball);
+
+                let group_info = item_group_info_for(ball);
+                let ball_layer_name = group_info.layer_name.clone();
+                item_groups.push(group_info);
 
                 // Ball texture handling:
                 // VPinball has two modes controlled by decal_mode/ball_decal_mode:
@@ -1717,10 +1818,11 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
                     material_name: None, // Balls don't have a material property
                     texture_name,
                     color_tint,
-                    layer_name: get_layer_name(&ball.editor_layer_name, ball.editor_layer),
+                    layer_name: ball_layer_name,
                     is_ball: true, // Pinballs need metallic, shiny material
                     roughness_texture_name,
                     translation,
+                    group_name: Some(ball.name.clone()),
                     ..Default::default()
                 });
             }
@@ -1734,13 +1836,14 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> Vec<NamedMesh> {
         meshes.push(build_implicit_playfield_mesh(vpx, &playfield_material_name));
     }
 
-    meshes
+    (meshes, item_groups)
 }
 
 /// Build a combined GLTF payload with all meshes
 fn build_combined_gltf_payload(
     vpx: &VPX,
     meshes: &[NamedMesh],
+    item_groups: Vec<ItemGroupInfo>,
     materials: &HashMap<String, GltfMaterial>,
     images: &[ImageData],
     playfield_image: Option<&ImageData>,
@@ -1953,7 +2056,10 @@ fn build_combined_gltf_payload(
             // preprocessing the texture or using a custom shader extension.
             let material_name = format!("{}_ball", mesh.name);
 
-            let material_json = GltfMaterialBuilder::new(material_name, 1.0, 0.05)
+            // Real pinballs are chrome-plated steel balls. metallic=1.0 is correct for metal.
+            // Roughness 0.15 gives a shiny but not mirror-perfect surface, matching the
+            // slight imperfections and micro-scratches on a real chrome ball.
+            let material_json = GltfMaterialBuilder::new(material_name, 1.0, 0.15)
                 .base_color(base_color)
                 .texture_opt(base_texture_idx)
                 .build();
@@ -2191,6 +2297,8 @@ fn build_combined_gltf_payload(
     let mut layer_groups: HashMap<String, (usize, Vec<usize>)> = HashMap::new();
     // Track meshes without a layer (will be at root level)
     let mut root_node_indices: Vec<usize> = Vec::new();
+    // Track grouped meshes (e.g., light bulb/socket/insert): group_name -> child node indices
+    let mut item_group_children: HashMap<String, Vec<usize>> = HashMap::new();
 
     for (mesh_idx, mesh) in meshes.iter().enumerate() {
         let accessor_base = accessors.len();
@@ -2400,8 +2508,15 @@ fn build_combined_gltf_payload(
 
         nodes.push(node);
 
-        // Organize nodes into layer groups
-        if let Some(ref layer_name) = mesh.layer_name {
+        // Organize nodes: grouped meshes go into their item group,
+        // ungrouped meshes go into layer groups or root
+        if let Some(ref group_name) = mesh.group_name {
+            // This mesh belongs to a light group - track it separately
+            item_group_children
+                .entry(group_name.clone())
+                .or_default()
+                .push(node_idx);
+        } else if let Some(ref layer_name) = mesh.layer_name {
             if let Some((_, children)) = layer_groups.get_mut(layer_name) {
                 // Layer already exists, add this node to its children
                 children.push(node_idx);
@@ -2615,7 +2730,7 @@ fn build_combined_gltf_payload(
 
     // Add game item light nodes (GI lights only)
     // Light indices start at 2 (after TableLight0 and TableLight1)
-    for (i, (name, x, y, z, layer_name)) in game_lights.into_iter().enumerate() {
+    for (i, (name, x, y, z, _layer_name)) in game_lights.into_iter().enumerate() {
         let light_idx = i + 2; // Offset by 2 for table lights
 
         let gltf_x = vpu_to_m(x);
@@ -2623,7 +2738,7 @@ fn build_combined_gltf_payload(
         let gltf_z = vpu_to_m(y); // VPX Y -> glTF Z
 
         let light_node = json!({
-            "name": name,
+            "name": format!("{}_light", name),
             "translation": [gltf_x, gltf_y, gltf_z],
             "extensions": {
                 "KHR_lights_punctual": {
@@ -2635,16 +2750,61 @@ fn build_combined_gltf_payload(
         let node_idx = nodes.len();
         nodes.push(light_node);
 
-        // Add to layer group if it has a layer, otherwise to root
-        if let Some(ref layer) = layer_name {
-            if let Some((_, children)) = layer_groups.get_mut(layer) {
-                children.push(node_idx);
-            } else {
-                // Layer doesn't exist yet, create it
-                layer_groups.insert(layer.clone(), (usize::MAX, vec![node_idx]));
+        // Add the point light node to the light group (if one exists)
+        // so it gets grouped with the bulb/socket/insert meshes
+        item_group_children
+            .entry(name.clone())
+            .or_default()
+            .push(node_idx);
+    }
+
+    // Create parent group nodes for all item groups (lights, bumpers, etc.)
+    // Each group node collects the item's sub-meshes (and point light node for lights)
+    // as children, with the item's JSON data as extras.
+    // For single-child groups, we skip the wrapper and attach extras directly on the
+    // child node to avoid duplicate names (which cause .001 suffixes in Blender).
+    for group_info in item_groups {
+        let children = item_group_children.remove(&group_info.name);
+        if let Some(children) = children {
+            if children.is_empty() {
+                continue;
             }
-        } else {
-            scene_root_nodes.push(node_idx);
+
+            if children.len() == 1 {
+                // Single child: attach extras directly on the child node and
+                // add it to the layer/root without a wrapper group
+                let child_idx = children[0];
+                nodes[child_idx]["extras"] = group_info.extras;
+
+                if let Some(ref layer_name) = group_info.layer_name {
+                    if let Some((_, layer_children)) = layer_groups.get_mut(layer_name) {
+                        layer_children.push(child_idx);
+                    } else {
+                        layer_groups.insert(layer_name.clone(), (usize::MAX, vec![child_idx]));
+                    }
+                } else {
+                    scene_root_nodes.push(child_idx);
+                }
+            } else {
+                // Multiple children: create a parent group node
+                let group_node = json!({
+                    "name": group_info.name,
+                    "children": children,
+                    "extras": group_info.extras
+                });
+                let group_node_idx = nodes.len();
+                nodes.push(group_node);
+
+                if let Some(ref layer_name) = group_info.layer_name {
+                    if let Some((_, layer_children)) = layer_groups.get_mut(layer_name) {
+                        layer_children.push(group_node_idx);
+                    } else {
+                        layer_groups.insert(layer_name.clone(), (usize::MAX, vec![group_node_idx]));
+                    }
+                } else {
+                    scene_root_nodes.push(group_node_idx);
+                }
+            }
         }
     }
 
@@ -2680,6 +2840,23 @@ fn build_combined_gltf_payload(
         extensions_used.push("KHR_node_visibility");
     }
 
+    // Create a root node that wraps all scene content, with gamedata as custom properties.
+    // This makes the table name visible as the root object in Blender and provides
+    // access to all table-level settings (physics, lighting, dimensions, etc.) via extras.
+    let gamedata_json = GameDataJson::from_game_data(&vpx.gamedata);
+    let gamedata_extras = serde_json::to_value(&gamedata_json).unwrap_or(json!({}));
+    let root_name = if vpx.gamedata.name.is_empty() {
+        "Table".to_string()
+    } else {
+        vpx.gamedata.name.clone()
+    };
+    let root_node_idx = nodes.len();
+    nodes.push(json!({
+        "name": root_name,
+        "children": scene_root_nodes,
+        "extras": gamedata_extras
+    }));
+
     let mut gltf_json = json!({
         "asset": {
             "version": "2.0",
@@ -2693,7 +2870,7 @@ fn build_combined_gltf_payload(
         },
         "scene": 0,
         "scenes": [{
-            "nodes": scene_root_nodes
+            "nodes": [root_node_idx]
         }],
         "nodes": nodes,
         "meshes": mesh_json,
@@ -2908,7 +3085,7 @@ pub fn export_with_options(
     fs: &dyn FileSystem,
     options: &GltfExportOptions,
 ) -> io::Result<()> {
-    let meshes = collect_meshes(vpx, options);
+    let (meshes, item_groups) = collect_meshes(vpx, options);
 
     if meshes.is_empty() {
         return Err(io::Error::new(
@@ -2933,6 +3110,7 @@ pub fn export_with_options(
     let (mut json, bin_data) = build_combined_gltf_payload(
         vpx,
         &meshes,
+        item_groups,
         &materials,
         &vpx.images,
         playfield_image,
@@ -2987,7 +3165,7 @@ mod tests {
     #[test]
     fn test_collect_meshes_empty_vpx_has_implicit_playfield() {
         let vpx = VPX::default();
-        let meshes = collect_meshes(&vpx, &GltfExportOptions::default());
+        let (meshes, _item_groups) = collect_meshes(&vpx, &GltfExportOptions::default());
         // Even an empty VPX gets an implicit playfield mesh
         assert_eq!(meshes.len(), 1);
         assert_eq!(meshes[0].name, "playfield_mesh");
@@ -3012,7 +3190,7 @@ mod tests {
         };
         vpx.gameitems.push(GameItemEnum::Primitive(primitive));
 
-        let meshes = collect_meshes(&vpx, &GltfExportOptions::default());
+        let (meshes, _item_groups) = collect_meshes(&vpx, &GltfExportOptions::default());
         // Should only have the playfield, invisible primitive is skipped
         assert_eq!(meshes.len(), 1);
         assert_eq!(meshes[0].name, "playfield_mesh");
@@ -3038,7 +3216,7 @@ mod tests {
         vpx.gameitems.push(GameItemEnum::Primitive(primitive));
 
         let options = GltfExportOptions::default().with_export_invisible_items(true);
-        let meshes = collect_meshes(&vpx, &options);
+        let (meshes, _item_groups) = collect_meshes(&vpx, &options);
         // Should have both playfield and the invisible primitive
         assert_eq!(meshes.len(), 2);
         let invisible_mesh = meshes.iter().find(|m| m.name == "invisible_prim").unwrap();
@@ -3123,7 +3301,7 @@ mod tests {
         vpx.gameitems.push(GameItemEnum::Primitive(primitive));
 
         // Collect meshes - this calls the actual code we fixed
-        let meshes = collect_meshes(&vpx, &GltfExportOptions::default());
+        let (meshes, _item_groups) = collect_meshes(&vpx, &GltfExportOptions::default());
 
         // Find our test mesh (skip the implicit playfield)
         let test_mesh = meshes.iter().find(|m| m.name == "test_screw");

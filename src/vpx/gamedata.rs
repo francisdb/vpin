@@ -585,35 +585,83 @@ pub struct GameData {
     // =====================================================================================
     // END OF VIEW SETTINGS
     // =====================================================================================
-    pub override_physics: u32,                              // ORRP 36
-    pub override_physics_flipper: Option<bool>,             // ORPF 37 added in ?
-    pub gravity: f32,                                       // GAVT 38
-    pub friction: f32,                                      // FRCT 39
-    pub elasticity: f32,                                    // ELAS 40
-    pub elastic_falloff: f32,                               // ELFA 41
-    pub scatter: f32,                                       // PFSC 42
-    pub default_scatter: f32,                               // SCAT 43
-    pub nudge_time: f32,                                    // NDGT 44
-    pub plunger_normalize: Option<u32>,                     // MPGC 45
-    pub plunger_filter: Option<bool>,                       // MPDF 46
-    pub physics_max_loops: u32,                             // PHML 47
-    pub render_em_reels: bool,                              // REEL 48
-    pub render_decals: bool,                                // DECL 49
-    pub offset_x: f32,                                      // OFFX 50
-    pub offset_y: f32,                                      // OFFY 51
-    pub zoom: f32,                                          // ZOOM 52
-    pub angle_tilt_max: f32,                                // SLPX 53
-    pub angle_tilt_min: f32,                                // SLOP 54
-    pub stereo_max_separation: Option<f32>,                 // MAXS 55
-    pub stereo_zero_parallax_displacement: Option<f32>,     // ZPD 56
-    pub stereo_offset: Option<f32>,                         // STO 57 (was missing in  10.01)
-    pub overwrite_global_stereo3d: Option<bool>,            // OGST 58
-    pub image: String,                                      // IMAG 59
-    pub backglass_image_full_desktop: String,               // BIMG 60
-    pub backglass_image_full_fullscreen: String,            // BIMF 61
+    pub override_physics: u32,                  // ORRP 36
+    pub override_physics_flipper: Option<bool>, // ORPF 37 added in ?
+    pub gravity: f32,                           // GAVT 38
+    pub friction: f32,                          // FRCT 39
+    pub elasticity: f32,                        // ELAS 40
+    pub elastic_falloff: f32,                   // ELFA 41
+    pub scatter: f32,                           // PFSC 42
+    pub default_scatter: f32,                   // SCAT 43
+    pub nudge_time: f32,                        // NDGT 44
+    pub plunger_normalize: Option<u32>,         // MPGC 45
+    pub plunger_filter: Option<bool>,           // MPDF 46
+    pub physics_max_loops: u32,                 // PHML 47
+    pub render_em_reels: bool,                  // REEL 48
+    pub render_decals: bool,                    // DECL 49
+    pub offset_x: f32,                          // OFFX 50
+    pub offset_y: f32,                          // OFFY 51
+    /// Editor zoom level — controls the scale factor for the 2D editor view.
+    ///
+    /// This is a display-only setting that determines how the table is rendered
+    /// in VPinball's editor canvas. It converts between table coordinates (VPU)
+    /// and screen pixels: `screen_pos = (table_pos - offset) * zoom`.
+    ///
+    /// - Default: `0.5`
+    /// - Range: `0.126` (`MIN_ZOOM`) to `63.9` (`MAX_ZOOM`)
+    /// - Mouse wheel zoom steps by 1.5x (zoom in) or 0.5x (zoom out)
+    ///
+    /// Has no effect on the 3D camera or gameplay rendering.
+    ///
+    /// BIFF tag `ZOOM`
+    pub zoom: f32,
+    pub angle_tilt_max: f32,                            // SLPX 53
+    pub angle_tilt_min: f32,                            // SLOP 54
+    pub stereo_max_separation: Option<f32>,             // MAXS 55
+    pub stereo_zero_parallax_displacement: Option<f32>, // ZPD 56
+    pub stereo_offset: Option<f32>,                     // STO 57 (was missing in  10.01)
+    pub overwrite_global_stereo3d: Option<bool>,        // OGST 58
+    /// Playfield image — the name of the texture used for the playfield surface.
+    ///
+    /// This references an image from the table's texture collection by name.
+    /// At render time, VPinball assigns this to the playfield primitive's texture
+    /// (`m_d.m_szImage = m_ptable->m_image` in `primitive.cpp`).
+    /// It is also used as the fallback in `GetSurfaceImage()` when a surface/ramp
+    /// name lookup fails.
+    ///
+    /// In the 2D editor, this image is drawn as the backdrop when `m_backdrop` is
+    /// enabled (for the playfield view; the backglass view uses `BG_image` instead).
+    ///
+    /// HDR images (`.exr`/`.hdr`) are not allowed for this field.
+    ///
+    /// Default: `""` (empty string, no playfield image)
+    ///
+    /// BIFF tag `IMAG`
+    pub image: String,
+    pub backglass_image_full_desktop: String,    // BIMG 60
+    pub backglass_image_full_fullscreen: String, // BIMF 61
     pub backglass_image_full_single_screen: Option<String>, // BIMS 62 (added in 10.?)
-    pub image_backdrop_night_day: bool,                     // BIMN 63
-    pub image_color_grade: String,                          // IMCG 64
+    pub image_backdrop_night_day: bool,          // BIMN 63
+    /// Color grading LUT image — the name of a 256×16 texture used as a 3D color
+    /// lookup table (LUT) for post-processing color grading.
+    ///
+    /// This references an image from the table's texture collection by name.
+    /// The texture must be exactly **256×16 pixels**, representing a flattened
+    /// 16×16×16 3D LUT (16 blue slices of 16×16 red×green tiles laid out
+    /// horizontally).
+    ///
+    /// When set, the `FBColorGrade` shader function applies the LUT as the final
+    /// step of the tonemapping pipeline (after gamma and dithering). Each pixel's
+    /// RGB color is remapped through the LUT, enabling effects like color
+    /// correction, film emulation, or stylized looks.
+    ///
+    /// Exposed as `ColorGradeImage` in VBScript. Configured in the editor under
+    /// Backglass Visuals properties.
+    ///
+    /// Default: `""` (empty string, no color grading applied)
+    ///
+    /// BIFF tag `IMCG`
+    pub image_color_grade: String,
     /// Default ball texture (typically HDR environment map for reflections).
     ///
     /// Used as fallback when `Ball::image` is empty. This is the base texture
@@ -640,33 +688,56 @@ pub struct GameData {
     ///
     /// BIFF tag: `BLIF`
     pub ball_image_front: String,
-    pub env_image: Option<String>, // EIMG 67 (was missing in 10.01)
-    pub notes: Option<String>,     // NOTX 67.5 (added in 10.7)
-    pub screen_shot: String,       // SSHT 68
-    pub display_backdrop: bool,    // FBCK 69
-    pub glass_top_height: f32,     // GLAS 70
+    /// Environment map image — the name of an equirectangular texture used for
+    /// image-based lighting (IBL) on all table surfaces.
+    ///
+    /// This references an image from the table's texture collection by name.
+    /// The texture must have a **2:1 aspect ratio** (width = 2× height), as it is
+    /// interpreted as an equirectangular environment map. HDR formats (`.exr`/`.hdr`)
+    /// are supported and recommended for realistic lighting.
+    ///
+    /// The environment map is used for:
+    /// - **Diffuse IBL**: Pre-convolved irradiance lookup via `DoEnvmapDiffuse`
+    ///   in `Material.fxh`, scaled by `fenvEmissionScale`
+    /// - **Glossy reflections**: Mip-mapped lookup via `DoEnvmapGlossy`, where
+    ///   the mip level is derived from the material's glossy power (roughness)
+    /// - **Clearcoat/specular layer**: Fresnel-weighted blend via `DoEnvmap2ndLayer`
+    ///
+    /// When empty, VPinball falls back to the built-in `Assets/EnvMap.webp`.
+    ///
+    /// Exposed as `EnvironmentImage` in VBScript. Configured in the editor under
+    /// Table Lights properties.
+    ///
+    /// Default: `""` (empty string, uses built-in environment map)
+    ///
+    /// BIFF tag: `EIMG` (was missing in 10.01)
+    pub env_image: Option<String>,
+    pub notes: Option<String>,            // NOTX 67.5 (added in 10.7)
+    pub screen_shot: String,              // SSHT 68
+    pub display_backdrop: bool,           // FBCK 69
+    pub glass_top_height: f32,            // GLAS 70
     pub glass_bottom_height: Option<f32>, // GLAB 70.5 (added in 10.8)
-    pub table_height: Option<f32>, // TBLH 71 (optional in 10.8)
-    pub playfield_material: String, // PLMA 72
-    pub backdrop_color: Color,     // BCLR 73 (color bgr)
-    pub global_difficulty: f32,    // TDFT 74
+    pub table_height: Option<f32>,        // TBLH 71 (optional in 10.8)
+    pub playfield_material: String,       // PLMA 72
+    pub backdrop_color: Color,            // BCLR 73 (color bgr)
+    pub global_difficulty: f32,           // TDFT 74
     /// changes the ambient light contribution for each material, please always try to keep this at full Black
     pub light_ambient: Color, // LZAM 75 (color)
     /// changes the light contribution for each material (currently light0 emission is copied to light1, too)
     pub light0_emission: Color, // LZDI 76 (color)
-    pub light_height: f32,         // LZHI 77
-    pub light_range: f32,          // LZRA 78
-    pub light_emission_scale: f32, // LIES 79
-    pub env_emission_scale: f32,   // ENES 80
-    pub global_emission_scale: f32, // GLES 81
-    pub ao_scale: f32,             // AOSC 82
-    pub ssr_scale: Option<f32>,    // SSSC 83 (added in 10.?)
+    pub light_height: f32,                // LZHI 77
+    pub light_range: f32,                 // LZRA 78
+    pub light_emission_scale: f32,        // LIES 79
+    pub env_emission_scale: f32,          // ENES 80
+    pub global_emission_scale: f32,       // GLES 81
+    pub ao_scale: f32,                    // AOSC 82
+    pub ssr_scale: Option<f32>,           // SSSC 83 (added in 10.?)
     pub ground_to_lockbar_height: Option<f32>, // CLBH (added in 10.8.x)
-    pub table_sound_volume: f32,   // SVOL 84
-    pub table_music_volume: f32,   // MVOL 85
+    pub table_sound_volume: f32,          // SVOL 84
+    pub table_music_volume: f32,          // MVOL 85
     pub table_adaptive_vsync: Option<i32>, // AVSY 86 (became optional in 10.8)
     pub use_reflection_for_balls: Option<i32>, // BREF 87 (became optional in 10.8)
-    pub brst: Option<i32>,         // BRST (in use in 10.01)
+    pub brst: Option<i32>,                // BRST (in use in 10.01)
     /// Default playfield reflection strength for objects.
     ///
     /// Controls how strongly objects reflect on the playfield surface.
