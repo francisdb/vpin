@@ -2514,7 +2514,7 @@ fn build_combined_gltf_payload(
             // This mesh belongs to a light group - track it separately
             item_group_children
                 .entry(group_name.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(node_idx);
         } else if let Some(ref layer_name) = mesh.layer_name {
             if let Some((_, children)) = layer_groups.get_mut(layer_name) {
@@ -2754,7 +2754,7 @@ fn build_combined_gltf_payload(
         // so it gets grouped with the bulb/socket/insert meshes
         item_group_children
             .entry(name.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(node_idx);
     }
 
