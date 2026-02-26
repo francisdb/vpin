@@ -1458,7 +1458,11 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                     ));
 
                     // VPinball uses the image as the light polygon texture (SHADER_tex_light_color)
-                    let texture_name = if !light.image.is_empty() {
+                    // but only in Classic mode (is_bulb_light = false). In Halo/Bulb mode,
+                    // the image field is explicitly ignored (light.cpp:706:
+                    // offTexel = m_BulbLight ? nullptr : GetImage(m_szImage))
+                    // and may contain stale data from a previous Classic mode setting.
+                    let texture_name = if !light.is_bulb_light && !light.image.is_empty() {
                         Some(light.image.clone())
                     } else {
                         None
