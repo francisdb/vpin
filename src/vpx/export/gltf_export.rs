@@ -92,6 +92,7 @@
 use crate::filesystem::FileSystem;
 use crate::gltf::GltfMaterialBuilder;
 use crate::vpx;
+use crate::vpx::gamedata::GameDataJson;
 use crate::vpx::gameitem::GameItemEnum;
 use crate::vpx::gameitem::light::Light;
 use crate::vpx::gameitem::primitive::VertexWrapper;
@@ -2839,6 +2840,23 @@ fn build_combined_gltf_payload(
         extensions_used.push("KHR_node_visibility");
     }
 
+    // Create a root node that wraps all scene content, with gamedata as custom properties.
+    // This makes the table name visible as the root object in Blender and provides
+    // access to all table-level settings (physics, lighting, dimensions, etc.) via extras.
+    let gamedata_json = GameDataJson::from_game_data(&vpx.gamedata);
+    let gamedata_extras = serde_json::to_value(&gamedata_json).unwrap_or(json!({}));
+    let root_name = if vpx.gamedata.name.is_empty() {
+        "Table".to_string()
+    } else {
+        vpx.gamedata.name.clone()
+    };
+    let root_node_idx = nodes.len();
+    nodes.push(json!({
+        "name": root_name,
+        "children": scene_root_nodes,
+        "extras": gamedata_extras
+    }));
+
     let mut gltf_json = json!({
         "asset": {
             "version": "2.0",
@@ -2852,7 +2870,7 @@ fn build_combined_gltf_payload(
         },
         "scene": 0,
         "scenes": [{
-            "nodes": scene_root_nodes
+            "nodes": [root_node_idx]
         }],
         "nodes": nodes,
         "meshes": mesh_json,
