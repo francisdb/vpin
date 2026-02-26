@@ -169,7 +169,7 @@ pub fn build_light_insert_mesh(
                 z: 0.0,
                 nx: 0.0,
                 ny: 0.0,
-                nz: -1.0, // Normal pointing down (visible from above in VPX coords)
+                nz: 1.0, // Normal pointing up in VPX Z → glTF Y (0,1,0), consistent with geometric face normal after winding reversal
                 tu,
                 tv,
             };
@@ -518,5 +518,49 @@ mod tests {
 
         let result = build_light_insert_mesh(&light, &default_table_dims());
         assert!(result.is_none());
+    }
+
+    /// Verify that vertex normals agree with geometric face normals after the
+    /// glTF coordinate transform (VPX→glTF) and winding reversal.
+    /// A mismatch causes Cycles to render the surface black.
+    #[test]
+    fn test_light_insert_vertex_normals_match_geometric_face_normals_after_gltf_transform() {
+        use crate::vpx::gameitem::dragpoint::DragPoint;
+        use crate::vpx::mesh::mesh_validation::check_normal_consistency_gltf;
+
+        let mut light = create_test_light(false);
+        light.drag_points = vec![
+            DragPoint {
+                x: 90.0,
+                y: 190.0,
+                ..Default::default()
+            },
+            DragPoint {
+                x: 110.0,
+                y: 190.0,
+                ..Default::default()
+            },
+            DragPoint {
+                x: 110.0,
+                y: 210.0,
+                ..Default::default()
+            },
+            DragPoint {
+                x: 90.0,
+                y: 210.0,
+                ..Default::default()
+            },
+        ];
+
+        let (vertices, faces, _center) =
+            build_light_insert_mesh(&light, &default_table_dims()).unwrap();
+
+        let inconsistent = check_normal_consistency_gltf(&vertices, &faces);
+        assert!(
+            inconsistent.is_empty(),
+            "Light insert has {} faces where vertex normals disagree with geometric face normals after glTF transform (causes Blender Cycles black rendering): {:?}",
+            inconsistent.len(),
+            inconsistent
+        );
     }
 }
