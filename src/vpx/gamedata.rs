@@ -306,6 +306,10 @@ impl<'de> Deserialize<'de> for ToneMapper {
 
 #[derive(Debug, PartialEq)]
 pub struct GameData {
+    /// Table name
+    /// BIFF tag: `NAME`
+    pub name: String,
+
     pub left: f32,   // LEFT 1
     pub top: f32,    // TOPX 2
     pub right: f32,  // RGHT 3
@@ -629,12 +633,20 @@ pub struct GameData {
     /// It is also used as the fallback in `GetSurfaceImage()` when a surface/ramp
     /// name lookup fails.
     ///
+    /// The playfield primitive is identified purely by name: any [`Primitive`] named
+    /// `"playfield_mesh"` (case-insensitive) is treated as the playfield and has
+    /// this image (and [`playfield_material`](Self::playfield_material)) applied
+    /// automatically — there is no explicit flag to mark a primitive as the
+    /// playfield. See [`Primitive::is_playfield()`].
+    ///
     /// In the 2D editor, this image is drawn as the backdrop when `m_backdrop` is
     /// enabled (for the playfield view; the backglass view uses `BG_image` instead).
     ///
     /// HDR images (`.exr`/`.hdr`) are not allowed for this field.
     ///
-    /// Default: `""` (empty string, no playfield image)
+    /// Default: `""` (empty string — no playfield image; the surface is rendered
+    /// using only the [`playfield_material`](Self::playfield_material) color with
+    /// no texture)
     ///
     /// BIFF tag `IMAG`
     pub image: String,
@@ -718,26 +730,91 @@ pub struct GameData {
     pub glass_top_height: f32,            // GLAS 70
     pub glass_bottom_height: Option<f32>, // GLAB 70.5 (added in 10.8)
     pub table_height: Option<f32>,        // TBLH 71 (optional in 10.8)
-    pub playfield_material: String,       // PLMA 72
-    pub backdrop_color: Color,            // BCLR 73 (color bgr)
-    pub global_difficulty: f32,           // TDFT 74
+    /// Name of the material applied to the playfield surface.
+    ///
+    /// References a [`Material`] by name from the table's material list.
+    /// Controls the appearance (color, glossiness, reflections, etc.) of the
+    /// main playfield surface. When empty, VPinball uses its built-in default
+    /// material.
+    ///
+    /// Like [`image`](Self::image), this is applied automatically to any
+    /// [`Primitive`] named `"playfield_mesh"` (case-insensitive) — there is no
+    /// explicit flag to mark a primitive as the playfield.
+    /// See [`Primitive::is_playfield()`].
+    ///
+    /// Exposed as `PlayfieldMaterial` in VBScript.
+    ///
+    /// Default: `""` (empty string — built-in default material)
+    ///
+    /// BIFF tag: `PLMA`
+    pub playfield_material: String,
+    /// Background color rendered behind the table scene.
+    ///
+    /// This is used as the clear color for the render target — it fills any
+    /// area not covered by the playfield, walls, or other geometry. Visible
+    /// mainly around the edges of the table or through gaps in the playfield.
+    ///
+    /// Stored in BGR format in the BIFF data.
+    ///
+    /// Default: `#626E8E` (Waikawa Gray — a muted bluish gray)
+    ///
+    /// BIFF tag: `BCLR`
+    pub backdrop_color: Color,
+    pub global_difficulty: f32, // TDFT 74
     /// changes the ambient light contribution for each material, please always try to keep this at full Black
     pub light_ambient: Color, // LZAM 75 (color)
     /// changes the light contribution for each material (currently light0 emission is copied to light1, too)
     pub light0_emission: Color, // LZDI 76 (color)
-    pub light_height: f32,                // LZHI 77
-    pub light_range: f32,                 // LZRA 78
-    pub light_emission_scale: f32,        // LIES 79
-    pub env_emission_scale: f32,          // ENES 80
-    pub global_emission_scale: f32,       // GLES 81
-    pub ao_scale: f32,                    // AOSC 82
-    pub ssr_scale: Option<f32>,           // SSSC 83 (added in 10.?)
+    pub light_height: f32,      // LZHI 77
+    pub light_range: f32,       // LZRA 78
+    pub light_emission_scale: f32, // LIES 79
+    pub env_emission_scale: f32, // ENES 80
+    pub global_emission_scale: f32, // GLES 81
+    /// Intensity scale for the screen-space ambient occlusion (SSAO) effect.
+    ///
+    /// Controls how strongly ambient occlusion darkens creases and contact
+    /// areas between objects. Higher values produce more pronounced shadowing.
+    /// A value of `0.0` effectively disables the AO effect (the renderer also
+    /// checks [`use_ao`](Self::use_ao) as a master toggle).
+    ///
+    /// Passed to the shader as the first component of `AO_scale_timeblur`.
+    /// Displayed as a percentage in the editor.
+    ///
+    /// No hard upper bound is enforced; typical values are in the `0.0`–`2.0`
+    /// range.
+    ///
+    /// Exposed as `AOScale` in VBScript.
+    ///
+    /// Default: `1.75`
+    ///
+    /// BIFF tag: `AOSC`
+    pub ao_scale: f32,
+    /// Intensity scale for the screen-space reflections (SSR) effect.
+    ///
+    /// Controls how strongly screen-space reflections appear on surfaces.
+    /// Higher values produce more visible reflections. A value of `0.0` or
+    /// less effectively disables the SSR effect (the renderer also checks
+    /// [`use_ssr`](Self::use_ssr) as a master toggle).
+    ///
+    /// Passed to the shader as the third component of
+    /// `SSR_bumpHeight_fresnelRefl_scale_FS`.
+    /// Displayed as a percentage in the editor.
+    ///
+    /// No hard upper bound is enforced; typical values are in the `0.0`–`1.0`
+    /// range.
+    ///
+    /// Exposed as `SSRScale` in VBScript.
+    ///
+    /// Default: `None` — VPinball's `SetLoadDefaults` uses `0.5`
+    ///
+    /// BIFF tag: `SSSC` (added in 10.?)
+    pub ssr_scale: Option<f32>,
     pub ground_to_lockbar_height: Option<f32>, // CLBH (added in 10.8.x)
-    pub table_sound_volume: f32,          // SVOL 84
-    pub table_music_volume: f32,          // MVOL 85
-    pub table_adaptive_vsync: Option<i32>, // AVSY 86 (became optional in 10.8)
+    pub table_sound_volume: f32,               // SVOL 84
+    pub table_music_volume: f32,               // MVOL 85
+    pub table_adaptive_vsync: Option<i32>,     // AVSY 86 (became optional in 10.8)
     pub use_reflection_for_balls: Option<i32>, // BREF 87 (became optional in 10.8)
-    pub brst: Option<i32>,                // BRST (in use in 10.01)
+    pub brst: Option<i32>,                     // BRST (in use in 10.01)
     /// Default playfield reflection strength for objects.
     ///
     /// Controls how strongly objects reflect on the playfield surface.
@@ -785,15 +862,118 @@ pub struct GameData {
     pub user_detail_level: Option<u32>, // ARAC 94 (became optional in 10.8)
     pub overwrite_global_detail_level: Option<bool>, // OGAC 95 (became optional in 10.8)
     pub overwrite_global_day_night: Option<bool>, // OGDN 96 (became optional in 10.8)
-    pub show_grid: bool,                // GDAC 97
-    pub reflect_elements_on_playfield: Option<bool>, // REOP 98 (became optional in 10.8)
-    pub use_aal: Option<i32>,           // UAAL 99 (became optional in 10.8)
-    pub use_fxaa: Option<i32>,          // UFXA 100 (became optional in 10.8)
-    pub use_ao: Option<i32>,            // UAOC 101 (became optional in 10.8)
-    pub use_ssr: Option<i32>,           // USSR 102 (added in 10.?)
+    /// Whether to display the editor grid overlay in the 2D table editor.
+    ///
+    /// When `true`, VPinball draws a grid on top of the playfield in the editor
+    /// view to help with aligning and positioning game items. This is an
+    /// editor-only setting and has no effect during gameplay. The grid spacing
+    /// is controlled by a separate editor preference (`m_gridSize`), not stored
+    /// in the table file.
+    ///
+    /// Exposed as `DisplayGrid` in VBScript.
+    ///
+    /// Default: `true`
+    ///
+    /// BIFF tag: `GDAC`
+    pub show_grid: bool,
+    /// **Deprecated.** Formerly controlled whether game elements (flippers,
+    /// bumpers, etc.) were rendered in the playfield reflection pass.
+    ///
+    /// In current VPinball, reflection is controlled per-item via each object's
+    /// `m_reflectionEnabled` field (`ReflectionEnabled` in VBScript). The
+    /// `REOP` tag is still read from older table files for backward
+    /// compatibility but is no longer written. The VBScript property
+    /// `ReflectElementsOnPlayfield` logs a deprecation error and always
+    /// returns `true`.
+    ///
+    /// Default: `None` (not written; old files defaulted to `true`)
+    ///
+    /// BIFF tag: `REOP`
+    pub reflect_elements_on_playfield: Option<bool>,
+    /// **Deprecated (pre-10.8).** Formerly stored the table's anti-aliasing
+    /// override setting.
+    ///
+    /// Before 10.8, per-table rendering overrides were stored in the table
+    /// file. In 10.8+ these were moved to a per-user `.ini` file. When loading
+    /// an old table without an `.ini`, VPinball imports this value into the
+    /// user settings (`Player_AAFactor`): `0` → 1× (off), any other non-`-1`
+    /// value → 2× supersampling. A value of `-1` meant "use global setting".
+    ///
+    /// This tag is no longer written by VPinball.
+    ///
+    /// The VBScript property `EnableAntiAliasing` is a no-op.
+    ///
+    /// Default: `None` (not written since 10.8; old files used `-1`)
+    ///
+    /// BIFF tag: `UAAL` (became optional in 10.8)
+    pub use_aal: Option<i32>,
+    /// **Deprecated (pre-10.8).** Formerly stored the table's FXAA override
+    /// setting.
+    ///
+    /// Like [`use_aal`](Self::use_aal), this was moved to per-user settings in
+    /// 10.8. When loading an old table without an `.ini`, VPinball imports this
+    /// value into `Player_FXAA`. A value of `-1` meant "use global setting".
+    ///
+    /// This tag is no longer written by VPinball.
+    ///
+    /// The VBScript property `EnableFXAA` is a no-op.
+    ///
+    /// Default: `None` (not written since 10.8; old files used `-1`)
+    ///
+    /// BIFF tag: `UFXA` (became optional in 10.8)
+    pub use_fxaa: Option<i32>,
+    /// Whether screen-space ambient occlusion (SSAO) is enabled for this table.
+    ///
+    /// When enabled, VPinball darkens creases and contact areas between objects
+    /// to simulate indirect light shadowing, adding depth to the scene.
+    /// The effect strength is controlled by [`ao_scale`](Self::ao_scale).
+    ///
+    /// Before 10.8, a value of `-1` meant "use global video option". In 10.8+
+    /// this is treated as a boolean (`0` = off, non-zero = on) and is still
+    /// written to the file. Internally stored as `bool m_enableAO` in VPinball.
+    ///
+    /// Exposed as `EnableAO` in VBScript.
+    ///
+    /// Default: `None` (old files used `-1`; `SetLoadDefaults` uses `true`)
+    ///
+    /// BIFF tag: `UAOC` (became optional in 10.8)
+    pub use_ao: Option<i32>,
+    /// Whether screen-space reflections (SSR) are enabled for this table.
+    ///
+    /// When enabled, VPinball renders approximate reflections of objects on
+    /// nearby surfaces using screen-space ray marching. The effect strength is
+    /// controlled by [`ssr_scale`](Self::ssr_scale).
+    ///
+    /// Before 10.8, a value of `-1` meant "use global video option". In 10.8+
+    /// this is treated as a boolean (`0` = off, non-zero = on) and is still
+    /// written to the file. Internally stored as `bool m_enableSSR` in VPinball.
+    ///
+    /// Exposed as `EnableSSR` in VBScript.
+    ///
+    /// Default: `None` (old files used `-1`; `SetLoadDefaults` uses `true`)
+    ///
+    /// BIFF tag: `USSR` (added in 10.?)
+    pub use_ssr: Option<i32>,
     pub tone_mapper: Option<ToneMapper>, // TMAP 102.5 (added in 10.8)
-    pub bloom_strength: f32,            // BLST 103
-    pub materials_size: u32,            // MASI 104
+    /// Strength of the bloom post-processing effect.
+    ///
+    /// Controls how intensely bright areas of the scene bleed light into
+    /// surrounding pixels. In the shader (`FBShader.hlsl`), this value is
+    /// multiplied into the bloom cutoff result — higher values produce a
+    /// stronger, more visible glow around bright spots (lights, reflections).
+    ///
+    /// A value of `0.0` effectively disables bloom. There is no hard upper
+    /// bound enforced in VPinball; typical values range from `0.0` to `2.0`,
+    /// but values above `2.0` are accepted.
+    ///
+    /// Exposed as `BloomStrength` in VBScript.
+    ///
+    /// Default: `1.8` — VPinball's `SetLoadDefaults()` uses `1.0` as the
+    /// pre-load fallback when the `BLST` tag is missing from the file.
+    ///
+    /// BIFF tag: `BLST`
+    pub bloom_strength: f32,
+    pub materials_size: u32, // MASI 104
     /// Legacy material saving for backward compatibility
     pub materials_old: Vec<SaveMaterial>, // MATE 105 (only for <10.8)
     /// Legacy material saving for backward compatibility
@@ -806,7 +986,6 @@ pub struct GameData {
     pub images_size: u32,                                   // SIMG 109
     pub fonts_size: u32,                                    // SFNT 110
     pub collections_size: u32,                              // SCOL 111
-    pub name: String,                                       // NAME 112
     pub custom_colors: [Color; 16],                         //[Color; 16], // CCUS 113
     pub protection_data: Option<Vec<u8>>,                   // SECB (removed in ?)
     pub code: StringWithEncoding,                           // CODE 114

@@ -298,10 +298,55 @@ pub struct Light {
     /// The name of the light, used for identification and referencing in scripts.
     /// BIFF tag: `NAME` (wide string)
     pub name: String,
-    pub center: Vertex2D,    // VCEN
-    pub height: Option<f32>, // HGHT added in 10.8
-    pub falloff_radius: f32, // RADI
-    pub falloff_power: f32,  // FAPO
+    /// Center position of the light in table coordinates (VPU).
+    /// BIFF tag: `VCEN`
+    pub center: Vertex2D,
+    /// Z position of the light above its surface, in VPU.
+    ///
+    /// Offsets the light vertically from the playfield (or the surface it sits
+    /// on). This is only used for point-light. The mesh stays at the surface height.
+    ///
+    /// ## Default
+    /// `0.0`
+    ///
+    /// BIFF tag: `HGHT` (added in 10.8)
+    pub height: Option<f32>,
+    /// Maximum range of the light in VPU (Visual Pinball Units).
+    ///
+    /// Defines the distance at which the light attenuates to zero. The shader
+    /// normalizes the distance from the light center as `len = dist / falloff_radius`,
+    /// so at `len = 1.0` (the falloff boundary) the light reaches zero intensity.
+    ///
+    /// The light color is also interpolated based on this distance:
+    /// [`color`](Self::color) at the center → [`color2`](Self::color2) at the edge,
+    /// using `lerp(color2, color, sqrt(len))`.
+    ///
+    /// For Halo/Bulb lights, the drag point polygon that defines the glow shape
+    /// should be at least as large as the falloff radius. If the polygon is smaller,
+    /// the glow is clipped at the polygon edge creating a hard border.
+    ///
+    /// ## Default
+    /// `0.0`
+    ///
+    /// BIFF tag: `RADI`
+    pub falloff_radius: f32,
+    /// Controls the sharpness of the light falloff curve.
+    ///
+    /// The shader computes attenuation as:
+    /// ```text
+    /// atten = pow(max(1.0 - len, 0.0001), falloff_power)
+    /// ```
+    /// where `len = dist / falloff_radius`.
+    ///
+    /// - Low values (e.g. `1.0`): linear, gentle falloff — light fades gradually
+    /// - High values (e.g. `4.0`): steep, concentrated falloff — bright center
+    ///   with rapid drop-off toward the edges
+    ///
+    /// ## Default
+    /// `0.0`
+    ///
+    /// BIFF tag: `FAPO`
+    pub falloff_power: f32,
     /// 0 = off, 1 = on, 2 = blinking
     /// m_d.m_state == 0.f ? 0 : (m_d.m_state == 2.f ? 2 : 1);
     /// BIFF tag: `STAT` deprecated, planned or removal in to 10.9+

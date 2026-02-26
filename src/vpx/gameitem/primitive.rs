@@ -323,12 +323,16 @@ impl Primitive {
 
     /// Check if this primitive is the playfield mesh.
     ///
-    /// From VPinball primitive.h:
+    /// VPinball identifies the playfield purely by name — there is no explicit
+    /// flag or field. Any primitive named `"playfield_mesh"` (case-insensitive)
+    /// is treated as the playfield and has the table-level
+    /// [`GameData::image`] and [`GameData::playfield_material`] applied
+    /// automatically at render time.
+    ///
+    /// From VPinball `primitive.h`:
     /// ```cpp
     /// bool IsPlayfield() const { return _wcsicmp(m_wzName, L"playfield_mesh") == 0; }
     /// ```
-    ///
-    /// This is a case-insensitive comparison with "playfield_mesh".
     pub fn is_playfield(&self) -> bool {
         self.name.eq_ignore_ascii_case("playfield_mesh")
     }
