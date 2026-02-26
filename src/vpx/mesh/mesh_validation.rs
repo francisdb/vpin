@@ -332,6 +332,70 @@ pub fn check_normal_consistency(
     inconsistent
 }
 
+/// Validate that vertex normals are consistent with geometric face normals
+/// after the glTF coordinate transform and winding reversal.
+///
+/// The glTF export transforms VPX coordinates (left-handed, Z-up) to glTF
+/// (right-handed, Y-up):
+///   - Position/normal: VPX (x, y, z) → glTF (x, z, y)
+///   - Winding: swap i1 and i2 per triangle
+///
+/// If vertex normals disagree with geometric face normals (dot product ≤ 0),
+/// Blender Cycles will render the surface black because the shading normal faces
+/// away from the light/camera.
+///
+/// Returns a list of face indices where vertex normals disagree.
+#[allow(dead_code)]
+pub fn check_normal_consistency_gltf(vertices: &[VertexWrapper], faces: &[VpxFace]) -> Vec<usize> {
+    let mut inconsistent = Vec::new();
+
+    for (face_idx, face) in faces.iter().enumerate() {
+        if face.i0 < 0
+            || face.i0 >= vertices.len() as i64
+            || face.i1 < 0
+            || face.i1 >= vertices.len() as i64
+            || face.i2 < 0
+            || face.i2 >= vertices.len() as i64
+        {
+            continue;
+        }
+
+        let v0 = &vertices[face.i0 as usize].vertex;
+        let v1 = &vertices[face.i1 as usize].vertex;
+        let v2 = &vertices[face.i2 as usize].vertex;
+
+        // Apply glTF coordinate transform: VPX (x,y,z) → glTF (x, z, y)
+        // Apply winding reversal: (i0, i1, i2) → (i0, i2, i1)
+        let a = [v0.x, v0.z, v0.y];
+        let b = [v2.x, v2.z, v2.y]; // swapped
+        let c = [v1.x, v1.z, v1.y]; // swapped
+
+        // Geometric face normal: (b-a) × (c-a)
+        let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let geo_nx = e1[1] * e2[2] - e1[2] * e2[1];
+        let geo_ny = e1[2] * e2[0] - e1[0] * e2[2];
+        let geo_nz = e1[0] * e2[1] - e1[1] * e2[0];
+
+        let geo_len = (geo_nx * geo_nx + geo_ny * geo_ny + geo_nz * geo_nz).sqrt();
+        if geo_len < 0.0001 {
+            continue; // Degenerate face
+        }
+
+        // Vertex normal in glTF space: VPX (nx,ny,nz) → glTF (nx, nz, ny)
+        let vn = [v0.nx, v0.nz, v0.ny];
+
+        // Dot product: positive means same hemisphere (normals agree)
+        let dot = vn[0] * geo_nx + vn[1] * geo_ny + vn[2] * geo_nz;
+
+        if dot <= 0.0 {
+            inconsistent.push(face_idx);
+        }
+    }
+
+    inconsistent
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -169,7 +169,7 @@ pub(crate) fn build_flasher_mesh(
                 z: 0.0, // Will be set by rotation
                 nx: 0.0,
                 ny: 0.0,
-                nz: -1.0, // Flat surface, normal pointing down (visible from above after winding reversal)
+                nz: 1.0, // Normal pointing up in VPX Z → glTF Y (0,1,0), consistent with geometric face normal after winding reversal
                 tu: (v.x - uv_minx) * inv_width,
                 tv: (v.y - uv_miny) * inv_height,
             }
@@ -496,5 +496,59 @@ mod tests {
                 c.y
             );
         }
+    }
+
+    /// Verify that vertex normals agree with geometric face normals after the
+    /// glTF coordinate transform (VPX→glTF) and winding reversal.
+    /// A mismatch causes Cycles to render the surface black.
+    #[test]
+    fn test_flasher_vertex_normals_match_geometric_face_normals_after_gltf_transform() {
+        use crate::vpx::mesh::mesh_validation::check_normal_consistency_gltf;
+
+        let flasher = Flasher {
+            height: 50.0,
+            drag_points: vec![
+                DragPoint {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                    smooth: false,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 100.0,
+                    y: 0.0,
+                    z: 0.0,
+                    smooth: false,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 100.0,
+                    y: 100.0,
+                    z: 0.0,
+                    smooth: false,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 0.0,
+                    y: 100.0,
+                    z: 0.0,
+                    smooth: false,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+
+        let (vertices, faces, _position) =
+            build_flasher_mesh(&flasher, &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0)).unwrap();
+
+        let inconsistent = check_normal_consistency_gltf(&vertices, &faces);
+        assert!(
+            inconsistent.is_empty(),
+            "Flasher has {} faces where vertex normals disagree with geometric face normals after glTF transform (causes Blender Cycles black rendering): {:?}",
+            inconsistent.len(),
+            inconsistent
+        );
     }
 }
