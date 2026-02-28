@@ -77,7 +77,7 @@ testdir = "0.9.3"
 # TODO keep this in sync with wasm-bindgen version above
 wasm-bindgen-test = "0.3.58"
 # In fact an indirect dependency of rand, but we need to specify the wasm_js feature here
-getrandom = { version = "0.3.2", features = ["wasm_js"] }
+getrandom = { version = "0.4.1", features = ["wasm_js"] }
 
 [profile.test]
 # level 0 is very slow for writing to compound files
