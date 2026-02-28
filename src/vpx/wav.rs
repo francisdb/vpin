@@ -80,9 +80,8 @@ pub(crate) fn write_wav_header(wav_header: &WavHeader, writer: &mut BytesMut) {
     }
     if let Some(extension_size) = wav_header.extension_size {
         writer.put_u16_le(extension_size);
-        writer.put(&wav_header.extra_fields[..]);
     }
-    // write the extra fields
+    // write extra chunks between fmt and data (e.g. "fact" chunk)
     writer.put(&wav_header.extra_fields[..]);
     writer.put(&b"data"[..]);
     writer.put_u32_le(wav_header.data_size);
@@ -100,18 +99,16 @@ pub(crate) fn read_wav_header(reader: &mut BytesMut) -> WavHeader {
     let avg_bytes_per_sec = reader.get_u32_le();
     let block_align = reader.get_u16_le();
     let bits_per_sample = reader.get_u16_le();
+    // format_tag 1 (PCM) has no extension fields.
+    // All other formats (e.g. 3=IEEE Float, 2=ADPCM, etc.) include a cbSize
+    // extension field followed by cbSize bytes of extra data.
+    // VPinball stores the raw WAVEFORMATEX without restricting the format_tag.
     let (extension_size, _extra_fields) = match format_tag {
         1 => (None, Vec::<u8>::new()),
-        3 => {
+        _ => {
             let extension_size = reader.get_u16_le();
             let extra_fields = reader.read_bytes_vec(extension_size as usize);
             (Some(extension_size), extra_fields)
-        }
-        _ => {
-            panic!("unsupported format_tag: {format_tag}");
-            // let extension_size = reader.get_u16_le();
-            // let extra_fields = reader.read_bytes_vec(extension_size as usize);
-            // (Some(extension_size), extra_fields)
         }
     };
 

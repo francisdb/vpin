@@ -219,12 +219,6 @@ impl From<WavHeader> for WaveForm {
 
 pub fn write_sound(sound_data: &SoundData) -> Vec<u8> {
     if is_wav(&sound_data.path) {
-        if sound_data.wave_form.format_tag != 1 {
-            warn!(
-                "write_sound: {} {:?}",
-                sound_data.path, sound_data.wave_form
-            );
-        }
         let mut buf = BytesMut::with_capacity(WAV_HEADER_SIZE + sound_data.data.len());
         buf.put_slice(&write_wav_header2(sound_data));
         buf.put_slice(&sound_data.data);
@@ -435,7 +429,7 @@ fn read_wave_form(reader: &mut BiffReader<'_>) -> WaveForm {
     let block_align = reader.get_u16_no_remaining_update();
     let bits_per_sample = reader.get_u16_no_remaining_update();
     let cb_size = reader.get_u16_no_remaining_update();
-    let wave_form = WaveForm {
+    WaveForm {
         format_tag,
         channels,
         samples_per_sec,
@@ -443,17 +437,10 @@ fn read_wave_form(reader: &mut BiffReader<'_>) -> WaveForm {
         block_align,
         bits_per_sample,
         cb_size,
-    };
-    if wave_form.format_tag != 1 {
-        warn!("read wave_form: {wave_form:?}");
     }
-    wave_form
 }
 
 fn write_wave_form(writer: &mut BiffWriter, wave_form: &WaveForm) {
-    if wave_form.format_tag != 1 {
-        warn!("write wave_form: {wave_form:?}");
-    }
     writer.write_u16(wave_form.format_tag);
     writer.write_u16(wave_form.channels);
     writer.write_u32(wave_form.samples_per_sec);
