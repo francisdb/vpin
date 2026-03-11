@@ -67,7 +67,7 @@ pub struct TimerData {
 
 #[cfg(test)]
 impl fake::Dummy<fake::Faker> for TimerData {
-    fn dummy_with_rng<R: rand::Rng + ?Sized>(_: &fake::Faker, rng: &mut R) -> Self {
+    fn dummy_with_rng<R: rand::RngExt + ?Sized>(_: &fake::Faker, rng: &mut R) -> Self {
         Self {
             is_enabled: rng.random(),
             interval: rng.random(),

@@ -768,7 +768,7 @@ mod tests {
     use super::*;
 
     use pretty_assertions::assert_eq;
-    use rand::Rng;
+    use rand::RngExt;
     use rand::distr::{Distribution, StandardUniform};
     use rand::prelude::ThreadRng;
     use std::default::Default;

@@ -543,7 +543,7 @@ mod tests {
     use crate::vpx::gameitem::tests::RandomOption;
     use fake::{Fake, Faker};
     use pretty_assertions::assert_eq;
-    use rand::Rng;
+    use rand::RngExt;
 
     #[test]
     fn test_write_read() {
