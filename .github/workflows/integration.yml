@@ -22,7 +22,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@v2.8.2
+      - uses: Swatinem/rust-cache@v2.9.1
       - name: Check out vpinball repository inside the project folder
         uses: actions/checkout@v6
         with:
