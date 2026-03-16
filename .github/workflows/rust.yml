@@ -30,7 +30,7 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2.8.2
+      - uses: Swatinem/rust-cache@v2.9.1
       - name: Build
         run: cargo build --verbose
       - name: Run tests
@@ -46,7 +46,7 @@ jobs:
         with:
           toolchain: stable
           targets: wasm32-wasip1
-      - uses: Swatinem/rust-cache@v2.8.2
+      - uses: Swatinem/rust-cache@v2.9.1
       - name: Install wasmtime-cli
         run: cargo install wasmtime-cli
       - name: Run WASM tests
@@ -62,7 +62,7 @@ jobs:
         with:
           toolchain: stable
           targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2.8.2
+      - uses: Swatinem/rust-cache@v2.9.1
       - name: Install wasm-bindgen-cli
         run: cargo install wasm-bindgen-cli
       - name: Run WASM tests
