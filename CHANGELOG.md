@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.3](https://github.com/francisdb/vpin/compare/v0.23.2...v0.23.3) - 2026-03-16
+
+### Other
+
+- *(deps)* update rand dependency to 0.10 ([#275](https://github.com/francisdb/vpin/pull/275))
+
 ## [0.23.2](https://github.com/francisdb/vpin/compare/v0.23.1...v0.23.2) - 2026-02-28
 
 ### Fixed
