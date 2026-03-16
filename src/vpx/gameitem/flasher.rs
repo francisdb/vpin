@@ -723,7 +723,7 @@ mod tests {
     use super::*;
     use crate::vpx::gameitem::tests::RandomOption;
     use pretty_assertions::assert_eq;
-    use rand::Rng;
+    use rand::RngExt;
 
     #[test]
     fn test_write_read() {

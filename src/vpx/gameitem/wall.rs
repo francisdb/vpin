@@ -532,7 +532,7 @@ impl BiffWrite for Wall {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
-    use rand::Rng;
+    use rand::RngExt;
 
     #[test]
     fn test_write_read() {
