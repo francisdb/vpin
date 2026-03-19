@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.5](https://github.com/francisdb/vpin/compare/v0.23.4...v0.23.5) - 2026-03-19
+
+### Added
+
+- *(flasher)* add render style enums and improve docs ([#280](https://github.com/francisdb/vpin/pull/280))
+
+### Other
+
+- *(deps)* bump Swatinem/rust-cache from 2.8.2 to 2.9.1 ([#278](https://github.com/francisdb/vpin/pull/278))
+
 ## [0.23.4](https://github.com/francisdb/vpin/compare/v0.23.3...v0.23.4) - 2026-03-16
 
 ### Other
