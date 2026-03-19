@@ -502,9 +502,14 @@ pub struct Light {
     /// If empty, the light sits on the playfield.
     /// BIFF tag: SURF
     pub surface: String,
-    pub is_backglass: bool,   // BGLS
-    pub depth_bias: f32,      // LIDB
-    pub fade_speed_up: f32,   // FASP, can be Inf (Dr. Dude (Bally 1990)v3.0.vpx)
+    pub is_backglass: bool, // BGLS
+    /// Offset applied when depth-sorting transparent and overlapping objects.
+    /// Higher values move the object "further away" in the sort order, causing it
+    /// to render behind objects with lower bias.
+    /// Also used on: [`Flasher`], [`Primitive`], [`Ramp`], [`HitTarget`].
+    /// BIFF tag: `LIDB`
+    pub depth_bias: f32,
+    pub fade_speed_up: f32, // FASP, can be Inf (Dr. Dude (Bally 1990)v3.0.vpx)
     pub fade_speed_down: f32, // FASD, can be Inf (Dr. Dude (Bally 1990)v3.0.vpx)
     /// Selects the light render mode: Halo (`true`) or Classic (`false`).
     ///

@@ -112,10 +112,15 @@ impl<'de> Deserialize<'de> for Filter {
     }
 }
 
-/// RenderMode
+/// Render mode for flashers, determining how the flasher is rendered and which
+/// properties are used.
 ///
-/// Default in use by vpinball is Flasher
-/// Introduced in 10.8.1
+/// Default in use by vpinball is [`RenderMode::Flasher`].
+///
+/// Introduced in VPX 10.8.1 (BIFF tag `RDMD`), replacing the older boolean `is_dmd` field.
+///
+/// See also [`render_style`](Flasher::render_style) which is interpreted differently
+/// depending on this mode.
 #[derive(Debug, PartialEq, Clone, Default)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum RenderMode {
@@ -128,6 +133,8 @@ pub enum RenderMode {
     Display = 2,
     /// Alphanumeric segment display (VFD, Plasma, LED, ...)
     AlphaSeg = 3,
+    /// Render of one of the ancillary windows (backglass, topper, scoreview)
+    ExtRender = 4,
 }
 
 impl From<u32> for RenderMode {
@@ -137,6 +144,7 @@ impl From<u32> for RenderMode {
             1 => RenderMode::DMD,
             2 => RenderMode::Display,
             3 => RenderMode::AlphaSeg,
+            4 => RenderMode::ExtRender,
             _ => panic!("Invalid RenderMode value {value}"),
         }
     }
@@ -149,6 +157,7 @@ impl From<&RenderMode> for u32 {
             RenderMode::DMD => 1,
             RenderMode::Display => 2,
             RenderMode::AlphaSeg => 3,
+            RenderMode::ExtRender => 4,
         }
     }
 }
@@ -163,6 +172,7 @@ impl Serialize for RenderMode {
             RenderMode::DMD => "dmd",
             RenderMode::Display => "display",
             RenderMode::AlphaSeg => "alpha_seg",
+            RenderMode::ExtRender => "ext_render",
         };
         serializer.serialize_str(value)
     }
@@ -180,8 +190,9 @@ impl<'de> Deserialize<'de> for RenderMode {
                 "dmd" => Ok(RenderMode::DMD),
                 "display" => Ok(RenderMode::Display),
                 "alpha_seg" => Ok(RenderMode::AlphaSeg),
+                "ext_render" => Ok(RenderMode::ExtRender),
                 _ => Err(serde::de::Error::custom(format!(
-                    "Invalid RenderMode value {s}, expecting \"flasher\", \"dmd\", \"display\" or \"alpha_seg\""
+                    "Invalid RenderMode value {s}, expecting \"flasher\", \"dmd\", \"display\", \"alpha_seg\" or \"ext_render\""
                 ))),
             },
             Value::Number(n) => {
@@ -191,8 +202,9 @@ impl<'de> Deserialize<'de> for RenderMode {
                     1 => Ok(RenderMode::DMD),
                     2 => Ok(RenderMode::Display),
                     3 => Ok(RenderMode::AlphaSeg),
+                    4 => Ok(RenderMode::ExtRender),
                     _ => Err(serde::de::Error::custom(
-                        "Invalid RenderMode value, expecting 0, 1, 2 or 3",
+                        "Invalid RenderMode value, expecting 0, 1, 2, 3 or 4",
                     )),
                 }
             }
@@ -200,6 +212,151 @@ impl<'de> Deserialize<'de> for RenderMode {
                 "Invalid RenderMode value, expecting string or number",
             )),
         }
+    }
+}
+
+/// DMD shading profile used as [`Flasher::render_style`] when
+/// [`render_mode`](Flasher::render_mode) is [`RenderMode::DMD`].
+///
+/// These are indices into the DMD profile settings arrays (7 profiles).
+#[derive(Debug, PartialEq, Clone, Copy, Default)]
+pub enum DmdStyle {
+    #[default]
+    Legacy = 0,
+    /// Classic neon plasma DMD
+    Plasma = 1,
+    /// Red LED DMD (used after RoHS regulation entry into force)
+    RedLED = 2,
+    GreenLED = 3,
+    YellowLED = 4,
+    GenericPlasma = 5,
+    GenericLED = 6,
+}
+
+impl From<u32> for DmdStyle {
+    fn from(value: u32) -> Self {
+        match value {
+            0 => DmdStyle::Legacy,
+            1 => DmdStyle::Plasma,
+            2 => DmdStyle::RedLED,
+            3 => DmdStyle::GreenLED,
+            4 => DmdStyle::YellowLED,
+            5 => DmdStyle::GenericPlasma,
+            6 => DmdStyle::GenericLED,
+            _ => panic!("Invalid DmdStyle value {value}, expected 0–6"),
+        }
+    }
+}
+
+impl From<DmdStyle> for u32 {
+    fn from(value: DmdStyle) -> Self {
+        value as u32
+    }
+}
+
+/// CRT/screen shading profile used as [`Flasher::render_style`] when
+/// [`render_mode`](Flasher::render_mode) is [`RenderMode::Display`].
+///
+/// The profile index is passed directly to the CRT shader.
+#[derive(Debug, PartialEq, Clone, Copy, Default)]
+pub enum DisplayStyle {
+    #[default]
+    Pixelated = 0,
+    Smoothed = 1,
+    CRT = 2,
+}
+
+impl From<u32> for DisplayStyle {
+    fn from(value: u32) -> Self {
+        match value {
+            0 => DisplayStyle::Pixelated,
+            1 => DisplayStyle::Smoothed,
+            2 => DisplayStyle::CRT,
+            _ => panic!("Invalid DisplayStyle value {value}, expected 0–2"),
+        }
+    }
+}
+
+impl From<DisplayStyle> for u32 {
+    fn from(value: DisplayStyle) -> Self {
+        value as u32
+    }
+}
+
+/// Segment display shading style, used as the low bits (`value % 8`) of
+/// [`Flasher::render_style`] when [`render_mode`](Flasher::render_mode) is
+/// [`RenderMode::AlphaSeg`].
+///
+/// These are indices into the 8 alphanumeric segment profile settings arrays.
+#[derive(Debug, PartialEq, Clone, Copy, Default)]
+pub enum SegStyle {
+    /// Neon plasma
+    #[default]
+    Plasma = 0,
+    /// VFD blueish
+    BlueVFD = 1,
+    /// VFD greenish
+    GreenVFD = 2,
+    RedLED = 3,
+    GreenLED = 4,
+    YellowLED = 5,
+    GenericPlasma = 6,
+    GenericLED = 7,
+}
+
+impl From<u32> for SegStyle {
+    fn from(value: u32) -> Self {
+        match value {
+            0 => SegStyle::Plasma,
+            1 => SegStyle::BlueVFD,
+            2 => SegStyle::GreenVFD,
+            3 => SegStyle::RedLED,
+            4 => SegStyle::GreenLED,
+            5 => SegStyle::YellowLED,
+            6 => SegStyle::GenericPlasma,
+            7 => SegStyle::GenericLED,
+            _ => panic!("Invalid SegStyle value {value}, expected 0–7"),
+        }
+    }
+}
+
+impl From<SegStyle> for u32 {
+    fn from(value: SegStyle) -> Self {
+        value as u32
+    }
+}
+
+/// Segment display family/shape hint, used as the high bits (`value / 8`) of
+/// [`Flasher::render_style`] when [`render_mode`](Flasher::render_mode) is
+/// [`RenderMode::AlphaSeg`].
+///
+/// Selects the segment shape assets (e.g. `7seg-gts.png`, `7seg-bally.png`).
+#[derive(Debug, PartialEq, Clone, Copy, Default)]
+pub enum SegFamily {
+    #[default]
+    Generic = 0,
+    Gottlieb = 1,
+    Williams = 2,
+    Bally = 3,
+    Atari = 4,
+}
+
+impl From<u32> for SegFamily {
+    fn from(value: u32) -> Self {
+        match value {
+            0 => SegFamily::Generic,
+            1 => SegFamily::Gottlieb,
+            2 => SegFamily::Williams,
+            3 => SegFamily::Bally,
+            4 => SegFamily::Atari,
+            _ => panic!("Invalid SegFamily value {value}, expected 0–4"),
+        }
+    }
+}
+
+impl From<SegFamily> for u32 {
+    fn from(value: SegFamily) -> Self {
+        value as u32
     }
 }
 
@@ -259,24 +416,59 @@ pub struct Flasher {
     /// replaces `is_dmd` and changes from a bool to an enum
     /// BIFF tag: `RDMD` Since 10.8.1
     pub render_mode: Option<RenderMode>,
-    /// Since 10.8.1
+    /// Application-defined style profile reference whose meaning depends on
+    /// [`render_mode`](Flasher::render_mode):
+    ///
+    /// - **[`Flasher`](RenderMode::Flasher)**: not used.
+    /// - **[`DMD`](RenderMode::DMD)**: a [`DmdStyle`] value (0–6).
+    /// - **[`Display`](RenderMode::Display)**: a [`DisplayStyle`] value (0–2).
+    /// - **[`AlphaSeg`](RenderMode::AlphaSeg)**: packed value where
+    ///   `value % 8` is a [`SegStyle`] (0–7) and `value / 8` is a
+    ///   [`SegFamily`] (0–4).
+    /// - **[`ExtRender`](RenderMode::ExtRender)**: window identifier
+    ///   (1=Backglass, 2=ScoreView, 3=Topper).
+    ///
+    /// BIFF tag: `RSTL` Since 10.8.1
     pub render_style: Option<u32>,
-    /// Since 10.8.1
+    /// Roughness of the glass overlay above DMD/Display/AlphaSeg renders.
+    /// BIFF tag: `GRGH` Since 10.8.1
     pub glass_roughness: Option<f32>,
-    /// Since 10.8.1
+    /// Ambient color of the glass overlay (RGB packed as `0x00RRGGBB`).
+    /// BIFF tag: `GAMB` Since 10.8.1
     pub glass_ambient: Option<u32>,
-    /// Since 10.8.1
+    /// Top padding for the glass overlay area.
+    /// BIFF tag: `GTOP` Since 10.8.1
     pub glass_pad_top: Option<f32>,
-    /// Since 10.8.1
+    /// Bottom padding for the glass overlay area.
+    /// BIFF tag: `GBOT` Since 10.8.1
     pub glass_pad_bottom: Option<f32>,
-    /// Since 10.8.1
+    /// Left padding for the glass overlay area.
+    /// BIFF tag: `GLFT` Since 10.8.1
     pub glass_pad_left: Option<f32>,
-    /// Since 10.8.1
+    /// Right padding for the glass overlay area.
+    /// BIFF tag: `GRHT` Since 10.8.1
     pub glass_pad_right: Option<f32>,
-    /// Since 10.8.1
+    /// Image source link for display content (default source is script).
+    /// BIFF tag: `LINK` Since 10.8.1
     pub image_src_link: Option<String>,
+    /// Whether to display the texture in the VPinball editor preview.
+    /// This does NOT affect runtime rendering — textures are always rendered if set.
+    /// Also used on: [`Wall`], [`Primitive`].
+    /// BIFF tag: `DSPT`
     pub display_texture: bool,
+    /// Offset applied when depth-sorting transparent and overlapping objects.
+    /// Higher values move the object "further away" in the sort order, causing it
+    /// to render behind objects with lower bias.
+    /// Also used on: [`Primitive`], [`Ramp`], [`Light`], [`HitTarget`].
+    /// BIFF tag: `FLDB`
     pub depth_bias: f32,
+    /// Controls how the texture is mapped onto the flasher polygon.
+    /// - [`World`](RampImageAlignment::World): UVs are based on table coordinates.
+    /// - [`Wrap`](RampImageAlignment::Wrap): UVs are based on the flasher bounding box
+    ///   (texture is stretched to fit).
+    ///
+    /// Also used on: [`Ramp`].
+    /// BIFF tag: `ALGN`
     pub image_alignment: RampImageAlignment,
     /// Blend mode used when combining image_a and image_b.
     /// See [`Filter`] for available modes.
