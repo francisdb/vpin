@@ -97,28 +97,37 @@ pub struct Primitive {
     pub backfaces_enabled: Option<bool>, // 35 EBFC (added in 10.?)
     pub physics_material: Option<String>, // 36 MAPH (added in 10.?)
     pub overwrite_physics: Option<bool>, // 37 OVPH (added in 10.?)
-    pub display_texture: Option<bool>,   // 38 DIPT (added in ?)
+    /// Whether to display the texture in the VPinball editor preview.
+    /// This does NOT affect runtime rendering — textures are always rendered if set.
+    /// Also used on: [`Flasher`], [`Wall`].
+    /// BIFF tag: `DIPT` (added in ?)
+    pub display_texture: Option<bool>,
     pub object_space_normal_map: Option<bool>, // 38.5 OSNM (added in ?)
-    pub min_aa_bound: Option<Vec<u8>>,   // BMIN added in 10.8 ( TODO Vector3D)
-    pub max_aa_bound: Option<Vec<u8>>,   // BMAX added in 10.8( TODO Vector3D)
-    pub mesh_file_name: Option<String>,  // 39 M3DN
-    pub num_vertices: Option<u32>,       // 40 M3VN
-    pub compressed_vertices_len: Option<u32>, // 41 M3CY
+    pub min_aa_bound: Option<Vec<u8>>,         // BMIN added in 10.8 ( TODO Vector3D)
+    pub max_aa_bound: Option<Vec<u8>>,         // BMAX added in 10.8( TODO Vector3D)
+    pub mesh_file_name: Option<String>,        // 39 M3DN
+    pub num_vertices: Option<u32>,             // 40 M3VN
+    pub compressed_vertices_len: Option<u32>,  // 41 M3CY
     pub compressed_vertices_data: Option<Vec<u8>>, // 42 M3CX
-    pub num_indices: Option<u32>,        // 43 M3FN
-    pub compressed_indices_len: Option<u32>, // 44 M3CJ
+    pub num_indices: Option<u32>,              // 43 M3FN
+    pub compressed_indices_len: Option<u32>,   // 44 M3CJ
     pub compressed_indices_data: Option<Vec<u8>>, // 45 M3CI
     pub compressed_animation_vertices_len: Option<Vec<u32>>, // 46 M3AY multiple
     pub compressed_animation_vertices_data: Option<Vec<Vec<u8>>>, // 47 M3AX multiple
-    pub depth_bias: f32,                 // 45 PIDB
-    pub add_blend: Option<bool>,         // 46 ADDB - added in ?
-    pub use_depth_mask: Option<bool>,    // ZMSK added in 10.8
-    pub alpha: Option<f32>,              // 47 FALP - added in ?
-    pub color: Option<Color>,            // 48 COLR - added in ?
-    pub light_map: Option<String>,       // LMAP - added in 10.8
-    pub reflection_probe: Option<String>, // REFL - added in 10.8
-    pub reflection_strength: Option<f32>, // RSTR - added in 10.8
-    pub refraction_probe: Option<String>, // REFR - added in 10.8
+    /// Offset applied when depth-sorting transparent and overlapping objects.
+    /// Higher values move the object "further away" in the sort order, causing it
+    /// to render behind objects with lower bias.
+    /// Also used on: [`Flasher`], [`Ramp`], [`Light`], [`HitTarget`].
+    /// BIFF tag: `PIDB`
+    pub depth_bias: f32,
+    pub add_blend: Option<bool>,           // 46 ADDB - added in ?
+    pub use_depth_mask: Option<bool>,      // ZMSK added in 10.8
+    pub alpha: Option<f32>,                // 47 FALP - added in ?
+    pub color: Option<Color>,              // 48 COLR - added in ?
+    pub light_map: Option<String>,         // LMAP - added in 10.8
+    pub reflection_probe: Option<String>,  // REFL - added in 10.8
+    pub reflection_strength: Option<f32>,  // RSTR - added in 10.8
+    pub refraction_probe: Option<String>,  // REFR - added in 10.8
     pub refraction_thickness: Option<f32>, // RTHI - added in 10.8
 
     // these are shared between all items

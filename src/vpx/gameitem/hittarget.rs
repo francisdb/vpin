@@ -194,6 +194,11 @@ pub struct HitTarget {
     ///
     /// BIFF tag: `DILB` (added in 10.?)
     pub disable_lighting_below: Option<f32>,
+    /// Offset applied when depth-sorting transparent and overlapping objects.
+    /// Higher values move the object "further away" in the sort order, causing it
+    /// to render behind objects with lower bias.
+    /// Also used on: [`Flasher`], [`Primitive`], [`Ramp`], [`Light`].
+    /// BIFF tag: `PIDB`
     pub depth_bias: f32,
     /// Whether this hittarget appears in playfield reflections.
     ///

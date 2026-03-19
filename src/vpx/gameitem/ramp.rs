@@ -128,31 +128,43 @@ impl<'de> Deserialize<'de> for RampType {
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Ramp {
-    pub height_bottom: f32,                  // 1
-    pub height_top: f32,                     // 2
-    pub width_bottom: f32,                   // 3
-    pub width_top: f32,                      // 4
-    pub material: String,                    // 5
-    pub ramp_type: RampType,                 // TYPE 8
-    pub name: String,                        // 9
-    pub image: String,                       // 10
+    pub height_bottom: f32,  // 1
+    pub height_top: f32,     // 2
+    pub width_bottom: f32,   // 3
+    pub width_top: f32,      // 4
+    pub material: String,    // 5
+    pub ramp_type: RampType, // TYPE 8
+    pub name: String,        // 9
+    pub image: String,       // 10
+    /// Controls how the texture is mapped onto the ramp surface.
+    /// - [`World`](RampImageAlignment::World): UVs are based on table coordinates.
+    /// - [`Wrap`](RampImageAlignment::Wrap): UVs are based on the ramp bounding box
+    ///   (texture is stretched to fit).
+    ///
+    /// Also used on: [`Flasher`].
+    /// BIFF tag: `ALGN`
     pub image_alignment: RampImageAlignment, // 11
-    pub image_walls: bool,                   // 12
-    pub left_wall_height: f32,               // 13
-    pub right_wall_height: f32,              // 14
-    pub left_wall_height_visible: f32,       // 15
-    pub right_wall_height_visible: f32,      // 16
-    pub hit_event: Option<bool>,             // HTEV 17 (added in 10.?)
-    pub threshold: Option<f32>,              // THRS 18 (added in 10.?)
-    pub elasticity: f32,                     // 19
-    pub friction: f32,                       // 20
-    pub scatter: f32,                        // 21
-    pub is_collidable: bool,                 // 22
-    pub is_visible: bool,                    // 23
-    pub depth_bias: f32,                     // 24
-    pub wire_diameter: f32,                  // 25
-    pub wire_distance_x: f32,                // 26
-    pub wire_distance_y: f32,                // 27
+    pub image_walls: bool,   // 12
+    pub left_wall_height: f32, // 13
+    pub right_wall_height: f32, // 14
+    pub left_wall_height_visible: f32, // 15
+    pub right_wall_height_visible: f32, // 16
+    pub hit_event: Option<bool>, // HTEV 17 (added in 10.?)
+    pub threshold: Option<f32>, // THRS 18 (added in 10.?)
+    pub elasticity: f32,     // 19
+    pub friction: f32,       // 20
+    pub scatter: f32,        // 21
+    pub is_collidable: bool, // 22
+    pub is_visible: bool,    // 23
+    /// Offset applied when depth-sorting transparent and overlapping objects.
+    /// Higher values move the object "further away" in the sort order, causing it
+    /// to render behind objects with lower bias.
+    /// Also used on: [`Flasher`], [`Primitive`], [`Light`], [`HitTarget`].
+    /// BIFF tag: `RADB`
+    pub depth_bias: f32,
+    pub wire_diameter: f32,   // 25
+    pub wire_distance_x: f32, // 26
+    pub wire_distance_y: f32, // 27
     /// Whether this ramp appears in playfield reflections.
     ///
     /// When `true`, the ball is rendered in the reflection pass.
