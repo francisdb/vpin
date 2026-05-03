@@ -668,8 +668,26 @@ pub struct Light {
     /// `VSBL` (added in 10.8)
     pub visible: Option<bool>,
 
-    /// Timer data for scripting (shared across all game items).
-    /// See [`TimerData`] for details.
+    /// Timer data inherited from the shared item base; see [`TimerData`] for
+    /// the underlying BIFF mechanics.
+    ///
+    /// On tables that drive lights from a ROM controller (typically PinMAME
+    /// via `core.vbs`, but also SAM, Spike, P-ROC etc.), `timer.interval` is
+    /// conventionally repurposed as the **lamp number** - the index into the
+    /// controller's lamp matrix - rather than as a millisecond timer period.
+    /// `core.vbs`'s `vpmMapLights` reads `obj.TimerInterval` as the lamp index
+    /// when populating the `Lights` array, so a light with `interval = 103`
+    /// becomes `Set Lights(103) = l103`. Original (non-ROM) tables don't
+    /// follow this convention and may use `interval` for its actual purpose
+    /// or leave it at the default.
+    ///
+    /// This is a VPX design quirk: rather than adding a separate lamp-number
+    /// property, ROM-integration scripts overload the inherited `TimerInterval`
+    /// for that purpose. `timer.is_enabled` retains its normal meaning - when
+    /// `true`, VPinball still fires the `{Name}_Timer` Sub at `interval` ms -
+    /// but the two uses are mutually exclusive in practice, since enabling the
+    /// timer on a ROM-driven light would make the lamp-number value behave as
+    /// a (likely unintended) interval.
     pub timer: TimerData,
 
     // these are shared between all items
