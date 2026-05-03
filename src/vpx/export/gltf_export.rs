@@ -459,15 +459,11 @@ fn get_surface_height(vpx: &VPX, surface_name: &str, x: f32, y: f32) -> f32 {
     // Search through game items for matching surface or ramp
     for item in &vpx.gameitems {
         match item {
-            GameItemEnum::Wall(wall) => {
-                if wall.name.eq_ignore_ascii_case(surface_name) {
-                    return wall.height_top;
-                }
+            GameItemEnum::Wall(wall) if wall.name.eq_ignore_ascii_case(surface_name) => {
+                return wall.height_top;
             }
-            GameItemEnum::Ramp(ramp) => {
-                if ramp.name.eq_ignore_ascii_case(surface_name) {
-                    return crate::vpx::mesh::ramps::get_ramp_surface_height(ramp, x, y);
-                }
+            GameItemEnum::Ramp(ramp) if ramp.name.eq_ignore_ascii_case(surface_name) => {
+                return crate::vpx::mesh::ramps::get_ramp_surface_height(ramp, x, y);
             }
             _ => {}
         }

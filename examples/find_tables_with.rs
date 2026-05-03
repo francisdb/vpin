@@ -86,22 +86,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 for item in &vpx.gameitems {
                     match item {
-                        GameItemEnum::Decal(decal) => {
-                            if mode == SearchMode::Decals || mode == SearchMode::All {
-                                if decal.backglass {
-                                    table_decals.backglass.push(decal);
-                                } else {
-                                    match decal.decal_type {
-                                        DecalType::Image => table_decals.image.push(decal),
-                                        DecalType::Text => table_decals.text.push(decal),
-                                    }
+                        GameItemEnum::Decal(decal)
+                            if mode == SearchMode::Decals || mode == SearchMode::All =>
+                        {
+                            if decal.backglass {
+                                table_decals.backglass.push(decal);
+                            } else {
+                                match decal.decal_type {
+                                    DecalType::Image => table_decals.image.push(decal),
+                                    DecalType::Text => table_decals.text.push(decal),
                                 }
                             }
                         }
-                        GameItemEnum::Ball(ball) => {
-                            if mode == SearchMode::Balls || mode == SearchMode::All {
-                                table_balls.push(ball);
-                            }
+                        GameItemEnum::Ball(ball)
+                            if mode == SearchMode::Balls || mode == SearchMode::All =>
+                        {
+                            table_balls.push(ball);
                         }
                         _ => {}
                     }
