@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.6](https://github.com/francisdb/vpin/compare/v0.23.5...v0.23.6) - 2026-05-03
+
+### Fixed
+
+- *(clippy)* satisfy clippy 1.95 collapsible_match
+
+### Other
+
+- explain Light TimerInterval lamp-number convention
+- *(deps)* update md2 requirement from 0.10.2 to 0.11.0 ([#283](https://github.com/francisdb/vpin/pull/283))
+- *(deps)* update testdir requirement from 0.9.3 to 0.10.0 ([#281](https://github.com/francisdb/vpin/pull/281))
+
 ## [0.23.5](https://github.com/francisdb/vpin/compare/v0.23.4...v0.23.5) - 2026-03-19
 
 ### Added
