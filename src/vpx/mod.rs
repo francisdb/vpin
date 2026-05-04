@@ -266,15 +266,6 @@ impl<F: Read + Seek + Write> VpxFile<F> {
         Ok(true)
     }
 
-    /// Toggle the lock state. Always increments the `TLCK` counter,
-    /// matching vpinball's editor `ToggleLock()` button.
-    pub fn toggle_lock(&mut self) -> io::Result<()> {
-        let mut gamedata = self.read_gamedata()?;
-        let counter = gamedata.locked.unwrap_or(0);
-        gamedata.locked = Some(counter.wrapping_add(1));
-        self.write_gamedata(&gamedata)
-    }
-
     pub fn read_gameitems(&mut self) -> io::Result<Vec<GameItemEnum>> {
         let gamedata = self.read_gamedata()?;
         read_gameitems(&mut self.compound_file, &gamedata)
@@ -1282,10 +1273,10 @@ mod tests {
     }
 
     #[test]
-    fn vpx_file_lock_unlock_toggle() -> io::Result<()> {
-        // Walks the full lock/unlock/toggle surface in one go: idempotence,
-        // the bool return reporting whether a write actually happened, and
-        // monotonic counter preservation.
+    fn vpx_file_lock_unlock() -> io::Result<()> {
+        // Walks the lock/unlock surface in one go: idempotence, the bool
+        // return reporting whether a write actually happened, and monotonic
+        // counter preservation.
         let cursor = Cursor::new(TEST_TABLE_BYTES.to_vec());
         let mut vpx = VpxFile::open_rw(cursor)?;
 
@@ -1316,8 +1307,8 @@ mod tests {
             unlocked_counter.wrapping_add(1)
         );
 
-        // toggle always advances by 1 regardless of current state.
-        vpx.toggle_lock()?;
+        // unlock advances by 1 and reports it wrote.
+        assert!(vpx.unlock()?);
         assert!(!vpx.is_locked()?);
         assert_eq!(
             vpx.read_gamedata()?.locked.unwrap_or(0),
