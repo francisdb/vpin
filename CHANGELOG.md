@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0](https://github.com/francisdb/vpin/compare/v0.23.6...v0.24.0) - 2026-05-04
+
+### Added
+
+- *(vpx)* add VpxFile gamedata write + lock helpers ([#287](https://github.com/francisdb/vpin/pull/287))
+
+### Other
+
+- *(vpx)* [**breaking**] drop VpxFile::toggle_lock ([#289](https://github.com/francisdb/vpin/pull/289))
+
 ## [0.23.6](https://github.com/francisdb/vpin/compare/v0.23.5...v0.23.6) - 2026-05-03
 
 ### Fixed
