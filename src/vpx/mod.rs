@@ -210,6 +210,71 @@ impl<F: Read + Seek + Write> VpxFile<F> {
         read_gamedata(&mut self.compound_file, &version)
     }
 
+    /// Overwrite the GameData stream and refresh the file's MAC signature.
+    ///
+    /// All other streams (gameitems, images, sounds, fonts, collections,
+    /// table info, version, script) are left untouched, so this is the
+    /// efficient path for surgical edits like toggling the lock counter
+    /// (`gamedata.locked`) without re-encoding the entire file.
+    pub fn write_gamedata(&mut self, gamedata: &GameData) -> io::Result<()> {
+        let version = self.read_version()?;
+        write_game_data(&mut self.compound_file, gamedata, &version)?;
+        let mac = generate_mac(&mut self.compound_file)?;
+        write_mac(&mut self.compound_file, &mac)?;
+        self.compound_file.flush()
+    }
+
+    /// Whether the table is currently locked.
+    ///
+    /// vpinball stores `TLCK` as a monotonic counter; the lock bit is the
+    /// counter's parity (odd = locked, even or absent = unlocked).
+    pub fn is_locked(&mut self) -> io::Result<bool> {
+        Ok(self.read_gamedata()?.locked.unwrap_or(0) & 1 != 0)
+    }
+
+    /// Lock the table if it isn't already, mirroring vpinball's
+    /// `ToggleLock()` (single increment of the `TLCK` counter, preserving
+    /// the audit trail).
+    ///
+    /// Returns `true` if the call actually modified the file, `false` if
+    /// the table was already locked and nothing was written.
+    pub fn lock(&mut self) -> io::Result<bool> {
+        let mut gamedata = self.read_gamedata()?;
+        let counter = gamedata.locked.unwrap_or(0);
+        if counter & 1 != 0 {
+            return Ok(false);
+        }
+        gamedata.locked = Some(counter.wrapping_add(1));
+        self.write_gamedata(&gamedata)?;
+        Ok(true)
+    }
+
+    /// Unlock the table if it is currently locked. Like `lock`, this
+    /// increments the `TLCK` counter rather than resetting it, to
+    /// preserve the audit trail.
+    ///
+    /// Returns `true` if the call actually modified the file, `false` if
+    /// the table was already unlocked and nothing was written.
+    pub fn unlock(&mut self) -> io::Result<bool> {
+        let mut gamedata = self.read_gamedata()?;
+        let counter = gamedata.locked.unwrap_or(0);
+        if counter & 1 == 0 {
+            return Ok(false);
+        }
+        gamedata.locked = Some(counter.wrapping_add(1));
+        self.write_gamedata(&gamedata)?;
+        Ok(true)
+    }
+
+    /// Toggle the lock state. Always increments the `TLCK` counter,
+    /// matching vpinball's editor `ToggleLock()` button.
+    pub fn toggle_lock(&mut self) -> io::Result<()> {
+        let mut gamedata = self.read_gamedata()?;
+        let counter = gamedata.locked.unwrap_or(0);
+        gamedata.locked = Some(counter.wrapping_add(1));
+        self.write_gamedata(&gamedata)
+    }
+
     pub fn read_gameitems(&mut self) -> io::Result<Vec<GameItemEnum>> {
         let gamedata = self.read_gamedata()?;
         read_gameitems(&mut self.compound_file, &gamedata)
@@ -1187,6 +1252,78 @@ mod tests {
         let read = read_gamedata(&mut comp2, &version)?;
 
         assert_eq!(original, read);
+        Ok(())
+    }
+
+    #[test]
+    fn vpx_file_write_gamedata_round_trip() -> io::Result<()> {
+        // Surgical update: open an existing vpx, mutate one gamedata field,
+        // write only the GameData stream + refresh the MAC. The change must
+        // round-trip and the MAC must remain valid for the (mostly unchanged)
+        // compound document.
+        let cursor = Cursor::new(TEST_TABLE_BYTES.to_vec());
+        let mut vpx = VpxFile::open_rw(cursor)?;
+
+        let original_locked = vpx.read_gamedata()?.locked.unwrap_or(0);
+
+        let mut gamedata = vpx.read_gamedata()?;
+        gamedata.locked = Some(original_locked.wrapping_add(1));
+        vpx.write_gamedata(&gamedata)?;
+
+        let read_back = vpx.read_gamedata()?;
+        assert_eq!(read_back.locked, Some(original_locked.wrapping_add(1)));
+
+        // The stored MAC matches what generate_mac would compute now, so
+        // verify() against this file would still pass.
+        let stored_mac = read_mac(&mut vpx.compound_file)?;
+        let computed_mac = generate_mac(&mut vpx.compound_file)?;
+        assert_eq!(stored_mac, computed_mac);
+        Ok(())
+    }
+
+    #[test]
+    fn vpx_file_lock_unlock_toggle() -> io::Result<()> {
+        // Walks the full lock/unlock/toggle surface in one go: idempotence,
+        // the bool return reporting whether a write actually happened, and
+        // monotonic counter preservation.
+        let cursor = Cursor::new(TEST_TABLE_BYTES.to_vec());
+        let mut vpx = VpxFile::open_rw(cursor)?;
+
+        // Normalise to a known unlocked state without losing test independence.
+        if vpx.is_locked()? {
+            assert!(vpx.unlock()?);
+        }
+        let unlocked_counter = vpx.read_gamedata()?.locked.unwrap_or(0);
+        assert!(!vpx.is_locked()?);
+
+        // unlock on an already-unlocked table is a no-op (no write, counter unchanged).
+        assert!(!vpx.unlock()?);
+        assert_eq!(vpx.read_gamedata()?.locked.unwrap_or(0), unlocked_counter);
+        assert!(!vpx.is_locked()?);
+
+        // lock advances by 1 and reports it wrote.
+        assert!(vpx.lock()?);
+        assert!(vpx.is_locked()?);
+        assert_eq!(
+            vpx.read_gamedata()?.locked.unwrap_or(0),
+            unlocked_counter.wrapping_add(1)
+        );
+
+        // lock on an already-locked table is a no-op (no write).
+        assert!(!vpx.lock()?);
+        assert_eq!(
+            vpx.read_gamedata()?.locked.unwrap_or(0),
+            unlocked_counter.wrapping_add(1)
+        );
+
+        // toggle always advances by 1 regardless of current state.
+        vpx.toggle_lock()?;
+        assert!(!vpx.is_locked()?);
+        assert_eq!(
+            vpx.read_gamedata()?.locked.unwrap_or(0),
+            unlocked_counter.wrapping_add(2)
+        );
+
         Ok(())
     }
 
