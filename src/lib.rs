@@ -8,7 +8,6 @@
 pub mod filesystem;
 pub(crate) mod gltf;
 pub mod vpx;
-pub(crate) mod wavefront_obj_io;
 
 #[cfg(feature = "wasm")]
 pub mod wasm;
