@@ -1,12 +1,11 @@
 # vpin
 
-Rust library for working with Visual Pinball VPX files
+[![Crates.io](https://img.shields.io/crates/v/vpin.svg)](https://crates.io/crates/vpin)
+[![Docs.rs](https://docs.rs/vpin/badge.svg)](https://docs.rs/vpin)
+[![npm](https://img.shields.io/npm/v/@francisdb/vpin-wasm.svg)](https://www.npmjs.com/package/@francisdb/vpin-wasm)
 
-Find it on crates.io:
-https://crates.io/crates/vpin
-
-Also available on npm as WASM package:
-https://www.npmjs.com/package/@francisdb/vpin-wasm
+Rust library for working with Visual Pinball VPX files. Also available on npm
+as a WASM package: [`@francisdb/vpin-wasm`](https://www.npmjs.com/package/@francisdb/vpin-wasm).
 
 Join [#vpxtool on "Virtual Pinball Chat" discord](https://discord.gg/eYsvyMu8) for support and questions.
 
