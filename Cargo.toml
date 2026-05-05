@@ -42,6 +42,7 @@ sanitize-filename = "0.6"
 log = "0.4"
 tracing = "0.1"
 itoa = "1.0.15"
+wavefront-obj-io = "0.1.1"
 rayon = { version = "1.11.0", optional = true }
 wasm-bindgen = { version = "0.2.108", optional = true }
 js-sys = { version = "0.3.85", optional = true }

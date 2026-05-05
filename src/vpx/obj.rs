@@ -9,8 +9,6 @@ use crate::filesystem::FileSystem;
 use crate::vpx::expanded::BytesMutExt;
 use crate::vpx::gameitem::primitive::VertexWrapper;
 use crate::vpx::model::Vertex3dNoTex2;
-use crate::wavefront_obj_io;
-use crate::wavefront_obj_io::{ObjReader, ObjWriter};
 use bytes::{BufMut, BytesMut};
 use log::warn;
 use std::error::Error;
@@ -18,6 +16,7 @@ use std::io;
 use std::io::BufRead;
 use std::path::Path;
 use tracing::{info_span, instrument};
+use wavefront_obj_io::{ObjReader, ObjWriter};
 // We have some issues where the data in the vpx file contains NaN values for normals.
 // Therefore, we came up with an elaborate way to store the vpx normals data as a comment in the obj file.
 // To be seen if we keep this as it comes with considerable overhead.
