@@ -250,7 +250,10 @@ fn write_playfield<O: ObjWriter<f32>, M: MtlWriter<f32>>(
         state,
         fs,
         Block {
-            name: "playfield_mesh",
+            // VPinball's PinTable::ExportMesh emits `o <m_wzName>` for the
+            // playfield quad (default "Table1" if the user never renamed
+            // the table).
+            name: &state.vpx.gamedata.name,
             vertices: &vertices,
             indices: &indices,
             translation: Vec3::new(0.0, 0.0, 0.0),
@@ -416,64 +419,106 @@ fn write_wall<O: ObjWriter<f32>, M: MtlWriter<f32>>(
         return Ok(());
     };
 
-    if wall.is_top_bottom_visible
-        && let Some((vertices, indices)) = meshes.top
-    {
-        let material_name = if !wall.top_material.is_empty() {
-            Some(wall.top_material.clone())
-        } else {
-            None
-        };
-        let texture_name = if !wall.image.is_empty() {
-            Some(wall.image.clone())
-        } else {
-            None
-        };
-        write_block(
-            obj,
-            mtl,
-            state,
-            fs,
-            Block {
-                name: &format!("{}Top", wall.name),
-                vertices: &vertices,
-                indices: &indices,
-                translation: Vec3::new(0.0, 0.0, 0.0),
-                material_name: material_name.as_deref(),
-                texture_name: texture_name.as_deref(),
-                smoothing: true,
-            },
-        )?;
-    }
-
-    if wall.is_side_visible
-        && let Some((vertices, indices)) = meshes.side
-    {
-        let material_name = if !wall.side_material.is_empty() {
-            Some(wall.side_material.clone())
-        } else {
-            None
-        };
-        let texture_name = if !wall.side_image.is_empty() {
-            Some(wall.side_image.clone())
-        } else {
-            None
-        };
-        write_block(
-            obj,
-            mtl,
-            state,
-            fs,
-            Block {
-                name: &format!("{}Side", wall.name),
-                vertices: &vertices,
-                indices: &indices,
-                translation: Vec3::new(0.0, 0.0, 0.0),
-                material_name: material_name.as_deref(),
-                texture_name: texture_name.as_deref(),
-                smoothing: false,
-            },
-        )?;
+    // VPinball's `Surface::ExportMesh` (surface.cpp:675) has three branches:
+    //
+    //   - top-only:  one object `<name>`, top material, no smoothing group
+    //   - side-only: one object `<name>`, side material, no smoothing group
+    //   - both:      one object `<name>` with sideBuf*4 followed by topBuf*1,
+    //                top material + `s 1`, top face indices shifted by 4*N
+    //
+    // We mirror the same dispatch.
+    match (
+        wall.is_top_bottom_visible,
+        wall.is_side_visible,
+        meshes.top,
+        meshes.side,
+    ) {
+        (true, false, Some((vertices, indices)), _) => {
+            let material_name = if !wall.top_material.is_empty() {
+                Some(wall.top_material.clone())
+            } else {
+                None
+            };
+            let texture_name = if !wall.image.is_empty() {
+                Some(wall.image.clone())
+            } else {
+                None
+            };
+            write_block(
+                obj,
+                mtl,
+                state,
+                fs,
+                Block {
+                    name: &wall.name,
+                    vertices: &vertices,
+                    indices: &indices,
+                    translation: Vec3::new(0.0, 0.0, 0.0),
+                    material_name: material_name.as_deref(),
+                    texture_name: texture_name.as_deref(),
+                    smoothing: false,
+                },
+            )?;
+        }
+        (false, true, _, Some((vertices, indices))) => {
+            let material_name = if !wall.side_material.is_empty() {
+                Some(wall.side_material.clone())
+            } else {
+                None
+            };
+            let texture_name = if !wall.side_image.is_empty() {
+                Some(wall.side_image.clone())
+            } else {
+                None
+            };
+            write_block(
+                obj,
+                mtl,
+                state,
+                fs,
+                Block {
+                    name: &wall.name,
+                    vertices: &vertices,
+                    indices: &indices,
+                    translation: Vec3::new(0.0, 0.0, 0.0),
+                    material_name: material_name.as_deref(),
+                    texture_name: texture_name.as_deref(),
+                    smoothing: false,
+                },
+            )?;
+        }
+        (true, true, Some((top_v, top_i)), Some((side_v, side_i))) => {
+            let side_count = side_v.len() as i64;
+            let mut combined_v = side_v;
+            combined_v.extend(top_v);
+            let mut combined_i = side_i;
+            combined_i.extend(top_i.into_iter().map(|f| VpxFace {
+                i0: f.i0 + side_count,
+                i1: f.i1 + side_count,
+                i2: f.i2 + side_count,
+            }));
+            let material_name = if !wall.top_material.is_empty() {
+                Some(wall.top_material.clone())
+            } else {
+                None
+            };
+            write_block(
+                obj,
+                mtl,
+                state,
+                fs,
+                Block {
+                    name: &wall.name,
+                    vertices: &combined_v,
+                    indices: &combined_i,
+                    translation: Vec3::new(0.0, 0.0, 0.0),
+                    material_name: material_name.as_deref(),
+                    texture_name: None,
+                    smoothing: true,
+                },
+            )?;
+        }
+        _ => {}
     }
     Ok(())
 }
