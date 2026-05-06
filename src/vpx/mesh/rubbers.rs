@@ -126,8 +126,11 @@ fn generate_mesh(rubber: &Rubber) -> Option<(Vec<Vertex3dNoTex2>, Vec<u32>)> {
         return None;
     }
 
-    // Use 8 segments for the circular cross-section (similar to wire ramps)
-    let num_segments = 8;
+    // VPinball's `Rubber::GenerateMesh` derives `numSegments` from the
+    // table's detail level: at the typical default (detail level 10,
+    // static rendering on) the formula `(int)(10.0f * 1.3f)` yields 12
+    // due to f32 rounding (1.3f -> 1.2999999...). Hardcode 12 to match.
+    let num_segments = 12;
 
     let num_vertices = num_rings * num_segments;
     let num_indices = 6 * num_vertices;
@@ -596,7 +599,7 @@ mod tests {
         // For a smooth rubber, adjacent vertices should have similar normals
         // (indicating smooth shading, not flat shading with hard edges)
         // We check vertices that are on the same ring (same position along the rubber)
-        let num_segments = 8; // Cross-section segments
+        let num_segments = 12; // Cross-section segments
 
         // Check the first ring of vertices
         if verts.len() >= num_segments * 2 {
@@ -754,7 +757,7 @@ mod tests {
         assert!(result.is_some(), "Ring003 rubber mesh should be generated");
 
         let (vertices, indices, _center) = result.unwrap();
-        let num_segments = 8; // Cross-section segments
+        let num_segments = 12; // Cross-section segments
         let num_rings = vertices.len() / num_segments;
 
         println!("Ring003 rubber:");

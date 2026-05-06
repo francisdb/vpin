@@ -480,8 +480,11 @@ fn build_wire_ramp_mesh(
         return None;
     }
 
-    // Determine accuracy/segments based on detail level (use 8 as default)
-    let num_segments = 8;
+    // VPinball's `Ramp::CreateWire` derives `numSegments` from the table's
+    // detail level: at the typical default (detail level 10, static
+    // rendering on) the formula `(int)(10.0f * 1.3f)` yields 12 due to
+    // f32 rounding (1.3f -> 1.2999999...). Hardcode 12 to match.
+    let num_segments = 12;
 
     // Get middle points (center of ramp)
     let mut mid_points: Vec<Vec2> = Vec::with_capacity(num_rings);
@@ -930,7 +933,7 @@ mod tests {
 
         // With smoothing, we should have more than 3 rings (original control points)
         // The exact number depends on accuracy, but should be > 3 due to subdivision
-        let num_segments = 8;
+        let num_segments = 12;
         let num_vertices = vertices.len();
         let num_rings = num_vertices / num_segments;
         assert!(
