@@ -494,7 +494,18 @@ pub fn build_flipper_meshes(flipper: &Flipper, surface_height: f32) -> Option<Fl
     if !flipper.is_visible {
         return None;
     }
+    build_flipper_meshes_unchecked(flipper, surface_height)
+}
 
+/// Like [`build_flipper_meshes`] but skips the runtime visibility check.
+///
+/// VPinball's `Flipper::ExportMesh` does not consult `m_d.m_visible` -
+/// it only filters at the table level via `m_uiVisible`. The OBJ exporter
+/// uses this variant to match.
+pub(crate) fn build_flipper_meshes_unchecked(
+    flipper: &Flipper,
+    surface_height: f32,
+) -> Option<FlipperMeshes> {
     let rubber_thickness = flipper
         .rubber_thickness
         .unwrap_or(flipper.rubber_thickness_int as f32);

@@ -39,9 +39,9 @@ use crate::vpx::image::ImageData;
 use crate::vpx::material::{Material, MaterialType};
 use crate::vpx::math::{Matrix3D, Vec3, Vertex3D};
 use crate::vpx::mesh::bumpers::build_bumper_meshes;
-use crate::vpx::mesh::flippers::build_flipper_meshes;
-use crate::vpx::mesh::gates::build_gate_meshes;
-use crate::vpx::mesh::hittargets::build_hit_target_mesh;
+use crate::vpx::mesh::flippers::build_flipper_meshes_unchecked;
+use crate::vpx::mesh::gates::build_gate_meshes_unchecked;
+use crate::vpx::mesh::hittargets::build_hit_target_mesh_unchecked;
 use crate::vpx::mesh::kickers::build_kicker_meshes;
 use crate::vpx::mesh::playfields::build_playfield_mesh;
 use crate::vpx::mesh::ramps::build_ramp_mesh;
@@ -717,10 +717,8 @@ fn write_flipper<O: ObjWriter<f32>, M: MtlWriter<f32>>(
     fs: &dyn FileSystem,
     flipper: &crate::vpx::gameitem::flipper::Flipper,
 ) -> io::Result<()> {
-    if !flipper.is_visible {
-        return Ok(());
-    }
-    let Some(meshes) = build_flipper_meshes(flipper, 0.0) else {
+    // VPinball's `Flipper::ExportMesh` has no `m_d.m_visible` guard.
+    let Some(meshes) = build_flipper_meshes_unchecked(flipper, 0.0) else {
         return Ok(());
     };
     let translation = meshes.center;
@@ -780,12 +778,10 @@ fn write_gate<O: ObjWriter<f32>, M: MtlWriter<f32>>(
     fs: &dyn FileSystem,
     gate: &crate::vpx::gameitem::gate::Gate,
 ) -> io::Result<()> {
-    if !gate.is_visible {
-        return Ok(());
-    }
+    // VPinball's `Gate::ExportMesh` has no `m_d.m_visible` guard.
     let surface_height = state.surface_height(&gate.surface, gate.center.x, gate.center.y);
     let translation = Vec3::new(gate.center.x, gate.center.y, surface_height + gate.height);
-    let Some(meshes) = build_gate_meshes(gate) else {
+    let Some(meshes) = build_gate_meshes_unchecked(gate) else {
         return Ok(());
     };
     let material_name = if gate.material.is_empty() {
@@ -893,9 +889,7 @@ fn write_spinner<O: ObjWriter<f32>, M: MtlWriter<f32>>(
     fs: &dyn FileSystem,
     spinner: &crate::vpx::gameitem::spinner::Spinner,
 ) -> io::Result<()> {
-    if !spinner.is_visible {
-        return Ok(());
-    }
+    // VPinball's `Spinner::ExportMesh` has no `m_d.m_visible` guard.
     let surface_height = state.surface_height(&spinner.surface, spinner.center.x, spinner.center.y);
     let translation = Vec3::new(
         spinner.center.x,
@@ -955,10 +949,8 @@ fn write_hittarget<O: ObjWriter<f32>, M: MtlWriter<f32>>(
     fs: &dyn FileSystem,
     target: &crate::vpx::gameitem::hittarget::HitTarget,
 ) -> io::Result<()> {
-    if !target.is_visible {
-        return Ok(());
-    }
-    let Some((vertices, indices)) = build_hit_target_mesh(target) else {
+    // VPinball's `HitTarget::ExportMesh` has no `m_d.m_visible` guard.
+    let Some((vertices, indices)) = build_hit_target_mesh_unchecked(target) else {
         return Ok(());
     };
     let translation = Vec3::new(target.position.x, target.position.y, target.position.z);
