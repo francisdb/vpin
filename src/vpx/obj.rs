@@ -1,9 +1,25 @@
-//! Wavefront OBJ file reader and writer
+//! Wavefront OBJ file reader and writer.
 //!
-//! This binds the vpx format to the wavefront obj format for easier inspection and editing.
+//! This binds the vpx format to the wavefront obj format for easier
+//! inspection and editing.
 //!
-//! Z axis for vertices and normals is negated to match vpx coordinate system.
-//! Winding order is reversed to comply with the winding order change due to z negation.
+//! The dialect produced and consumed here matches vpinball's own
+//! `ObjLoader::Save` / `ObjLoader::Load` (with `convertToLeftHanded=true,
+//! flipTv=true`) so that:
+//!
+//! * an OBJ extracted from a vpx by this library can be opened in the
+//!   vpinball editor without flipped UVs or inside-out faces;
+//! * an OBJ exported from vpinball can be assembled back into a vpx by
+//!   this library.
+//!
+//! Concretely, on write:
+//!
+//! * vertex Z is negated (`obj_z = -vpx_z`),
+//! * normal Z is negated (`obj_nz = -vpx_nz`),
+//! * V texture coordinate is flipped (`obj_v = 1 - vpx_tv`),
+//! * triangle face winding is reversed (`(i0, i1, i2)` is emitted as `f i2 i1 i0`).
+//!
+//! Reading inverts each of those transformations.
 
 use crate::filesystem::FileSystem;
 use crate::vpx::expanded::BytesMutExt;
@@ -13,7 +29,7 @@ use bytes::{BufMut, BytesMut};
 use log::warn;
 use std::error::Error;
 use std::io;
-use std::io::BufRead;
+use std::io::{BufRead, ErrorKind};
 use std::path::Path;
 use tracing::{info_span, instrument};
 use wavefront_obj_io::{ObjReader, ObjWriter};
@@ -90,7 +106,8 @@ pub(crate) fn write_obj_to_writer<W: io::Write>(
         obj_writer.write_vertex(vertex.x, vertex.y, -vertex.z, None)?;
     }
     for VertexWrapper { vertex, .. } in vpx_vertices {
-        obj_writer.write_texture_coordinate(vertex.tu, Some(vertex.tv), None)?;
+        // vpinball's WriteVertexInfo flips V on write (tv -> 1 - tv)
+        obj_writer.write_texture_coordinate(vertex.tu, Some(1.0 - vertex.tv), None)?;
     }
     for VertexWrapper {
         vpx_encoded_vertex,
@@ -109,13 +126,13 @@ pub(crate) fn write_obj_to_writer<W: io::Write>(
         let z = if vertex.nz.is_nan() { 0.0 } else { -vertex.nz };
         obj_writer.write_normal(x, y, z)?;
     }
-    // write all faces in groups of 3
+    // Write all faces in groups of 3. vpinball's WriteFaceInfoLong reverses
+    // the winding order ((i0, i1, i2) emitted as `f i2 i1 i0`); we match it.
     for face in vpx_indices {
-        // We reverse face winding order due to z negation
         // obj indices are 1 based
-        let v1 = face.i0 + 1;
+        let v1 = face.i2 + 1;
         let v2 = face.i1 + 1;
-        let v3 = face.i2 + 1;
+        let v3 = face.i0 + 1;
         obj_writer.write_face(&[
             (v1 as usize, Some(v1 as usize), Some(v1 as usize)),
             (v2 as usize, Some(v2 as usize), Some(v2 as usize)),
@@ -165,7 +182,9 @@ pub(crate) fn read_obj_from_reader<R: BufRead>(mut reader: &mut R) -> io::Result
             ny,
             nz,
             tu: vt.0,
-            tv: vt.1.unwrap_or(0.0),
+            // vpinball's ObjLoader::Load (with flipTv=true) inverts the
+            // V flip applied on write.
+            tv: 1.0 - vt.1.unwrap_or(0.0),
         };
         write_vertex(&mut vpx_encoded_vertices, &vertext, &vn.vpx_bytes);
         final_vertices.push(vertext);
@@ -232,7 +251,13 @@ pub(crate) fn write_obj(
 
 #[derive(Default)]
 struct VpxObjReader {
-    indices: Vec<VpxFace>,
+    /// Raw face corners as they appear in the OBJ. Each face may be a
+    /// triangle (vpinball-format) or an n-gon with mismatched `v/vt/vn`
+    /// (Blender-format).
+    raw_faces: Vec<Vec<FaceCorner>>,
+    /// Set if any face is not already in vpinball's strict triangle +
+    /// matched-indices form. Drives the post-parse normalization fast path.
+    needs_normalize: bool,
     vertices: Vec<(f32, f32, f32, Option<f32>)>,
     texture_coordinates: Vec<(f32, Option<f32>, Option<f32>)>,
     normals: Vec<VpxObjNormal>,
@@ -245,7 +270,8 @@ struct VpxObjReader {
 impl VpxObjReader {
     fn new() -> Self {
         Self {
-            indices: Vec::with_capacity(8 * 1024),
+            raw_faces: Vec::with_capacity(8 * 1024),
+            needs_normalize: false,
             vertices: Vec::with_capacity(8 * 1024),
             texture_coordinates: Vec::with_capacity(8 * 1024),
             normals: Vec::with_capacity(8 * 1024),
@@ -255,7 +281,18 @@ impl VpxObjReader {
         }
     }
 
-    /// Reads the stream and returns the ObjData consuming the reader
+    /// Reads the stream and returns the ObjData consuming the reader.
+    ///
+    /// If every face is a vpinball-format triangle (3 corners with matching
+    /// `v/vt/vn`), the v/vt/vn arrays are returned as-is and the indices
+    /// list is built directly with the per-triangle reverse that mirrors
+    /// vpinball's `WriteFaceInfoLong`.
+    ///
+    /// Otherwise (Blender-style n-gons or mismatched corners), the
+    /// `obj_compat::normalize_for_vpinball` step runs over the collected
+    /// data: faces are corner-reversed, fan-triangulated and
+    /// `(pos, uv, normal)` corners are deduplicated. The v/vt/vn arrays are
+    /// rebuilt to be aligned (same length, one entry per combined corner).
     fn read<R: io::Read>(mut self, reader: &mut R) -> io::Result<ObjData> {
         wavefront_obj_io::read_obj_file(reader, &mut self)?;
         if self.object_count != 1 {
@@ -267,13 +304,72 @@ impl VpxObjReader {
                 ),
             ));
         }
-        Ok(ObjData {
-            name: self.name,
-            vertices: self.vertices,
-            texture_coordinates: self.texture_coordinates,
-            normals: self.normals,
-            indices: self.indices,
-        })
+
+        if self.needs_normalize {
+            let normalized = normalize_for_vpinball(
+                &self.raw_faces,
+                self.vertices.len(),
+                self.texture_coordinates.len(),
+                self.normals.len(),
+            )?;
+
+            let aligned_vertices = normalized
+                .combined
+                .iter()
+                .map(|(p, _, _)| self.vertices[*p])
+                .collect();
+            let aligned_tex_coords = normalized
+                .combined
+                .iter()
+                .map(|(_, t, _)| self.texture_coordinates[*t])
+                .collect();
+            let aligned_normals = normalized
+                .combined
+                .iter()
+                .map(|(_, _, n)| self.normals[*n].clone())
+                .collect();
+            // Triangles from `normalize_for_vpinball` are already in
+            // vpinball's m_indices convention (matches the result of
+            // `ObjLoader::Load`'s corner-reverse + fan-triangulate +
+            // dedup). No further reversal needed here.
+            let indices = normalized
+                .triangles
+                .iter()
+                .map(|t| VpxFace {
+                    i0: t[0] as i64,
+                    i1: t[1] as i64,
+                    i2: t[2] as i64,
+                })
+                .collect();
+
+            Ok(ObjData {
+                name: self.name,
+                vertices: aligned_vertices,
+                texture_coordinates: aligned_tex_coords,
+                normals: aligned_normals,
+                indices,
+            })
+        } else {
+            // Strict fast path: each face is already a triangle with
+            // matching v/vt/vn. Reverse the per-triangle corner order to
+            // undo vpinball's `WriteFaceInfoLong` reversal.
+            let indices = self
+                .raw_faces
+                .iter()
+                .map(|face| VpxFace {
+                    i0: face[2].v as i64 - 1,
+                    i1: face[1].v as i64 - 1,
+                    i2: face[0].v as i64 - 1,
+                })
+                .collect();
+            Ok(ObjData {
+                name: self.name,
+                vertices: self.vertices,
+                texture_coordinates: self.texture_coordinates,
+                normals: self.normals,
+                indices,
+            })
+        }
     }
 }
 
@@ -317,12 +413,23 @@ impl ObjReader<f32> for VpxObjReader {
     }
 
     fn read_face(&mut self, vertex_indices: &[(usize, Option<usize>, Option<usize>)]) {
-        let vpx_face = VpxFace {
-            i0: vertex_indices[0].0 as i64 - 1,
-            i1: vertex_indices[1].0 as i64 - 1,
-            i2: vertex_indices[2].0 as i64 - 1,
-        };
-        self.indices.push(vpx_face);
+        let mut all_matched = vertex_indices.len() == 3;
+        let corners: Vec<FaceCorner> = vertex_indices
+            .iter()
+            .map(|(v, vt, vn)| {
+                let v = *v as u32;
+                let vt = vt.map(|x| x as u32).unwrap_or(0);
+                let vn = vn.map(|x| x as u32).unwrap_or(0);
+                if v != vt || v != vn {
+                    all_matched = false;
+                }
+                FaceCorner { v, vt, vn }
+            })
+            .collect();
+        if !all_matched {
+            self.needs_normalize = true;
+        }
+        self.raw_faces.push(corners);
         self.previous_comment = None;
     }
 }
@@ -333,7 +440,7 @@ pub(crate) fn read_obj<R: BufRead>(mut reader: &mut R) -> std::io::Result<ObjDat
     vpx_reader.read(&mut reader)
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct VpxObjNormal {
     pub(crate) x: f32,
     pub(crate) y: f32,
@@ -357,7 +464,7 @@ impl VpxObjNormal {
 ///
 /// *I do wonder if these indices can be negative?*
 /// TODO do these really need to be i64?
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct VpxFace {
     pub i0: i64,
     pub i1: i64,
@@ -380,6 +487,112 @@ pub(crate) struct ObjData {
     ///
     /// Here they are 0-based, in obj files they are 1-based
     pub indices: Vec<VpxFace>,
+}
+
+// ---------------------------------------------------------------------------
+// OBJ format normalization shared between the lenient read path and the
+// standalone OBJ -> OBJ converter exposed via wasm.
+// ---------------------------------------------------------------------------
+
+/// One corner of a face as parsed from a `f` line. `vt` / `vn` are 0 when
+/// missing in the source - that turns into an `InvalidIndex` error during
+/// [`normalize_for_vpinball`].
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FaceCorner {
+    pub(crate) v: u32,
+    pub(crate) vt: u32,
+    pub(crate) vn: u32,
+}
+
+/// Result of [`normalize_for_vpinball`].
+pub(crate) struct NormalizedFaces {
+    /// One entry per unique combined `(pos_idx, uv_idx, normal_idx)` tuple,
+    /// in the order it was first seen by the dedup walk. Indices are
+    /// 0-based into the source position / texcoord / normal arrays.
+    pub(crate) combined: Vec<(usize, usize, usize)>,
+    /// Triangle indices into [`Self::combined`].
+    pub(crate) triangles: Vec<[u32; 3]>,
+}
+
+fn resolve_index(idx: u32, len: usize, kind: &str, lineno_hint: &str) -> io::Result<usize> {
+    if idx == 0 {
+        return Err(io::Error::new(
+            ErrorKind::InvalidData,
+            format!("{}: missing {} index in face", lineno_hint, kind),
+        ));
+    }
+    let resolved = idx as usize - 1;
+    if resolved >= len {
+        return Err(io::Error::new(
+            ErrorKind::InvalidData,
+            format!(
+                "{}: {} index {} out of range (have {})",
+                lineno_hint, kind, idx, len
+            ),
+        ));
+    }
+    Ok(resolved)
+}
+
+/// Apply the format-level normalization that vpinball's `ObjLoader::Load`
+/// performs: reverse each face's corners, fan-triangulate, then deduplicate
+/// `(pos, uv, normal)` corners into a flat vertex array.
+///
+/// Used by both [`convert_to_vpinball_compat`] and the lenient path of
+/// [`read_obj_from_reader`] so that a Blender-exported OBJ produces the
+/// same mesh either way.
+pub(crate) fn normalize_for_vpinball(
+    raw_faces: &[Vec<FaceCorner>],
+    positions_len: usize,
+    tex_coords_len: usize,
+    normals_len: usize,
+) -> io::Result<NormalizedFaces> {
+    let mut triangles_with_corners: Vec<[(usize, usize, usize); 3]> =
+        Vec::with_capacity(raw_faces.len());
+    for face in raw_faces {
+        if face.len() < 3 {
+            return Err(io::Error::new(
+                ErrorKind::InvalidData,
+                "face with less than 3 vertices",
+            ));
+        }
+        let mut corners = Vec::with_capacity(face.len());
+        for c in face {
+            let p = resolve_index(c.v, positions_len, "vertex", "face")?;
+            let t = resolve_index(c.vt, tex_coords_len, "texcoord", "face")?;
+            let n = resolve_index(c.vn, normals_len, "normal", "face")?;
+            corners.push((p, t, n));
+        }
+
+        corners.reverse();
+
+        // Fan triangulation: (0, i, i+1) for i in 1..n-1.
+        for i in 1..corners.len() - 1 {
+            triangles_with_corners.push([corners[0], corners[i], corners[i + 1]]);
+        }
+    }
+
+    let mut combined: Vec<(usize, usize, usize)> = Vec::new();
+    let mut combined_lookup = std::collections::HashMap::<(usize, usize, usize), u32>::new();
+    let mut triangles: Vec<[u32; 3]> = Vec::with_capacity(triangles_with_corners.len());
+
+    for tri in &triangles_with_corners {
+        let mut idx = [0u32; 3];
+        for (k, corner) in tri.iter().enumerate() {
+            let next = combined.len() as u32;
+            let entry = combined_lookup.entry(*corner).or_insert_with(|| {
+                combined.push(*corner);
+                next
+            });
+            idx[k] = *entry;
+        }
+        triangles.push(idx);
+    }
+
+    Ok(NormalizedFaces {
+        combined,
+        triangles,
+    })
 }
 
 #[cfg(test)]
@@ -528,17 +741,18 @@ f 1/1/1 1/1/1 1/1/1
         read_obj(&mut reader).unwrap();
     }
 
-    const SCREW_OBJ_BYTES: &[u8] = include_bytes!("../../testdata/screw_f32.obj");
-
-    const SCREW_32_OBJ_BYTES: &[u8] = include_bytes!("../../testdata/screw_f32.obj");
+    const VPIN_SCREW2_OBJ_BYTES: &[u8] = include_bytes!("../../testdata/vpin_screw2.obj");
 
     #[test]
     fn test_read_write_obj() -> TestResult {
-        let mut reader = Cursor::new(SCREW_OBJ_BYTES);
+        let mut reader = Cursor::new(VPIN_SCREW2_OBJ_BYTES);
         let obj_data = read_obj(&mut reader)?;
 
-        // TODO clean up this mess
-        // Convert to vertex format (no z-axis negation for OBJ-to-OBJ round-trip)
+        // Convert each parsed OBJ corner into a `VertexWrapper` in vpx
+        // coordinates. This mirrors what `read_obj_from_reader` does: negate
+        // Z on positions and normals, and flip the V texture coordinate
+        // (`vpx_tv = 1 - obj_v`) so the subsequent `write_obj` round-trips
+        // back to the original OBJ bytes.
         use byteorder::{LittleEndian, WriteBytesExt};
         let vertices: Vec<VertexWrapper> = obj_data
             .vertices
@@ -548,8 +762,9 @@ f 1/1/1 1/1/1 1/1/1
             .map(|((v, vt), vn)| {
                 let mut bytes = [0u8; 32];
 
-                let z = if true { -v.2 } else { v.2 };
-                let nz = if true { -vn.z } else { vn.z };
+                let z = -v.2;
+                let nz = -vn.z;
+                let tv = 1.0 - vt.1.unwrap_or(0.0);
 
                 // Write position bytes (0-11)
                 let mut cursor = std::io::Cursor::new(&mut bytes[0..12]);
@@ -572,9 +787,7 @@ f 1/1/1 1/1/1 1/1/1
                 // Write texcoord bytes (24-31)
                 let mut cursor = std::io::Cursor::new(&mut bytes[24..32]);
                 cursor.write_f32::<LittleEndian>(vt.0).unwrap();
-                cursor
-                    .write_f32::<LittleEndian>(vt.1.unwrap_or(0.0))
-                    .unwrap();
+                cursor.write_f32::<LittleEndian>(tv).unwrap();
 
                 VertexWrapper {
                     vpx_encoded_vertex: bytes,
@@ -586,7 +799,7 @@ f 1/1/1 1/1/1 1/1/1
                         ny: vn.y,
                         nz,
                         tu: vt.0,
-                        tv: vt.1.unwrap_or(0.0),
+                        tv,
                     },
                 }
             })
@@ -603,7 +816,7 @@ f 1/1/1 1/1/1 1/1/1
         )?;
 
         // compare both files as strings
-        let mut original = String::from_utf8(SCREW_OBJ_BYTES.to_vec())?;
+        let mut original = String::from_utf8(VPIN_SCREW2_OBJ_BYTES.to_vec())?;
         // When on Windows the original file will be checked out with \r\n line endings.
         if cfg!(windows) {
             original = original.replace("\r\n", "\n")
@@ -623,7 +836,7 @@ f 1/1/1 1/1/1 1/1/1
         let obj_path = Path::new("test.obj");
 
         // put the bytes in the memory filesystem
-        fs.write_file(obj_path, SCREW_32_OBJ_BYTES)?;
+        fs.write_file(obj_path, VPIN_SCREW2_OBJ_BYTES)?;
 
         let obj_data = fs.read_file(obj_path)?;
         let mut reader = BufReader::new(Cursor::new(obj_data));
@@ -648,7 +861,7 @@ f 1/1/1 1/1/1 1/1/1
             &fs,
         )?;
 
-        let mut original_string = String::from_utf8(SCREW_32_OBJ_BYTES.to_vec())?;
+        let mut original_string = String::from_utf8(VPIN_SCREW2_OBJ_BYTES.to_vec())?;
         // on windows obj files are written with \r\n line endings
         if cfg!(windows) {
             original_string = original_string.replace("\r\n", "\n");
@@ -690,5 +903,73 @@ f 1/1/1 1/1/1 1/1/1
             read_result.unwrap_err().to_string(),
             "Error reading obj: line 1: Unknown line prefix: this"
         );
+    }
+
+    /// Reading a Blender-format OBJ (n-gons + mismatched `v/vt/vn` indices)
+    /// must succeed: faces get fan-triangulated and corners get deduplicated
+    /// in the same way vpinball's `ObjLoader::Load` would.
+    #[test]
+    fn test_read_blender_square_directly() -> TestResult {
+        let blender = include_bytes!("../../testdata/blender_square.obj");
+        let mut reader = BufReader::new(Cursor::new(blender));
+        let result = read_obj_from_reader(&mut reader)?;
+
+        // Blender default cube: 6 quads -> 12 triangles, with 4 distinct
+        // (pos, uv, normal) corners per face -> 24 unique combined entries.
+        assert_eq!(result.indices.len(), 12);
+        assert_eq!(result.final_vertices.len(), 24);
+        Ok(())
+    }
+
+    /// Verify the lenient read of `blender_square.obj` produces vpx data
+    /// equivalent to what reading the vpinball-exported reference
+    /// (`vpinball_square.obj`) produces - i.e., the strict path on a real
+    /// vpinball OBJ and the lenient path on the Blender source agree on
+    /// the resulting mesh.
+    #[test]
+    fn test_lenient_and_strict_paths_agree_on_cube() -> TestResult {
+        let blender_bytes = include_bytes!("../../testdata/blender_square.obj");
+        let vpinball_bytes = include_bytes!("../../testdata/vpinball_square.obj");
+
+        let mut blender_reader = BufReader::new(Cursor::new(blender_bytes));
+        let lenient = read_obj_from_reader(&mut blender_reader)?;
+
+        let mut vpinball_reader = BufReader::new(Cursor::new(vpinball_bytes));
+        let strict = read_obj_from_reader(&mut vpinball_reader)?;
+
+        assert_eq!(lenient.final_vertices.len(), strict.final_vertices.len());
+        assert_eq!(lenient.indices.len(), strict.indices.len());
+
+        // Quantize floats to 6 decimals (vpinball's `%f` precision) and
+        // build a canonical-rotation triangle set per side. If both meshes
+        // describe the same surface, these sets must match.
+        fn q(v: f32) -> i64 {
+            (v as f64 * 1_000_000.0).round() as i64
+        }
+        type CornerQ = ((i64, i64, i64), (i64, i64), (i64, i64, i64));
+        fn canonical_rotation(t: &[CornerQ; 3]) -> [CornerQ; 3] {
+            let r0 = [t[0], t[1], t[2]];
+            let r1 = [t[1], t[2], t[0]];
+            let r2 = [t[2], t[0], t[1]];
+            [r0, r1, r2].into_iter().min().unwrap()
+        }
+        fn triangle_set(r: &ReadObjResult) -> std::collections::BTreeSet<[CornerQ; 3]> {
+            r.indices
+                .iter()
+                .map(|f| {
+                    let corners: [CornerQ; 3] = [f.i0, f.i1, f.i2].map(|idx| {
+                        let v = &r.final_vertices[idx as usize];
+                        (
+                            (q(v.x), q(v.y), q(v.z)),
+                            (q(v.tu), q(v.tv)),
+                            (q(v.nx), q(v.ny), q(v.nz)),
+                        )
+                    });
+                    canonical_rotation(&corners)
+                })
+                .collect()
+        }
+        assert_eq!(triangle_set(&lenient), triangle_set(&strict));
+        Ok(())
     }
 }
