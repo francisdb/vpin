@@ -1,0 +1,1267 @@
+//! Wavefront OBJ export of an entire VPX table.
+//!
+//! Mirrors VPinball's `File -> Export -> OBJ Mesh`: produces a single `.obj`
+//! file with one `o` block per item (playfield + every visible game item),
+//! a single `.mtl` file with one `newmtl` block per unique
+//! `(material, texture)` pair encountered, and an `images/` sibling folder
+//! containing the texture files referenced from the `.mtl`.
+//!
+//! Output layout, given `path/to/<stem>.obj`:
+//!
+//! ```text
+//! path/to/
+//! +-- <stem>.obj
+//! +-- <stem>.mtl
+//! +-- images/
+//!     +-- <texture-name>.<ext>
+//! ```
+//!
+//! Coordinate convention matches VPinball's `ObjLoader`:
+//!
+//! - `obj_x = vpx_x + tx`, `obj_y = vpx_y + ty`, `obj_z = -(vpx_z + tz)`
+//! - `obj_v = 1 - vpx_tv`
+//! - normals' Z is negated (`obj_nz = -vpx_nz`)
+//! - triangle winding is reversed (`(i0, i1, i2)` is emitted as `f i2 i1 i0`)
+//! - NaN normals/UVs are written as 0
+//!
+//! The walk only includes the items that VPinball's `Item::ExportMesh`
+//! implementations cover (primitive, wall, ramp, rubber, bumper, flipper,
+//! gate, kicker, spinner, hittarget, trigger). Lights, decals, plungers,
+//! flashers and reels are skipped, matching VPinball.
+
+use crate::filesystem::FileSystem;
+use crate::vpx::TableDimensions;
+use crate::vpx::VPX;
+use crate::vpx::expanded::util::sanitize_filename;
+use crate::vpx::gameitem::GameItemEnum;
+use crate::vpx::gameitem::primitive::{Primitive, VertexWrapper};
+use crate::vpx::image::ImageData;
+use crate::vpx::material::{Material, MaterialType};
+use crate::vpx::math::{Matrix3D, Vec3, Vertex3D};
+use crate::vpx::mesh::bumpers::build_bumper_meshes;
+use crate::vpx::mesh::flippers::build_flipper_meshes;
+use crate::vpx::mesh::gates::build_gate_meshes;
+use crate::vpx::mesh::hittargets::build_hit_target_mesh;
+use crate::vpx::mesh::kickers::build_kicker_meshes;
+use crate::vpx::mesh::playfields::build_playfield_mesh;
+use crate::vpx::mesh::ramps::build_ramp_mesh;
+use crate::vpx::mesh::rubbers::build_rubber_mesh;
+use crate::vpx::mesh::spinners::build_spinner_meshes;
+use crate::vpx::mesh::triggers::build_trigger_mesh;
+use crate::vpx::mesh::walls::build_wall_meshes;
+use crate::vpx::obj::VpxFace;
+use log::{info, warn};
+use std::collections::{HashMap, HashSet};
+use std::io;
+use std::path::{Path, PathBuf};
+use wavefront_obj_io::{IoMtlWriter, IoObjWriter, MapKind, MtlWriter, ObjWriter, SmoothingGroup};
+
+/// Export the entire VPX table as a Wavefront OBJ + companion MTL + images
+/// folder.
+///
+/// Writes `<obj_path>` (the OBJ), `<obj_path>.with_extension("mtl")` (the
+/// material library), and `<obj_path-parent>/images/<image>.<ext>` for every
+/// texture referenced by the exported items.
+///
+/// # Example
+/// ```no_run
+/// use std::path::Path;
+/// use vpin::filesystem::RealFileSystem;
+/// use vpin::vpx;
+/// use vpin::vpx::export::obj_export::export_obj;
+///
+/// let vpx = vpx::read(Path::new("table.vpx")).unwrap();
+/// export_obj(&vpx, Path::new("table_export/table.obj"), &RealFileSystem).unwrap();
+/// ```
+pub fn export_obj(vpx: &VPX, obj_path: &Path, fs: &dyn FileSystem) -> io::Result<()> {
+    let dir = obj_path
+        .parent()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "obj_path has no parent"))?;
+    fs.create_dir_all(dir)?;
+
+    let mtl_path = obj_path.with_extension("mtl");
+    let mtl_filename = mtl_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "mtl path has no filename"))?
+        .to_string();
+
+    let images_dir = dir.join("images");
+
+    let mut obj_buf: Vec<u8> = Vec::new();
+    let mut mtl_buf: Vec<u8> = Vec::new();
+    {
+        let mut obj_writer: IoObjWriter<_, f32> = IoObjWriter::new(&mut obj_buf);
+        let mut mtl_writer: IoMtlWriter<_, f32> = IoMtlWriter::new(&mut mtl_buf);
+
+        obj_writer.write_comment("VPin table OBJ file")?;
+        obj_writer.write_material_lib(&[mtl_filename.as_str()])?;
+        mtl_writer.write_comment("VPin table mat file")?;
+
+        let mut state = WriterState::new(vpx, &images_dir);
+
+        // 1. Implicit playfield quad (always emitted, matches VPinball
+        //    PinTable::ExportMesh).
+        write_playfield(&mut obj_writer, &mut mtl_writer, &mut state, fs)?;
+
+        // 2. Walk gameitems in storage order (mirrors VPinball's m_vedit
+        //    iteration). Visibility filter only - the m_desktopBackdrop bit
+        //    is not yet parsed by vpin and is irrelevant for items with
+        //    geometry (they all assert !m_desktopBackdrop in VPinball).
+        for gameitem in &vpx.gameitems {
+            write_gameitem(&mut obj_writer, &mut mtl_writer, &mut state, fs, gameitem)?;
+        }
+    }
+
+    fs.write_file(obj_path, &obj_buf)?;
+    fs.write_file(&mtl_path, &mtl_buf)?;
+    info!(
+        "Exported OBJ to {} ({} bytes), MTL to {} ({} bytes)",
+        obj_path.display(),
+        obj_buf.len(),
+        mtl_path.display(),
+        mtl_buf.len(),
+    );
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// State threaded through the walk.
+// ---------------------------------------------------------------------------
+
+struct WriterState<'a> {
+    vpx: &'a VPX,
+    images_dir: PathBuf,
+    table_dims: TableDimensions,
+    /// VPinball's `GetDetailLevel()` - either the table's
+    /// `user_detail_level` or the editor default. Drives ramp/rubber
+    /// segment counts via `vpinball_ring_segments`.
+    detail_level: u32,
+    /// Running vertex offset for face indices. VPinball calls this
+    /// `m_faceIndexOffset` and bumps it after each item by the number of
+    /// vertices written.
+    face_offset: u32,
+    /// `(material_name, texture_name)` pairs that already have a `newmtl`
+    /// block emitted. Texture name is empty when the material has no image.
+    seen_mtl_pairs: HashSet<(String, String)>,
+    /// Mapping from VPX image name (case-preserving) to the on-disk file
+    /// name inside `images/`. Populated lazily as textures are referenced.
+    image_filenames: HashMap<String, String>,
+    /// Lowercased image filenames already taken inside `images/`. Used to
+    /// detect collisions on case-insensitive filesystems and append a
+    /// `_dedup<n>` suffix, mirroring `expanded::images::write_images`.
+    used_lower_filenames: HashSet<String>,
+    image_dedup_counter: u32,
+    /// VPX image names already written to disk. Skip subsequent encounters.
+    images_written: HashSet<String>,
+}
+
+impl<'a> WriterState<'a> {
+    fn new(vpx: &'a VPX, images_dir: &Path) -> Self {
+        Self {
+            vpx,
+            images_dir: images_dir.to_path_buf(),
+            table_dims: TableDimensions::new(
+                vpx.gamedata.left,
+                vpx.gamedata.top,
+                vpx.gamedata.right,
+                vpx.gamedata.bottom,
+            ),
+            detail_level: vpx.gamedata.effective_detail_level(),
+            face_offset: 0,
+            seen_mtl_pairs: HashSet::new(),
+            image_filenames: HashMap::new(),
+            used_lower_filenames: HashSet::new(),
+            image_dedup_counter: 0,
+            images_written: HashSet::new(),
+        }
+    }
+
+    fn material_by_name(&self, name: &str) -> Option<&Material> {
+        if name.is_empty() {
+            return None;
+        }
+        if let Some(ref mats) = self.vpx.gamedata.materials {
+            return mats.iter().find(|m| m.name.eq_ignore_ascii_case(name));
+        }
+        None
+    }
+
+    fn image_by_name(&self, name: &str) -> Option<&ImageData> {
+        if name.is_empty() {
+            return None;
+        }
+        self.vpx
+            .images
+            .iter()
+            .find(|img| img.name.eq_ignore_ascii_case(name))
+    }
+
+    fn surface_height(&self, surface_name: &str, x: f32, y: f32) -> f32 {
+        if surface_name.is_empty() {
+            return 0.0;
+        }
+        for item in &self.vpx.gameitems {
+            match item {
+                GameItemEnum::Wall(wall) if wall.name.eq_ignore_ascii_case(surface_name) => {
+                    return wall.height_top;
+                }
+                GameItemEnum::Ramp(ramp) if ramp.name.eq_ignore_ascii_case(surface_name) => {
+                    return crate::vpx::mesh::ramps::get_ramp_surface_height(ramp, x, y);
+                }
+                _ => {}
+            }
+        }
+        0.0
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Per-item dispatch.
+// ---------------------------------------------------------------------------
+
+fn write_playfield<O: ObjWriter<f32>, M: MtlWriter<f32>>(
+    obj: &mut O,
+    mtl: &mut M,
+    state: &mut WriterState,
+    fs: &dyn FileSystem,
+) -> io::Result<()> {
+    let (vertices, indices) = build_playfield_mesh(
+        state.vpx.gamedata.left,
+        state.vpx.gamedata.top,
+        state.vpx.gamedata.right,
+        state.vpx.gamedata.bottom,
+    );
+
+    let material_name = if state.vpx.gamedata.playfield_material.is_empty() {
+        None
+    } else {
+        Some(state.vpx.gamedata.playfield_material.clone())
+    };
+    let texture_name = if state.vpx.gamedata.image.is_empty() {
+        None
+    } else {
+        Some(state.vpx.gamedata.image.clone())
+    };
+
+    write_block(
+        obj,
+        mtl,
+        state,
+        fs,
+        Block {
+            name: "playfield_mesh",
+            vertices: &vertices,
+            indices: &indices,
+            translation: Vec3::new(0.0, 0.0, 0.0),
+            material_name: material_name.as_deref(),
+            texture_name: texture_name.as_deref(),
+            smoothing: true,
+        },
+    )
+}
+
+fn write_gameitem<O: ObjWriter<f32>, M: MtlWriter<f32>>(
+    obj: &mut O,
+    mtl: &mut M,
+    state: &mut WriterState,
+    fs: &dyn FileSystem,
+    item: &GameItemEnum,
+) -> io::Result<()> {
+    match item {
+        GameItemEnum::Primitive(primitive) => write_primitive(obj, mtl, state, fs, primitive),
+        GameItemEnum::Wall(wall) => write_wall(obj, mtl, state, fs, wall),
+        GameItemEnum::Ramp(ramp) => write_ramp(obj, mtl, state, fs, ramp),
+        GameItemEnum::Rubber(rubber) => write_rubber(obj, mtl, state, fs, rubber),
+        GameItemEnum::Bumper(bumper) => write_bumper(obj, mtl, state, fs, bumper),
+        GameItemEnum::Flipper(flipper) => write_flipper(obj, mtl, state, fs, flipper),
+        GameItemEnum::Gate(gate) => write_gate(obj, mtl, state, fs, gate),
+        GameItemEnum::Kicker(kicker) => write_kicker(obj, mtl, state, fs, kicker),
+        GameItemEnum::Spinner(spinner) => write_spinner(obj, mtl, state, fs, spinner),
+        GameItemEnum::HitTarget(hit_target) => write_hittarget(obj, mtl, state, fs, hit_target),
+        GameItemEnum::Trigger(trigger) => write_trigger(obj, mtl, state, fs, trigger),
+        // Items VPinball does not include in OBJ export.
+        GameItemEnum::Light(_)
+        | GameItemEnum::Decal(_)
+        | GameItemEnum::Plunger(_)
+        | GameItemEnum::Flasher(_)
+        | GameItemEnum::Reel(_)
+        | GameItemEnum::Timer(_)
+        | GameItemEnum::TextBox(_)
+        | GameItemEnum::LightSequencer(_)
+        | GameItemEnum::PartGroup(_)
+        | GameItemEnum::Ball(_)
+        | GameItemEnum::Generic(_, _) => Ok(()),
+    }
+}
+
+fn write_primitive<O: ObjWriter<f32>, M: MtlWriter<f32>>(
+    obj: &mut O,
+    mtl: &mut M,
+    state: &mut WriterState,
+    fs: &dyn FileSystem,
+    primitive: &Primitive,
+) -> io::Result<()> {
+    if !primitive.is_visible {
+        return Ok(());
+    }
+    let read = match primitive.read_mesh() {
+        Ok(Some(read)) => read,
+        Ok(None) => return Ok(()),
+        Err(e) => {
+            warn!(
+                "Skipping primitive '{}' due to mesh read error: {e}",
+                primitive.name
+            );
+            return Ok(());
+        }
+    };
+
+    let world_matrix = primitive_world_matrix(primitive);
+    let vertices: Vec<VertexWrapper> = read
+        .vertices
+        .into_iter()
+        .map(|mut vw| {
+            let v = Vertex3D::new(vw.vertex.x, vw.vertex.y, vw.vertex.z);
+            let transformed = world_matrix.transform_vertex(v);
+            vw.vertex.x = transformed.x;
+            vw.vertex.y = transformed.y;
+            vw.vertex.z = transformed.z;
+
+            if !vw.vertex.nx.is_nan() && !vw.vertex.ny.is_nan() && !vw.vertex.nz.is_nan() {
+                let n = world_matrix.transform_normal(vw.vertex.nx, vw.vertex.ny, vw.vertex.nz);
+                let len = (n.x * n.x + n.y * n.y + n.z * n.z).sqrt();
+                if len > 0.0 {
+                    vw.vertex.nx = n.x / len;
+                    vw.vertex.ny = n.y / len;
+                    vw.vertex.nz = n.z / len;
+                }
+            }
+            vw
+        })
+        .collect();
+
+    // Playfield primitives in VPinball pull material/image from gamedata,
+    // not from the primitive's own fields.
+    let (material_name, texture_name) = if primitive.is_playfield() {
+        let m = if state.vpx.gamedata.playfield_material.is_empty() {
+            None
+        } else {
+            Some(state.vpx.gamedata.playfield_material.clone())
+        };
+        let t = if state.vpx.gamedata.image.is_empty() {
+            None
+        } else {
+            Some(state.vpx.gamedata.image.clone())
+        };
+        (m, t)
+    } else {
+        let m = if primitive.material.is_empty() {
+            None
+        } else {
+            Some(primitive.material.clone())
+        };
+        let t = if primitive.image.is_empty() {
+            None
+        } else {
+            Some(primitive.image.clone())
+        };
+        (m, t)
+    };
+
+    write_block(
+        obj,
+        mtl,
+        state,
+        fs,
+        Block {
+            name: &primitive.name,
+            vertices: &vertices,
+            indices: &read.indices,
+            translation: Vec3::new(0.0, 0.0, 0.0),
+            material_name: material_name.as_deref(),
+            texture_name: texture_name.as_deref(),
+            smoothing: false,
+        },
+    )
+}
+
+/// Compose the full vpx-space world matrix for a primitive, including the
+/// position translation that VPinball folds into `m_fullMatrix` for
+/// `Primitive::ExportMesh`.
+fn primitive_world_matrix(primitive: &Primitive) -> Matrix3D {
+    let pos = &primitive.position;
+    let size = &primitive.size;
+    let rot = &primitive.rot_and_tra;
+
+    let rt = Matrix3D::translate(rot[3], rot[4], rot[5])
+        * Matrix3D::rotate_z(rot[2].to_radians())
+        * Matrix3D::rotate_y(rot[1].to_radians())
+        * Matrix3D::rotate_x(rot[0].to_radians())
+        * Matrix3D::rotate_z(rot[8].to_radians())
+        * Matrix3D::rotate_y(rot[7].to_radians())
+        * Matrix3D::rotate_x(rot[6].to_radians());
+
+    Matrix3D::translate(pos.x, pos.y, pos.z) * Matrix3D::scale(size.x, size.y, size.z) * rt
+}
+
+fn write_wall<O: ObjWriter<f32>, M: MtlWriter<f32>>(
+    obj: &mut O,
+    mtl: &mut M,
+    state: &mut WriterState,
+    fs: &dyn FileSystem,
+    wall: &crate::vpx::gameitem::wall::Wall,
+) -> io::Result<()> {
+    let Some(meshes) = build_wall_meshes(wall, &state.table_dims) else {
+        return Ok(());
+    };
+
+    if wall.is_top_bottom_visible
+        && let Some((vertices, indices)) = meshes.top
+    {
+        let material_name = if !wall.top_material.is_empty() {
+            Some(wall.top_material.clone())
+        } else {
+            None
+        };
+        let texture_name = if !wall.image.is_empty() {
+            Some(wall.image.clone())
+        } else {
+            None
+        };
+        write_block(
+            obj,
+            mtl,
+            state,
+            fs,
+            Block {
+                name: &format!("{}Top", wall.name),
+                vertices: &vertices,
+                indices: &indices,
+                translation: Vec3::new(0.0, 0.0, 0.0),
+                material_name: material_name.as_deref(),
+                texture_name: texture_name.as_deref(),
+                smoothing: true,
+            },
+        )?;
+    }
+
+    if wall.is_side_visible
+        && let Some((vertices, indices)) = meshes.side
+    {
+        let material_name = if !wall.side_material.is_empty() {
+            Some(wall.side_material.clone())
+        } else {
+            None
+        };
+        let texture_name = if !wall.side_image.is_empty() {
+            Some(wall.side_image.clone())
+        } else {
+            None
+        };
+        write_block(
+            obj,
+            mtl,
+            state,
+            fs,
+            Block {
+                name: &format!("{}Side", wall.name),
+                vertices: &vertices,
+                indices: &indices,
+                translation: Vec3::new(0.0, 0.0, 0.0),
+                material_name: material_name.as_deref(),
+                texture_name: texture_name.as_deref(),
+                smoothing: false,
+            },
+        )?;
+    }
+    Ok(())
+}
+
+fn write_ramp<O: ObjWriter<f32>, M: MtlWriter<f32>>(
+    obj: &mut O,
+    mtl: &mut M,
+    state: &mut WriterState,
+    fs: &dyn FileSystem,
+    ramp: &crate::vpx::gameitem::ramp::Ramp,
+) -> io::Result<()> {
+    if !ramp.is_visible {
+        return Ok(());
+    }
+    // VPinball's `Ramp::GenerateWireMesh` uses max-precision wire
+    // segments when the material is opaque (`!mat->m_bOpacityActive`).
+    // Missing/empty material falls through to opaque (vpinball's dummy
+    // material defaults `m_bOpacityActive = false`).
+    let material_opacity_active = state
+        .material_by_name(&ramp.material)
+        .is_some_and(|m| m.opacity_active);
+    let Some((vertices, indices)) = build_ramp_mesh(
+        ramp,
+        &state.table_dims,
+        state.detail_level,
+        material_opacity_active,
+    ) else {
+        return Ok(());
+    };
+    let material_name = if ramp.material.is_empty() {
+        None
+    } else {
+        Some(ramp.material.clone())
+    };
+    let texture_name = if ramp.image.is_empty() {
+        None
+    } else {
+        Some(ramp.image.clone())
+    };
+    write_block(
+        obj,
+        mtl,
+        state,
+        fs,
+        Block {
+            name: &ramp.name,
+            vertices: &vertices,
+            indices: &indices,
+            translation: Vec3::new(0.0, 0.0, 0.0),
+            material_name: material_name.as_deref(),
+            texture_name: texture_name.as_deref(),
+            smoothing: true,
+        },
+    )
+}
+
+fn write_rubber<O: ObjWriter<f32>, M: MtlWriter<f32>>(
+    obj: &mut O,
+    mtl: &mut M,
+    state: &mut WriterState,
+    fs: &dyn FileSystem,
+    rubber: &crate::vpx::gameitem::rubber::Rubber,
+) -> io::Result<()> {
+    if !rubber.is_visible {
+        return Ok(());
+    }
+    let Some((vertices, indices, center)) = build_rubber_mesh(rubber, state.detail_level) else {
+        return Ok(());
+    };
+    let material_name = if rubber.material.is_empty() {
+        None
+    } else {
+        Some(rubber.material.clone())
+    };
+    write_block(
+        obj,
+        mtl,
+        state,
+        fs,
+        Block {
+            name: &rubber.name,
+            vertices: &vertices,
+            indices: &indices,
+            translation: center,
+            material_name: material_name.as_deref(),
+            texture_name: None,
+            smoothing: true,
+        },
+    )
+}
+
+fn write_bumper<O: ObjWriter<f32>, M: MtlWriter<f32>>(
+    obj: &mut O,
+    mtl: &mut M,
+    state: &mut WriterState,
+    fs: &dyn FileSystem,
+    bumper: &crate::vpx::gameitem::bumper::Bumper,
+) -> io::Result<()> {
+    let surface_height = state.surface_height(&bumper.surface, bumper.center.x, bumper.center.y);
+    let translation = Vec3::new(bumper.center.x, bumper.center.y, surface_height);
+    let meshes = build_bumper_meshes(bumper);
+
+    if let Some((vertices, indices)) = meshes.base {
+        let material_name = if bumper.base_material.is_empty() {
+            None
+        } else {
+            Some(bumper.base_material.clone())
+        };
+        write_block(
+            obj,
+            mtl,
+            state,
+            fs,
+            Block {
+                name: &format!("{}Base", bumper.name),
+                vertices: &vertices,
+                indices: &indices,
+                translation,
+                material_name: material_name.as_deref(),
+                texture_name: None,
+                smoothing: true,
+            },
+        )?;
+    }
+    if let Some((vertices, indices)) = meshes.ring {
+        write_block(
+            obj,
+            mtl,
+            state,
+            fs,
+            Block {
+                name: &format!("{}Ring", bumper.name),
+                vertices: &vertices,
+                indices: &indices,
+                translation,
+                // VPinball calls WriteFaceInfoList without WriteMaterial for
+                // the ring (carries over the previous material). We don't
+                // emit usemtl here either.
+                material_name: None,
+                texture_name: None,
+                smoothing: true,
+            },
+        )?;
+    }
+    if let Some((vertices, indices)) = meshes.socket {
+        let material_name = if bumper.socket_material.is_empty() {
+            None
+        } else {
+            Some(bumper.socket_material.clone())
+        };
+        write_block(
+            obj,
+            mtl,
+            state,
+            fs,
+            Block {
+                name: &format!("{}Skirt", bumper.name),
+                vertices: &vertices,
+                indices: &indices,
+                translation,
+                material_name: material_name.as_deref(),
+                texture_name: None,
+                smoothing: true,
+            },
+        )?;
+    }
+    if let Some((vertices, indices)) = meshes.cap {
+        let material_name = if bumper.cap_material.is_empty() {
+            None
+        } else {
+            Some(bumper.cap_material.clone())
+        };
+        write_block(
+            obj,
+            mtl,
+            state,
+            fs,
+            Block {
+                name: &format!("{}Cap", bumper.name),
+                vertices: &vertices,
+                indices: &indices,
+                translation,
+                material_name: material_name.as_deref(),
+                texture_name: None,
+                smoothing: true,
+            },
+        )?;
+    }
+    Ok(())
+}
+
+fn write_flipper<O: ObjWriter<f32>, M: MtlWriter<f32>>(
+    obj: &mut O,
+    mtl: &mut M,
+    state: &mut WriterState,
+    fs: &dyn FileSystem,
+    flipper: &crate::vpx::gameitem::flipper::Flipper,
+) -> io::Result<()> {
+    if !flipper.is_visible {
+        return Ok(());
+    }
+    let Some(meshes) = build_flipper_meshes(flipper, 0.0) else {
+        return Ok(());
+    };
+    let translation = meshes.center;
+
+    let (base_vertices, base_indices) = meshes.base;
+    let base_material = if flipper.material.is_empty() {
+        None
+    } else {
+        Some(flipper.material.clone())
+    };
+    let base_texture = flipper.image.as_ref().filter(|s| !s.is_empty()).cloned();
+    write_block(
+        obj,
+        mtl,
+        state,
+        fs,
+        Block {
+            name: &format!("{}Base", flipper.name),
+            vertices: &base_vertices,
+            indices: &base_indices,
+            translation,
+            material_name: base_material.as_deref(),
+            texture_name: base_texture.as_deref(),
+            smoothing: true,
+        },
+    )?;
+
+    if let Some((rubber_vertices, rubber_indices)) = meshes.rubber {
+        let rubber_material = if flipper.rubber_material.is_empty() {
+            None
+        } else {
+            Some(flipper.rubber_material.clone())
+        };
+        write_block(
+            obj,
+            mtl,
+            state,
+            fs,
+            Block {
+                name: &format!("{}Rubber", flipper.name),
+                vertices: &rubber_vertices,
+                indices: &rubber_indices,
+                translation,
+                material_name: rubber_material.as_deref(),
+                texture_name: None,
+                smoothing: true,
+            },
+        )?;
+    }
+    Ok(())
+}
+
+fn write_gate<O: ObjWriter<f32>, M: MtlWriter<f32>>(
+    obj: &mut O,
+    mtl: &mut M,
+    state: &mut WriterState,
+    fs: &dyn FileSystem,
+    gate: &crate::vpx::gameitem::gate::Gate,
+) -> io::Result<()> {
+    if !gate.is_visible {
+        return Ok(());
+    }
+    let surface_height = state.surface_height(&gate.surface, gate.center.x, gate.center.y);
+    let translation = Vec3::new(gate.center.x, gate.center.y, surface_height + gate.height);
+    let Some(meshes) = build_gate_meshes(gate) else {
+        return Ok(());
+    };
+    let material_name = if gate.material.is_empty() {
+        None
+    } else {
+        Some(gate.material.clone())
+    };
+    if let Some((vertices, indices)) = meshes.bracket {
+        write_block(
+            obj,
+            mtl,
+            state,
+            fs,
+            Block {
+                name: &format!("{}Bracket", gate.name),
+                vertices: &vertices,
+                indices: &indices,
+                translation,
+                material_name: material_name.as_deref(),
+                texture_name: None,
+                smoothing: true,
+            },
+        )?;
+    }
+    let (vertices, indices) = meshes.wire;
+    write_block(
+        obj,
+        mtl,
+        state,
+        fs,
+        Block {
+            name: &format!("{}Wire", gate.name),
+            vertices: &vertices,
+            indices: &indices,
+            translation,
+            material_name: material_name.as_deref(),
+            texture_name: None,
+            smoothing: true,
+        },
+    )
+}
+
+fn write_kicker<O: ObjWriter<f32>, M: MtlWriter<f32>>(
+    obj: &mut O,
+    mtl: &mut M,
+    state: &mut WriterState,
+    fs: &dyn FileSystem,
+    kicker: &crate::vpx::gameitem::kicker::Kicker,
+) -> io::Result<()> {
+    if matches!(
+        kicker.kicker_type,
+        crate::vpx::gameitem::kicker::KickerType::Invisible
+    ) {
+        return Ok(());
+    }
+    let surface_height = state.surface_height(&kicker.surface, kicker.center.x, kicker.center.y);
+    let translation = Vec3::new(kicker.center.x, kicker.center.y, surface_height);
+    let meshes = build_kicker_meshes(kicker);
+    let material_name = if kicker.material.is_empty() {
+        None
+    } else {
+        Some(kicker.material.clone())
+    };
+    if let Some((vertices, indices)) = meshes.plate {
+        write_block(
+            obj,
+            mtl,
+            state,
+            fs,
+            Block {
+                name: &format!("{}Plate", kicker.name),
+                vertices: &vertices,
+                indices: &indices,
+                translation,
+                material_name: material_name.as_deref(),
+                texture_name: None,
+                smoothing: true,
+            },
+        )?;
+    }
+    if let Some((vertices, indices)) = meshes.kicker {
+        write_block(
+            obj,
+            mtl,
+            state,
+            fs,
+            Block {
+                name: &kicker.name,
+                vertices: &vertices,
+                indices: &indices,
+                translation,
+                material_name: material_name.as_deref(),
+                texture_name: None,
+                smoothing: true,
+            },
+        )?;
+    }
+    Ok(())
+}
+
+fn write_spinner<O: ObjWriter<f32>, M: MtlWriter<f32>>(
+    obj: &mut O,
+    mtl: &mut M,
+    state: &mut WriterState,
+    fs: &dyn FileSystem,
+    spinner: &crate::vpx::gameitem::spinner::Spinner,
+) -> io::Result<()> {
+    if !spinner.is_visible {
+        return Ok(());
+    }
+    let surface_height = state.surface_height(&spinner.surface, spinner.center.x, spinner.center.y);
+    let translation = Vec3::new(
+        spinner.center.x,
+        spinner.center.y,
+        surface_height + spinner.height,
+    );
+    let meshes = build_spinner_meshes(spinner);
+    if let Some((vertices, indices)) = meshes.bracket {
+        write_block(
+            obj,
+            mtl,
+            state,
+            fs,
+            Block {
+                name: &format!("{}Bracket", spinner.name),
+                vertices: &vertices,
+                indices: &indices,
+                translation,
+                material_name: None,
+                texture_name: None,
+                smoothing: true,
+            },
+        )?;
+    }
+    let (vertices, indices) = meshes.plate;
+    let material_name = if spinner.material.is_empty() {
+        None
+    } else {
+        Some(spinner.material.clone())
+    };
+    let texture_name = if spinner.image.is_empty() {
+        None
+    } else {
+        Some(spinner.image.clone())
+    };
+    write_block(
+        obj,
+        mtl,
+        state,
+        fs,
+        Block {
+            name: &format!("{}Plate", spinner.name),
+            vertices: &vertices,
+            indices: &indices,
+            translation,
+            material_name: material_name.as_deref(),
+            texture_name: texture_name.as_deref(),
+            smoothing: true,
+        },
+    )
+}
+
+fn write_hittarget<O: ObjWriter<f32>, M: MtlWriter<f32>>(
+    obj: &mut O,
+    mtl: &mut M,
+    state: &mut WriterState,
+    fs: &dyn FileSystem,
+    target: &crate::vpx::gameitem::hittarget::HitTarget,
+) -> io::Result<()> {
+    if !target.is_visible {
+        return Ok(());
+    }
+    let Some((vertices, indices)) = build_hit_target_mesh(target) else {
+        return Ok(());
+    };
+    let translation = Vec3::new(target.position.x, target.position.y, target.position.z);
+    let material_name = if target.material.is_empty() {
+        None
+    } else {
+        Some(target.material.clone())
+    };
+    let texture_name = if target.image.is_empty() {
+        None
+    } else {
+        Some(target.image.clone())
+    };
+    write_block(
+        obj,
+        mtl,
+        state,
+        fs,
+        Block {
+            name: &target.name,
+            vertices: &vertices,
+            indices: &indices,
+            translation,
+            material_name: material_name.as_deref(),
+            texture_name: texture_name.as_deref(),
+            smoothing: true,
+        },
+    )
+}
+
+fn write_trigger<O: ObjWriter<f32>, M: MtlWriter<f32>>(
+    obj: &mut O,
+    mtl: &mut M,
+    state: &mut WriterState,
+    fs: &dyn FileSystem,
+    trigger: &crate::vpx::gameitem::trigger::Trigger,
+) -> io::Result<()> {
+    if !trigger.is_visible {
+        return Ok(());
+    }
+    let surface_height = state.surface_height(&trigger.surface, trigger.center.x, trigger.center.y);
+    let translation = Vec3::new(trigger.center.x, trigger.center.y, surface_height);
+    let Some((vertices, indices)) = build_trigger_mesh(trigger) else {
+        return Ok(());
+    };
+    let material_name = if trigger.material.is_empty() {
+        None
+    } else {
+        Some(trigger.material.clone())
+    };
+    write_block(
+        obj,
+        mtl,
+        state,
+        fs,
+        Block {
+            name: &trigger.name,
+            vertices: &vertices,
+            indices: &indices,
+            translation,
+            material_name: material_name.as_deref(),
+            texture_name: None,
+            smoothing: true,
+        },
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Block writer + MTL/image emission.
+// ---------------------------------------------------------------------------
+
+struct Block<'a> {
+    name: &'a str,
+    vertices: &'a [VertexWrapper],
+    indices: &'a [VpxFace],
+    translation: Vec3,
+    material_name: Option<&'a str>,
+    texture_name: Option<&'a str>,
+    smoothing: bool,
+}
+
+fn write_block<O: ObjWriter<f32>, M: MtlWriter<f32>>(
+    obj: &mut O,
+    mtl: &mut M,
+    state: &mut WriterState,
+    fs: &dyn FileSystem,
+    block: Block,
+) -> io::Result<()> {
+    if block.vertices.is_empty() || block.indices.is_empty() {
+        return Ok(());
+    }
+
+    obj.write_object_name(block.name)?;
+
+    // Positions: world = local + translation; obj_z = -world_z
+    for vw in block.vertices {
+        let v = &vw.vertex;
+        let x = v.x + block.translation.x;
+        let y = v.y + block.translation.y;
+        let z = v.z + block.translation.z;
+        obj.write_vertex(x, y, -z, None)?;
+    }
+    // UVs: tv -> 1 - tv, NaN -> 0
+    for vw in block.vertices {
+        let tu = if vw.vertex.tu.is_nan() {
+            0.0
+        } else {
+            vw.vertex.tu
+        };
+        let tv = if vw.vertex.tv.is_nan() {
+            0.0
+        } else {
+            1.0 - vw.vertex.tv
+        };
+        obj.write_texture_coordinate(tu, Some(tv), None)?;
+    }
+    // Normals: nz -> -nz, NaN -> 0
+    for vw in block.vertices {
+        let nx = if vw.vertex.nx.is_nan() {
+            0.0
+        } else {
+            vw.vertex.nx
+        };
+        let ny = if vw.vertex.ny.is_nan() {
+            0.0
+        } else {
+            vw.vertex.ny
+        };
+        let nz = if vw.vertex.nz.is_nan() {
+            0.0
+        } else {
+            -vw.vertex.nz
+        };
+        obj.write_normal(nx, ny, nz)?;
+    }
+
+    let material_obj_name = if let Some(material_name) = block.material_name {
+        let mtl_name = ensure_mtl_block(mtl, state, fs, material_name, block.texture_name)?;
+        obj.write_use_material(&mtl_name)?;
+        Some(mtl_name)
+    } else {
+        None
+    };
+    let _ = material_obj_name;
+
+    if block.smoothing {
+        obj.write_smoothing_group(SmoothingGroup::Group(1))?;
+    }
+
+    // Faces: 1-based, +face_offset, reversed winding.
+    for face in block.indices {
+        let v1 = (face.i2 as u32 + 1 + state.face_offset) as usize;
+        let v2 = (face.i1 as u32 + 1 + state.face_offset) as usize;
+        let v3 = (face.i0 as u32 + 1 + state.face_offset) as usize;
+        obj.write_face(&[
+            (v1, Some(v1), Some(v1)),
+            (v2, Some(v2), Some(v2)),
+            (v3, Some(v3), Some(v3)),
+        ])?;
+    }
+
+    state.face_offset = state
+        .face_offset
+        .saturating_add(block.vertices.len() as u32);
+    Ok(())
+}
+
+/// Emit a `newmtl` block for `(material_name, texture_name)` if not seen
+/// before, and side-effect: write the referenced image to disk on first use.
+/// Returns the material name as written (with spaces erased - VPinball does
+/// the same in `WriteMaterial` for both the MTL block and the `usemtl`).
+fn ensure_mtl_block<M: MtlWriter<f32>>(
+    mtl: &mut M,
+    state: &mut WriterState,
+    fs: &dyn FileSystem,
+    material_name: &str,
+    texture_name: Option<&str>,
+) -> io::Result<String> {
+    let texture_key = texture_name.unwrap_or("").to_string();
+    let key = (material_name.to_string(), texture_key);
+    let mtl_name = sanitize_material_name(material_name);
+
+    if state.seen_mtl_pairs.contains(&key) {
+        // Still ensure the image file exists if texture is set (e.g. same
+        // material reused with same texture - already covered).
+        return Ok(mtl_name);
+    }
+    state.seen_mtl_pairs.insert(key);
+
+    // Resolve the on-disk image filename and ensure the file is written.
+    let map_path = if let Some(name) = texture_name {
+        ensure_image_written(state, fs, name)?
+    } else {
+        None
+    };
+
+    write_mtl_block(mtl, state, &mtl_name, material_name, map_path.as_deref())?;
+    Ok(mtl_name)
+}
+
+/// Match VPinball's `WriteMaterial` (`std::erase(' ')`).
+fn sanitize_material_name(name: &str) -> String {
+    name.chars().filter(|c| *c != ' ').collect()
+}
+
+fn write_mtl_block<M: MtlWriter<f32>>(
+    mtl: &mut M,
+    state: &WriterState,
+    mtl_name: &str,
+    material_name: &str,
+    image_relative_path: Option<&str>,
+) -> io::Result<()> {
+    let material = state.material_by_name(material_name);
+
+    // Defaults match VPinball's WriteMaterial when no Material is found.
+    let (kd, ks, opacity) = match material {
+        Some(m) => (
+            color_to_kd(m),
+            color_to_ks(m),
+            if m.opacity_active { m.opacity } else { 1.0 },
+        ),
+        None => ([1.0, 1.0, 1.0], [0.0, 0.0, 0.0], 1.0),
+    };
+
+    mtl.write_new_material(mtl_name)?;
+    mtl.write_specular_exponent(7.843137)?;
+    mtl.write_ambient(0.0, Some(0.0), Some(0.0))?;
+    mtl.write_diffuse(kd[0], Some(kd[1]), Some(kd[2]))?;
+    mtl.write_specular(ks[0], Some(ks[1]), Some(ks[2]))?;
+    mtl.write_optical_density(1.5)?;
+    mtl.write_dissolve(opacity)?;
+    mtl.write_illumination_model(5)?;
+    if let Some(path) = image_relative_path {
+        mtl.write_map(MapKind::Diffuse, path)?;
+        mtl.write_map(MapKind::Ambient, path)?;
+    }
+    Ok(())
+}
+
+fn color_to_kd(m: &Material) -> [f32; 3] {
+    [
+        m.base_color.r as f32 / 255.0,
+        m.base_color.g as f32 / 255.0,
+        m.base_color.b as f32 / 255.0,
+    ]
+}
+
+fn color_to_ks(m: &Material) -> [f32; 3] {
+    if m.type_ == MaterialType::Metal {
+        // Match VPinball's `m_cGlossy` for metals (uses base color).
+        color_to_kd(m)
+    } else {
+        [
+            m.glossy_color.r as f32 / 255.0,
+            m.glossy_color.g as f32 / 255.0,
+            m.glossy_color.b as f32 / 255.0,
+        ]
+    }
+}
+
+/// Look up the image by `name`, write it to `images/` if not already
+/// written, and return the relative path for the `.mtl` (or None if the
+/// image is missing or has no data).
+fn ensure_image_written(
+    state: &mut WriterState,
+    fs: &dyn FileSystem,
+    name: &str,
+) -> io::Result<Option<String>> {
+    if state.images_written.contains(name) {
+        return Ok(state
+            .image_filenames
+            .get(name)
+            .map(|f| format!("images/{}", f)));
+    }
+    // Clone the bits we need from the image before we mutably borrow state.
+    let (image_name, image_ext, payload) = {
+        let Some(image) = state.image_by_name(name) else {
+            warn!("Texture '{name}' referenced but not found in vpx.images");
+            return Ok(None);
+        };
+        let payload = if let Some(jpeg) = &image.jpeg {
+            ImagePayload::Raw(jpeg.data.clone())
+        } else if let Some(bits) = &image.bits {
+            ImagePayload::Bmp {
+                lzw: bits.lzw_compressed_data.clone(),
+                width: image.width,
+                height: image.height,
+            }
+        } else {
+            warn!("Texture '{name}' has no data; skipping");
+            return Ok(None);
+        };
+        (image.name.clone(), image.ext(), payload)
+    };
+
+    let on_disk = sanitized_image_filename(state, &image_name, &image_ext);
+    let path = state.images_dir.join(&on_disk);
+    fs.create_dir_all(&state.images_dir)?;
+
+    match payload {
+        ImagePayload::Raw(bytes) => fs.write_file(&path, &bytes)?,
+        ImagePayload::Bmp { lzw, width, height } => {
+            write_image_bmp(&path, &lzw, width, height, fs)?
+        }
+    }
+
+    state.images_written.insert(name.to_string());
+    state
+        .image_filenames
+        .insert(name.to_string(), on_disk.clone());
+    Ok(Some(format!("images/{}", on_disk)))
+}
+
+enum ImagePayload {
+    Raw(Vec<u8>),
+    Bmp {
+        lzw: Vec<u8>,
+        width: u32,
+        height: u32,
+    },
+}
+
+fn sanitized_image_filename(state: &mut WriterState, name: &str, ext: &str) -> String {
+    let base = sanitize_filename(name);
+    let mut filename = format!("{}.{}", base, ext);
+    let mut lower = filename.to_lowercase();
+    while state.used_lower_filenames.contains(&lower) {
+        state.image_dedup_counter += 1;
+        filename = format!("{}_dedup{}.{}", base, state.image_dedup_counter, ext);
+        lower = filename.to_lowercase();
+    }
+    state.used_lower_filenames.insert(lower);
+    filename
+}
+
+fn write_image_bmp(
+    path: &Path,
+    lzw_compressed: &[u8],
+    width: u32,
+    height: u32,
+    fs: &dyn FileSystem,
+) -> io::Result<()> {
+    use crate::vpx::image::vpx_image_to_dynamic_image;
+    use std::io::Cursor;
+    let dynamic = vpx_image_to_dynamic_image(lzw_compressed, width, height);
+    let mut buffer = Cursor::new(Vec::new());
+    dynamic
+        .write_to(&mut buffer, image::ImageFormat::Bmp)
+        .map_err(|e| io::Error::other(format!("Failed to encode BMP {}: {e}", path.display())))?;
+    fs.write_file(path, buffer.get_ref())
+}

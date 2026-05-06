@@ -10,7 +10,7 @@ use std::path::Path;
 //   Eg a vpx extracted on linux could fail to be opened on Windows if the sound name
 //   contains such characters.
 //   This should probably be improved in the future
-pub(super) fn sanitize_filename<S: AsRef<str>>(name: S) -> String {
+pub(crate) fn sanitize_filename<S: AsRef<str>>(name: S) -> String {
     sanitize_filename::sanitize(name)
 }
 
