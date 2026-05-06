@@ -289,10 +289,11 @@ impl VpxObjReader {
     /// vpinball's `WriteFaceInfoLong`.
     ///
     /// Otherwise (Blender-style n-gons or mismatched corners), the
-    /// `obj_compat::normalize_for_vpinball` step runs over the collected
-    /// data: faces are corner-reversed, fan-triangulated and
-    /// `(pos, uv, normal)` corners are deduplicated. The v/vt/vn arrays are
-    /// rebuilt to be aligned (same length, one entry per combined corner).
+    /// [`triangulate_and_dedup`] step runs over the collected data with
+    /// `reverse_corners=true`: faces are corner-reversed, fan-triangulated
+    /// and `(pos, uv, normal)` corners are deduplicated. The v/vt/vn arrays
+    /// are rebuilt to be aligned (same length, one entry per combined
+    /// corner).
     fn read<R: io::Read>(mut self, reader: &mut R) -> io::Result<ObjData> {
         wavefront_obj_io::read_obj_file(reader, &mut self)?;
         if self.object_count != 1 {
@@ -306,11 +307,12 @@ impl VpxObjReader {
         }
 
         if self.needs_normalize {
-            let normalized = normalize_for_vpinball(
+            let normalized = triangulate_and_dedup(
                 &self.raw_faces,
                 self.vertices.len(),
                 self.texture_coordinates.len(),
                 self.normals.len(),
+                true,
             )?;
 
             let aligned_vertices = normalized
@@ -328,7 +330,7 @@ impl VpxObjReader {
                 .iter()
                 .map(|(_, _, n)| self.normals[*n].clone())
                 .collect();
-            // Triangles from `normalize_for_vpinball` are already in
+            // Triangles from `triangulate_and_dedup` are already in
             // vpinball's m_indices convention (matches the result of
             // `ObjLoader::Load`'s corner-reverse + fan-triangulate +
             // dedup). No further reversal needed here.
@@ -496,7 +498,7 @@ pub(crate) struct ObjData {
 
 /// One corner of a face as parsed from a `f` line. `vt` / `vn` are 0 when
 /// missing in the source - that turns into an `InvalidIndex` error during
-/// [`normalize_for_vpinball`].
+/// [`triangulate_and_dedup`].
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct FaceCorner {
     pub(crate) v: u32,
@@ -504,7 +506,7 @@ pub(crate) struct FaceCorner {
     pub(crate) vn: u32,
 }
 
-/// Result of [`normalize_for_vpinball`].
+/// Result of [`triangulate_and_dedup`].
 pub(crate) struct NormalizedFaces {
     /// One entry per unique combined `(pos_idx, uv_idx, normal_idx)` tuple,
     /// in the order it was first seen by the dedup walk. Indices are
@@ -534,18 +536,22 @@ fn resolve_index(idx: u32, len: usize, kind: &str, lineno_hint: &str) -> io::Res
     Ok(resolved)
 }
 
-/// Apply the format-level normalization that vpinball's `ObjLoader::Load`
-/// performs: reverse each face's corners, fan-triangulate, then deduplicate
-/// `(pos, uv, normal)` corners into a flat vertex array.
+/// Fan-triangulate every face and deduplicate `(pos, uv, normal)` corners
+/// into a flat vertex array.
 ///
-/// Used by both [`convert_to_vpinball_compat`] and the lenient path of
-/// [`read_obj_from_reader`] so that a Blender-exported OBJ produces the
-/// same mesh either way.
-pub(crate) fn normalize_for_vpinball(
+/// When `reverse_corners` is true, each face's corners are reversed before
+/// triangulation - matches vpinball's `ObjLoader::Load`, used by the
+/// lenient path of [`read_obj_from_reader`] so a Blender-exported OBJ
+/// produces the same mesh as vpinball would.
+///
+/// When false, faces triangulate in their original OBJ order, preserving
+/// the source winding direction. Used by the renderer-friendly mesh API.
+pub(crate) fn triangulate_and_dedup(
     raw_faces: &[Vec<FaceCorner>],
     positions_len: usize,
     tex_coords_len: usize,
     normals_len: usize,
+    reverse_corners: bool,
 ) -> io::Result<NormalizedFaces> {
     let mut triangles_with_corners: Vec<[(usize, usize, usize); 3]> =
         Vec::with_capacity(raw_faces.len());
@@ -564,7 +570,9 @@ pub(crate) fn normalize_for_vpinball(
             corners.push((p, t, n));
         }
 
-        corners.reverse();
+        if reverse_corners {
+            corners.reverse();
+        }
 
         // Fan triangulation: (0, i, i+1) for i in 1..n-1.
         for i in 1..corners.len() - 1 {

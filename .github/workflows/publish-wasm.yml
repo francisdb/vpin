@@ -34,7 +34,11 @@ jobs:
         run: cargo build --release --target wasm32-unknown-unknown --features wasm --no-default-features
 
       - name: Generate bindings
-        run: wasm-bindgen --target web --out-dir pkg target/wasm32-unknown-unknown/release/vpin.wasm
+        # `--weak-refs` registers Rust-owned wasm-bindgen objects with the
+        # JS `FinalizationRegistry`, so memory is reclaimed automatically
+        # when the JS wrapper is garbage-collected. Removes the need for
+        # callers to call `.free()` manually.
+        run: wasm-bindgen --target web --weak-refs --out-dir pkg target/wasm32-unknown-unknown/release/vpin.wasm
 
       - name: Update package version
         run: |
