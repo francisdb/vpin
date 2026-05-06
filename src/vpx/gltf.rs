@@ -719,10 +719,10 @@ mod test {
     fn test_obj_glb_obj_round_trip() -> TestResult {
         use std::io::Cursor;
 
-        const SCREW_OBJ_BYTES: &[u8] = include_bytes!("../../testdata/screw_f32.obj");
+        const VPIN_SCREW2_OBJ_BYTES: &[u8] = include_bytes!("../../testdata/vpin_screw2.obj");
 
         // Step 1: Read the original OBJ
-        let mut reader = Cursor::new(SCREW_OBJ_BYTES);
+        let mut reader = Cursor::new(VPIN_SCREW2_OBJ_BYTES);
         let read_result = read_obj_from_reader(&mut reader)?;
 
         // TODO optimize: we don't need to convert to vpx_vertices and back for this test
@@ -771,7 +771,7 @@ mod test {
         )?;
 
         // Step 5: Compare original OBJ with OBJ written from GLB
-        let original_string = String::from_utf8(SCREW_OBJ_BYTES.to_vec())?;
+        let original_string = String::from_utf8(VPIN_SCREW2_OBJ_BYTES.to_vec())?;
         // When on Windows the original file will be checked out from git with \r\n line endings.
         let original = if cfg!(windows) {
             original_string.replace("\r\n", "\n")
