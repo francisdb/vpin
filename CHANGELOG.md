@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0](https://github.com/francisdb/vpin/compare/v0.24.0...v0.25.0) - 2026-05-06
+
+### Added
+
+- *(vpx)* [**breaking**] match vpinball OBJ format and accept Blender-style input ([#293](https://github.com/francisdb/vpin/pull/293))
+
+### Other
+
+- add crates.io, docs.rs and npm badges to README ([#291](https://github.com/francisdb/vpin/pull/291))
+- depend on published wavefront-obj-io crate ([#290](https://github.com/francisdb/vpin/pull/290))
+
 ## [0.24.0](https://github.com/francisdb/vpin/compare/v0.23.6...v0.24.0) - 2026-05-04
 
 ### Added
