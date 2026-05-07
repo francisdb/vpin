@@ -40,6 +40,7 @@ pub fn vpinball_ring_segments(detail_level: u32, static_rendering: bool) -> u32 
     if static_rendering {
         // VPinball: `accuracy = (int)(10.f * 1.3f);`. MSVC's `/fp:fast`
         // constant folder yields 12; a native f32 multiply yields 13.
+        // Upstream: https://github.com/vpinball/vpinball/issues/3382
         accuracy = 12;
     }
     accuracy
