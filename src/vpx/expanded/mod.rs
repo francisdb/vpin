@@ -20,7 +20,7 @@ mod materials;
 mod metadata;
 mod primitives;
 mod sounds;
-mod util;
+pub(crate) mod util;
 
 use crate::filesystem::{FileSystem, MemoryFileSystem, RealFileSystem};
 use crate::vpx::gameitem::primitive::VertexWrapper;

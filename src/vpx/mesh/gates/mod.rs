@@ -180,7 +180,15 @@ pub fn build_gate_meshes(gate: &Gate) -> Option<GateMeshes> {
     if !gate.is_visible {
         return None;
     }
+    build_gate_meshes_unchecked(gate)
+}
 
+/// Like [`build_gate_meshes`] but skips the runtime visibility check.
+///
+/// VPinball's `Gate::ExportMesh` does not consult `m_d.m_visible` (the
+/// runtime visibility flag) - it only filters at the table level via
+/// `m_uiVisible`. The OBJ exporter uses this variant to match.
+pub(crate) fn build_gate_meshes_unchecked(gate: &Gate) -> Option<GateMeshes> {
     // Get the appropriate mesh for this gate type (default to WireW if not specified)
     let gate_type = gate.gate_type.as_ref().unwrap_or(&GateType::WireW);
     let (mesh, indices) = get_mesh_for_type(gate_type);

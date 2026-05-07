@@ -87,7 +87,17 @@ pub fn build_hit_target_mesh(target: &HitTarget) -> Option<(Vec<VertexWrapper>, 
     if !target.is_visible {
         return None;
     }
+    build_hit_target_mesh_unchecked(target)
+}
 
+/// Like [`build_hit_target_mesh`] but skips the runtime visibility check.
+///
+/// VPinball's `HitTarget::ExportMesh` does not consult `m_d.m_visible` -
+/// it only filters at the table level via `m_uiVisible`. The OBJ exporter
+/// uses this variant to match.
+pub(crate) fn build_hit_target_mesh_unchecked(
+    target: &HitTarget,
+) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
     let (mesh, indices) = get_mesh_for_type(&target.target_type);
     let full_matrix = Mat3::rotate_z(target.rot_z.to_radians());
 
