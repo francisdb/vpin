@@ -32,11 +32,12 @@
 use crate::filesystem::FileSystem;
 use crate::vpx::TableDimensions;
 use crate::vpx::VPX;
+use crate::vpx::color::Color;
 use crate::vpx::expanded::util::sanitize_filename;
 use crate::vpx::gameitem::GameItemEnum;
 use crate::vpx::gameitem::primitive::{Primitive, VertexWrapper};
 use crate::vpx::image::ImageData;
-use crate::vpx::material::{Material, MaterialType};
+use crate::vpx::material::MaterialType;
 use crate::vpx::math::{Matrix3D, Vec3, Vertex3D};
 use crate::vpx::mesh::bumpers::build_bumper_meshes;
 use crate::vpx::mesh::flippers::build_flipper_meshes_unchecked;
@@ -163,6 +164,18 @@ pub fn export_obj(
     Ok(())
 }
 
+/// Material fields consumed by the MTL writer. Sourced from either the
+/// new `MATR` chunk (`Material`) or the legacy `MATE` chunk
+/// (`SaveMaterial`), so the OBJ exporter doesn't have to care which
+/// version of vpinball saved the table.
+struct MaterialView {
+    base_color: Color,
+    glossy_color: Color,
+    opacity: f32,
+    opacity_active: bool,
+    is_metal: bool,
+}
+
 // ---------------------------------------------------------------------------
 // State threaded through the walk.
 // ---------------------------------------------------------------------------
@@ -223,12 +236,39 @@ impl<'a> WriterState<'a> {
         }
     }
 
-    fn material_by_name(&self, name: &str) -> Option<&Material> {
+    /// Look up a material by name, transparently falling back from the
+    /// new (10.8+) `MATR` chunk to the legacy `MATE` chunk used by older
+    /// tables. Without the legacy fallback, pre-10.8 VPX files appear to
+    /// have no materials at all and every `Kd`/`Ks` ends up at the
+    /// "material missing" defaults (white / black) instead of the
+    /// authored colours.
+    fn material_view_by_name(&self, name: &str) -> Option<MaterialView> {
         if name.is_empty() {
             return None;
         }
-        if let Some(ref mats) = self.vpx.gamedata.materials {
-            return mats.iter().find(|m| m.name.eq_ignore_ascii_case(name));
+        if let Some(ref mats) = self.vpx.gamedata.materials
+            && let Some(m) = mats.iter().find(|m| m.name.eq_ignore_ascii_case(name))
+        {
+            return Some(MaterialView {
+                base_color: m.base_color,
+                glossy_color: m.glossy_color,
+                opacity: m.opacity,
+                opacity_active: m.opacity_active,
+                is_metal: m.type_ == MaterialType::Metal,
+            });
+        }
+        for m in &self.vpx.gamedata.materials_old {
+            if m.name.eq_ignore_ascii_case(name) {
+                return Some(MaterialView {
+                    base_color: m.base_color,
+                    glossy_color: m.glossy_color,
+                    opacity: m.opacity,
+                    // Bit 0 of `opacity_active_edge_alpha` is the
+                    // active flag, the upper 7 bits are the edge alpha.
+                    opacity_active: (m.opacity_active_edge_alpha & 1) != 0,
+                    is_metal: m.is_metal,
+                });
+            }
         }
         None
     }
@@ -569,7 +609,7 @@ fn write_ramp<O: ObjWriter<f32>, M: MtlWriter<f32>>(
     // Missing/empty material falls through to opaque (vpinball's dummy
     // material defaults `m_bOpacityActive = false`).
     let material_opacity_active = state
-        .material_by_name(&ramp.material)
+        .material_view_by_name(&ramp.material)
         .is_some_and(|m| m.opacity_active);
     let Some((vertices, indices)) = build_ramp_mesh(
         ramp,
@@ -1159,13 +1199,13 @@ fn write_mtl_block<M: MtlWriter<f32>>(
     material_name: &str,
     image_relative_path: Option<&str>,
 ) -> io::Result<()> {
-    let material = state.material_by_name(material_name);
+    let material = state.material_view_by_name(material_name);
 
     // Defaults match VPinball's WriteMaterial when no Material is found.
     let (kd, ks, opacity) = match material {
         Some(m) => (
-            color_to_kd(m),
-            color_to_ks(m),
+            color_to_kd(&m),
+            color_to_ks(&m),
             if m.opacity_active { m.opacity } else { 1.0 },
         ),
         None => ([1.0, 1.0, 1.0], [0.0, 0.0, 0.0], 1.0),
@@ -1186,7 +1226,7 @@ fn write_mtl_block<M: MtlWriter<f32>>(
     Ok(())
 }
 
-fn color_to_kd(m: &Material) -> [f32; 3] {
+fn color_to_kd(m: &MaterialView) -> [f32; 3] {
     [
         m.base_color.r as f32 / 255.0,
         m.base_color.g as f32 / 255.0,
@@ -1194,8 +1234,8 @@ fn color_to_kd(m: &Material) -> [f32; 3] {
     ]
 }
 
-fn color_to_ks(m: &Material) -> [f32; 3] {
-    if m.type_ == MaterialType::Metal {
+fn color_to_ks(m: &MaterialView) -> [f32; 3] {
+    if m.is_metal {
         // Match VPinball's `m_cGlossy` for metals (uses base color).
         color_to_kd(m)
     } else {
