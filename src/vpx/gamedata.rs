@@ -2349,6 +2349,46 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     #[test]
+    fn effective_detail_level_uses_default_when_no_override() {
+        // overwrite_global_detail_level=None: use DEFAULT_DETAIL_LEVEL,
+        // even if user_detail_level is set (vpinball ignores it then).
+        let g = GameData {
+            user_detail_level: Some(5),
+            overwrite_global_detail_level: None,
+            ..GameData::default()
+        };
+        assert_eq!(g.effective_detail_level(), DEFAULT_DETAIL_LEVEL);
+
+        let g = GameData {
+            overwrite_global_detail_level: Some(false),
+            ..g
+        };
+        assert_eq!(g.effective_detail_level(), DEFAULT_DETAIL_LEVEL);
+    }
+
+    #[test]
+    fn effective_detail_level_uses_table_value_when_override_on() {
+        let g = GameData {
+            user_detail_level: Some(7),
+            overwrite_global_detail_level: Some(true),
+            ..GameData::default()
+        };
+        assert_eq!(g.effective_detail_level(), 7);
+    }
+
+    #[test]
+    fn effective_detail_level_falls_back_when_override_on_but_unset() {
+        // Override flag says "use table value", but the value is None.
+        // Fall back to default rather than panic.
+        let g = GameData {
+            user_detail_level: None,
+            overwrite_global_detail_level: Some(true),
+            ..GameData::default()
+        };
+        assert_eq!(g.effective_detail_level(), DEFAULT_DETAIL_LEVEL);
+    }
+
+    #[test]
     fn read_write_empty() {
         let game_data = GameData::default();
         let version: Version = Version::new(1074);

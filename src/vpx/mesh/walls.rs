@@ -684,10 +684,118 @@ fn lines_intersect(s1: (f32, f32), s2: (f32, f32), e1: (f32, f32), e2: (f32, f32
 mod tests {
     use super::*;
 
+    /// Helper: walk all triangles, accumulate signed area, return its
+    /// absolute value. Should equal the absolute polygon area when the
+    /// triangulation is complete and non-overlapping.
+    fn triangulated_area(points: &[(f32, f32)], tris: &[[u32; 3]]) -> f32 {
+        let mut a = 0.0_f32;
+        for tri in tris {
+            let p0 = points[tri[0] as usize];
+            let p1 = points[tri[1] as usize];
+            let p2 = points[tri[2] as usize];
+            a += ((p1.0 - p0.0) * (p2.1 - p0.1) - (p2.0 - p0.0) * (p1.1 - p0.1)).abs() * 0.5;
+        }
+        a
+    }
+
+    fn polygon_area(points: &[(f32, f32)]) -> f32 {
+        signed_area(points).abs() * 0.5
+    }
+
     #[test]
     fn triangulates_square() {
+        // CCW square (math convention). The algorithm auto-flips to
+        // vpinball-CCW (= math-CW) and produces 2 triangles.
         let points = vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
         let tris = triangulate_polygon(&points);
         assert_eq!(tris.len(), 2);
+        assert!((triangulated_area(&points, &tris) - polygon_area(&points)).abs() < 1e-5);
+    }
+
+    #[test]
+    fn triangulates_clockwise_square_too() {
+        // CW square (vpinball-native winding). No flip applied; should
+        // still produce 2 triangles.
+        let points = vec![(0.0, 0.0), (0.0, 1.0), (1.0, 1.0), (1.0, 0.0)];
+        let tris = triangulate_polygon(&points);
+        assert_eq!(tris.len(), 2);
+        assert!((triangulated_area(&points, &tris) - polygon_area(&points)).abs() < 1e-5);
+    }
+
+    #[test]
+    fn triangulates_concave_l_shape() {
+        // L-shape (concave). The previous "convex ear + point in
+        // triangle" algorithm could mis-classify ears here; the
+        // vpinball-faithful AdvancePoint port should always produce
+        // n - 2 = 4 triangles covering the full area.
+        //
+        //   (0,2)---(1,2)
+        //     |       |
+        //     |       |   (CCW)
+        //     |       (1,1)----(2,1)
+        //     |                  |
+        //   (0,0)--------------(2,0)
+        let points = vec![
+            (0.0, 0.0),
+            (2.0, 0.0),
+            (2.0, 1.0),
+            (1.0, 1.0),
+            (1.0, 2.0),
+            (0.0, 2.0),
+        ];
+        let tris = triangulate_polygon(&points);
+        assert_eq!(tris.len(), points.len() - 2);
+        assert!(
+            (triangulated_area(&points, &tris) - polygon_area(&points)).abs() < 1e-5,
+            "triangulated area {} != polygon area {}",
+            triangulated_area(&points, &tris),
+            polygon_area(&points)
+        );
+    }
+
+    #[test]
+    fn triangulates_convex_n_gon() {
+        // Regular 13-gon - same vertex count as the Wall64 top mesh
+        // that surfaced the gap originally. Fan-triangulation should
+        // produce n - 2 = 11 triangles.
+        const N: usize = 13;
+        let points: Vec<(f32, f32)> = (0..N)
+            .map(|i| {
+                let t = (i as f32 / N as f32) * std::f32::consts::TAU;
+                (t.cos(), t.sin())
+            })
+            .collect();
+        let tris = triangulate_polygon(&points);
+        assert_eq!(tris.len(), N - 2);
+        assert!((triangulated_area(&points, &tris) - polygon_area(&points)).abs() < 1e-3);
+    }
+
+    #[test]
+    fn rejects_degenerate_polygons() {
+        assert!(triangulate_polygon(&[]).is_empty());
+        assert!(triangulate_polygon(&[(0.0, 0.0)]).is_empty());
+        assert!(triangulate_polygon(&[(0.0, 0.0), (1.0, 0.0)]).is_empty());
+    }
+
+    #[test]
+    fn lines_intersect_basic_cross() {
+        // Two segments that clearly cross.
+        assert!(lines_intersect(
+            (0.0, 0.0),
+            (1.0, 1.0),
+            (0.0, 1.0),
+            (1.0, 0.0)
+        ));
+        // Parallel non-overlapping.
+        assert!(!lines_intersect(
+            (0.0, 0.0),
+            (1.0, 0.0),
+            (0.0, 1.0),
+            (1.0, 1.0)
+        ));
+        // Note: vpinball's `FLinesIntersect` does NOT special-case
+        // shared endpoints - the caller (`AdvancePoint`) skips edges
+        // sharing a vertex with the diagonal before invoking this. We
+        // mirror that, so behavior on shared endpoints is unspecified.
     }
 }
