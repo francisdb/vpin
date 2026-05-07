@@ -38,26 +38,30 @@ pub const HIT_SHAPE_DETAIL_LEVEL: f32 = 7.0;
 /// if (static_rendering)  accuracy = (int)(10.f * 1.3f);
 /// ```
 ///
-/// The two `(int)(... * 1.3f)` expressions disagree by one in observed
-/// vpinball output:
-/// - The variable form `(int)((float)accuracy * 1.3f)` matches Rust's
-///   native f32 multiply; for detail level 10 it's `12.9999995...`
-///   which IEEE 754 round-to-even maps to `13.0`, casting to **13**.
-/// - The literal form `(int)(10.f * 1.3f)` is constant-folded by MSVC.
-///   The reference vpinball OBJs we have show **12** for static
-///   rubbers, suggesting MSVC's constant folder ends up with
-///   `12.9999...` (truncates to 12) rather than `13.0`. The exact
-///   mechanism (compile-time evaluator using f32 with x87-style 80-bit
-///   intermediate, or some `/fp:fast`-driven choice) is not verified
-///   from outside MSVC.
+/// The two `(int)(... * 1.3f)` expressions evaluate differently in
+/// MSVC, verified on `cl.exe 19.44 /fp:fast /arch:SSE2 x64` (vpinball's
+/// build flags - see `make/CMakeLists_bgfx-windows-x86.txt`):
 ///
-/// We hardcode the static-rendering result as **12** to match the
-/// observed reference output without trying to reproduce MSVC's FP
-/// behaviour. If a future vpinball build ever ships with `13` here,
-/// that's the cue to revisit.
+/// ```text
+/// static     (int)(10.f * 1.3f)         = 12
+/// non-static (int)((float)10 * 1.3f)    = 13
+/// ```
+///
+/// Both `10.f * 1.3f` and `(float)10 * 1.3f` produce `13.0` exactly
+/// in IEEE 754 f32 (round-to-nearest-even rounds `12.9999995...` up
+/// to `13.0`), so when stored to a float variable and printed, both
+/// read `13.00000000000000000000`. But `/fp:fast`'s constant folder
+/// evaluates the *literal* expression `(int)(10.f * 1.3f)` with a
+/// higher-precision intermediate and truncates to **12**. The
+/// runtime-evaluated variable form goes through SSE single-precision
+/// and casts to **13**.
+///
+/// We hardcode the static-rendering result as **12** to match. The
+/// non-static branch's native f32 multiply matches MSVC's runtime
+/// SSE behaviour exactly.
 pub fn vpinball_ring_segments(detail_level: u32, static_rendering: bool) -> u32 {
     if static_rendering {
-        // See doc above: empirically MSVC folds `(int)(10.f * 1.3f)` to 12.
+        // MSVC `/fp:fast` folds `(int)(10.f * 1.3f)` to 12 (verified).
         return 12;
     }
     if detail_level < 5 {
