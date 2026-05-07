@@ -106,25 +106,35 @@ fn generate_bracket_mesh(gate: &Gate) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
     (vertices, faces)
 }
 
-/// Generate gate wire/plate mesh
+/// Generate gate wire/plate mesh.
 ///
-/// From VPinball Gate::RenderDynamic (line 417-418):
-/// ```cpp
-/// const Matrix3D vertMatrix = (fullMatrix
-///     * Matrix3D::MatrixScale(m_d.m_length, m_d.m_length, m_d.m_length))
-///     * Matrix3D::MatrixTranslate(m_d.m_vCenter.x, m_d.m_vCenter.y, m_d.m_height + m_baseHeight);
-/// ```
+/// Two valid VPinball reference points:
 ///
-/// Note: The wire mesh IS scaled by length, same as the bracket.
-/// Translation is NOT applied here - use gate.center and height for node transform.
+/// - **`Gate::RenderDynamic`** (gate.cpp:417-418) - the in-game renderer.
+///   Applies `RotateZ * Scale(length) * Translate(...)`, so the wire is
+///   scaled by `m_d.m_length`. This is what we want for visual export
+///   targets like glTF.
+/// - **`Gate::GenerateWireMesh`** (gate.cpp:527-531) - the OBJ export
+///   path. Applies only `RotateZ * Translate(...)`, with NO length
+///   scaling (a vpinball quirk: bracket scales, wire doesn't).
+///
+/// `scale_by_length = true` matches the runtime, `false` matches the
+/// vpinball OBJ exporter byte-for-byte.
+///
+/// Translation is NOT applied here - use gate.center and height for the
+/// caller's node/object transform.
 fn generate_wire_mesh(
     gate: &Gate,
     mesh: &[Vertex3dNoTex2],
     indices: &[u16],
+    scale_by_length: bool,
 ) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
-    // Rotation and scale (no translation - that goes in node transform)
-    let world_matrix =
-        Matrix3D::rotate_z(gate.rotation.to_radians()) * Matrix3D::scale_uniform(gate.length);
+    // Rotation, optionally scaled (no translation - that goes in node transform).
+    let world_matrix = if scale_by_length {
+        Matrix3D::rotate_z(gate.rotation.to_radians()) * Matrix3D::scale_uniform(gate.length)
+    } else {
+        Matrix3D::rotate_z(gate.rotation.to_radians())
+    };
 
     let vertices: Vec<VertexWrapper> = mesh
         .iter()
@@ -180,27 +190,38 @@ pub fn build_gate_meshes(gate: &Gate) -> Option<GateMeshes> {
     if !gate.is_visible {
         return None;
     }
-    build_gate_meshes_unchecked(gate)
+    Some(build_gate_meshes_inner(
+        gate, /* scale_wire_by_length = */ true,
+    ))
 }
 
-/// Like [`build_gate_meshes`] but skips the runtime visibility check.
+/// Like [`build_gate_meshes`] but skips the runtime visibility check
+/// and matches `Gate::GenerateWireMesh` (no length scale on the wire).
 ///
 /// VPinball's `Gate::ExportMesh` does not consult `m_d.m_visible` (the
 /// runtime visibility flag) - it only filters at the table level via
-/// `m_uiVisible`. The OBJ exporter uses this variant to match.
+/// `m_uiVisible`. It also calls `GenerateWireMesh`, which (unlike
+/// `RenderDynamic`) does not multiply the wire by `m_d.m_length`. The
+/// OBJ exporter uses this variant to match byte-for-byte.
 pub(crate) fn build_gate_meshes_unchecked(gate: &Gate) -> Option<GateMeshes> {
+    Some(build_gate_meshes_inner(
+        gate, /* scale_wire_by_length = */ false,
+    ))
+}
+
+fn build_gate_meshes_inner(gate: &Gate, scale_wire_by_length: bool) -> GateMeshes {
     // Get the appropriate mesh for this gate type (default to WireW if not specified)
     let gate_type = gate.gate_type.as_ref().unwrap_or(&GateType::WireW);
     let (mesh, indices) = get_mesh_for_type(gate_type);
 
-    Some(GateMeshes {
+    GateMeshes {
         bracket: if gate.show_bracket {
             Some(generate_bracket_mesh(gate))
         } else {
             None
         },
-        wire: generate_wire_mesh(gate, mesh, indices),
-    })
+        wire: generate_wire_mesh(gate, mesh, indices, scale_wire_by_length),
+    }
 }
 
 #[cfg(test)]
