@@ -1,16 +1,20 @@
-// Example showing how to export an entire VPX table as a Wavefront OBJ + MTL +
-// (optionally) an images folder.
+// Example showing how to export an entire VPX table as a Wavefront OBJ + MTL.
 //
-// Output layout, given `path/to/table.vpx`:
+// By default the result is tuned for use in DCC tools like Blender or
+// MeshLab: positions in metres, textures extracted to an `images/` folder,
+// duplicate `newmtl` blocks collapsed, top+side walls split into separate
+// face groups so each gets its own material/texture.
 //
 //   path/to/table_export/
 //   |-- table.obj
 //   |-- table.mtl
-//   `-- images/         (only with --with-textures)
+//   `-- images/
 //       `-- <texture-name>.<ext>
 //
-// The resulting .obj can be opened in any 3D viewer (Blender, MeshLab, ...).
-// Pass `--with-textures` if you want textures to show up in the viewer.
+// Pass `--vpinball-strict` to instead emit output that matches vpinball's
+// own `File -> Export -> OBJ Mesh` quirks (no textures, raw VPU positions,
+// duplicate `newmtl` blocks). Useful for diffing against a reference OBJ
+// produced by vpinball itself.
 
 use std::path::PathBuf;
 use vpin::filesystem::RealFileSystem;
@@ -23,16 +27,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!(
-            "Usage: cargo run --example export_table_obj <path_to_vpx> [units] [--with-textures]"
+            "Usage: cargo run --example export_table_obj <path_to_vpx> [units] [--vpinball-strict]"
         );
         eprintln!();
         eprintln!("Arguments:");
-        eprintln!("  path_to_vpx       Path to the .vpx file to export");
+        eprintln!("  path_to_vpx         Path to the .vpx file to export");
+        eprintln!("  units               Output unit: 'm' (default), 'mm', 'cm', or 'vpu'");
+        eprintln!("  --vpinball-strict   Match vpinball's own OBJ exporter (no textures, raw VPU,");
         eprintln!(
-            "  units             Output unit: 'vpu' (default, matches vpinball), 'mm', 'cm', or 'm'"
-        );
-        eprintln!(
-            "  --with-textures   Also extract images and reference them from the MTL (for DCC tools)"
+            "                      duplicate `newmtl` blocks). Overrides any units argument."
         );
         std::process::exit(1);
     }
@@ -43,17 +46,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     }
 
-    let mut units = ExportUnits::Vpu;
-    let mut with_textures = false;
+    let mut units: Option<ExportUnits> = None;
+    let mut strict = false;
     for arg in args.iter().skip(2) {
         match arg.to_lowercase().as_str() {
-            "vpu" => units = ExportUnits::Vpu,
-            "mm" => units = ExportUnits::Mm,
-            "cm" => units = ExportUnits::Cm,
-            "m" => units = ExportUnits::M,
-            "--with-textures" => with_textures = true,
+            "vpu" => units = Some(ExportUnits::Vpu),
+            "mm" => units = Some(ExportUnits::Mm),
+            "cm" => units = Some(ExportUnits::Cm),
+            "m" => units = Some(ExportUnits::M),
+            "--vpinball-strict" => strict = true,
             other => {
-                eprintln!("Error: unknown argument '{other}'. Use vpu/mm/cm/m or --with-textures.");
+                eprintln!(
+                    "Error: unknown argument '{other}'. Use vpu/mm/cm/m or --vpinball-strict."
+                );
                 std::process::exit(1);
             }
         }
@@ -75,16 +80,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Reading VPX file: {}", vpx_path.display());
     let vpx = vpx::read(&vpx_path)?;
 
-    println!(
-        "Exporting to {} (units: {units:?}, textures: {})",
-        obj_path.display(),
-        if with_textures { "yes" } else { "no" },
-    );
-    let options = ObjExportOptions {
-        units,
-        extract_textures: with_textures,
-        ..ObjExportOptions::default()
+    let mut options = if strict {
+        ObjExportOptions::vpinball_strict()
+    } else {
+        ObjExportOptions::default()
     };
+    if let Some(u) = units {
+        options.units = u;
+    }
+
+    println!(
+        "Exporting to {} (units: {:?}, mode: {})",
+        obj_path.display(),
+        options.units,
+        if strict { "vpinball-strict" } else { "default" },
+    );
     export_obj(&vpx, &obj_path, &RealFileSystem, &options)?;
 
     let obj_size = std::fs::metadata(&obj_path)?.len();
@@ -94,7 +104,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Done.");
     println!("  obj:    {} ({} bytes)", obj_path.display(), obj_size);
     println!("  mtl:    {} ({} bytes)", mtl_path.display(), mtl_size);
-    if with_textures {
+    if options.extract_textures {
         println!("  images: {}", out_dir.join("images").display());
     }
 

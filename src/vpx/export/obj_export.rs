@@ -61,49 +61,74 @@ use std::io;
 use std::path::{Path, PathBuf};
 use wavefront_obj_io::{IoMtlWriter, IoObjWriter, MapKind, MtlWriter, ObjWriter, SmoothingGroup};
 
-/// Options controlling OBJ export behaviour. Defaults match VPinball's
-/// own `File -> Export -> OBJ Mesh` byte for byte.
-#[derive(Debug, Clone, Default)]
+/// Options controlling OBJ export behaviour.
+///
+/// The defaults are tuned for "useful in DCC tools" (Blender, MeshLab):
+/// textures are extracted and referenced, duplicate `newmtl` blocks are
+/// collapsed, and positions are emitted in metres. To produce output
+/// that matches vpinball's `File -> Export -> OBJ Mesh` quirks
+/// (duplicate blocks, no texture maps, raw VPU positions, combined
+/// top+side wall blocks), set every field back to the vpinball-strict
+/// values - see [`Self::vpinball_strict`].
+#[derive(Debug, Clone)]
 pub struct ObjExportOptions {
     /// Deduplicate `newmtl` blocks in the MTL file by `(material,
     /// texture)` pair.
     ///
-    /// - **`false` (default)**: emit one `newmtl` block per `usemtl`,
-    ///   matching VPinball's output exactly. The MTL contains one entry
-    ///   per item-block, which can mean many duplicates for tables that
+    /// - **`true` (default)**: only the first occurrence of each
+    ///   `(material, texture)` pair gets a `newmtl` block. Produces a
+    ///   smaller MTL with no duplicate blocks.
+    /// - **`false`**: emit one `newmtl` block per `usemtl`, matching
+    ///   VPinball's output exactly. The MTL contains one entry per
+    ///   item-block, which can mean many duplicates for tables that
     ///   share materials across items.
-    /// - **`true`**: only the first occurrence of each `(material,
-    ///   texture)` pair gets a `newmtl` block. The `usemtl` references
-    ///   in the OBJ still resolve correctly (they all point at the same
-    ///   sanitized name). Produces a smaller MTL but diverges from
-    ///   VPinball's reference output.
     pub dedup_mtl_blocks: bool,
 
     /// Whether to extract referenced texture images to an `images/`
     /// sibling folder and reference them via `map_Kd`/`map_Ka` lines
     /// in the MTL.
     ///
-    /// - **`false` (default)**: vpinball-faithful. No images are
-    ///   written and no `map_*` lines are emitted, matching what
-    ///   `File -> Export -> OBJ Mesh` produces (vpinball passes an
-    ///   empty texelFilename to `WriteMaterial` for everything except
-    ///   wall tops with an image, and for that case the path it emits
-    ///   is the original on-disk source path - which we cannot
-    ///   replicate from a packaged VPX).
-    /// - **`true`**: extract every referenced texture into the
-    ///   `images/` folder and reference each one from its `newmtl`
-    ///   block. Useful when loading the OBJ into Blender / MeshLab so
-    ///   textures show up. Note: when multiple items reuse the same
-    ///   material name with different textures, `usemtl` references
-    ///   currently resolve to whichever block parses last - a separate
-    ///   dedup pass is needed for fully-correct DCC output. Combine
-    ///   with [`Self::dedup_mtl_blocks`] as a partial workaround.
+    /// - **`true` (default)**: extract every referenced texture into
+    ///   the `images/` folder and reference each one from its
+    ///   `newmtl` block. Items reusing a material name with different
+    ///   textures get unique `newmtl <material>__<texture>` names so
+    ///   `usemtl` references resolve correctly. Top+side walls are
+    ///   split into separate `<name>Side` + `<name>Top` blocks so
+    ///   each face group gets its own material and texture.
+    /// - **`false`**: vpinball-faithful. No images are written and no
+    ///   `map_*` lines are emitted, matching what
+    ///   `File -> Export -> OBJ Mesh` produces. Top+side walls stay
+    ///   as a single combined block with the top material only (also
+    ///   matching vpinball).
     pub extract_textures: bool,
 
-    /// Output unit for vertex positions. Default is [`ExportUnits::Vpu`]
-    /// (no scaling) for vpinball parity. Use [`ExportUnits::Mm`] or
-    /// [`ExportUnits::M`] when loading the result into a DCC tool.
+    /// Output unit for vertex positions. Default is [`ExportUnits::M`]
+    /// so the OBJ imports at sensible scale into DCC tools. Use
+    /// [`ExportUnits::Vpu`] for vpinball parity.
     pub units: ExportUnits,
+}
+
+impl Default for ObjExportOptions {
+    fn default() -> Self {
+        Self {
+            dedup_mtl_blocks: true,
+            extract_textures: true,
+            units: ExportUnits::M,
+        }
+    }
+}
+
+impl ObjExportOptions {
+    /// Options that produce output matching vpinball's
+    /// `File -> Export -> OBJ Mesh` as closely as possible. Useful for
+    /// diffing against vpinball-generated reference files.
+    pub fn vpinball_strict() -> Self {
+        Self {
+            dedup_mtl_blocks: false,
+            extract_textures: false,
+            units: ExportUnits::Vpu,
+        }
+    }
 }
 
 /// Export the entire VPX table as a Wavefront OBJ + companion MTL + images
@@ -574,6 +599,15 @@ fn write_wall<O: ObjWriter<f32>, M: MtlWriter<f32>>(
         }
         (false, true, _, Some((vertices, indices))) => {
             let material_name = wall.side_material.clone();
+            // VPinball's side-only branch (surface.cpp:734) drops the
+            // image like the top+side branch. Pipe `side_image`
+            // through so DCC tools see the texture in textured mode;
+            // `emit_mtl_block` ignores it in vpinball-strict mode.
+            let texture_name = if wall.side_image.is_empty() {
+                None
+            } else {
+                Some(wall.side_image.as_str())
+            };
             write_block(
                 obj,
                 mtl,
@@ -585,37 +619,98 @@ fn write_wall<O: ObjWriter<f32>, M: MtlWriter<f32>>(
                     indices: &indices,
                     translation: Vec3::new(0.0, 0.0, 0.0),
                     material_name: Some(&material_name),
-                    texture_name: None,
+                    texture_name,
                     smoothing: false,
                 },
             )?;
         }
         (true, true, Some((top_v, top_i)), Some((side_v, side_i))) => {
-            let side_count = side_v.len() as i64;
-            let mut combined_v = side_v;
-            combined_v.extend(top_v);
-            let mut combined_i = side_i;
-            combined_i.extend(top_i.into_iter().map(|f| VpxFace {
-                i0: f.i0 + side_count,
-                i1: f.i1 + side_count,
-                i2: f.i2 + side_count,
-            }));
-            let material_name = wall.top_material.clone();
-            write_block(
-                obj,
-                mtl,
-                state,
-                fs,
-                Block {
-                    name: &wall.name,
-                    vertices: &combined_v,
-                    indices: &combined_i,
-                    translation: Vec3::new(0.0, 0.0, 0.0),
-                    material_name: Some(&material_name),
-                    texture_name: None,
-                    smoothing: true,
-                },
-            )?;
+            // Two output strategies, picked at runtime:
+            //
+            // - `extract_textures = false` (vpinball-strict): emit a
+            //   single combined `o <name>` block with the top material
+            //   only, matching `Surface::ExportMesh` (surface.cpp:709-735)
+            //   byte for byte. Sides and top share one `usemtl`; the
+            //   wall's image is dropped because OBJ allows only one
+            //   texture per face group and vpinball doesn't bother
+            //   splitting.
+            // - `extract_textures = true` (DCC-friendly): split into
+            //   `o <name>Side` and `o <name>Top` so each face group
+            //   carries its own material + image. This is the only
+            //   way to get correct top+side textures into Blender;
+            //   otherwise the side faces would render with the top's
+            //   texture stretched across their UVs.
+            if state.extract_textures {
+                let side_material = wall.side_material.clone();
+                let side_texture = if wall.side_image.is_empty() {
+                    None
+                } else {
+                    Some(wall.side_image.as_str())
+                };
+                write_block(
+                    obj,
+                    mtl,
+                    state,
+                    fs,
+                    Block {
+                        name: &format!("{}Side", wall.name),
+                        vertices: &side_v,
+                        indices: &side_i,
+                        translation: Vec3::new(0.0, 0.0, 0.0),
+                        material_name: Some(&side_material),
+                        texture_name: side_texture,
+                        smoothing: true,
+                    },
+                )?;
+
+                let top_material = wall.top_material.clone();
+                let top_texture = if wall.image.is_empty() {
+                    None
+                } else {
+                    Some(wall.image.as_str())
+                };
+                write_block(
+                    obj,
+                    mtl,
+                    state,
+                    fs,
+                    Block {
+                        name: &format!("{}Top", wall.name),
+                        vertices: &top_v,
+                        indices: &top_i,
+                        translation: Vec3::new(0.0, 0.0, 0.0),
+                        material_name: Some(&top_material),
+                        texture_name: top_texture,
+                        smoothing: true,
+                    },
+                )?;
+            } else {
+                let side_count = side_v.len() as i64;
+                let mut combined_v = side_v;
+                combined_v.extend(top_v);
+                let mut combined_i = side_i;
+                combined_i.extend(top_i.into_iter().map(|f| VpxFace {
+                    i0: f.i0 + side_count,
+                    i1: f.i1 + side_count,
+                    i2: f.i2 + side_count,
+                }));
+                let material_name = wall.top_material.clone();
+                write_block(
+                    obj,
+                    mtl,
+                    state,
+                    fs,
+                    Block {
+                        name: &wall.name,
+                        vertices: &combined_v,
+                        indices: &combined_i,
+                        translation: Vec3::new(0.0, 0.0, 0.0),
+                        material_name: Some(&material_name),
+                        texture_name: None,
+                        smoothing: true,
+                    },
+                )?;
+            }
         }
         _ => {}
     }
@@ -1459,13 +1554,28 @@ mod tests {
     }
 
     #[test]
-    fn default_options_emit_one_newmtl_per_usemtl() {
-        // VPinball-faithful default: each `usemtl` gets a `newmtl`.
-        let (obj, mtl) = export_to_memory(&ObjExportOptions::default());
+    fn vpinball_strict_emits_one_newmtl_per_usemtl() {
+        // VPinball-strict mode: each `usemtl` gets its own `newmtl`,
+        // including duplicates - matches `Surface::ExportMesh`.
+        let (obj, mtl) = export_to_memory(&ObjExportOptions::vpinball_strict());
         let usemtl = obj.matches("usemtl ").count();
         let newmtl = mtl.matches("newmtl ").count();
         assert!(usemtl > 0);
         assert_eq!(usemtl, newmtl);
+    }
+
+    #[test]
+    fn default_options_dedup_newmtl_blocks() {
+        // The DCC-friendly default collapses duplicate `(material,
+        // texture)` pairs into a single `newmtl` block.
+        let (obj, mtl) = export_to_memory(&ObjExportOptions::default());
+        let usemtl = obj.matches("usemtl ").count();
+        let newmtl = mtl.matches("newmtl ").count();
+        assert!(usemtl >= 1);
+        assert!(
+            newmtl <= usemtl,
+            "newmtl ({newmtl}) should not exceed usemtl ({usemtl}) when deduped",
+        );
     }
 
     /// Find the vertex with the largest |x| in an OBJ string, returning
