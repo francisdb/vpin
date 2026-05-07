@@ -1176,12 +1176,22 @@ fn write_block<O: ObjWriter<f32>, M: MtlWriter<f32>>(
 /// VPinball does the same in `WriteMaterial` for both the MTL block and
 /// the `usemtl`).
 ///
-/// By default vpinball-style: emits one `newmtl` block per call, with
-/// duplicates. When `state.dedup_mtl_blocks` is set, only the first
-/// occurrence of each `(material, texture)` pair is written; subsequent
-/// calls still resolve the on-disk image (so it gets extracted) but
-/// skip the MTL block. The `usemtl` reference in the OBJ remains the
-/// same sanitized name and resolves to the first-emitted block.
+/// Behaviour depends on the active options:
+///
+/// - `extract_textures = false` (vpinball-faithful):
+///   the returned name is the bare sanitised material name. With
+///   `dedup_mtl_blocks = false` the same `newmtl <name>` block is
+///   re-emitted per call, matching vpinball byte-for-byte. With
+///   `dedup_mtl_blocks = true` we keep just the first occurrence.
+/// - `extract_textures = true`:
+///   when the item carries a texture, we emit a unique
+///   `newmtl <material>__<image>` block so DCC tools resolve every
+///   `usemtl` to the right `map_Kd` line. Items with the same
+///   material name but different textures no longer step on each
+///   other. The texture file is extracted into `images/` on first
+///   use; repeat `(material, texture)` pairs reuse the same `newmtl`
+///   block (effectively forcing dedup for textured items so we
+///   don't emit identical blocks twice).
 fn emit_mtl_block<M: MtlWriter<f32>>(
     mtl: &mut M,
     state: &mut WriterState,
@@ -1189,8 +1199,6 @@ fn emit_mtl_block<M: MtlWriter<f32>>(
     material_name: &str,
     texture_name: Option<&str>,
 ) -> io::Result<String> {
-    let mtl_name = sanitize_material_name(material_name);
-
     // Resolve the on-disk image filename and ensure the file is written.
     // Skipped entirely in vpinball-faithful mode (no `map_*` lines, no
     // `images/` folder) - vpinball's exporter doesn't extract textures.
@@ -1204,7 +1212,30 @@ fn emit_mtl_block<M: MtlWriter<f32>>(
         None
     };
 
-    if state.dedup_mtl_blocks {
+    // Construct the `newmtl`/`usemtl` name. In vpinball-faithful mode
+    // it's just the sanitised material name. In texture-emitting mode
+    // we mangle in the image name so each `(material, texture)` pair
+    // gets its own block, which avoids the "last newmtl wins" trap
+    // when multiple items reuse a material name.
+    let mtl_name = if state.extract_textures
+        && let Some(tex) = texture_name
+        && !tex.is_empty()
+    {
+        format!(
+            "{}__{}",
+            sanitize_material_name(material_name),
+            sanitize_filename(tex),
+        )
+    } else {
+        sanitize_material_name(material_name)
+    };
+
+    // With unique-per-pair names, the same pair would otherwise emit
+    // identical `newmtl` blocks every time the same item-style
+    // recurs. Force dedup whenever we extract textures so we only
+    // write the block on first sight.
+    let force_dedup = state.extract_textures && map_path.is_some();
+    if state.dedup_mtl_blocks || force_dedup {
         let key = (
             material_name.to_string(),
             texture_name.unwrap_or("").to_string(),

@@ -1,15 +1,16 @@
 // Example showing how to export an entire VPX table as a Wavefront OBJ + MTL +
-// images folder.
+// (optionally) an images folder.
 //
 // Output layout, given `path/to/table.vpx`:
 //
 //   path/to/table_export/
-//   ├── table.obj
-//   ├── table.mtl
-//   └── images/
-//       └── <texture-name>.<ext>
+//   |-- table.obj
+//   |-- table.mtl
+//   `-- images/         (only with --with-textures)
+//       `-- <texture-name>.<ext>
 //
 // The resulting .obj can be opened in any 3D viewer (Blender, MeshLab, ...).
+// Pass `--with-textures` if you want textures to show up in the viewer.
 
 use std::path::PathBuf;
 use vpin::filesystem::RealFileSystem;
@@ -21,12 +22,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: cargo run --example export_table_obj <path_to_vpx> [units]");
+        eprintln!(
+            "Usage: cargo run --example export_table_obj <path_to_vpx> [units] [--with-textures]"
+        );
         eprintln!();
         eprintln!("Arguments:");
-        eprintln!("  path_to_vpx  Path to the .vpx file to export");
+        eprintln!("  path_to_vpx       Path to the .vpx file to export");
         eprintln!(
-            "  units        Output unit: 'vpu' (default, matches vpinball), 'mm', 'cm', or 'm'"
+            "  units             Output unit: 'vpu' (default, matches vpinball), 'mm', 'cm', or 'm'"
+        );
+        eprintln!(
+            "  --with-textures   Also extract images and reference them from the MTL (for DCC tools)"
         );
         std::process::exit(1);
     }
@@ -37,19 +43,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     }
 
-    let units = match args.get(2).map(|s| s.to_lowercase()) {
-        None => ExportUnits::Vpu,
-        Some(s) => match s.as_str() {
-            "vpu" => ExportUnits::Vpu,
-            "mm" => ExportUnits::Mm,
-            "cm" => ExportUnits::Cm,
-            "m" => ExportUnits::M,
+    let mut units = ExportUnits::Vpu;
+    let mut with_textures = false;
+    for arg in args.iter().skip(2) {
+        match arg.to_lowercase().as_str() {
+            "vpu" => units = ExportUnits::Vpu,
+            "mm" => units = ExportUnits::Mm,
+            "cm" => units = ExportUnits::Cm,
+            "m" => units = ExportUnits::M,
+            "--with-textures" => with_textures = true,
             other => {
-                eprintln!("Error: unknown units '{other}'. Use vpu, mm, cm, or m.");
+                eprintln!("Error: unknown argument '{other}'. Use vpu/mm/cm/m or --with-textures.");
                 std::process::exit(1);
             }
-        },
-    };
+        }
+    }
 
     let stem = vpx_path
         .file_stem()
@@ -67,9 +75,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Reading VPX file: {}", vpx_path.display());
     let vpx = vpx::read(&vpx_path)?;
 
-    println!("Exporting to {} (units: {units:?})", obj_path.display());
+    println!(
+        "Exporting to {} (units: {units:?}, textures: {})",
+        obj_path.display(),
+        if with_textures { "yes" } else { "no" },
+    );
     let options = ObjExportOptions {
         units,
+        extract_textures: with_textures,
         ..ObjExportOptions::default()
     };
     export_obj(&vpx, &obj_path, &RealFileSystem, &options)?;
@@ -81,7 +94,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Done.");
     println!("  obj:    {} ({} bytes)", obj_path.display(), obj_size);
     println!("  mtl:    {} ({} bytes)", mtl_path.display(), mtl_size);
-    println!("  images: {}", out_dir.join("images").display());
+    if with_textures {
+        println!("  images: {}", out_dir.join("images").display());
+    }
 
     Ok(())
 }
