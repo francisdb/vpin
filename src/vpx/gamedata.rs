@@ -47,8 +47,10 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// VPinball's editor default for per-table detail level. Used as a fallback
 /// when [`GameData::user_detail_level`] is `None`.
 ///
-/// VPinball's editor defaults this to 10 (highest detail). The value drives
-/// ramp and rubber tessellation - see
+/// VPinball declares the corresponding `Player_AlphaRampAccuracy` property
+/// as `(min = 1, max = 10, default = 10)` in `Settings_properties.inl`, so
+/// 10 is also the highest-detail setting the editor's slider exposes. The
+/// value drives ramp and rubber tessellation - see
 /// [`crate::vpx::mesh::vpinball_ring_segments`].
 pub const DEFAULT_DETAIL_LEVEL: u32 = 10;
 
@@ -867,13 +869,22 @@ pub struct GameData {
     /// this has a special quantization,
     /// See [`Self::get_ball_trail_strength`] and [`Self::set_ball_trail_strength`]
     pub ball_trail_strength: Option<u32>, // BTST 93 (became optional in 10.8)
-    /// Per-table detail level override (range `0..=10`, where 10 is the
-    /// highest detail).
+    /// Per-table detail level override (range `1..=10`, where 10 is the
+    /// highest detail). VPinball declares the underlying property as
+    /// `(min = 1, max = 10, default = 10)` in `Settings_properties.inl`.
     ///
     /// VPinball's editor exposes this as the "detail level" slider. It
     /// drives ramp and rubber tessellation; see
     /// [`crate::vpx::mesh::vpinball_ring_segments`] for how vpinball
     /// derives the cross-section segment count from this value.
+    ///
+    /// Note: older vpinball versions allowed `0` and the user-level ini
+    /// (`%APPDATA%\VPinballX\<ver>\VPinballX.ini`, key
+    /// `[Player] AlphaRampAccuracy`) can still carry a `0` from those
+    /// versions. The store does not clamp to `m_min`, so any integer
+    /// can appear in practice. Callers should treat values outside the
+    /// declared range as legacy data and route them through the formula
+    /// regardless (the formula's `accuracy < 5` branch handles them).
     ///
     /// Only takes effect when [`Self::overwrite_global_detail_level`] is
     /// `Some(true)`. Otherwise vpinball uses its editor-wide global
