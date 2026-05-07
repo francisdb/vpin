@@ -425,9 +425,18 @@ fn write_primitive<O: ObjWriter<f32>, M: MtlWriter<f32>>(
     )
 }
 
-/// Compose the full vpx-space world matrix for a primitive, including the
-/// position translation that VPinball folds into `m_fullMatrix` for
-/// `Primitive::ExportMesh`.
+/// Compose the full vpx-space world matrix for a primitive, mirroring
+/// VPinball's `Primitive::RecalculateMatrices`:
+///
+/// ```text
+/// RT       = Translate(tra) * RotZ(rot[2]) * RotY(rot[1]) * RotX(rot[0])
+///                           * RotZ(rot[8]) * RotY(rot[7]) * RotX(rot[6])
+/// fullMat  = Scale(size) * RT * Translate(pos)
+/// ```
+///
+/// Order matters: position is applied *after* scale + rotation so it
+/// doesn't get rotated/scaled along with the mesh. Got bitten by this -
+/// see the regression test in this file.
 fn primitive_world_matrix(primitive: &Primitive) -> Matrix3D {
     let pos = &primitive.position;
     let size = &primitive.size;
@@ -441,7 +450,7 @@ fn primitive_world_matrix(primitive: &Primitive) -> Matrix3D {
         * Matrix3D::rotate_y(rot[7].to_radians())
         * Matrix3D::rotate_x(rot[6].to_radians());
 
-    Matrix3D::translate(pos.x, pos.y, pos.z) * Matrix3D::scale(size.x, size.y, size.z) * rt
+    Matrix3D::scale(size.x, size.y, size.z) * rt * Matrix3D::translate(pos.x, pos.y, pos.z)
 }
 
 fn write_wall<O: ObjWriter<f32>, M: MtlWriter<f32>>(
@@ -1304,6 +1313,46 @@ mod tests {
         let mtl =
             String::from_utf8(fs.read_file(&obj_path.with_extension("mtl")).unwrap()).unwrap();
         (obj, mtl)
+    }
+
+    #[test]
+    fn primitive_world_matrix_does_not_scale_position() {
+        // Regression: the previous order `Translate(pos) * Scale * RT`
+        // applied scale/rotation to the position itself. With size != 1
+        // and a non-zero rotation, primitives ended up far from where
+        // vpinball places them. Verify the world matrix matches the
+        // vpinball convention `Scale * RT * Translate(pos)`.
+        //
+        // Setup:
+        //   - local vertex at (1, 0, 0)
+        //   - size  = (2, 2, 2)         (would be doubled if scale leaked into pos)
+        //   - rot[0] = 90 deg around X  (would rotate pos if order is wrong)
+        //   - pos = (10, 20, 30)
+        //
+        // Expected (vpinball): scale -> rotate -> translate(pos)
+        //   v_local = (1, 0, 0)
+        //   after scale(2): (2, 0, 0)
+        //   after RotX(90): (2, 0, 0)   (X axis is invariant)
+        //   after Translate(pos): (12, 20, 30)
+        use crate::vpx::gameitem::vertex3d::Vertex3D as ItemVertex3D;
+        let primitive = Primitive {
+            position: ItemVertex3D::new(10.0, 20.0, 30.0),
+            size: ItemVertex3D::new(2.0, 2.0, 2.0),
+            rot_and_tra: [90.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            ..Primitive::default()
+        };
+
+        let m = primitive_world_matrix(&primitive);
+        let out = m.transform_vertex(Vertex3D::new(1.0, 0.0, 0.0));
+        assert!(
+            (out.x - 12.0).abs() < 1e-4
+                && (out.y - 20.0).abs() < 1e-4
+                && (out.z - 30.0).abs() < 1e-4,
+            "expected (12, 20, 30), got ({}, {}, {})",
+            out.x,
+            out.y,
+            out.z,
+        );
     }
 
     #[test]
