@@ -513,12 +513,17 @@ fn write_ramp_meshes(
     table_dims: &TableDimensions,
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
-    // The expanded format is a portable representation - it doesn't have
-    // access to the table's `user_detail_level` here, so we use the
-    // editor default. This matches how default `table_dims` is used above.
-    let Some((vertices, indices)) =
-        build_ramp_mesh(ramp, table_dims, crate::vpx::gamedata::DEFAULT_DETAIL_LEVEL)
-    else {
+    // The expanded format is a portable representation - it doesn't
+    // have access to the table's `user_detail_level` or the ramp's
+    // material here, so we use the editor default for detail level
+    // and assume the material is opaque (vpinball's dummy-material
+    // default; the typical case for ramps).
+    let Some((vertices, indices)) = build_ramp_mesh(
+        ramp,
+        table_dims,
+        crate::vpx::gamedata::DEFAULT_DETAIL_LEVEL,
+        false, // material_opacity_active
+    ) else {
         return Ok(());
     };
 

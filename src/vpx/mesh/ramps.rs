@@ -473,6 +473,7 @@ fn build_wire_ramp_mesh(
     ramp: &Ramp,
     vvertex: &[RenderVertex3D],
     detail_level: u32,
+    material_opacity_active: bool,
 ) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
     let (rgv_local, rgheight, _) = get_ramp_vertex(ramp, vvertex, false);
     let num_rings = vvertex.len();
@@ -481,12 +482,12 @@ fn build_wire_ramp_mesh(
         return None;
     }
 
-    // VPinball's `Ramp::CreateWire` derives `numSegments` from the table's
-    // detail level (ramp.cpp:1070). vpin doesn't yet parse the ramp's
-    // `m_d.m_staticRendering` field, so we default it to `true` - the
-    // typical setting and the only one that produces the f32-truncation
-    // result of 12 at any detail level. TODO: parse ramp static_rendering.
-    let num_segments = super::vpinball_ring_segments(detail_level, true) as usize;
+    // VPinball's `Ramp::GenerateWireMesh` (ramp.cpp:1063-1065) overrides
+    // the segment count to max precision when the material is opaque
+    // (`!mat->m_bOpacityActive`). Pass that as the
+    // `static_rendering`-equivalent flag to `vpinball_ring_segments`.
+    let num_segments =
+        super::vpinball_ring_segments(detail_level, !material_opacity_active) as usize;
 
     // Get middle points (center of ramp)
     let mut mid_points: Vec<Vec2> = Vec::with_capacity(num_rings);
@@ -783,11 +784,18 @@ pub(crate) fn get_ramp_surface_height(ramp: &Ramp, x: f32, y: f32) -> f32 {
     }
 }
 
-/// Build the complete ramp mesh
+/// Build the complete ramp mesh.
+///
+/// `material_opacity_active` mirrors VPinball's `mat->m_bOpacityActive`
+/// for the ramp's material. VPinball's `Ramp::GenerateWireMesh`
+/// (ramp.cpp:1067) bumps the wire-cross-section segment count to its
+/// max precision when the material is **opaque** (not opacity-active);
+/// transparent ramps fall through to the detail-level formula.
 pub(crate) fn build_ramp_mesh(
     ramp: &Ramp,
     table_dims: &TableDimensions,
     detail_level: u32,
+    material_opacity_active: bool,
 ) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
     // Generate meshes for all ramps, including invisible ones
     // This is useful for tools that need to visualize or process all geometry
@@ -806,7 +814,7 @@ pub(crate) fn build_ramp_mesh(
     }
 
     if is_habitrail(ramp) {
-        build_wire_ramp_mesh(ramp, &vvertex, detail_level)
+        build_wire_ramp_mesh(ramp, &vvertex, detail_level, material_opacity_active)
     } else {
         build_flat_ramp_mesh(ramp, &vvertex, table_dims)
     }
@@ -890,6 +898,7 @@ mod tests {
             &ramp,
             &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0),
             crate::vpx::gamedata::DEFAULT_DETAIL_LEVEL,
+            false, // material_opacity_active: assume opaque
         );
         assert!(result.is_some());
 
@@ -935,6 +944,7 @@ mod tests {
             &ramp,
             &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0),
             crate::vpx::gamedata::DEFAULT_DETAIL_LEVEL,
+            false, // material_opacity_active: assume opaque
         );
         assert!(result.is_some(), "One-wire ramp should generate mesh");
 
@@ -993,6 +1003,7 @@ mod tests {
             &ramp,
             &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0),
             crate::vpx::gamedata::DEFAULT_DETAIL_LEVEL,
+            false, // material_opacity_active: assume opaque
         );
         assert!(result.is_some(), "One-wire ramp should generate mesh");
 

@@ -913,7 +913,22 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                 if !options.export_invisible_items && !ramp.is_visible {
                     continue;
                 }
-                if let Some((vertices, indices)) = build_ramp_mesh(ramp, &table_dims, detail_level)
+                // VPinball's `Ramp::GenerateWireMesh` uses max-precision
+                // wire segments when the material is opaque
+                // (`!mat->m_bOpacityActive`). Look the material up;
+                // missing/empty falls through to opaque (vpinball's
+                // dummy material defaults `m_bOpacityActive = false`).
+                let material_opacity_active = vpx
+                    .gamedata
+                    .materials
+                    .as_ref()
+                    .and_then(|mats| {
+                        mats.iter()
+                            .find(|m| m.name.eq_ignore_ascii_case(&ramp.material))
+                    })
+                    .is_some_and(|m| m.opacity_active);
+                if let Some((vertices, indices)) =
+                    build_ramp_mesh(ramp, &table_dims, detail_level, material_opacity_active)
                 {
                     let group_info = item_group_info_for(ramp);
                     let ramp_layer_name = group_info.layer_name.clone();
