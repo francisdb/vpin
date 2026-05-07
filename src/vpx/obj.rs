@@ -154,14 +154,33 @@ pub(crate) struct ReadObjResult {
     pub(crate) vpx_encoded_vertices: BytesMut,
 }
 
-pub(crate) fn read_obj_from_reader<R: BufRead>(mut reader: &mut R) -> io::Result<ReadObjResult> {
+pub(crate) fn read_obj_from_reader<R: BufRead>(reader: &mut R) -> io::Result<ReadObjResult> {
+    read_obj_from_reader_with_options(reader, true)
+}
+
+/// Like [`read_obj_from_reader`] but lets the caller pick whether
+/// vpinball's right-handed -> left-handed conversion should be applied
+/// (Z negate on positions and normals, V flip on texture coordinates,
+/// per-triangle corner reverse). Mirrors vpinball's
+/// `ObjLoader::Load`'s `convertToLeftHanded` flag.
+///
+/// `convert_to_left_handed = true` matches the existing assemble path
+/// (input is in vpinball's exported convention - i.e. the same form
+/// `extract` writes - and we convert to vpx-internal coordinates).
+/// `false` skips the conversion: the input is assumed to already be in
+/// vpx-internal convention so its values pass through unchanged.
+pub(crate) fn read_obj_from_reader_with_options<R: BufRead>(
+    mut reader: &mut R,
+    convert_to_left_handed: bool,
+) -> io::Result<ReadObjResult> {
     let ObjData {
         name,
         vertices,
         texture_coordinates,
         normals,
         indices,
-    } = read_obj(&mut reader).map_err(|e| io::Error::other(format!("Error reading obj: {}", e)))?;
+    } = read_obj_with_options(&mut reader, convert_to_left_handed)
+        .map_err(|e| io::Error::other(format!("Error reading obj: {}", e)))?;
 
     let mut final_vertices = Vec::with_capacity(vertices.len());
     let mut vpx_encoded_vertices = BytesMut::with_capacity(vertices.len() * 32);
@@ -170,21 +189,24 @@ pub(crate) fn read_obj_from_reader<R: BufRead>(mut reader: &mut R) -> io::Result
         .zip(texture_coordinates.iter())
         .zip(normals.iter())
     {
-        let nx = vn.x;
-        let ny = vn.y;
-        let nz = -vn.z;
+        // vpinball's ObjLoader::Load (with `convertToLeftHanded=true`)
+        // negates Z on vertices and normals and flips V on texcoords.
+        // With the flag false those transforms are skipped.
+        let (z, nz, tv) = if convert_to_left_handed {
+            (-v.2, -vn.z, 1.0 - vt.1.unwrap_or(0.0))
+        } else {
+            (v.2, vn.z, vt.1.unwrap_or(0.0))
+        };
 
         let vertext = Vertex3dNoTex2 {
             x: v.0,
             y: v.1,
-            z: -v.2,
-            nx,
-            ny,
+            z,
+            nx: vn.x,
+            ny: vn.y,
             nz,
             tu: vt.0,
-            // vpinball's ObjLoader::Load (with flipTv=true) inverts the
-            // V flip applied on write.
-            tv: 1.0 - vt.1.unwrap_or(0.0),
+            tv,
         };
         write_vertex(&mut vpx_encoded_vertices, &vertext, &vn.vpx_bytes);
         final_vertices.push(vertext);
@@ -285,16 +307,16 @@ impl VpxObjReader {
     ///
     /// If every face is a vpinball-format triangle (3 corners with matching
     /// `v/vt/vn`), the v/vt/vn arrays are returned as-is and the indices
-    /// list is built directly with the per-triangle reverse that mirrors
-    /// vpinball's `WriteFaceInfoLong`.
+    /// list is built directly. With `reverse_corners=true` the per-triangle
+    /// corner order is reversed to undo vpinball's `WriteFaceInfoLong`
+    /// reversal; with `false` the source winding is preserved.
     ///
     /// Otherwise (Blender-style n-gons or mismatched corners), the
-    /// [`triangulate_and_dedup`] step runs over the collected data with
-    /// `reverse_corners=true`: faces are corner-reversed, fan-triangulated
-    /// and `(pos, uv, normal)` corners are deduplicated. The v/vt/vn arrays
-    /// are rebuilt to be aligned (same length, one entry per combined
-    /// corner).
-    fn read<R: io::Read>(mut self, reader: &mut R) -> io::Result<ObjData> {
+    /// [`triangulate_and_dedup`] step runs over the collected data; the
+    /// same `reverse_corners` flag controls whether faces are reversed
+    /// before fan-triangulation. The v/vt/vn arrays are rebuilt to be
+    /// aligned (same length, one entry per combined corner).
+    fn read<R: io::Read>(mut self, reader: &mut R, reverse_corners: bool) -> io::Result<ObjData> {
         wavefront_obj_io::read_obj_file(reader, &mut self)?;
         if self.object_count != 1 {
             return Err(io::Error::new(
@@ -312,7 +334,7 @@ impl VpxObjReader {
                 self.vertices.len(),
                 self.texture_coordinates.len(),
                 self.normals.len(),
-                true,
+                reverse_corners,
             )?;
 
             let aligned_vertices = normalized
@@ -353,15 +375,28 @@ impl VpxObjReader {
             })
         } else {
             // Strict fast path: each face is already a triangle with
-            // matching v/vt/vn. Reverse the per-triangle corner order to
-            // undo vpinball's `WriteFaceInfoLong` reversal.
+            // matching v/vt/vn. With `reverse_corners=true` we flip the
+            // per-triangle corner order to undo vpinball's
+            // `WriteFaceInfoLong` reversal; with `false` we preserve the
+            // source winding for callers importing OBJ files already in
+            // vpinball-internal convention.
             let indices = self
                 .raw_faces
                 .iter()
-                .map(|face| VpxFace {
-                    i0: face[2].v as i64 - 1,
-                    i1: face[1].v as i64 - 1,
-                    i2: face[0].v as i64 - 1,
+                .map(|face| {
+                    if reverse_corners {
+                        VpxFace {
+                            i0: face[2].v as i64 - 1,
+                            i1: face[1].v as i64 - 1,
+                            i2: face[0].v as i64 - 1,
+                        }
+                    } else {
+                        VpxFace {
+                            i0: face[0].v as i64 - 1,
+                            i1: face[1].v as i64 - 1,
+                            i2: face[2].v as i64 - 1,
+                        }
+                    }
                 })
                 .collect();
             Ok(ObjData {
@@ -438,8 +473,19 @@ impl ObjReader<f32> for VpxObjReader {
 
 #[instrument(skip(reader))]
 pub(crate) fn read_obj<R: BufRead>(mut reader: &mut R) -> std::io::Result<ObjData> {
-    let vpx_reader = VpxObjReader::new();
-    vpx_reader.read(&mut reader)
+    read_obj_with_options(&mut reader, true)
+}
+
+/// Like [`read_obj`] but lets the caller decide whether per-triangle
+/// face winding gets reversed. `reverse_corners=true` matches vpinball's
+/// `ObjLoader::Load` (which always reverses); `false` preserves the
+/// source's winding for callers that import OBJ files that are already
+/// in vpinball-internal convention.
+pub(crate) fn read_obj_with_options<R: BufRead>(
+    reader: &mut R,
+    reverse_corners: bool,
+) -> std::io::Result<ObjData> {
+    VpxObjReader::new().read(reader, reverse_corners)
 }
 
 #[derive(Debug, Clone, PartialEq)]
