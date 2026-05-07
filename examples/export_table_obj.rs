@@ -14,7 +14,7 @@
 use std::path::PathBuf;
 use vpin::filesystem::RealFileSystem;
 use vpin::vpx;
-use vpin::vpx::export::obj_export::export_obj;
+use vpin::vpx::export::obj_export::{ObjExportOptions, export_obj};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
@@ -48,7 +48,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let vpx = vpx::read(&vpx_path)?;
 
     println!("Exporting to {}", obj_path.display());
-    export_obj(&vpx, &obj_path, &RealFileSystem)?;
+    export_obj(
+        &vpx,
+        &obj_path,
+        &RealFileSystem,
+        &ObjExportOptions::default(),
+    )?;
 
     let obj_size = std::fs::metadata(&obj_path)?.len();
     let mtl_path = obj_path.with_extension("mtl");

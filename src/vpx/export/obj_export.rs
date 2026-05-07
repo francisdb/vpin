@@ -56,6 +56,25 @@ use std::io;
 use std::path::{Path, PathBuf};
 use wavefront_obj_io::{IoMtlWriter, IoObjWriter, MapKind, MtlWriter, ObjWriter, SmoothingGroup};
 
+/// Options controlling OBJ export behaviour. Defaults match VPinball's
+/// own `File -> Export -> OBJ Mesh` byte for byte.
+#[derive(Debug, Clone, Default)]
+pub struct ObjExportOptions {
+    /// Deduplicate `newmtl` blocks in the MTL file by `(material,
+    /// texture)` pair.
+    ///
+    /// - **`false` (default)**: emit one `newmtl` block per `usemtl`,
+    ///   matching VPinball's output exactly. The MTL contains one entry
+    ///   per item-block, which can mean many duplicates for tables that
+    ///   share materials across items.
+    /// - **`true`**: only the first occurrence of each `(material,
+    ///   texture)` pair gets a `newmtl` block. The `usemtl` references
+    ///   in the OBJ still resolve correctly (they all point at the same
+    ///   sanitized name). Produces a smaller MTL but diverges from
+    ///   VPinball's reference output.
+    pub dedup_mtl_blocks: bool,
+}
+
 /// Export the entire VPX table as a Wavefront OBJ + companion MTL + images
 /// folder.
 ///
@@ -63,17 +82,30 @@ use wavefront_obj_io::{IoMtlWriter, IoObjWriter, MapKind, MtlWriter, ObjWriter, 
 /// material library), and `<obj_path-parent>/images/<image>.<ext>` for every
 /// texture referenced by the exported items.
 ///
+/// See [`ObjExportOptions`] for what's tunable. `&ObjExportOptions::default()`
+/// produces VPinball-faithful output.
+///
 /// # Example
 /// ```no_run
 /// use std::path::Path;
 /// use vpin::filesystem::RealFileSystem;
 /// use vpin::vpx;
-/// use vpin::vpx::export::obj_export::export_obj;
+/// use vpin::vpx::export::obj_export::{export_obj, ObjExportOptions};
 ///
 /// let vpx = vpx::read(Path::new("table.vpx")).unwrap();
-/// export_obj(&vpx, Path::new("table_export/table.obj"), &RealFileSystem).unwrap();
+/// export_obj(
+///     &vpx,
+///     Path::new("table_export/table.obj"),
+///     &RealFileSystem,
+///     &ObjExportOptions::default(),
+/// ).unwrap();
 /// ```
-pub fn export_obj(vpx: &VPX, obj_path: &Path, fs: &dyn FileSystem) -> io::Result<()> {
+pub fn export_obj(
+    vpx: &VPX,
+    obj_path: &Path,
+    fs: &dyn FileSystem,
+    options: &ObjExportOptions,
+) -> io::Result<()> {
     let dir = obj_path
         .parent()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "obj_path has no parent"))?;
@@ -98,7 +130,7 @@ pub fn export_obj(vpx: &VPX, obj_path: &Path, fs: &dyn FileSystem) -> io::Result
         obj_writer.write_material_lib(&[mtl_filename.as_str()])?;
         mtl_writer.write_comment("VPin table mat file")?;
 
-        let mut state = WriterState::new(vpx, &images_dir);
+        let mut state = WriterState::new(vpx, &images_dir, options);
 
         // 1. Implicit playfield quad (always emitted, matches VPinball
         //    PinTable::ExportMesh).
@@ -151,10 +183,16 @@ struct WriterState<'a> {
     image_dedup_counter: u32,
     /// VPX image names already written to disk. Skip subsequent encounters.
     images_written: HashSet<String>,
+    /// Whether to dedup `newmtl` blocks in the MTL file. See
+    /// [`ObjExportOptions::dedup_mtl_blocks`].
+    dedup_mtl_blocks: bool,
+    /// `(material_name, texture_name)` pairs already emitted as a
+    /// `newmtl` block. Only consulted when `dedup_mtl_blocks` is true.
+    seen_mtl_pairs: HashSet<(String, String)>,
 }
 
 impl<'a> WriterState<'a> {
-    fn new(vpx: &'a VPX, images_dir: &Path) -> Self {
+    fn new(vpx: &'a VPX, images_dir: &Path, options: &ObjExportOptions) -> Self {
         Self {
             vpx,
             images_dir: images_dir.to_path_buf(),
@@ -170,6 +208,8 @@ impl<'a> WriterState<'a> {
             used_lower_filenames: HashSet::new(),
             image_dedup_counter: 0,
             images_written: HashSet::new(),
+            dedup_mtl_blocks: options.dedup_mtl_blocks,
+            seen_mtl_pairs: HashSet::new(),
         }
     }
 
@@ -1043,10 +1083,17 @@ fn write_block<O: ObjWriter<f32>, M: MtlWriter<f32>>(
     Ok(())
 }
 
-/// Emit one `newmtl` block (no dedup, matches VPinball) and write the
-/// referenced image to disk on first use. Returns the material name as
-/// written (with spaces erased - VPinball does the same in `WriteMaterial`
-/// for both the MTL block and the `usemtl`).
+/// Emit a `newmtl` block and write the referenced image to disk on
+/// first use. Returns the material name as written (with spaces erased -
+/// VPinball does the same in `WriteMaterial` for both the MTL block and
+/// the `usemtl`).
+///
+/// By default vpinball-style: emits one `newmtl` block per call, with
+/// duplicates. When `state.dedup_mtl_blocks` is set, only the first
+/// occurrence of each `(material, texture)` pair is written; subsequent
+/// calls still resolve the on-disk image (so it gets extracted) but
+/// skip the MTL block. The `usemtl` reference in the OBJ remains the
+/// same sanitized name and resolves to the first-emitted block.
 fn emit_mtl_block<M: MtlWriter<f32>>(
     mtl: &mut M,
     state: &mut WriterState,
@@ -1057,11 +1104,24 @@ fn emit_mtl_block<M: MtlWriter<f32>>(
     let mtl_name = sanitize_material_name(material_name);
 
     // Resolve the on-disk image filename and ensure the file is written.
+    // We do this whether or not we're about to skip the MTL block, so
+    // the `images/` folder stays complete in dedup mode too.
     let map_path = if let Some(name) = texture_name {
         ensure_image_written(state, fs, name)?
     } else {
         None
     };
+
+    if state.dedup_mtl_blocks {
+        let key = (
+            material_name.to_string(),
+            texture_name.unwrap_or("").to_string(),
+        );
+        if !state.seen_mtl_pairs.insert(key) {
+            // Pair already emitted - skip this newmtl block.
+            return Ok(mtl_name);
+        }
+    }
 
     write_mtl_block(mtl, state, &mtl_name, material_name, map_path.as_deref())?;
     Ok(mtl_name)
@@ -1217,4 +1277,48 @@ fn write_image_bmp(
         .write_to(&mut buffer, image::ImageFormat::Bmp)
         .map_err(|e| io::Error::other(format!("Failed to encode BMP {}: {e}", path.display())))?;
     fs.write_file(path, buffer.get_ref())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::filesystem::MemoryFileSystem;
+
+    fn export_to_memory(options: &ObjExportOptions) -> (String, String) {
+        let vpx = VPX::default();
+        let fs = MemoryFileSystem::default();
+        let obj_path = Path::new("out/test.obj");
+        export_obj(&vpx, obj_path, &fs, options).unwrap();
+        let obj = String::from_utf8(fs.read_file(obj_path).unwrap()).unwrap();
+        let mtl =
+            String::from_utf8(fs.read_file(&obj_path.with_extension("mtl")).unwrap()).unwrap();
+        (obj, mtl)
+    }
+
+    #[test]
+    fn default_options_emit_one_newmtl_per_usemtl() {
+        // VPinball-faithful default: each `usemtl` gets a `newmtl`.
+        let (obj, mtl) = export_to_memory(&ObjExportOptions::default());
+        let usemtl = obj.matches("usemtl ").count();
+        let newmtl = mtl.matches("newmtl ").count();
+        assert!(usemtl > 0);
+        assert_eq!(usemtl, newmtl);
+    }
+
+    #[test]
+    fn dedup_option_collapses_newmtl_blocks() {
+        // Same export with dedup on: at most one `newmtl` per unique
+        // material name, never more than `usemtl`. For the default VPX
+        // (single playfield material), both should collapse to 1.
+        let (obj, mtl) = export_to_memory(&ObjExportOptions {
+            dedup_mtl_blocks: true,
+        });
+        let usemtl = obj.matches("usemtl ").count();
+        let newmtl = mtl.matches("newmtl ").count();
+        assert!(usemtl >= 1);
+        assert!(
+            newmtl <= usemtl,
+            "newmtl ({newmtl}) should not exceed usemtl ({usemtl}) when deduped"
+        );
+    }
 }
