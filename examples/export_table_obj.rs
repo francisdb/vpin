@@ -14,14 +14,20 @@
 use std::path::PathBuf;
 use vpin::filesystem::RealFileSystem;
 use vpin::vpx;
-use vpin::vpx::export::obj_export::{ObjExportOptions, export_obj};
+use vpin::vpx::export::obj_export::{ExportUnits, ObjExportOptions, export_obj};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
 
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: cargo run --example export_table_obj <path_to_vpx>");
+        eprintln!("Usage: cargo run --example export_table_obj <path_to_vpx> [units]");
+        eprintln!();
+        eprintln!("Arguments:");
+        eprintln!("  path_to_vpx  Path to the .vpx file to export");
+        eprintln!(
+            "  units        Output unit: 'vpu' (default, matches vpinball), 'mm', 'cm', or 'm'"
+        );
         std::process::exit(1);
     }
 
@@ -30,6 +36,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Error: file not found: {}", vpx_path.display());
         std::process::exit(1);
     }
+
+    let units = match args.get(2).map(|s| s.to_lowercase()) {
+        None => ExportUnits::Vpu,
+        Some(s) => match s.as_str() {
+            "vpu" => ExportUnits::Vpu,
+            "mm" => ExportUnits::Mm,
+            "cm" => ExportUnits::Cm,
+            "m" => ExportUnits::M,
+            other => {
+                eprintln!("Error: unknown units '{other}'. Use vpu, mm, cm, or m.");
+                std::process::exit(1);
+            }
+        },
+    };
 
     let stem = vpx_path
         .file_stem()
@@ -47,13 +67,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Reading VPX file: {}", vpx_path.display());
     let vpx = vpx::read(&vpx_path)?;
 
-    println!("Exporting to {}", obj_path.display());
-    export_obj(
-        &vpx,
-        &obj_path,
-        &RealFileSystem,
-        &ObjExportOptions::default(),
-    )?;
+    println!("Exporting to {} (units: {units:?})", obj_path.display());
+    let options = ObjExportOptions {
+        units,
+        ..ObjExportOptions::default()
+    };
+    export_obj(&vpx, &obj_path, &RealFileSystem, &options)?;
 
     let obj_size = std::fs::metadata(&obj_path)?.len();
     let mtl_path = obj_path.with_extension("mtl");
