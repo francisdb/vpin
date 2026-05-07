@@ -3024,79 +3024,26 @@ impl GltfExportOptions {
 /// Ignored for now
 /// - Lights (from game items and default table lights)
 ///
-/// # Arguments
-/// * `vpx` - The VPX table to export
-/// * `path` - The output path for the GLB file
-/// * `fs` - The filesystem to write to
+/// The output format (GLB vs glTF + sidecar `.bin`) and other knobs
+/// come from `options`. See [`GltfExportOptions`] (and its
+/// [`GltfExportOptions::glb`] / [`GltfExportOptions::gltf`] shortcuts).
 ///
 /// # Example
 /// ```no_run
 /// use vpin::vpx;
-/// use vpin::vpx::export::gltf_export::export_glb;
+/// use vpin::vpx::export::gltf_export::{export_gltf, GltfExportOptions};
 /// use vpin::filesystem::RealFileSystem;
 /// use std::path::Path;
 ///
 /// let vpx = vpx::read(Path::new("table.vpx")).unwrap();
-/// export_glb(&vpx, Path::new("table.glb"), &RealFileSystem).unwrap();
+/// export_gltf(
+///     &vpx,
+///     Path::new("table.glb"),
+///     &RealFileSystem,
+///     &GltfExportOptions::glb(),
+/// ).unwrap();
 /// ```
-pub fn export_glb(vpx: &VPX, path: &Path, fs: &dyn FileSystem) -> io::Result<()> {
-    export_with_options(vpx, path, fs, &GltfExportOptions::glb())
-}
-
-/// Export the entire VPX table as glTF files (JSON + separate binary)
-///
-/// This creates:
-/// - `{name}.gltf` - JSON descriptor file
-/// - `{name}.bin` - Binary buffer data (mesh geometry)
-///
-/// Note: Images are embedded in the binary buffer, not as separate files.
-///
-/// # Arguments
-/// * `vpx` - The VPX table to export
-/// * `path` - The output path for the .gltf file
-/// * `fs` - The filesystem to write to
-///
-/// # Example
-/// ```no_run
-/// use vpin::vpx;
-/// use vpin::vpx::export::gltf_export::export_gltf;
-/// use vpin::filesystem::RealFileSystem;
-/// use std::path::Path;
-///
-/// let vpx = vpx::read(Path::new("table.vpx")).unwrap();
-/// export_gltf(&vpx, Path::new("table.gltf"), &RealFileSystem).unwrap();
-/// ```
-pub fn export_gltf(vpx: &VPX, path: &Path, fs: &dyn FileSystem) -> io::Result<()> {
-    export_with_options(vpx, path, fs, &GltfExportOptions::gltf())
-}
-
-/// Export the entire VPX table in the specified format (GLB or glTF)
-///
-/// # Arguments
-/// * `vpx` - The VPX table to export
-/// * `path` - The output path (.glb or .gltf)
-/// * `fs` - The filesystem to write to
-/// * `format` - The output format (GLB or glTF)
-pub fn export(vpx: &VPX, path: &Path, fs: &dyn FileSystem, format: GltfFormat) -> io::Result<()> {
-    export_with_options(
-        vpx,
-        path,
-        fs,
-        &GltfExportOptions {
-            format,
-            ..Default::default()
-        },
-    )
-}
-
-/// Export the entire VPX table with full control over export options
-///
-/// # Arguments
-/// * `vpx` - The VPX table to export
-/// * `path` - The output path (.glb or .gltf)
-/// * `fs` - The filesystem to write to
-/// * `options` - Export options controlling format and behavior
-pub fn export_with_options(
+pub fn export_gltf(
     vpx: &VPX,
     path: &Path,
     fs: &dyn FileSystem,
@@ -3248,7 +3195,7 @@ mod tests {
         let vpx = VPX::default();
         let fs = crate::filesystem::MemoryFileSystem::default();
         // Should succeed because we generate an implicit playfield
-        let result = export_glb(&vpx, Path::new("test.glb"), &fs);
+        let result = export_gltf(&vpx, Path::new("test.glb"), &fs, &GltfExportOptions::glb());
         assert!(result.is_ok());
     }
 
@@ -3257,7 +3204,12 @@ mod tests {
         let vpx = VPX::default();
         let fs = crate::filesystem::MemoryFileSystem::default();
         // Should succeed and create both .gltf and .bin files
-        let result = export_gltf(&vpx, Path::new("test.gltf"), &fs);
+        let result = export_gltf(
+            &vpx,
+            Path::new("test.gltf"),
+            &fs,
+            &GltfExportOptions::gltf(),
+        );
         assert!(result.is_ok());
 
         // Verify both files were created

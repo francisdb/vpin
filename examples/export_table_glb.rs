@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use vpin::filesystem::RealFileSystem;
 use vpin::vpx;
-use vpin::vpx::export::gltf_export::{GltfExportOptions, GltfFormat, export_with_options};
+use vpin::vpx::export::gltf_export::{GltfExportOptions, GltfFormat, export_gltf};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logger - set RUST_LOG=warn (or info, debug) to see warnings
@@ -93,7 +93,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         format,
         export_invisible_items: export_invisible,
     };
-    export_with_options(&vpx, &output_path, &RealFileSystem, &options)?;
+    export_gltf(&vpx, &output_path, &RealFileSystem, &options)?;
 
     // Get file size(s)
     let metadata = std::fs::metadata(&output_path)?;
