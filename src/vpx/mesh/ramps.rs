@@ -403,19 +403,23 @@ fn create_wire(
         let i2 = if i == num_rings - 1 { i } else { i + 1 };
         let height = heights[i];
 
-        let tangent = if i == num_rings - 1 && i > 0 {
-            Vec3 {
-                x: mid_points[i].x - mid_points[i - 1].x,
-                y: mid_points[i].y - mid_points[i - 1].y,
-                z: heights[i] - heights[i - 1],
-            }
-        } else {
-            Vec3 {
-                x: mid_points[i2].x - mid_points[i].x,
-                y: mid_points[i2].y - mid_points[i].y,
-                z: heights[i2] - height,
-            }
+        // Match VPinball's `Ramp::CreateWire` (ramp.cpp:1021-1027):
+        // build the tangent from the i2-based delta first (which gives
+        // a (0, 0, 0) tangent at the last ring because i2 = i), then
+        // override ONLY x and y on the last ring with the previous
+        // segment's direction. `tangent.z` is left at 0 there - that's
+        // intentional, it gives the end ring a horizontal tangent and
+        // therefore a vertically-oriented ring plane that matches the
+        // reference output.
+        let mut tangent = Vec3 {
+            x: mid_points[i2].x - mid_points[i].x,
+            y: mid_points[i2].y - mid_points[i].y,
+            z: heights[i2] - height,
         };
+        if i == num_rings - 1 && i > 0 {
+            tangent.x = mid_points[i].x - mid_points[i - 1].x;
+            tangent.y = mid_points[i].y - mid_points[i - 1].y;
+        }
 
         let (normal, binorm) = if i == 0 {
             let up = Vec3 {
@@ -489,13 +493,40 @@ fn build_wire_ramp_mesh(
     let num_segments =
         super::vpinball_ring_segments(detail_level, !material_opacity_active) as usize;
 
-    // Get middle points (center of ramp)
+    // Recover middle points used by VPinball's `Ramp::GenerateWireMesh`.
+    //
+    // VPinball's `GetRampVertex` (ramp.cpp:479) computes
+    // `middlePoints[i] = vmiddle + vnormal` (note: vnormal added in
+    // its un-scaled form, magnitude 1.0 at endpoints / variable
+    // interior). For RampType1Wire it then calls `CreateWire(...,
+    // middlePoints, ...)` (ramp.cpp:1124), so the OneWire spine is
+    // offset from the drag-point centerline by `vnormal`.
+    //
+    // We don't keep `vnormal` directly, but the rgv_local pairs let
+    // us recover both halves: with `widthcur = wire_diameter`,
+    //   rgv_local[i]    = vmiddle + (wire_diameter / 2) * vnormal
+    //   rgv_local[left] = vmiddle - (wire_diameter / 2) * vnormal
+    // so vmiddle is the midpoint and `vnormal = (i - left) /
+    // wire_diameter`. Then `vmiddle + vnormal` matches vpinball.
     let mut mid_points: Vec<Vec2> = Vec::with_capacity(num_rings);
+    let inv_wire_diameter = if ramp.wire_diameter != 0.0 {
+        1.0 / ramp.wire_diameter
+    } else {
+        0.0
+    };
     for i in 0..num_rings {
         let left_idx = num_rings * 2 - i - 1;
-        mid_points.push(Vec2 {
+        let vmiddle = Vec2 {
             x: (rgv_local[i].x + rgv_local[left_idx].x) * 0.5,
             y: (rgv_local[i].y + rgv_local[left_idx].y) * 0.5,
+        };
+        let vnormal = Vec2 {
+            x: (rgv_local[i].x - rgv_local[left_idx].x) * inv_wire_diameter,
+            y: (rgv_local[i].y - rgv_local[left_idx].y) * inv_wire_diameter,
+        };
+        mid_points.push(Vec2 {
+            x: vmiddle.x + vnormal.x,
+            y: vmiddle.y + vnormal.y,
         });
     }
 
