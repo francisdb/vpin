@@ -44,6 +44,16 @@ use bytes::{Buf, BufMut, BytesMut};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// VPinball's editor default for per-table detail level. Used as a fallback
+/// when [`GameData::user_detail_level`] is `None`.
+///
+/// VPinball declares the corresponding `Player_AlphaRampAccuracy` property
+/// as `(min = 1, max = 10, default = 10)` in `Settings_properties.inl`, so
+/// 10 is also the highest-detail setting the editor's slider exposes. The
+/// value drives ramp and rubber tessellation - see
+/// [`crate::vpx::mesh::vpinball_ring_segments`].
+pub const DEFAULT_DETAIL_LEVEL: u32 = 10;
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum ViewLayoutMode {
@@ -859,7 +869,32 @@ pub struct GameData {
     /// this has a special quantization,
     /// See [`Self::get_ball_trail_strength`] and [`Self::set_ball_trail_strength`]
     pub ball_trail_strength: Option<u32>, // BTST 93 (became optional in 10.8)
+    /// Per-table detail level override (range `1..=10`, where 10 is the
+    /// highest detail). VPinball declares the underlying property as
+    /// `(min = 1, max = 10, default = 10)` in `Settings_properties.inl`.
+    ///
+    /// VPinball's editor exposes this as the "detail level" slider. It
+    /// drives ramp and rubber tessellation; see
+    /// [`crate::vpx::mesh::vpinball_ring_segments`] for how vpinball
+    /// derives the cross-section segment count from this value.
+    ///
+    /// Note: older vpinball versions allowed `0` and the user-level ini
+    /// (`%APPDATA%\VPinballX\<ver>\VPinballX.ini`, key
+    /// `[Player] AlphaRampAccuracy`) can still carry a `0` from those
+    /// versions. The store does not clamp to `m_min`, so any integer
+    /// can appear in practice. Callers should treat values outside the
+    /// declared range as legacy data and route them through the formula
+    /// regardless (the formula's `accuracy < 5` branch handles them).
+    ///
+    /// Only takes effect when [`Self::overwrite_global_detail_level`] is
+    /// `Some(true)`. Otherwise vpinball uses its editor-wide global
+    /// (which a `.vpx` doesn't carry); callers should fall back to
+    /// [`DEFAULT_DETAIL_LEVEL`] in that case - see
+    /// [`Self::effective_detail_level`].
     pub user_detail_level: Option<u32>, // ARAC 94 (became optional in 10.8)
+    /// Whether the table's [`Self::user_detail_level`] should override
+    /// vpinball's editor-global detail level. When `Some(false)` or
+    /// `None`, vpinball ignores the per-table value entirely.
     pub overwrite_global_detail_level: Option<bool>, // OGAC 95 (became optional in 10.8)
     pub overwrite_global_day_night: Option<bool>, // OGDN 96 (became optional in 10.8)
     /// Whether to display the editor grid overlay in the 2D table editor.
@@ -1510,6 +1545,23 @@ impl GameData {
 
     pub fn set_ball_trail_strength(&mut self, value: f32) {
         self.ball_trail_strength = Some(quantize_u8(8, value) as u32);
+    }
+
+    /// Detail level used for ramp/rubber tessellation, mirroring
+    /// vpinball's `PinTable::GetDetailLevel()`:
+    ///
+    /// - When [`Self::overwrite_global_detail_level`] is `Some(true)` the
+    ///   table-stored [`Self::user_detail_level`] is used.
+    /// - Otherwise vpinball would consult its editor-wide setting, which
+    ///   a `.vpx` doesn't carry. We fall back to [`DEFAULT_DETAIL_LEVEL`].
+    pub fn effective_detail_level(&self) -> u32 {
+        if self.overwrite_global_detail_level == Some(true)
+            && let Some(d) = self.user_detail_level
+        {
+            d
+        } else {
+            DEFAULT_DETAIL_LEVEL
+        }
     }
 }
 
@@ -2295,6 +2347,46 @@ mod tests {
     use super::*;
     use fake::{Fake, Faker};
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn effective_detail_level_uses_default_when_no_override() {
+        // overwrite_global_detail_level=None: use DEFAULT_DETAIL_LEVEL,
+        // even if user_detail_level is set (vpinball ignores it then).
+        let g = GameData {
+            user_detail_level: Some(5),
+            overwrite_global_detail_level: None,
+            ..GameData::default()
+        };
+        assert_eq!(g.effective_detail_level(), DEFAULT_DETAIL_LEVEL);
+
+        let g = GameData {
+            overwrite_global_detail_level: Some(false),
+            ..g
+        };
+        assert_eq!(g.effective_detail_level(), DEFAULT_DETAIL_LEVEL);
+    }
+
+    #[test]
+    fn effective_detail_level_uses_table_value_when_override_on() {
+        let g = GameData {
+            user_detail_level: Some(7),
+            overwrite_global_detail_level: Some(true),
+            ..GameData::default()
+        };
+        assert_eq!(g.effective_detail_level(), 7);
+    }
+
+    #[test]
+    fn effective_detail_level_falls_back_when_override_on_but_unset() {
+        // Override flag says "use table value", but the value is None.
+        // Fall back to default rather than panic.
+        let g = GameData {
+            user_detail_level: None,
+            overwrite_global_detail_level: Some(true),
+            ..GameData::default()
+        };
+        assert_eq!(g.effective_detail_level(), DEFAULT_DETAIL_LEVEL);
+    }
 
     #[test]
     fn read_write_empty() {

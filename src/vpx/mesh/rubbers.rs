@@ -111,7 +111,7 @@ fn get_spline_vertex(
 
 /// Generate the rubber mesh
 /// This is a port of Rubber::GenerateMesh from rubber.cpp
-fn generate_mesh(rubber: &Rubber) -> Option<(Vec<Vertex3dNoTex2>, Vec<u32>)> {
+fn generate_mesh(rubber: &Rubber, detail_level: u32) -> Option<(Vec<Vertex3dNoTex2>, Vec<u32>)> {
     // From VPinball rubber.cpp GetCentralCurve():
     // accuracy = 4.0f * powf(10.0f, (10.0f - accuracy) * (1.0f / 1.5f))
     // where detail_level=10 gives 4.0 (highest detail), detail_level=0 gives ~18,000,000 (lowest detail)
@@ -126,8 +126,8 @@ fn generate_mesh(rubber: &Rubber) -> Option<(Vec<Vertex3dNoTex2>, Vec<u32>)> {
         return None;
     }
 
-    // Use 8 segments for the circular cross-section (similar to wire ramps)
-    let num_segments = 8;
+    let num_segments =
+        super::vpinball_ring_segments(detail_level, rubber.static_rendering) as usize;
 
     let num_vertices = num_rings * num_segments;
     let num_indices = 6 * num_vertices;
@@ -372,6 +372,7 @@ fn apply_rotation(
 /// Center is (x, y, z) in VPX coordinates.
 pub(crate) fn build_rubber_mesh(
     rubber: &Rubber,
+    detail_level: u32,
 ) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>, Vec3)> {
     if rubber.thickness == 0 {
         return None;
@@ -381,7 +382,7 @@ pub(crate) fn build_rubber_mesh(
         return None;
     }
 
-    let (mut vertices, indices) = generate_mesh(rubber)?;
+    let (mut vertices, indices) = generate_mesh(rubber, detail_level)?;
 
     // Apply rotation transformation and get center position
     let center = apply_rotation(
@@ -504,7 +505,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = build_rubber_mesh(&rubber);
+        let result = build_rubber_mesh(&rubber, crate::vpx::gamedata::DEFAULT_DETAIL_LEVEL);
         assert!(result.is_some());
 
         let (vertices, indices, _center) = result.unwrap();
@@ -551,7 +552,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = build_rubber_mesh(&rubber);
+        let result = build_rubber_mesh(&rubber, crate::vpx::gamedata::DEFAULT_DETAIL_LEVEL);
         assert!(result.is_some());
 
         let (vertices, indices, _center) = result.unwrap();
@@ -572,7 +573,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = build_rubber_mesh(&rubber);
+        let result = build_rubber_mesh(&rubber, crate::vpx::gamedata::DEFAULT_DETAIL_LEVEL);
         assert!(result.is_some(), "Octagon rubber mesh should be generated");
 
         let (vertices, indices, _center) = result.unwrap();
@@ -596,7 +597,11 @@ mod tests {
         // For a smooth rubber, adjacent vertices should have similar normals
         // (indicating smooth shading, not flat shading with hard edges)
         // We check vertices that are on the same ring (same position along the rubber)
-        let num_segments = 8; // Cross-section segments
+        // VPinball's formula for detail level 10 + static_rendering=true gives
+        // `(int)(10.0f * 1.3f)` segments. In Rust's f32 this evaluates to 13.
+        let num_segments =
+            super::super::vpinball_ring_segments(crate::vpx::gamedata::DEFAULT_DETAIL_LEVEL, true)
+                as usize;
 
         // Check the first ring of vertices
         if verts.len() >= num_segments * 2 {
@@ -661,7 +666,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = build_rubber_mesh(&rubber);
+        let result = build_rubber_mesh(&rubber, crate::vpx::gamedata::DEFAULT_DETAIL_LEVEL);
         assert!(
             result.is_some(),
             "Sharp octagon rubber mesh should be generated"
@@ -750,11 +755,13 @@ mod tests {
             ..Default::default()
         };
 
-        let result = build_rubber_mesh(&rubber);
+        let result = build_rubber_mesh(&rubber, crate::vpx::gamedata::DEFAULT_DETAIL_LEVEL);
         assert!(result.is_some(), "Ring003 rubber mesh should be generated");
 
         let (vertices, indices, _center) = result.unwrap();
-        let num_segments = 8; // Cross-section segments
+        let num_segments =
+            super::super::vpinball_ring_segments(crate::vpx::gamedata::DEFAULT_DETAIL_LEVEL, true)
+                as usize;
         let num_rings = vertices.len() / num_segments;
 
         println!("Ring003 rubber:");
