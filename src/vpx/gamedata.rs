@@ -44,6 +44,14 @@ use bytes::{Buf, BufMut, BytesMut};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// VPinball's editor default for per-table detail level. Used as a fallback
+/// when [`GameData::user_detail_level`] is `None`.
+///
+/// VPinball's editor defaults this to 10 (highest detail). The value drives
+/// ramp and rubber tessellation - see
+/// [`crate::vpx::mesh::vpinball_ring_segments`].
+pub const DEFAULT_DETAIL_LEVEL: u32 = 10;
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum ViewLayoutMode {
@@ -859,7 +867,23 @@ pub struct GameData {
     /// this has a special quantization,
     /// See [`Self::get_ball_trail_strength`] and [`Self::set_ball_trail_strength`]
     pub ball_trail_strength: Option<u32>, // BTST 93 (became optional in 10.8)
+    /// Per-table detail level override (range `0..=10`, where 10 is the
+    /// highest detail).
+    ///
+    /// VPinball's editor exposes this as the "detail level" slider. It
+    /// drives ramp and rubber tessellation; see
+    /// [`crate::vpx::mesh::vpinball_ring_segments`] for how vpinball
+    /// derives the cross-section segment count from this value.
+    ///
+    /// Only takes effect when [`Self::overwrite_global_detail_level`] is
+    /// `Some(true)`. Otherwise vpinball uses its editor-wide global
+    /// (which a `.vpx` doesn't carry); callers should fall back to
+    /// [`DEFAULT_DETAIL_LEVEL`] in that case - see
+    /// [`Self::effective_detail_level`].
     pub user_detail_level: Option<u32>, // ARAC 94 (became optional in 10.8)
+    /// Whether the table's [`Self::user_detail_level`] should override
+    /// vpinball's editor-global detail level. When `Some(false)` or
+    /// `None`, vpinball ignores the per-table value entirely.
     pub overwrite_global_detail_level: Option<bool>, // OGAC 95 (became optional in 10.8)
     pub overwrite_global_day_night: Option<bool>, // OGDN 96 (became optional in 10.8)
     /// Whether to display the editor grid overlay in the 2D table editor.
@@ -1510,6 +1534,23 @@ impl GameData {
 
     pub fn set_ball_trail_strength(&mut self, value: f32) {
         self.ball_trail_strength = Some(quantize_u8(8, value) as u32);
+    }
+
+    /// Detail level used for ramp/rubber tessellation, mirroring
+    /// vpinball's `PinTable::GetDetailLevel()`:
+    ///
+    /// - When [`Self::overwrite_global_detail_level`] is `Some(true)` the
+    ///   table-stored [`Self::user_detail_level`] is used.
+    /// - Otherwise vpinball would consult its editor-wide setting, which
+    ///   a `.vpx` doesn't carry. We fall back to [`DEFAULT_DETAIL_LEVEL`].
+    pub fn effective_detail_level(&self) -> u32 {
+        if self.overwrite_global_detail_level == Some(true)
+            && let Some(d) = self.user_detail_level
+        {
+            d
+        } else {
+            DEFAULT_DETAIL_LEVEL
+        }
     }
 }
 

@@ -759,6 +759,7 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
         vpx.gamedata.right,
         vpx.gamedata.bottom,
     );
+    let detail_level = vpx.gamedata.effective_detail_level();
 
     for gameitem in &vpx.gameitems {
         match gameitem {
@@ -912,7 +913,8 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                 if !options.export_invisible_items && !ramp.is_visible {
                     continue;
                 }
-                if let Some((vertices, indices)) = build_ramp_mesh(ramp, &table_dims) {
+                if let Some((vertices, indices)) = build_ramp_mesh(ramp, &table_dims, detail_level)
+                {
                     let group_info = item_group_info_for(ramp);
                     let ramp_layer_name = group_info.layer_name.clone();
                     item_groups.push(group_info);
@@ -945,7 +947,7 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                 if !options.export_invisible_items && !rubber.is_visible {
                     continue;
                 }
-                if let Some((vertices, indices, center)) = build_rubber_mesh(rubber) {
+                if let Some((vertices, indices, center)) = build_rubber_mesh(rubber, detail_level) {
                     let group_info = item_group_info_for(rubber);
                     let rubber_layer_name = group_info.layer_name.clone();
                     item_groups.push(group_info);

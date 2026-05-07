@@ -513,7 +513,12 @@ fn write_ramp_meshes(
     table_dims: &TableDimensions,
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
-    let Some((vertices, indices)) = build_ramp_mesh(ramp, table_dims) else {
+    // The expanded format is a portable representation - it doesn't have
+    // access to the table's `user_detail_level` here, so we use the
+    // editor default. This matches how default `table_dims` is used above.
+    let Some((vertices, indices)) =
+        build_ramp_mesh(ramp, table_dims, crate::vpx::gamedata::DEFAULT_DETAIL_LEVEL)
+    else {
         return Ok(());
     };
 
@@ -528,7 +533,9 @@ fn write_rubber_meshes(
     mesh_format: PrimitiveMeshFormat,
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
-    let Some((vertices, indices, _center)) = build_rubber_mesh(rubber) else {
+    let Some((vertices, indices, _center)) =
+        build_rubber_mesh(rubber, crate::vpx::gamedata::DEFAULT_DETAIL_LEVEL)
+    else {
         return Ok(());
     };
 

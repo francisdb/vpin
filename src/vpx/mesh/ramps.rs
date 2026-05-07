@@ -472,6 +472,7 @@ fn create_wire(
 fn build_wire_ramp_mesh(
     ramp: &Ramp,
     vvertex: &[RenderVertex3D],
+    detail_level: u32,
 ) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
     let (rgv_local, rgheight, _) = get_ramp_vertex(ramp, vvertex, false);
     let num_rings = vvertex.len();
@@ -481,10 +482,11 @@ fn build_wire_ramp_mesh(
     }
 
     // VPinball's `Ramp::CreateWire` derives `numSegments` from the table's
-    // detail level: at the typical default (detail level 10, static
-    // rendering on) the formula `(int)(10.0f * 1.3f)` yields 12 due to
-    // f32 rounding (1.3f -> 1.2999999...). Hardcode 12 to match.
-    let num_segments = 12;
+    // detail level (ramp.cpp:1070). vpin doesn't yet parse the ramp's
+    // `m_d.m_staticRendering` field, so we default it to `true` - the
+    // typical setting and the only one that produces the f32-truncation
+    // result of 12 at any detail level. TODO: parse ramp static_rendering.
+    let num_segments = super::vpinball_ring_segments(detail_level, true) as usize;
 
     // Get middle points (center of ramp)
     let mut mid_points: Vec<Vec2> = Vec::with_capacity(num_rings);
@@ -785,6 +787,7 @@ pub(crate) fn get_ramp_surface_height(ramp: &Ramp, x: f32, y: f32) -> f32 {
 pub(crate) fn build_ramp_mesh(
     ramp: &Ramp,
     table_dims: &TableDimensions,
+    detail_level: u32,
 ) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
     // Generate meshes for all ramps, including invisible ones
     // This is useful for tools that need to visualize or process all geometry
@@ -803,7 +806,7 @@ pub(crate) fn build_ramp_mesh(
     }
 
     if is_habitrail(ramp) {
-        build_wire_ramp_mesh(ramp, &vvertex)
+        build_wire_ramp_mesh(ramp, &vvertex, detail_level)
     } else {
         build_flat_ramp_mesh(ramp, &vvertex, table_dims)
     }
@@ -883,7 +886,11 @@ mod tests {
             ..Default::default()
         };
 
-        let result = build_ramp_mesh(&ramp, &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0));
+        let result = build_ramp_mesh(
+            &ramp,
+            &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0),
+            crate::vpx::gamedata::DEFAULT_DETAIL_LEVEL,
+        );
         assert!(result.is_some());
 
         let (vertices, indices) = result.unwrap();
@@ -924,7 +931,11 @@ mod tests {
             ..Default::default()
         };
 
-        let result = build_ramp_mesh(&ramp, &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0));
+        let result = build_ramp_mesh(
+            &ramp,
+            &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0),
+            crate::vpx::gamedata::DEFAULT_DETAIL_LEVEL,
+        );
         assert!(result.is_some(), "One-wire ramp should generate mesh");
 
         let (vertices, indices) = result.unwrap();
@@ -933,7 +944,9 @@ mod tests {
 
         // With smoothing, we should have more than 3 rings (original control points)
         // The exact number depends on accuracy, but should be > 3 due to subdivision
-        let num_segments = 12;
+        let num_segments =
+            super::super::vpinball_ring_segments(crate::vpx::gamedata::DEFAULT_DETAIL_LEVEL, true)
+                as usize;
         let num_vertices = vertices.len();
         let num_rings = num_vertices / num_segments;
         assert!(
@@ -976,7 +989,11 @@ mod tests {
             ..Default::default()
         };
 
-        let result = build_ramp_mesh(&ramp, &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0));
+        let result = build_ramp_mesh(
+            &ramp,
+            &TableDimensions::new(0.0, 0.0, 1000.0, 2000.0),
+            crate::vpx::gamedata::DEFAULT_DETAIL_LEVEL,
+        );
         assert!(result.is_some(), "One-wire ramp should generate mesh");
 
         let (vertices, _) = result.unwrap();
