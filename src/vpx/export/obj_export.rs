@@ -1,10 +1,8 @@
 //! Wavefront OBJ export of an entire VPX table.
 //!
 //! Mirrors VPinball's `File -> Export -> OBJ Mesh`: produces a single `.obj`
-//! file with one `o` block per item (playfield + every visible game item),
-//! a single `.mtl` file with one `newmtl` block per unique
-//! `(material, texture)` pair encountered, and an `images/` sibling folder
-//! containing the texture files referenced from the `.mtl`.
+//! file with one `o` block per item (playfield + every visible game item)
+//! and a single `.mtl` material library.
 //!
 //! Output layout, given `path/to/<stem>.obj`:
 //!
@@ -12,9 +10,14 @@
 //! path/to/
 //! +-- <stem>.obj
 //! +-- <stem>.mtl
-//! +-- images/
+//! +-- images/        (only when `ObjExportOptions::extract_textures` is set)
 //!     +-- <texture-name>.<ext>
 //! ```
+//!
+//! By default no textures are written. Set
+//! [`ObjExportOptions::extract_textures`] to populate `images/` and emit
+//! `map_Kd`/`map_Ka` lines so the result loads with textures in DCC
+//! tools like Blender.
 //!
 //! Coordinate convention matches VPinball's `ObjLoader`:
 //!
@@ -32,11 +35,12 @@
 use crate::filesystem::FileSystem;
 use crate::vpx::TableDimensions;
 use crate::vpx::VPX;
+use crate::vpx::color::Color;
 use crate::vpx::expanded::util::sanitize_filename;
 use crate::vpx::gameitem::GameItemEnum;
 use crate::vpx::gameitem::primitive::{Primitive, VertexWrapper};
 use crate::vpx::image::ImageData;
-use crate::vpx::material::{Material, MaterialType};
+use crate::vpx::material::MaterialType;
 use crate::vpx::math::{Matrix3D, Vec3, Vertex3D};
 use crate::vpx::mesh::bumpers::build_bumper_meshes;
 use crate::vpx::mesh::flippers::build_flipper_meshes_unchecked;
@@ -57,28 +61,74 @@ use std::io;
 use std::path::{Path, PathBuf};
 use wavefront_obj_io::{IoMtlWriter, IoObjWriter, MapKind, MtlWriter, ObjWriter, SmoothingGroup};
 
-/// Options controlling OBJ export behaviour. Defaults match VPinball's
-/// own `File -> Export -> OBJ Mesh` byte for byte.
-#[derive(Debug, Clone, Default)]
+/// Options controlling OBJ export behaviour.
+///
+/// The defaults are tuned for "useful in DCC tools" (Blender, MeshLab):
+/// textures are extracted and referenced, duplicate `newmtl` blocks are
+/// collapsed, and positions are emitted in metres. To produce output
+/// that matches vpinball's `File -> Export -> OBJ Mesh` quirks
+/// (duplicate blocks, no texture maps, raw VPU positions, combined
+/// top+side wall blocks), set every field back to the vpinball-strict
+/// values - see [`Self::vpinball_strict`].
+#[derive(Debug, Clone)]
 pub struct ObjExportOptions {
     /// Deduplicate `newmtl` blocks in the MTL file by `(material,
     /// texture)` pair.
     ///
-    /// - **`false` (default)**: emit one `newmtl` block per `usemtl`,
-    ///   matching VPinball's output exactly. The MTL contains one entry
-    ///   per item-block, which can mean many duplicates for tables that
+    /// - **`true` (default)**: only the first occurrence of each
+    ///   `(material, texture)` pair gets a `newmtl` block. Produces a
+    ///   smaller MTL with no duplicate blocks.
+    /// - **`false`**: emit one `newmtl` block per `usemtl`, matching
+    ///   VPinball's output exactly. The MTL contains one entry per
+    ///   item-block, which can mean many duplicates for tables that
     ///   share materials across items.
-    /// - **`true`**: only the first occurrence of each `(material,
-    ///   texture)` pair gets a `newmtl` block. The `usemtl` references
-    ///   in the OBJ still resolve correctly (they all point at the same
-    ///   sanitized name). Produces a smaller MTL but diverges from
-    ///   VPinball's reference output.
     pub dedup_mtl_blocks: bool,
 
-    /// Output unit for vertex positions. Default is [`ExportUnits::Vpu`]
-    /// (no scaling) for vpinball parity. Use [`ExportUnits::Mm`] or
-    /// [`ExportUnits::M`] when loading the result into a DCC tool.
+    /// Whether to extract referenced texture images to an `images/`
+    /// sibling folder and reference them via `map_Kd`/`map_Ka` lines
+    /// in the MTL.
+    ///
+    /// - **`true` (default)**: extract every referenced texture into
+    ///   the `images/` folder and reference each one from its
+    ///   `newmtl` block. Items reusing a material name with different
+    ///   textures get unique `newmtl <material>__<texture>` names so
+    ///   `usemtl` references resolve correctly. Top+side walls are
+    ///   split into separate `<name>Side` + `<name>Top` blocks so
+    ///   each face group gets its own material and texture.
+    /// - **`false`**: vpinball-faithful. No images are written and no
+    ///   `map_*` lines are emitted, matching what
+    ///   `File -> Export -> OBJ Mesh` produces. Top+side walls stay
+    ///   as a single combined block with the top material only (also
+    ///   matching vpinball).
+    pub extract_textures: bool,
+
+    /// Output unit for vertex positions. Default is [`ExportUnits::M`]
+    /// so the OBJ imports at sensible scale into DCC tools. Use
+    /// [`ExportUnits::Vpu`] for vpinball parity.
     pub units: ExportUnits,
+}
+
+impl Default for ObjExportOptions {
+    fn default() -> Self {
+        Self {
+            dedup_mtl_blocks: true,
+            extract_textures: true,
+            units: ExportUnits::M,
+        }
+    }
+}
+
+impl ObjExportOptions {
+    /// Options that produce output matching vpinball's
+    /// `File -> Export -> OBJ Mesh` as closely as possible. Useful for
+    /// diffing against vpinball-generated reference files.
+    pub fn vpinball_strict() -> Self {
+        Self {
+            dedup_mtl_blocks: false,
+            extract_textures: false,
+            units: ExportUnits::Vpu,
+        }
+    }
 }
 
 /// Export the entire VPX table as a Wavefront OBJ + companion MTL + images
@@ -163,6 +213,18 @@ pub fn export_obj(
     Ok(())
 }
 
+/// Material fields consumed by the MTL writer. Sourced from either the
+/// new `MATR` chunk (`Material`) or the legacy `MATE` chunk
+/// (`SaveMaterial`), so the OBJ exporter doesn't have to care which
+/// version of vpinball saved the table.
+struct MaterialView {
+    base_color: Color,
+    glossy_color: Color,
+    opacity: f32,
+    opacity_active: bool,
+    is_metal: bool,
+}
+
 // ---------------------------------------------------------------------------
 // State threaded through the walk.
 // ---------------------------------------------------------------------------
@@ -192,6 +254,9 @@ struct WriterState<'a> {
     /// Whether to dedup `newmtl` blocks in the MTL file. See
     /// [`ObjExportOptions::dedup_mtl_blocks`].
     dedup_mtl_blocks: bool,
+    /// Whether to extract images and emit `map_*` lines. See
+    /// [`ObjExportOptions::extract_textures`].
+    extract_textures: bool,
     /// `(material_name, texture_name)` pairs already emitted as a
     /// `newmtl` block. Only consulted when `dedup_mtl_blocks` is true.
     seen_mtl_pairs: HashSet<(String, String)>,
@@ -218,17 +283,45 @@ impl<'a> WriterState<'a> {
             image_dedup_counter: 0,
             images_written: HashSet::new(),
             dedup_mtl_blocks: options.dedup_mtl_blocks,
+            extract_textures: options.extract_textures,
             seen_mtl_pairs: HashSet::new(),
             position_scale: options.units.scale(),
         }
     }
 
-    fn material_by_name(&self, name: &str) -> Option<&Material> {
+    /// Look up a material by name, transparently falling back from the
+    /// new (10.8+) `MATR` chunk to the legacy `MATE` chunk used by older
+    /// tables. Without the legacy fallback, pre-10.8 VPX files appear to
+    /// have no materials at all and every `Kd`/`Ks` ends up at the
+    /// "material missing" defaults (white / black) instead of the
+    /// authored colours.
+    fn material_view_by_name(&self, name: &str) -> Option<MaterialView> {
         if name.is_empty() {
             return None;
         }
-        if let Some(ref mats) = self.vpx.gamedata.materials {
-            return mats.iter().find(|m| m.name.eq_ignore_ascii_case(name));
+        if let Some(ref mats) = self.vpx.gamedata.materials
+            && let Some(m) = mats.iter().find(|m| m.name.eq_ignore_ascii_case(name))
+        {
+            return Some(MaterialView {
+                base_color: m.base_color,
+                glossy_color: m.glossy_color,
+                opacity: m.opacity,
+                opacity_active: m.opacity_active,
+                is_metal: m.type_ == MaterialType::Metal,
+            });
+        }
+        for m in &self.vpx.gamedata.materials_old {
+            if m.name.eq_ignore_ascii_case(name) {
+                return Some(MaterialView {
+                    base_color: m.base_color,
+                    glossy_color: m.glossy_color,
+                    opacity: m.opacity,
+                    // Bit 0 of `opacity_active_edge_alpha` is the
+                    // active flag, the upper 7 bits are the edge alpha.
+                    opacity_active: (m.opacity_active_edge_alpha & 1) != 0,
+                    is_metal: m.is_metal,
+                });
+            }
         }
         None
     }
@@ -425,9 +518,18 @@ fn write_primitive<O: ObjWriter<f32>, M: MtlWriter<f32>>(
     )
 }
 
-/// Compose the full vpx-space world matrix for a primitive, including the
-/// position translation that VPinball folds into `m_fullMatrix` for
-/// `Primitive::ExportMesh`.
+/// Compose the full vpx-space world matrix for a primitive, mirroring
+/// VPinball's `Primitive::RecalculateMatrices`:
+///
+/// ```text
+/// RT       = Translate(tra) * RotZ(rot[2]) * RotY(rot[1]) * RotX(rot[0])
+///                           * RotZ(rot[8]) * RotY(rot[7]) * RotX(rot[6])
+/// fullMat  = Scale(size) * RT * Translate(pos)
+/// ```
+///
+/// Order matters: position is applied *after* scale + rotation so it
+/// doesn't get rotated/scaled along with the mesh. Got bitten by this -
+/// see the regression test in this file.
 fn primitive_world_matrix(primitive: &Primitive) -> Matrix3D {
     let pos = &primitive.position;
     let size = &primitive.size;
@@ -441,7 +543,7 @@ fn primitive_world_matrix(primitive: &Primitive) -> Matrix3D {
         * Matrix3D::rotate_y(rot[7].to_radians())
         * Matrix3D::rotate_x(rot[6].to_radians());
 
-    Matrix3D::translate(pos.x, pos.y, pos.z) * Matrix3D::scale(size.x, size.y, size.z) * rt
+    Matrix3D::scale(size.x, size.y, size.z) * rt * Matrix3D::translate(pos.x, pos.y, pos.z)
 }
 
 fn write_wall<O: ObjWriter<f32>, M: MtlWriter<f32>>(
@@ -497,6 +599,15 @@ fn write_wall<O: ObjWriter<f32>, M: MtlWriter<f32>>(
         }
         (false, true, _, Some((vertices, indices))) => {
             let material_name = wall.side_material.clone();
+            // VPinball's side-only branch (surface.cpp:734) drops the
+            // image like the top+side branch. Pipe `side_image`
+            // through so DCC tools see the texture in textured mode;
+            // `emit_mtl_block` ignores it in vpinball-strict mode.
+            let texture_name = if wall.side_image.is_empty() {
+                None
+            } else {
+                Some(wall.side_image.as_str())
+            };
             write_block(
                 obj,
                 mtl,
@@ -508,37 +619,98 @@ fn write_wall<O: ObjWriter<f32>, M: MtlWriter<f32>>(
                     indices: &indices,
                     translation: Vec3::new(0.0, 0.0, 0.0),
                     material_name: Some(&material_name),
-                    texture_name: None,
+                    texture_name,
                     smoothing: false,
                 },
             )?;
         }
         (true, true, Some((top_v, top_i)), Some((side_v, side_i))) => {
-            let side_count = side_v.len() as i64;
-            let mut combined_v = side_v;
-            combined_v.extend(top_v);
-            let mut combined_i = side_i;
-            combined_i.extend(top_i.into_iter().map(|f| VpxFace {
-                i0: f.i0 + side_count,
-                i1: f.i1 + side_count,
-                i2: f.i2 + side_count,
-            }));
-            let material_name = wall.top_material.clone();
-            write_block(
-                obj,
-                mtl,
-                state,
-                fs,
-                Block {
-                    name: &wall.name,
-                    vertices: &combined_v,
-                    indices: &combined_i,
-                    translation: Vec3::new(0.0, 0.0, 0.0),
-                    material_name: Some(&material_name),
-                    texture_name: None,
-                    smoothing: true,
-                },
-            )?;
+            // Two output strategies, picked at runtime:
+            //
+            // - `extract_textures = false` (vpinball-strict): emit a
+            //   single combined `o <name>` block with the top material
+            //   only, matching `Surface::ExportMesh` (surface.cpp:709-735)
+            //   byte for byte. Sides and top share one `usemtl`; the
+            //   wall's image is dropped because OBJ allows only one
+            //   texture per face group and vpinball doesn't bother
+            //   splitting.
+            // - `extract_textures = true` (DCC-friendly): split into
+            //   `o <name>Side` and `o <name>Top` so each face group
+            //   carries its own material + image. This is the only
+            //   way to get correct top+side textures into Blender;
+            //   otherwise the side faces would render with the top's
+            //   texture stretched across their UVs.
+            if state.extract_textures {
+                let side_material = wall.side_material.clone();
+                let side_texture = if wall.side_image.is_empty() {
+                    None
+                } else {
+                    Some(wall.side_image.as_str())
+                };
+                write_block(
+                    obj,
+                    mtl,
+                    state,
+                    fs,
+                    Block {
+                        name: &format!("{}Side", wall.name),
+                        vertices: &side_v,
+                        indices: &side_i,
+                        translation: Vec3::new(0.0, 0.0, 0.0),
+                        material_name: Some(&side_material),
+                        texture_name: side_texture,
+                        smoothing: true,
+                    },
+                )?;
+
+                let top_material = wall.top_material.clone();
+                let top_texture = if wall.image.is_empty() {
+                    None
+                } else {
+                    Some(wall.image.as_str())
+                };
+                write_block(
+                    obj,
+                    mtl,
+                    state,
+                    fs,
+                    Block {
+                        name: &format!("{}Top", wall.name),
+                        vertices: &top_v,
+                        indices: &top_i,
+                        translation: Vec3::new(0.0, 0.0, 0.0),
+                        material_name: Some(&top_material),
+                        texture_name: top_texture,
+                        smoothing: true,
+                    },
+                )?;
+            } else {
+                let side_count = side_v.len() as i64;
+                let mut combined_v = side_v;
+                combined_v.extend(top_v);
+                let mut combined_i = side_i;
+                combined_i.extend(top_i.into_iter().map(|f| VpxFace {
+                    i0: f.i0 + side_count,
+                    i1: f.i1 + side_count,
+                    i2: f.i2 + side_count,
+                }));
+                let material_name = wall.top_material.clone();
+                write_block(
+                    obj,
+                    mtl,
+                    state,
+                    fs,
+                    Block {
+                        name: &wall.name,
+                        vertices: &combined_v,
+                        indices: &combined_i,
+                        translation: Vec3::new(0.0, 0.0, 0.0),
+                        material_name: Some(&material_name),
+                        texture_name: None,
+                        smoothing: true,
+                    },
+                )?;
+            }
         }
         _ => {}
     }
@@ -560,7 +732,7 @@ fn write_ramp<O: ObjWriter<f32>, M: MtlWriter<f32>>(
     // Missing/empty material falls through to opaque (vpinball's dummy
     // material defaults `m_bOpacityActive = false`).
     let material_opacity_active = state
-        .material_by_name(&ramp.material)
+        .material_view_by_name(&ramp.material)
         .is_some_and(|m| m.opacity_active);
     let Some((vertices, indices)) = build_ramp_mesh(
         ramp,
@@ -1099,12 +1271,22 @@ fn write_block<O: ObjWriter<f32>, M: MtlWriter<f32>>(
 /// VPinball does the same in `WriteMaterial` for both the MTL block and
 /// the `usemtl`).
 ///
-/// By default vpinball-style: emits one `newmtl` block per call, with
-/// duplicates. When `state.dedup_mtl_blocks` is set, only the first
-/// occurrence of each `(material, texture)` pair is written; subsequent
-/// calls still resolve the on-disk image (so it gets extracted) but
-/// skip the MTL block. The `usemtl` reference in the OBJ remains the
-/// same sanitized name and resolves to the first-emitted block.
+/// Behaviour depends on the active options:
+///
+/// - `extract_textures = false` (vpinball-faithful):
+///   the returned name is the bare sanitised material name. With
+///   `dedup_mtl_blocks = false` the same `newmtl <name>` block is
+///   re-emitted per call, matching vpinball byte-for-byte. With
+///   `dedup_mtl_blocks = true` we keep just the first occurrence.
+/// - `extract_textures = true`:
+///   when the item carries a texture, we emit a unique
+///   `newmtl <material>__<image>` block so DCC tools resolve every
+///   `usemtl` to the right `map_Kd` line. Items with the same
+///   material name but different textures no longer step on each
+///   other. The texture file is extracted into `images/` on first
+///   use; repeat `(material, texture)` pairs reuse the same `newmtl`
+///   block (effectively forcing dedup for textured items so we
+///   don't emit identical blocks twice).
 fn emit_mtl_block<M: MtlWriter<f32>>(
     mtl: &mut M,
     state: &mut WriterState,
@@ -1112,18 +1294,43 @@ fn emit_mtl_block<M: MtlWriter<f32>>(
     material_name: &str,
     texture_name: Option<&str>,
 ) -> io::Result<String> {
-    let mtl_name = sanitize_material_name(material_name);
-
     // Resolve the on-disk image filename and ensure the file is written.
-    // We do this whether or not we're about to skip the MTL block, so
-    // the `images/` folder stays complete in dedup mode too.
-    let map_path = if let Some(name) = texture_name {
-        ensure_image_written(state, fs, name)?
+    // Skipped entirely in vpinball-faithful mode (no `map_*` lines, no
+    // `images/` folder) - vpinball's exporter doesn't extract textures.
+    let map_path = if state.extract_textures {
+        if let Some(name) = texture_name {
+            ensure_image_written(state, fs, name)?
+        } else {
+            None
+        }
     } else {
         None
     };
 
-    if state.dedup_mtl_blocks {
+    // Construct the `newmtl`/`usemtl` name. In vpinball-faithful mode
+    // it's just the sanitised material name. In texture-emitting mode
+    // we mangle in the image name so each `(material, texture)` pair
+    // gets its own block, which avoids the "last newmtl wins" trap
+    // when multiple items reuse a material name.
+    let mtl_name = if state.extract_textures
+        && let Some(tex) = texture_name
+        && !tex.is_empty()
+    {
+        format!(
+            "{}__{}",
+            sanitize_material_name(material_name),
+            sanitize_filename(tex),
+        )
+    } else {
+        sanitize_material_name(material_name)
+    };
+
+    // With unique-per-pair names, the same pair would otherwise emit
+    // identical `newmtl` blocks every time the same item-style
+    // recurs. Force dedup whenever we extract textures so we only
+    // write the block on first sight.
+    let force_dedup = state.extract_textures && map_path.is_some();
+    if state.dedup_mtl_blocks || force_dedup {
         let key = (
             material_name.to_string(),
             texture_name.unwrap_or("").to_string(),
@@ -1150,13 +1357,13 @@ fn write_mtl_block<M: MtlWriter<f32>>(
     material_name: &str,
     image_relative_path: Option<&str>,
 ) -> io::Result<()> {
-    let material = state.material_by_name(material_name);
+    let material = state.material_view_by_name(material_name);
 
     // Defaults match VPinball's WriteMaterial when no Material is found.
     let (kd, ks, opacity) = match material {
         Some(m) => (
-            color_to_kd(m),
-            color_to_ks(m),
+            color_to_kd(&m),
+            color_to_ks(&m),
             if m.opacity_active { m.opacity } else { 1.0 },
         ),
         None => ([1.0, 1.0, 1.0], [0.0, 0.0, 0.0], 1.0),
@@ -1177,7 +1384,7 @@ fn write_mtl_block<M: MtlWriter<f32>>(
     Ok(())
 }
 
-fn color_to_kd(m: &Material) -> [f32; 3] {
+fn color_to_kd(m: &MaterialView) -> [f32; 3] {
     [
         m.base_color.r as f32 / 255.0,
         m.base_color.g as f32 / 255.0,
@@ -1185,8 +1392,8 @@ fn color_to_kd(m: &Material) -> [f32; 3] {
     ]
 }
 
-fn color_to_ks(m: &Material) -> [f32; 3] {
-    if m.type_ == MaterialType::Metal {
+fn color_to_ks(m: &MaterialView) -> [f32; 3] {
+    if m.is_metal {
         // Match VPinball's `m_cGlossy` for metals (uses base color).
         color_to_kd(m)
     } else {
@@ -1307,13 +1514,68 @@ mod tests {
     }
 
     #[test]
-    fn default_options_emit_one_newmtl_per_usemtl() {
-        // VPinball-faithful default: each `usemtl` gets a `newmtl`.
-        let (obj, mtl) = export_to_memory(&ObjExportOptions::default());
+    fn primitive_world_matrix_does_not_scale_position() {
+        // Regression: the previous order `Translate(pos) * Scale * RT`
+        // applied scale/rotation to the position itself. With size != 1
+        // and a non-zero rotation, primitives ended up far from where
+        // vpinball places them. Verify the world matrix matches the
+        // vpinball convention `Scale * RT * Translate(pos)`.
+        //
+        // Setup:
+        //   - local vertex at (1, 0, 0)
+        //   - size  = (2, 2, 2)         (would be doubled if scale leaked into pos)
+        //   - rot[0] = 90 deg around X  (would rotate pos if order is wrong)
+        //   - pos = (10, 20, 30)
+        //
+        // Expected (vpinball): scale -> rotate -> translate(pos)
+        //   v_local = (1, 0, 0)
+        //   after scale(2): (2, 0, 0)
+        //   after RotX(90): (2, 0, 0)   (X axis is invariant)
+        //   after Translate(pos): (12, 20, 30)
+        use crate::vpx::gameitem::vertex3d::Vertex3D as ItemVertex3D;
+        let primitive = Primitive {
+            position: ItemVertex3D::new(10.0, 20.0, 30.0),
+            size: ItemVertex3D::new(2.0, 2.0, 2.0),
+            rot_and_tra: [90.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            ..Primitive::default()
+        };
+
+        let m = primitive_world_matrix(&primitive);
+        let out = m.transform_vertex(Vertex3D::new(1.0, 0.0, 0.0));
+        assert!(
+            (out.x - 12.0).abs() < 1e-4
+                && (out.y - 20.0).abs() < 1e-4
+                && (out.z - 30.0).abs() < 1e-4,
+            "expected (12, 20, 30), got ({}, {}, {})",
+            out.x,
+            out.y,
+            out.z,
+        );
+    }
+
+    #[test]
+    fn vpinball_strict_emits_one_newmtl_per_usemtl() {
+        // VPinball-strict mode: each `usemtl` gets its own `newmtl`,
+        // including duplicates - matches `Surface::ExportMesh`.
+        let (obj, mtl) = export_to_memory(&ObjExportOptions::vpinball_strict());
         let usemtl = obj.matches("usemtl ").count();
         let newmtl = mtl.matches("newmtl ").count();
         assert!(usemtl > 0);
         assert_eq!(usemtl, newmtl);
+    }
+
+    #[test]
+    fn default_options_dedup_newmtl_blocks() {
+        // The DCC-friendly default collapses duplicate `(material,
+        // texture)` pairs into a single `newmtl` block.
+        let (obj, mtl) = export_to_memory(&ObjExportOptions::default());
+        let usemtl = obj.matches("usemtl ").count();
+        let newmtl = mtl.matches("newmtl ").count();
+        assert!(usemtl >= 1);
+        assert!(
+            newmtl <= usemtl,
+            "newmtl ({newmtl}) should not exceed usemtl ({usemtl}) when deduped",
+        );
     }
 
     /// Find the vertex with the largest |x| in an OBJ string, returning

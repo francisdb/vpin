@@ -195,6 +195,11 @@ struct NamedMesh {
     /// is applied via the glTF node's "translation" property.
     /// Coordinates: VPX X → glTF X, VPX Z → glTF Y, VPX Y → glTF Z
     translation: Option<Vec3>,
+    /// Optional node scale, applied via the glTF node's "scale" property.
+    /// Lets a mesh that was generated unscaled (e.g. gate wires, which
+    /// vpinball's OBJ exporter never scales) still appear at runtime size
+    /// in DCC tools without forking the mesh-generation path.
+    scale: Option<Vec3>,
     /// Whether the node is visible.
     /// When false, the node will be exported with the KHR_node_visibility extension
     /// set to `visible: false`. Defaults to true.
@@ -250,6 +255,7 @@ impl Default for NamedMesh {
             is_ball: false,
             roughness_texture_name: None,
             translation: None,
+            scale: None,
             visible: true,
             group_name: None,
         }
@@ -1337,7 +1343,15 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                         });
                     }
 
-                    // Add wire/plate mesh
+                    // Add wire/plate mesh.
+                    //
+                    // The wire mesh is left unscaled by `generate_wire_mesh`
+                    // to match vpinball's OBJ exporter (`Gate::GenerateWireMesh`,
+                    // gate.cpp:529). For runtime appearance vpinball multiplies
+                    // by `gate.length` (see `RenderDynamic`); we fold the same
+                    // scale into the glTF node so the same mesh data serves
+                    // both exporters.
+                    let length = gate.length;
                     let (wire_vertices, wire_indices) = gate_meshes.wire;
                     meshes.push(NamedMesh {
                         name: format!("{}Wire", gate.name),
@@ -1346,6 +1360,7 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                         material_name,
                         layer_name: gate_layer_name.clone(),
                         translation,
+                        scale: Some(Vec3::new(length, length, length)),
                         visible: gate.is_visible,
                         group_name: Some(gate.name.clone()),
                         ..Default::default()
@@ -2520,6 +2535,9 @@ fn build_combined_gltf_payload(
         // Add translation if set (for primitives using node transforms)
         if let Some(translation) = mesh.translation {
             node["translation"] = json!([translation.x, translation.y, translation.z]);
+        }
+        if let Some(scale) = mesh.scale {
+            node["scale"] = json!([scale.x, scale.y, scale.z]);
         }
 
         // Add KHR_node_visibility extension for invisible nodes

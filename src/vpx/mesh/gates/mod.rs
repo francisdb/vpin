@@ -106,25 +106,25 @@ fn generate_bracket_mesh(gate: &Gate) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
     (vertices, faces)
 }
 
-/// Generate gate wire/plate mesh
+/// Generate gate wire/plate mesh.
 ///
-/// From VPinball Gate::RenderDynamic (line 417-418):
-/// ```cpp
-/// const Matrix3D vertMatrix = (fullMatrix
-///     * Matrix3D::MatrixScale(m_d.m_length, m_d.m_length, m_d.m_length))
-///     * Matrix3D::MatrixTranslate(m_d.m_vCenter.x, m_d.m_vCenter.y, m_d.m_height + m_baseHeight);
-/// ```
+/// Mirrors VPinball's `Gate::GenerateWireMesh` (gate.cpp:527-531):
+/// applies `RotateZ` only - **no** `Scale(length)` and no translation.
+/// VPinball's runtime renderer (`RenderDynamic`, gate.cpp:417-418)
+/// adds the length scale on top, but its OBJ exporter does not. By
+/// always producing the unscaled form we match the exporter byte-for
+/// -byte; consumers that want the runtime appearance (e.g. glTF)
+/// should apply `gate.length` as a node-level scale.
 ///
-/// Note: The wire mesh IS scaled by length, same as the bracket.
-/// Translation is NOT applied here - use gate.center and height for node transform.
+/// Note that this is asymmetric with `generate_bracket_mesh`, which
+/// does bake in `Scale(length)` - vpinball's bracket exporter does
+/// the same, so the bracket needs no additional scaling.
 fn generate_wire_mesh(
     gate: &Gate,
     mesh: &[Vertex3dNoTex2],
     indices: &[u16],
 ) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
-    // Rotation and scale (no translation - that goes in node transform)
-    let world_matrix =
-        Matrix3D::rotate_z(gate.rotation.to_radians()) * Matrix3D::scale_uniform(gate.length);
+    let world_matrix = Matrix3D::rotate_z(gate.rotation.to_radians());
 
     let vertices: Vec<VertexWrapper> = mesh
         .iter()
@@ -189,7 +189,6 @@ pub fn build_gate_meshes(gate: &Gate) -> Option<GateMeshes> {
 /// runtime visibility flag) - it only filters at the table level via
 /// `m_uiVisible`. The OBJ exporter uses this variant to match.
 pub(crate) fn build_gate_meshes_unchecked(gate: &Gate) -> Option<GateMeshes> {
-    // Get the appropriate mesh for this gate type (default to WireW if not specified)
     let gate_type = gate.gate_type.as_ref().unwrap_or(&GateType::WireW);
     let (mesh, indices) = get_mesh_for_type(gate_type);
 
