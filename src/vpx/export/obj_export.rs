@@ -1,10 +1,8 @@
 //! Wavefront OBJ export of an entire VPX table.
 //!
 //! Mirrors VPinball's `File -> Export -> OBJ Mesh`: produces a single `.obj`
-//! file with one `o` block per item (playfield + every visible game item),
-//! a single `.mtl` file with one `newmtl` block per unique
-//! `(material, texture)` pair encountered, and an `images/` sibling folder
-//! containing the texture files referenced from the `.mtl`.
+//! file with one `o` block per item (playfield + every visible game item)
+//! and a single `.mtl` material library.
 //!
 //! Output layout, given `path/to/<stem>.obj`:
 //!
@@ -12,9 +10,14 @@
 //! path/to/
 //! +-- <stem>.obj
 //! +-- <stem>.mtl
-//! +-- images/
+//! +-- images/        (only when `ObjExportOptions::extract_textures` is set)
 //!     +-- <texture-name>.<ext>
 //! ```
+//!
+//! By default no textures are written. Set
+//! [`ObjExportOptions::extract_textures`] to populate `images/` and emit
+//! `map_Kd`/`map_Ka` lines so the result loads with textures in DCC
+//! tools like Blender.
 //!
 //! Coordinate convention matches VPinball's `ObjLoader`:
 //!
@@ -75,6 +78,27 @@ pub struct ObjExportOptions {
     ///   sanitized name). Produces a smaller MTL but diverges from
     ///   VPinball's reference output.
     pub dedup_mtl_blocks: bool,
+
+    /// Whether to extract referenced texture images to an `images/`
+    /// sibling folder and reference them via `map_Kd`/`map_Ka` lines
+    /// in the MTL.
+    ///
+    /// - **`false` (default)**: vpinball-faithful. No images are
+    ///   written and no `map_*` lines are emitted, matching what
+    ///   `File -> Export -> OBJ Mesh` produces (vpinball passes an
+    ///   empty texelFilename to `WriteMaterial` for everything except
+    ///   wall tops with an image, and for that case the path it emits
+    ///   is the original on-disk source path - which we cannot
+    ///   replicate from a packaged VPX).
+    /// - **`true`**: extract every referenced texture into the
+    ///   `images/` folder and reference each one from its `newmtl`
+    ///   block. Useful when loading the OBJ into Blender / MeshLab so
+    ///   textures show up. Note: when multiple items reuse the same
+    ///   material name with different textures, `usemtl` references
+    ///   currently resolve to whichever block parses last - a separate
+    ///   dedup pass is needed for fully-correct DCC output. Combine
+    ///   with [`Self::dedup_mtl_blocks`] as a partial workaround.
+    pub extract_textures: bool,
 
     /// Output unit for vertex positions. Default is [`ExportUnits::Vpu`]
     /// (no scaling) for vpinball parity. Use [`ExportUnits::Mm`] or
@@ -205,6 +229,9 @@ struct WriterState<'a> {
     /// Whether to dedup `newmtl` blocks in the MTL file. See
     /// [`ObjExportOptions::dedup_mtl_blocks`].
     dedup_mtl_blocks: bool,
+    /// Whether to extract images and emit `map_*` lines. See
+    /// [`ObjExportOptions::extract_textures`].
+    extract_textures: bool,
     /// `(material_name, texture_name)` pairs already emitted as a
     /// `newmtl` block. Only consulted when `dedup_mtl_blocks` is true.
     seen_mtl_pairs: HashSet<(String, String)>,
@@ -231,6 +258,7 @@ impl<'a> WriterState<'a> {
             image_dedup_counter: 0,
             images_written: HashSet::new(),
             dedup_mtl_blocks: options.dedup_mtl_blocks,
+            extract_textures: options.extract_textures,
             seen_mtl_pairs: HashSet::new(),
             position_scale: options.units.scale(),
         }
@@ -1164,10 +1192,14 @@ fn emit_mtl_block<M: MtlWriter<f32>>(
     let mtl_name = sanitize_material_name(material_name);
 
     // Resolve the on-disk image filename and ensure the file is written.
-    // We do this whether or not we're about to skip the MTL block, so
-    // the `images/` folder stays complete in dedup mode too.
-    let map_path = if let Some(name) = texture_name {
-        ensure_image_written(state, fs, name)?
+    // Skipped entirely in vpinball-faithful mode (no `map_*` lines, no
+    // `images/` folder) - vpinball's exporter doesn't extract textures.
+    let map_path = if state.extract_textures {
+        if let Some(name) = texture_name {
+            ensure_image_written(state, fs, name)?
+        } else {
+            None
+        }
     } else {
         None
     };
