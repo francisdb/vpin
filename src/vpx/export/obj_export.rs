@@ -50,6 +50,7 @@ use crate::vpx::mesh::spinners::build_spinner_meshes;
 use crate::vpx::mesh::triggers::build_trigger_mesh;
 use crate::vpx::mesh::walls::build_wall_meshes;
 use crate::vpx::obj::VpxFace;
+pub use crate::vpx::units::ExportUnits;
 use log::{info, warn};
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -73,6 +74,11 @@ pub struct ObjExportOptions {
     ///   sanitized name). Produces a smaller MTL but diverges from
     ///   VPinball's reference output.
     pub dedup_mtl_blocks: bool,
+
+    /// Output unit for vertex positions. Default is [`ExportUnits::Vpu`]
+    /// (no scaling) for vpinball parity. Use [`ExportUnits::Mm`] or
+    /// [`ExportUnits::M`] when loading the result into a DCC tool.
+    pub units: ExportUnits,
 }
 
 /// Export the entire VPX table as a Wavefront OBJ + companion MTL + images
@@ -189,6 +195,9 @@ struct WriterState<'a> {
     /// `(material_name, texture_name)` pairs already emitted as a
     /// `newmtl` block. Only consulted when `dedup_mtl_blocks` is true.
     seen_mtl_pairs: HashSet<(String, String)>,
+    /// Multiplier applied to VPU vertex positions on write. Derived
+    /// once from `ObjExportOptions::units`.
+    position_scale: f32,
 }
 
 impl<'a> WriterState<'a> {
@@ -210,6 +219,7 @@ impl<'a> WriterState<'a> {
             images_written: HashSet::new(),
             dedup_mtl_blocks: options.dedup_mtl_blocks,
             seen_mtl_pairs: HashSet::new(),
+            position_scale: options.units.scale(),
         }
     }
 
@@ -1010,12 +1020,13 @@ fn write_block<O: ObjWriter<f32>, M: MtlWriter<f32>>(
 
     obj.write_object_name(block.name)?;
 
-    // Positions: world = local + translation; obj_z = -world_z
+    // Positions: world = local + translation; obj_z = -world_z; scale to chosen unit.
+    let s = state.position_scale;
     for vw in block.vertices {
         let v = &vw.vertex;
-        let x = v.x + block.translation.x;
-        let y = v.y + block.translation.y;
-        let z = v.z + block.translation.z;
+        let x = (v.x + block.translation.x) * s;
+        let y = (v.y + block.translation.y) * s;
+        let z = (v.z + block.translation.z) * s;
         obj.write_vertex(x, y, -z, None)?;
     }
     // UVs: tv -> 1 - tv, NaN -> 0
@@ -1305,6 +1316,90 @@ mod tests {
         assert_eq!(usemtl, newmtl);
     }
 
+    /// Find the vertex with the largest |x| in an OBJ string, returning
+    /// (index, [x, y, z]). Picks a non-zero coordinate so unit-scale
+    /// ratios are stable.
+    fn pick_extreme_vertex(obj: &str) -> (usize, [f32; 3]) {
+        let mut best: Option<(usize, [f32; 3])> = None;
+        for (idx, line) in obj.lines().filter_map(|l| l.strip_prefix("v ")).enumerate() {
+            let coords: Vec<f32> = line
+                .split_whitespace()
+                .filter_map(|s| s.parse().ok())
+                .collect();
+            assert_eq!(coords.len(), 3, "unexpected vertex line: {line:?}");
+            let v = [coords[0], coords[1], coords[2]];
+            match best {
+                None => best = Some((idx, v)),
+                Some((_, b)) if v[0].abs() > b[0].abs() => best = Some((idx, v)),
+                _ => {}
+            }
+        }
+        best.expect("no `v ` position line found in OBJ")
+    }
+
+    #[test]
+    fn units_scale_positions() {
+        // Same default table exported in each unit; the first vertex
+        // should differ by the documented VPU scale factors.
+        let (vpu_obj, _) = export_to_memory(&ObjExportOptions {
+            units: ExportUnits::Vpu,
+            ..ObjExportOptions::default()
+        });
+        let (mm_obj, _) = export_to_memory(&ObjExportOptions {
+            units: ExportUnits::Mm,
+            ..ObjExportOptions::default()
+        });
+        let (cm_obj, _) = export_to_memory(&ObjExportOptions {
+            units: ExportUnits::Cm,
+            ..ObjExportOptions::default()
+        });
+        let (m_obj, _) = export_to_memory(&ObjExportOptions {
+            units: ExportUnits::M,
+            ..ObjExportOptions::default()
+        });
+
+        // Use the same vertex index across all four exports - they
+        // share topology, only the scale differs.
+        let (idx, vpu) = pick_extreme_vertex(&vpu_obj);
+        assert!(vpu[0].abs() > 1.0, "expected non-trivial VPU coord");
+        let pick_at = |obj: &str| -> [f32; 3] {
+            let line = obj
+                .lines()
+                .filter_map(|l| l.strip_prefix("v "))
+                .nth(idx)
+                .expect("vertex index out of range");
+            let coords: Vec<f32> = line
+                .split_whitespace()
+                .filter_map(|s| s.parse().ok())
+                .collect();
+            [coords[0], coords[1], coords[2]]
+        };
+        let mm = pick_at(&mm_obj);
+        let cm = pick_at(&cm_obj);
+        let m = pick_at(&m_obj);
+
+        let mm_ratio = mm[0] / vpu[0];
+        let cm_ratio = cm[0] / vpu[0];
+        let m_ratio = m[0] / vpu[0];
+
+        let expected_mm = (25.4 * 1.0625) / 50.0;
+        let expected_cm = expected_mm / 10.0;
+        let expected_m = expected_mm / 1000.0;
+
+        assert!(
+            (mm_ratio - expected_mm).abs() < 1e-5,
+            "mm ratio {mm_ratio} != {expected_mm}",
+        );
+        assert!(
+            (cm_ratio - expected_cm).abs() < 1e-6,
+            "cm ratio {cm_ratio} != {expected_cm}",
+        );
+        assert!(
+            (m_ratio - expected_m).abs() < 1e-7,
+            "m ratio {m_ratio} != {expected_m}",
+        );
+    }
+
     #[test]
     fn dedup_option_collapses_newmtl_blocks() {
         // Same export with dedup on: at most one `newmtl` per unique
@@ -1312,6 +1407,7 @@ mod tests {
         // (single playfield material), both should collapse to 1.
         let (obj, mtl) = export_to_memory(&ObjExportOptions {
             dedup_mtl_blocks: true,
+            ..ObjExportOptions::default()
         });
         let usemtl = obj.matches("usemtl ").count();
         let newmtl = mtl.matches("newmtl ").count();

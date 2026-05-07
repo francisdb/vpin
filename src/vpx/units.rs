@@ -72,6 +72,46 @@ pub fn m_to_vpu(m: f32) -> f32 {
     m / VPU_TO_M
 }
 
+/// Output unit for table exports (OBJ, glTF/GLB).
+///
+/// VPinball internally uses "VP Units" (VPU): 50 VPU = 1.0625 inches
+/// (one pinball diameter), so a standard table around 20 inches wide
+/// is roughly 950 VPU. Loaded straight into a tool that treats
+/// numbers as metres, that becomes a ~950 m table. Pick a metric
+/// variant to scale positions on the way out.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ExportUnits {
+    /// Raw VPinball Units (no scaling).
+    #[default]
+    Vpu,
+    /// Millimetres.
+    Mm,
+    /// Centimetres.
+    Cm,
+    /// Metres.
+    M,
+}
+
+impl ExportUnits {
+    /// Multiplier to apply to a VPU position to obtain the value in
+    /// this unit.
+    #[inline]
+    pub fn scale(self) -> f32 {
+        match self {
+            ExportUnits::Vpu => 1.0,
+            ExportUnits::Mm => VPU_TO_MM,
+            ExportUnits::Cm => VPU_TO_CM,
+            ExportUnits::M => VPU_TO_M,
+        }
+    }
+}
+
+/// Convert a VPU value to the requested export unit.
+#[inline]
+pub fn vpu_to_units(vpu: f32, units: ExportUnits) -> f32 {
+    vpu * units.scale()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
