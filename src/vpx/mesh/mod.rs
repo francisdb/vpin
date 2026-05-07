@@ -27,7 +27,7 @@ pub(crate) mod walls;
 pub const HIT_SHAPE_DETAIL_LEVEL: f32 = 7.0;
 
 /// Compute the cross-section segment count for rubbers and wire ramps,
-/// matching VPinball's `Rubber::GenerateMesh` (rubber.cpp:1235) and
+/// mirroring VPinball's `Rubber::GenerateMesh` (rubber.cpp:1235) and
 /// `Ramp::CreateWire` (ramp.cpp:1070):
 ///
 /// ```text
@@ -38,39 +38,39 @@ pub const HIT_SHAPE_DETAIL_LEVEL: f32 = 7.0;
 /// if (static_rendering)  accuracy = (int)(10.f * 1.3f);
 /// ```
 ///
-/// The two `(int)(... * 1.3f)` expressions evaluate differently in
-/// MSVC, verified on `cl.exe 19.44 /fp:fast /arch:SSE2 x64` (vpinball's
-/// build flags - see `make/CMakeLists_bgfx-windows-x86.txt`):
+/// MSVC's two `(int)(... * 1.3f)` expressions evaluate differently
+/// even though they appear identical in source. Verified on `cl.exe
+/// 19.44 /fp:fast /arch:SSE2 x64` (vpinball's build flags):
 ///
 /// ```text
-/// static     (int)(10.f * 1.3f)         = 12
-/// non-static (int)((float)10 * 1.3f)    = 13
+/// (int)((float)10 * 1.3f)   // runtime SSE single-precision -> 13
+/// (int)(10.f * 1.3f)        // /fp:fast constant fold        -> 12
 /// ```
 ///
-/// Both `10.f * 1.3f` and `(float)10 * 1.3f` produce `13.0` exactly
-/// in IEEE 754 f32 (round-to-nearest-even rounds `12.9999995...` up
-/// to `13.0`), so when stored to a float variable and printed, both
-/// read `13.00000000000000000000`. But `/fp:fast`'s constant folder
-/// evaluates the *literal* expression `(int)(10.f * 1.3f)` with a
-/// higher-precision intermediate and truncates to **12**. The
-/// runtime-evaluated variable form goes through SSE single-precision
-/// and casts to **13**.
+/// Both `10.f * 1.3f` and `(float)10 * 1.3f` round to `13.0` exactly
+/// when stored to an f32 (IEEE 754 round-to-nearest-even rounds
+/// 12.9999995 up). But `/fp:fast`'s constant folder evaluates the
+/// literal expression with a higher-precision intermediate and
+/// truncates to **12** when cast directly to int.
 ///
-/// We hardcode the static-rendering result as **12** to match. The
-/// non-static branch's native f32 multiply matches MSVC's runtime
-/// SSE behaviour exactly.
+/// Rust's f32 multiply matches MSVC's runtime SSE path (`13`), so the
+/// non-static branch is a direct port. The static-override expression
+/// has to be hardcoded to **12** because Rust has no equivalent to
+/// MSVC's `/fp:fast` constant folder.
 pub fn vpinball_ring_segments(detail_level: u32, static_rendering: bool) -> u32 {
-    if static_rendering {
-        // MSVC `/fp:fast` folds `(int)(10.f * 1.3f)` to 12 (verified).
-        return 12;
-    }
-    if detail_level < 5 {
+    let mut accuracy = if detail_level < 5 {
         6
     } else if detail_level < 8 {
         8
     } else {
+        // VPinball: `accuracy = (int)((float)accuracy * 1.3f);`
         (detail_level as f32 * 1.3_f32) as u32
+    };
+    if static_rendering {
+        // VPinball: `accuracy = (int)(10.f * 1.3f);` -- MSVC folds to 12.
+        accuracy = 12;
     }
+    accuracy
 }
 
 /// Convert a detail level (0-10) to an accuracy value for spline subdivision.
