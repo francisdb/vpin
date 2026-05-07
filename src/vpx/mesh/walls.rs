@@ -506,52 +506,66 @@ fn build_top_mesh(
     }
 }
 
+/// Triangulate a simple 2D polygon, mirroring vpinball's
+/// `PolygonToTriangles` + `AdvancePoint` (`MeshUtils.h:496`).
+///
+/// The algorithm is ear-clipping with two extra checks per candidate ear:
+///
+/// 1. The new triangle's interior angle (`a`-`b`-`c`) must not be
+///    concave (`GetDot(pv1, pv2, pv3) >= 0`).
+/// 2. The new diagonal `a`-`c` must not intersect any remaining
+///    polygon edge.
+///
+/// The standard "convex vertex + no point in triangle" check used by
+/// the previous implementation rejects valid ears on some polygons
+/// where an adjacent vertex sits exactly on a triangle edge or where
+/// the polygon has near-collinear edges. The diagonal-intersection
+/// test is the more robust criterion vpinball uses.
+///
+/// Mirrors `surface.cpp:622`'s call (`support_both_winding_orders =
+/// false`) - we don't pre-flip the winding because vpin's wall render
+/// vertices come from the same `IHaveDragPoints::GetRgVertex` port and
+/// are produced in the expected CCW orientation.
 fn triangulate_polygon(points: &[(f32, f32)]) -> Vec<[u32; 3]> {
     if points.len() < 3 {
         return Vec::new();
     }
 
-    let mut indices = (0..points.len()).collect::<Vec<_>>();
-    if signed_area(points) < 0.0 {
-        indices.reverse();
+    // VPinball's algorithm expects polygons in its conventional vertex
+    // order (vpinball-CCW, which is math-CW because the table Y axis
+    // points down). If the input is in math-CCW order, reverse it -
+    // this mirrors `support_both_winding_orders = true` in vpinball's
+    // `PolygonToTriangles`.
+    let mut vpoly: Vec<u32> = (0..points.len() as u32).collect();
+    if signed_area(points) > 0.0 {
+        vpoly.reverse();
     }
+    let tricount = points.len() - 2;
+    let mut triangles = Vec::with_capacity(tricount);
 
-    let mut triangles = Vec::new();
-    let mut guard = 0usize;
-    while indices.len() >= 3 && guard < points.len() * points.len() {
-        guard += 1;
-        let mut ear_found = false;
-        for i in 0..indices.len() {
-            let prev = indices[(i + indices.len() - 1) % indices.len()];
-            let curr = indices[i];
-            let next = indices[(i + 1) % indices.len()];
+    for _ in 0..tricount {
+        let mut found = false;
+        for i in 0..vpoly.len() {
+            let s = vpoly.len();
+            let pre = vpoly[if i == 0 { s - 1 } else { i - 1 }];
+            let a = vpoly[i];
+            let b = vpoly[if i < s - 1 { i + 1 } else { 0 }];
+            let c = vpoly[if i < s - 2 { i + 2 } else { i + 2 - s }];
+            let post = vpoly[if i < s - 3 { i + 3 } else { i + 3 - s }];
 
-            if !is_convex(points[prev], points[curr], points[next]) {
+            if !advance_point(points, &vpoly, a, b, c, pre, post) {
                 continue;
             }
 
-            let mut contains = false;
-            for &other in &indices {
-                if other == prev || other == curr || other == next {
-                    continue;
-                }
-                if point_in_triangle(points[other], points[prev], points[curr], points[next]) {
-                    contains = true;
-                    break;
-                }
-            }
-
-            if contains {
-                continue;
-            }
-
-            triangles.push([prev as u32, curr as u32, next as u32]);
-            indices.remove(i);
-            ear_found = true;
+            // VPinball emits the triangle as (a, c, b).
+            triangles.push([a, c, b]);
+            vpoly.remove(if i < s - 1 { i + 1 } else { 0 });
+            found = true;
             break;
         }
-
-        if !ear_found {
+        if !found {
+            // No valid ear in this sweep - matches vpinball, which also
+            // silently skips this iteration rather than recovering.
             break;
         }
     }
@@ -559,6 +573,67 @@ fn triangulate_polygon(points: &[(f32, f32)]) -> Vec<[u32; 3]> {
     triangles
 }
 
+/// Mirrors vpinball's `AdvancePoint` (`MeshUtils.h`).
+fn advance_point(
+    rgv: &[(f32, f32)],
+    vpoly: &[u32],
+    a: u32,
+    b: u32,
+    c: u32,
+    pre: u32,
+    post: u32,
+) -> bool {
+    let pv1 = rgv[a as usize];
+    let pv2 = rgv[b as usize];
+    let pv3 = rgv[c as usize];
+    let pv_pre = rgv[pre as usize];
+    let pv_post = rgv[post as usize];
+
+    if dot_2d(pv1, pv2, pv3) < 0.0
+        || (dot_2d(pv_pre, pv1, pv2) > 0.0 && dot_2d(pv_pre, pv1, pv3) < 0.0)
+        || (dot_2d(pv2, pv3, pv_post) > 0.0 && dot_2d(pv1, pv3, pv_post) < 0.0)
+    {
+        return false;
+    }
+
+    // Bounding-box of the diagonal a-c, used by vpinball as a fast
+    // reject before the full segment-intersection test.
+    let minx = pv1.0.min(pv3.0);
+    let maxx = pv1.0.max(pv3.0);
+    let miny = pv1.1.min(pv3.1);
+    let maxy = pv1.1.max(pv3.1);
+
+    for i in 0..vpoly.len() {
+        let v1 = rgv[vpoly[i] as usize];
+        let v2 = rgv[vpoly[if i < vpoly.len() - 1 { i + 1 } else { 0 }] as usize];
+
+        // Skip edges that share a vertex with the diagonal.
+        if v1 == pv1 || v2 == pv1 || v1 == pv3 || v2 == pv3 {
+            continue;
+        }
+        // VPinball's bounding-box reject (with the original `pvCross2->y
+        // <= maxx` typo carried verbatim - see MeshUtils.h).
+        if !((v1.1 >= miny || v2.1 >= miny)
+            && (v1.1 <= maxy || v2.1 <= maxy)
+            && (v1.0 >= minx || v2.0 >= minx)
+            && (v1.0 <= maxx || v2.1 <= maxx))
+        {
+            continue;
+        }
+        if lines_intersect(pv1, pv3, v1, v2) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Mirrors vpinball's `GetDot` (`MeshUtils.h`):
+/// `(joint.x - end1.x) * (joint.y - end2.y) - (joint.y - end1.y) * (joint.x - end2.x)`.
+fn dot_2d(end1: (f32, f32), joint: (f32, f32), end2: (f32, f32)) -> f32 {
+    (joint.0 - end1.0) * (joint.1 - end2.1) - (joint.1 - end1.1) * (joint.0 - end2.0)
+}
+
+/// Twice the signed polygon area; positive = math-CCW orientation.
 fn signed_area(points: &[(f32, f32)]) -> f32 {
     let mut area = 0.0;
     for i in 0..points.len() {
@@ -566,40 +641,43 @@ fn signed_area(points: &[(f32, f32)]) -> f32 {
         let (x2, y2) = points[(i + 1) % points.len()];
         area += x1 * y2 - x2 * y1;
     }
-    area * 0.5
+    area
 }
 
-fn is_convex(a: (f32, f32), b: (f32, f32), c: (f32, f32)) -> bool {
-    let abx = b.0 - a.0;
-    let aby = b.1 - a.1;
-    let bcx = c.0 - b.0;
-    let bcy = c.1 - b.1;
-    (abx * bcy - aby * bcx) > 0.0
-}
+/// Mirrors vpinball's `FLinesIntersect` (`MeshUtils.h`). Returns true
+/// iff segment `(s1, s2)` intersects segment `(e1, e2)`. The collinear
+/// branches mirror vpinball's choice to compare only the X coordinate.
+fn lines_intersect(s1: (f32, f32), s2: (f32, f32), e1: (f32, f32), e2: (f32, f32)) -> bool {
+    let (x1, y1) = s1;
+    let (x2, y2) = s2;
+    let (x3, y3) = e1;
+    let (x4, y4) = e2;
 
-fn point_in_triangle(p: (f32, f32), a: (f32, f32), b: (f32, f32), c: (f32, f32)) -> bool {
-    let v0x = c.0 - a.0;
-    let v0y = c.1 - a.1;
-    let v1x = b.0 - a.0;
-    let v1y = b.1 - a.1;
-    let v2x = p.0 - a.0;
-    let v2y = p.1 - a.1;
+    let d123 = (x2 - x1) * (y3 - y1) - (x3 - x1) * (y2 - y1);
+    if d123 == 0.0 {
+        return x3 >= x1.min(x2) && x3 <= x2.max(x1);
+    }
 
-    let dot00 = v0x * v0x + v0y * v0y;
-    let dot01 = v0x * v1x + v0y * v1y;
-    let dot02 = v0x * v2x + v0y * v2y;
-    let dot11 = v1x * v1x + v1y * v1y;
-    let dot12 = v1x * v2x + v1y * v2y;
+    let d124 = (x2 - x1) * (y4 - y1) - (x4 - x1) * (y2 - y1);
+    if d124 == 0.0 {
+        return x4 >= x1.min(x2) && x4 <= x2.max(x1);
+    }
 
-    let denom = dot00 * dot11 - dot01 * dot01;
-    if denom == 0.0 {
+    if d123 * d124 >= 0.0 {
         return false;
     }
-    let inv_denom = 1.0 / denom;
-    let u = (dot11 * dot02 - dot01 * dot12) * inv_denom;
-    let v = (dot00 * dot12 - dot01 * dot02) * inv_denom;
 
-    u >= 0.0 && v >= 0.0 && (u + v) <= 1.0
+    let d341 = (x3 - x1) * (y4 - y1) - (x4 - x1) * (y3 - y1);
+    if d341 == 0.0 {
+        return x1 >= x3.min(x4) && x1 <= x3.max(x4);
+    }
+
+    let d342 = d123 - d124 + d341;
+    if d342 == 0.0 {
+        return x2 >= x3.min(x4) && x2 <= x3.max(x4);
+    }
+
+    d341 * d342 < 0.0
 }
 
 #[cfg(test)]
