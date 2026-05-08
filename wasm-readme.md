@@ -11,7 +11,7 @@ npm install @francisdb/vpin-wasm
 ## Usage
 
 ```typescript
-import init, { extract, assemble } from '@francisdb/vpin-wasm';
+import init, { extract, assemble, obj_to_mesh, mesh_to_obj } from '@francisdb/vpin-wasm';
 
 await init();
 ```
@@ -61,6 +61,58 @@ const vpxBytes = assemble(files, (message) => {
 - `callback?: (message: string) => void` - Optional progress callback
 
 **Returns:** `Uint8Array` - VPX file bytes
+
+### obj_to_mesh(data) / mesh_to_obj(name, positions, texCoords, normals, indices)
+
+Renderer-friendly mesh I/O. `obj_to_mesh` parses any flavor of OBJ
+(n-gons fan-triangulated, mismatched `v/vt/vn` corners deduplicated)
+into typed arrays you can hand straight to WebGL or Three.js. No
+JS-side OBJ parser needed.
+
+```typescript
+const objBytes = files['/vpx/gameitems/Primitive.MyMesh.obj'];
+const mesh = obj_to_mesh(objBytes);
+
+// mesh.name: string
+// mesh.positions: Float32Array  (length = 3 * vertCount, x,y,z,...)
+// mesh.texCoords: Float32Array  (length = 2 * vertCount, u,v,...)
+// mesh.normals:   Float32Array  (length = 3 * vertCount, nx,ny,nz,...)
+// mesh.indices:   Uint32Array   (length = 3 * triCount)
+
+// Three.js example:
+const geom = new THREE.BufferGeometry();
+geom.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
+geom.setAttribute('uv',       new THREE.BufferAttribute(mesh.texCoords, 2));
+geom.setAttribute('normal',   new THREE.BufferAttribute(mesh.normals, 3));
+geom.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
+```
+
+`mesh_to_obj` does the inverse - serializes typed arrays back to OBJ
+bytes you can save into the file map and feed to `assemble`.
+
+```typescript
+const obj = mesh_to_obj(mesh.name, mesh.positions, mesh.texCoords, mesh.normals, mesh.indices);
+files['/vpx/gameitems/Primitive.MyMesh.obj'] = obj;
+```
+
+The published wasm bundle is built with `wasm-bindgen --weak-refs`, so
+the Rust-owned memory backing each `mesh` is reclaimed automatically
+via `FinalizationRegistry` when the JS wrapper is garbage-collected.
+You may call `mesh.free()` explicitly for deterministic cleanup of
+large meshes, but it is not required.
+
+**Coordinate convention:** the mesh data is in vpx-internal form -
+`obj_to_mesh` applies the same transforms as `assemble`'s read path
+(vertex Z negated, normal Z negated, V coordinate flipped, per-triangle
+corner order reversed), and `mesh_to_obj` applies the inverse, matching
+`extract`'s write path. Round-trip
+`obj_to_mesh -> edit -> mesh_to_obj -> assemble` preserves vpx data by
+construction. If your renderer uses a different convention than
+vpinball's left-handed +Z up, apply a transform matrix on the JS side.
+
+**Animation frames:** primitives with vertex animation extract as
+sibling files `Primitive.MyMesh_00000.obj`, `Primitive.MyMesh_00001.obj`,
+... Call `obj_to_mesh` per file and drive the timeline yourself.
 
 ### Exporting from Blender
 

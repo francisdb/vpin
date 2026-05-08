@@ -73,8 +73,8 @@ pub(crate) mod json;
 pub mod export;
 mod gltf;
 pub mod lzw;
-mod mesh;
-mod obj;
+pub(crate) mod mesh;
+pub(crate) mod obj;
 pub(crate) mod wav;
 
 /// In-memory representation of a VPX file
