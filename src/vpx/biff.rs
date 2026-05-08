@@ -729,6 +729,17 @@ impl BiffWriter {
         self.end_tag();
     }
 
+    /// Writes a 3-float vector without trailing padding. Used by tags
+    /// like `BMIN` / `BMAX` whose chunks are exactly 12 bytes (vpinball
+    /// reads them as `Vector3` / `AsVector3()`).
+    pub fn write_tagged_unpadded_vector(&mut self, tag: &str, x: f32, y: f32, z: f32) {
+        self.new_tag(tag);
+        self.write_f32(x);
+        self.write_f32(y);
+        self.write_f32(z);
+        self.end_tag();
+    }
+
     pub fn write_tagged_data(&mut self, tag: &str, value: &[u8]) {
         self.new_tag(tag);
         self.write_data(value);
