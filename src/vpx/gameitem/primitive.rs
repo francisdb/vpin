@@ -258,18 +258,17 @@ pub struct Primitive {
     /// BIFF tag: `OSNM`
     pub object_space_normal_map: Option<bool>,
 
-    /// Cached axis-aligned bounding box minimum. **Caveat**: stored
-    /// as 12 raw bytes (3x f32 little-endian); the field is `Vec<u8>`
-    /// pending a proper `Vec3` decode (see TODO at site).
+    /// Cached axis-aligned bounding box minimum (vpx-internal coords).
+    /// VPinball treats the chunk as deprecated and re-derives the AABB
+    /// at load time, but it's still written so we round-trip it.
     ///
     /// BIFF tag: `BMIN` (added in 10.8)
-    pub min_aa_bound: Option<Vec<u8>>,
+    pub min_aa_bound: Option<Vertex3D>,
 
-    /// Cached AABB maximum. Same byte-blob caveat as
-    /// [`Self::min_aa_bound`].
+    /// Cached AABB maximum. See [`Self::min_aa_bound`].
     ///
     /// BIFF tag: `BMAX` (added in 10.8)
-    pub max_aa_bound: Option<Vec<u8>>,
+    pub max_aa_bound: Option<Vertex3D>,
 
     /// Source filename of the loaded 3D mesh. Informational only -
     /// the actual geometry lives in the M3CX/M3CI chunks below.
@@ -497,8 +496,8 @@ struct PrimitiveJson {
     overwrite_physics: Option<bool>,
     display_texture: Option<bool>,
     object_space_normal_map: Option<bool>,
-    min_aa_bound: Option<Vec<u8>>,
-    max_aa_bound: Option<Vec<u8>>,
+    min_aa_bound: Option<Vertex3D>,
+    max_aa_bound: Option<Vertex3D>,
     mesh_file_name: Option<String>,
     depth_bias: f32,
     add_blend: Option<bool>,
@@ -639,8 +638,8 @@ impl PrimitiveJson {
             overwrite_physics: primitive.overwrite_physics,
             display_texture: primitive.display_texture,
             object_space_normal_map: primitive.object_space_normal_map,
-            min_aa_bound: primitive.min_aa_bound.clone(),
-            max_aa_bound: primitive.max_aa_bound.clone(),
+            min_aa_bound: primitive.min_aa_bound,
+            max_aa_bound: primitive.max_aa_bound,
             mesh_file_name: primitive.mesh_file_name.clone(),
             // num_vertices: primitive.num_vertices,
             // compressed_vertices: primitive.compressed_vertices_len,
@@ -699,8 +698,8 @@ impl PrimitiveJson {
             overwrite_physics: self.overwrite_physics,
             display_texture: self.display_texture,
             object_space_normal_map: self.object_space_normal_map,
-            min_aa_bound: self.min_aa_bound.clone(),
-            max_aa_bound: self.max_aa_bound.clone(),
+            min_aa_bound: self.min_aa_bound,
+            max_aa_bound: self.max_aa_bound,
             mesh_file_name: self.mesh_file_name.clone(),
             num_vertices: None,                       //self.num_vertices,
             compressed_vertices_len: None,            //self.compressed_vertices,
@@ -895,10 +894,10 @@ impl BiffRead for Primitive {
                     primitive.object_space_normal_map = Some(reader.get_bool());
                 }
                 "BMIN" => {
-                    primitive.min_aa_bound = Some(reader.get_record_data(false));
+                    primitive.min_aa_bound = Some(Vertex3D::read_unpadded(reader));
                 }
                 "BMAX" => {
-                    primitive.max_aa_bound = Some(reader.get_record_data(false));
+                    primitive.max_aa_bound = Some(Vertex3D::read_unpadded(reader));
                 }
                 "M3DN" => {
                     primitive.mesh_file_name = Some(reader.get_string());
@@ -1061,10 +1060,20 @@ impl BiffWrite for Primitive {
         }
 
         if let Some(min_aa_bound) = &self.min_aa_bound {
-            writer.write_tagged_data("BMIN", min_aa_bound);
+            writer.write_tagged_unpadded_vector(
+                "BMIN",
+                min_aa_bound.x,
+                min_aa_bound.y,
+                min_aa_bound.z,
+            );
         }
         if let Some(max_aa_bound) = &self.max_aa_bound {
-            writer.write_tagged_data("BMAX", max_aa_bound);
+            writer.write_tagged_unpadded_vector(
+                "BMAX",
+                max_aa_bound.x,
+                max_aa_bound.y,
+                max_aa_bound.z,
+            );
         }
         if let Some(mesh_file_name) = &self.mesh_file_name {
             writer.write_tagged_string("M3DN", mesh_file_name);
@@ -1346,8 +1355,8 @@ mod tests {
             overwrite_physics: rng.random_option(),
             display_texture: rng.random_option(),
             object_space_normal_map: rng.random_option(),
-            min_aa_bound: Some(vec![0, 1, 2, 3, 4, 5, 6, 7, 8]),
-            max_aa_bound: Some(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]),
+            min_aa_bound: Some(Vertex3D::new(-1.5, -2.5, -3.5)),
+            max_aa_bound: Some(Vertex3D::new(1.5, 2.5, 3.5)),
             mesh_file_name: Some("mesh_file_name".to_string()),
             num_vertices: Some(8),
             compressed_vertices_len: Some(9),
