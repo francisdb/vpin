@@ -419,6 +419,63 @@ pub fn mesh_to_obj(
     Ok(buffer)
 }
 
+/// Generate the procedural mesh used by vpinball primitives that
+/// don't load a `.obj` file (`use_3d_mesh = false`). Mirrors
+/// `Primitive::CalculateBuiltinOriginal` from vpinball: a regular
+/// polygon prism with `sides` faces, top and bottom caps, fitting
+/// in `[-r, r] x [-r, r] x [-0.5, 0.5]`.
+///
+/// Use this to render the placeholder shape for a primitive that
+/// has `use_3d_mesh = false`, or to seed the editor's "Add
+/// Primitive" workflow.
+///
+/// `sides` must be at least 3; otherwise the call errors out
+/// (vpinball clamps to 3 in its own editor).
+///
+/// `draw_textures_inside = true` doubles the index count so back
+/// faces are also rendered (matches vpinball's flag of the same
+/// name on `Primitive`). Vertex / texcoord / normal arrays are
+/// unaffected.
+#[wasm_bindgen]
+pub fn generate_builtin_primitive(
+    sides: u32,
+    draw_textures_inside: bool,
+) -> Result<PrimitiveMesh, JsError> {
+    use crate::vpx::mesh::builtin_primitive::build_builtin_primitive_mesh;
+
+    let (vertices, faces) = build_builtin_primitive_mesh(sides, draw_textures_inside)
+        .ok_or_else(|| JsError::new(&format!("sides must be >= 3 (got {sides})")))?;
+
+    let mut positions = Vec::with_capacity(vertices.len() * 3);
+    let mut tex_coords = Vec::with_capacity(vertices.len() * 2);
+    let mut normals = Vec::with_capacity(vertices.len() * 3);
+    for vw in &vertices {
+        let v = &vw.vertex;
+        positions.push(v.x);
+        positions.push(v.y);
+        positions.push(v.z);
+        tex_coords.push(v.tu);
+        tex_coords.push(v.tv);
+        normals.push(v.nx);
+        normals.push(v.ny);
+        normals.push(v.nz);
+    }
+    let mut indices = Vec::with_capacity(faces.len() * 3);
+    for face in &faces {
+        indices.push(face.i0 as u32);
+        indices.push(face.i1 as u32);
+        indices.push(face.i2 as u32);
+    }
+
+    Ok(PrimitiveMesh {
+        name: String::from("primitive"),
+        positions,
+        tex_coords,
+        normals,
+        indices,
+    })
+}
+
 #[cfg(all(test, target_family = "wasm"))]
 mod tests {
     use super::*;
@@ -524,6 +581,46 @@ mod tests {
             true,
         );
         assert!(result.is_err());
+    }
+
+    #[wasm_bindgen_test]
+    fn test_generate_builtin_primitive_shape() {
+        // A 4-sided builtin primitive: 4*4+2 = 18 vertices,
+        // 12*4 = 48 indices = 16 triangles. With
+        // draw_textures_inside, indices double to 32 triangles.
+        let mesh = generate_builtin_primitive(4, false).expect("should succeed");
+        assert_eq!(mesh.positions().length(), 18 * 3);
+        assert_eq!(mesh.tex_coords().length(), 18 * 2);
+        assert_eq!(mesh.normals().length(), 18 * 3);
+        assert_eq!(mesh.indices().length(), 16 * 3);
+
+        let mesh = generate_builtin_primitive(4, true).expect("should succeed");
+        assert_eq!(mesh.indices().length(), 32 * 3);
+    }
+
+    #[wasm_bindgen_test]
+    fn test_generate_builtin_primitive_rejects_too_few_sides() {
+        for sides in 0..3 {
+            let result = generate_builtin_primitive(sides, false);
+            assert!(result.is_err(), "sides={sides} should error");
+        }
+    }
+
+    #[wasm_bindgen_test]
+    fn test_generate_builtin_primitive_round_trips_via_mesh_to_obj() {
+        // The builtin mesh feeds straight into mesh_to_obj; the
+        // resulting OBJ parses back to the same vertex/index counts.
+        let mesh = generate_builtin_primitive(8, false).expect("should succeed");
+        let positions: Vec<f32> = mesh.positions().to_vec();
+        let tex_coords: Vec<f32> = mesh.tex_coords().to_vec();
+        let normals: Vec<f32> = mesh.normals().to_vec();
+        let indices: Vec<u32> = mesh.indices().to_vec();
+
+        let obj_bytes = mesh_to_obj("octa", &positions, &tex_coords, &normals, &indices, false)
+            .expect("write should succeed");
+        let parsed = obj_to_mesh(&obj_bytes, false).expect("reparse should succeed");
+        assert_eq!(parsed.positions().to_vec(), positions);
+        assert_eq!(parsed.indices().to_vec(), indices);
     }
 
     #[wasm_bindgen_test]
