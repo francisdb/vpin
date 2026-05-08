@@ -26,39 +26,126 @@ pub const MAX_VERTICES_FOR_2_BYTE_INDEX: usize = 65535;
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Primitive {
-    pub name: String,       // 15
-    pub position: Vertex3D, // 0 VPOS
-    pub size: Vertex3D,     // 1 VSIZ
-    /// Indices for RotAndTra:
-    ///      RotX = 0
-    ///      RotY = 1
-    ///      RotZ = 2
-    ///      TraX = 3
-    ///      TraY = 4
-    ///      TraZ = 5
-    ///   ObjRotX = 6
-    ///   ObjRotY = 7
-    ///   ObjRotZ = 8
-    pub rot_and_tra: [f32; 9], // 2-11 RTV0-RTV8
-    pub image: String,      // 12 IMAG
-    pub normal_map: Option<String>, // 13 NRMA (added in 10.?)
-    pub sides: u32,         // 14
-    pub material: String,   // 16
-    pub side_color: Color,  // 17
-    pub is_visible: bool,   // 18
-    pub draw_textures_inside: bool, // 19
-    pub hit_event: bool,    // 20
-    pub threshold: f32,     // 21
-    pub elasticity: f32,    // 22
-    pub elasticity_falloff: f32, // 23
-    pub friction: f32,      // 24
-    pub scatter: f32,       // 25
-    pub edge_factor_ui: f32, // 26
-    pub collision_reduction_factor: Option<f32>, // 27 CORF (was missing in 10.01)
-    pub is_collidable: bool, // 28
-    pub is_toy: bool,       // 29
-    pub use_3d_mesh: bool,  // 30
-    pub static_rendering: bool, // 31
+    /// Item name. BIFF tag: `NAME`. Stored as CSTRING with null terminator (max 32 bytes including null).
+    pub name: String,
+
+    /// World-space translation applied last in the world matrix
+    /// (`Scale * RT * Translate(position)`). BIFF tag: `VPOS`.
+    pub position: Vertex3D,
+
+    /// Per-axis scale, applied first in the world matrix. For builtin
+    /// primitives (`use_3d_mesh = false`) this scales the unit-cube
+    /// procedural shape; for loaded meshes it scales mesh-local
+    /// coordinates. BIFF tag: `VSIZ`.
+    pub size: Vertex3D,
+
+    /// Rotation + translation array, 9 floats. Indices:
+    ///
+    /// | Index | Meaning   | BIFF |
+    /// |-------|-----------|------|
+    /// | 0     | RotX      | RTV0 |
+    /// | 1     | RotY      | RTV1 |
+    /// | 2     | RotZ      | RTV2 |
+    /// | 3     | TraX      | RTV3 |
+    /// | 4     | TraY      | RTV4 |
+    /// | 5     | TraZ      | RTV5 |
+    /// | 6     | ObjRotX   | RTV6 |
+    /// | 7     | ObjRotY   | RTV7 |
+    /// | 8     | ObjRotZ   | RTV8 |
+    ///
+    /// VPinball composes them as
+    /// `Translate(Tra) * RotZ * RotY * RotX * RotZ(Obj) * RotY(Obj) * RotX(Obj)`
+    /// inside the world matrix.
+    pub rot_and_tra: [f32; 9],
+
+    /// Diffuse texture name; references an entry in `vpx.images` by
+    /// name (case-insensitive). Empty string means "no image". BIFF
+    /// tag: `IMAG`.
+    pub image: String,
+
+    /// Normal-map texture name; references an entry in `vpx.images`.
+    /// `None` for tables saved before normal maps were added. BIFF
+    /// tag: `NRMA`.
+    pub normal_map: Option<String>,
+
+    /// Polygon side count for the procedural mesh used when
+    /// `use_3d_mesh = false`. Ignored when a 3D mesh is loaded.
+    /// Vpinball clamps to >= 3 in the editor. BIFF tag: `SIDS`.
+    pub sides: u32,
+
+    /// Material name; references an entry in `vpx.gamedata.materials`
+    /// (10.8+) or `vpx.gamedata.materials_old` (legacy MATE chunk).
+    /// Empty string means "no material" - vpinball falls back to its
+    /// dummy material. BIFF tag: `MATR`.
+    pub material: String,
+
+    /// Side colour shown in the vpinball editor preview only -
+    /// runtime rendering uses the material/texture, not this field.
+    /// BIFF tag: `SCOL`.
+    pub side_color: Color,
+
+    /// Render visibility flag. BIFF tag: `TVIS`. Not the same as
+    /// `is_collidable` (a primitive can be invisible but still collide).
+    pub is_visible: bool,
+
+    /// When `true`, emit triangles with both windings so the inside
+    /// of the mesh is also textured (useful for cup-shaped objects
+    /// where the camera sees the back faces). Doubles the index count
+    /// for builtin primitives. BIFF tag: `DTXI`.
+    pub draw_textures_inside: bool,
+
+    /// Whether the script `Hit` event fires when the ball touches
+    /// this primitive. BIFF tag: `HTEV`. Independent of
+    /// `is_collidable` - a non-collidable primitive can still be
+    /// queried for hits via script.
+    pub hit_event: bool,
+
+    /// Velocity threshold (VPU/s) below which collisions don't
+    /// trigger the `Hit` event. BIFF tag: `THRS`.
+    pub threshold: f32,
+
+    /// Bounciness, 0..1. BIFF tag: `ELAS`. Overridden by
+    /// `physics_material` when `overwrite_physics = false`.
+    pub elasticity: f32,
+
+    /// Velocity-dependent elasticity falloff. BIFF tag: `ELFO`.
+    pub elasticity_falloff: f32,
+
+    /// Surface friction, 0..1. BIFF tag: `RFCT`.
+    pub friction: f32,
+
+    /// Random scatter angle in degrees applied to ball reflection.
+    /// BIFF tag: `RSCT`.
+    pub scatter: f32,
+
+    /// Wireframe density in the editor preview only; doesn't affect
+    /// runtime rendering. BIFF tag: `EFUI`.
+    pub edge_factor_ui: f32,
+
+    /// Collision-detection LOD: fraction of triangles included in the
+    /// physics mesh, 0..1. Lower values trade physics fidelity for
+    /// performance. `None` for tables saved before vpinball 10.01.
+    /// BIFF tag: `CORF`.
+    pub collision_reduction_factor: Option<f32>,
+
+    /// Master physics enable. BIFF tag: `CLDR`. When false, the ball
+    /// passes through the primitive even if `is_visible = true`.
+    pub is_collidable: bool,
+
+    /// Toy / decoration flag. When `true`, the primitive is purely
+    /// visual: vpinball generates no collision mesh (independent of
+    /// `is_collidable`). BIFF tag: `ISTO`.
+    pub is_toy: bool,
+
+    /// Switches between the procedural builtin primitive
+    /// (`false`, see [`crate::vpx::mesh::builtin_primitive`]) and a
+    /// 3D mesh loaded from the M3CX/M3CI chunks. BIFF tag: `U3DM`.
+    pub use_3d_mesh: bool,
+
+    /// When `true`, vpinball pre-bakes this primitive into a static
+    /// vertex buffer at table load. Disables animation and per-frame
+    /// transform changes. BIFF tag: `STRE`.
+    pub static_rendering: bool,
 
     /// Legacy field for disabling lighting on top surface.
     /// Replaced by `disable_lighting_top` in VPX 10.8.
@@ -94,41 +181,126 @@ pub struct Primitive {
     ///
     /// BIFF tag: `REEN` (was missing in 10.01)
     pub is_reflection_enabled: Option<bool>,
-    pub backfaces_enabled: Option<bool>, // 35 EBFC (added in 10.?)
-    pub physics_material: Option<String>, // 36 MAPH (added in 10.?)
-    pub overwrite_physics: Option<bool>, // 37 OVPH (added in 10.?)
+    /// When `true`, render back faces (disable culling). Useful for
+    /// thin geometry or open shells. BIFF tag: `EBFC`.
+    pub backfaces_enabled: Option<bool>,
+
+    /// Optional named override for physics properties; references
+    /// `vpx.gamedata.materials_old` / `materials`. Empty string or
+    /// `None` means "no override". BIFF tag: `MAPH`.
+    pub physics_material: Option<String>,
+
+    /// Switch between the in-place physics fields (`elasticity`,
+    /// `friction`, ...) and the named `physics_material` override.
+    /// `false` = use in-place values (default); `true` = use the
+    /// material's physics. BIFF tag: `OVPH`.
+    pub overwrite_physics: Option<bool>,
+
     /// Whether to display the texture in the VPinball editor preview.
-    /// This does NOT affect runtime rendering — textures are always rendered if set.
-    /// Also used on: [`Flasher`], [`Wall`].
-    /// BIFF tag: `DIPT` (added in ?)
+    /// This does NOT affect runtime rendering - textures are always
+    /// rendered if set. Also used on: [`Flasher`], [`Wall`]. BIFF
+    /// tag: `DIPT`.
     pub display_texture: Option<bool>,
-    pub object_space_normal_map: Option<bool>, // 38.5 OSNM (added in ?)
-    pub min_aa_bound: Option<Vec<u8>>,         // BMIN added in 10.8 ( TODO Vector3D)
-    pub max_aa_bound: Option<Vec<u8>>,         // BMAX added in 10.8( TODO Vector3D)
-    pub mesh_file_name: Option<String>,        // 39 M3DN
-    pub num_vertices: Option<u32>,             // 40 M3VN
-    pub compressed_vertices_len: Option<u32>,  // 41 M3CY
-    pub compressed_vertices_data: Option<Vec<u8>>, // 42 M3CX
-    pub num_indices: Option<u32>,              // 43 M3FN
-    pub compressed_indices_len: Option<u32>,   // 44 M3CJ
-    pub compressed_indices_data: Option<Vec<u8>>, // 45 M3CI
-    pub compressed_animation_vertices_len: Option<Vec<u32>>, // 46 M3AY multiple
-    pub compressed_animation_vertices_data: Option<Vec<Vec<u8>>>, // 47 M3AX multiple
+
+    /// Normal-map orientation flag. `true` = object-space normal map
+    /// (matches the +X/+Y/+Z bake direction Blender produces);
+    /// `false` = tangent-space (default). BIFF tag: `OSNM`.
+    pub object_space_normal_map: Option<bool>,
+
+    /// Cached axis-aligned bounding box minimum. **Caveat**: stored
+    /// as 12 raw bytes (3x f32 little-endian); the field is `Vec<u8>`
+    /// pending a proper `Vec3` decode (see TODO at site). BIFF tag:
+    /// `BMIN` (added in 10.8).
+    pub min_aa_bound: Option<Vec<u8>>,
+
+    /// Cached AABB maximum. Same byte-blob caveat as
+    /// [`Self::min_aa_bound`]. BIFF tag: `BMAX` (added in 10.8).
+    pub max_aa_bound: Option<Vec<u8>>,
+
+    /// Source filename of the loaded 3D mesh. Informational only -
+    /// the actual geometry lives in the M3CX/M3CI chunks below. BIFF
+    /// tag: `M3DN`.
+    pub mesh_file_name: Option<String>,
+
+    /// Vertex count of the loaded 3D mesh. Should equal
+    /// `compressed_vertices_data` decompressed length / 32 (vertex
+    /// stride is 32 bytes). BIFF tag: `M3VN`.
+    pub num_vertices: Option<u32>,
+
+    /// Compressed length of `compressed_vertices_data` in bytes.
+    /// BIFF tag: `M3CY`.
+    pub compressed_vertices_len: Option<u32>,
+
+    /// Zlib-compressed vertex buffer (positions + UVs + normals,
+    /// 32 bytes per vertex after decompression). Use
+    /// [`Primitive::read_mesh`] to decode. BIFF tag: `M3CX`.
+    pub compressed_vertices_data: Option<Vec<u8>>,
+
+    /// Triangle index count (3 per face). BIFF tag: `M3FN`.
+    pub num_indices: Option<u32>,
+
+    /// Compressed length of `compressed_indices_data` in bytes.
+    /// BIFF tag: `M3CJ`.
+    pub compressed_indices_len: Option<u32>,
+
+    /// Zlib-compressed index buffer. Stride is 2 bytes per index
+    /// when `num_vertices <= 65535`, otherwise 4 bytes. BIFF tag:
+    /// `M3CI`.
+    pub compressed_indices_data: Option<Vec<u8>>,
+
+    /// Per-frame compressed lengths for animation sequences. The
+    /// outer `Vec` is one entry per frame; matching tags appear
+    /// repeated in the BIFF stream. BIFF tag: `M3AY` (repeats).
+    pub compressed_animation_vertices_len: Option<Vec<u32>>,
+
+    /// Per-frame zlib-compressed vertex buffers for animation. Frame
+    /// `n` is at index `n`; positions / normals only (UVs are reused
+    /// from the base mesh). BIFF tag: `M3AX` (repeats).
+    pub compressed_animation_vertices_data: Option<Vec<Vec<u8>>>,
     /// Offset applied when depth-sorting transparent and overlapping objects.
     /// Higher values move the object "further away" in the sort order, causing it
     /// to render behind objects with lower bias.
     /// Also used on: [`Flasher`], [`Ramp`], [`Light`], [`HitTarget`].
     /// BIFF tag: `PIDB`
     pub depth_bias: f32,
-    pub add_blend: Option<bool>,           // 46 ADDB - added in ?
-    pub use_depth_mask: Option<bool>,      // ZMSK added in 10.8
-    pub alpha: Option<f32>,                // 47 FALP - added in ?
-    pub color: Option<Color>,              // 48 COLR - added in ?
-    pub light_map: Option<String>,         // LMAP - added in 10.8
-    pub reflection_probe: Option<String>,  // REFL - added in 10.8
-    pub reflection_strength: Option<f32>,  // RSTR - added in 10.8
-    pub refraction_probe: Option<String>,  // REFR - added in 10.8
-    pub refraction_thickness: Option<f32>, // RTHI - added in 10.8
+    /// When `true`, additive blend the primitive on top of the scene
+    /// (used for self-illuminated effects). BIFF tag: `ADDB`.
+    pub add_blend: Option<bool>,
+
+    /// When `true`, the primitive writes to the depth buffer (default).
+    /// Set `false` for transparent overlays that should not occlude
+    /// objects behind them. BIFF tag: `ZMSK` (added in 10.8).
+    pub use_depth_mask: Option<bool>,
+
+    /// Per-primitive transparency multiplier, 0..1. Combines with
+    /// the material's opacity. BIFF tag: `FALP`.
+    pub alpha: Option<f32>,
+
+    /// Per-primitive tint, multiplied with the diffuse texture. BIFF
+    /// tag: `COLR`.
+    pub color: Option<Color>,
+
+    /// Optional lightmap texture name; references an entry in
+    /// `vpx.images`. BIFF tag: `LMAP` (added in 10.8).
+    pub light_map: Option<String>,
+
+    /// Name of a reflection probe defined in the table; see
+    /// `vpx.gamedata.reflection_probes`. BIFF tag: `REFL` (added in
+    /// 10.8).
+    pub reflection_probe: Option<String>,
+
+    /// Reflection probe contribution, 0..1. BIFF tag: `RSTR` (added
+    /// in 10.8).
+    pub reflection_strength: Option<f32>,
+
+    /// Name of a refraction probe defined in the table. BIFF tag:
+    /// `REFR` (added in 10.8).
+    pub refraction_probe: Option<String>,
+
+    /// Effective refraction thickness in VPU; controls how much the
+    /// background is offset behind the primitive. BIFF tag: `RTHI`
+    /// (added in 10.8).
+    pub refraction_thickness: Option<f32>,
 
     // these are shared between all items
     pub is_locked: bool,
