@@ -1,6 +1,7 @@
 //! Mesh generation
 
 pub(crate) mod balls;
+pub(crate) mod builtin_primitive;
 pub(crate) mod bumpers;
 pub(crate) mod decals;
 pub(crate) mod flashers;

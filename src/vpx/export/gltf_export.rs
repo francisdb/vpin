@@ -108,6 +108,7 @@ use crate::vpx::image::{ImageData, image_has_transparency};
 use crate::vpx::material::MaterialType;
 use crate::vpx::math::Vec3;
 use crate::vpx::mesh::balls::build_ball_mesh;
+use crate::vpx::mesh::builtin_primitive::effective_primitive_mesh;
 use crate::vpx::mesh::bumpers::build_bumper_meshes;
 use crate::vpx::mesh::flashers::build_flasher_mesh;
 use crate::vpx::mesh::flippers::build_flipper_meshes;
@@ -779,7 +780,7 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                 if !options.export_invisible_items && !primitive.is_visible {
                     continue;
                 }
-                if let Ok(Some(read_mesh)) = primitive.read_mesh() {
+                if let Ok(Some(read_mesh)) = effective_primitive_mesh(primitive) {
                     let (transformed, translation) =
                         transform_primitive_vertices(read_mesh.vertices, primitive, options.units);
 

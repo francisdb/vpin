@@ -42,6 +42,7 @@ use crate::vpx::gameitem::primitive::{Primitive, VertexWrapper};
 use crate::vpx::image::ImageData;
 use crate::vpx::material::MaterialType;
 use crate::vpx::math::{Matrix3D, Vec3, Vertex3D};
+use crate::vpx::mesh::builtin_primitive::effective_primitive_mesh;
 use crate::vpx::mesh::bumpers::build_bumper_meshes;
 use crate::vpx::mesh::flippers::build_flipper_meshes_unchecked;
 use crate::vpx::mesh::gates::build_gate_meshes_unchecked;
@@ -447,7 +448,7 @@ fn write_primitive<O: ObjWriter<f32>, M: MtlWriter<f32>>(
     if !primitive.is_visible {
         return Ok(());
     }
-    let read = match primitive.read_mesh() {
+    let read = match effective_primitive_mesh(primitive) {
         Ok(Some(read)) => read,
         Ok(None) => return Ok(()),
         Err(e) => {
