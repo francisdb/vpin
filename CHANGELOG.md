@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.0](https://github.com/francisdb/vpin/compare/v0.25.0...v0.26.0) - 2026-05-08
+
+### Added
+
+- *(wasm)* obj_to_mesh / mesh_to_obj / generate_builtin_primitive
+- *(vpx)* port Primitive::CalculateBuiltinOriginal to Rust ([#302](https://github.com/francisdb/vpin/pull/302))
+- *(vpx)* [**breaking**] configurable output units for OBJ and glTF export ([#299](https://github.com/francisdb/vpin/pull/299))
+- [**breaking**] full table obj export ([#296](https://github.com/francisdb/vpin/pull/296))
+
+### Fixed
+
+- *(vpx)* apply primitive position after scale + rotation in OBJ export ([#300](https://github.com/francisdb/vpin/pull/300))
+- *(vpx)* vpinball mesh-generation parity for ramps, rubbers and walls ([#297](https://github.com/francisdb/vpin/pull/297))
+
+### Other
+
+- *(vpx)* [**breaking**] type Primitive AABB fields as Vertex3D ([#303](https://github.com/francisdb/vpin/pull/303))
+- *(vpx)* document Primitive fields with BIFF tags and caveats ([#301](https://github.com/francisdb/vpin/pull/301))
+
 ## [0.25.0](https://github.com/francisdb/vpin/compare/v0.24.0...v0.25.0) - 2026-05-06
 
 ### Added
