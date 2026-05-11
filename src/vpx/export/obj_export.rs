@@ -445,7 +445,7 @@ fn write_primitive<O: ObjWriter<f32>, M: MtlWriter<f32>>(
     fs: &dyn FileSystem,
     primitive: &Primitive,
 ) -> io::Result<()> {
-    if !primitive.is_visible {
+    if !crate::vpx::compat::primitive_is_visible(primitive, &state.vpx.version) {
         return Ok(());
     }
     let read = match effective_primitive_mesh(primitive) {

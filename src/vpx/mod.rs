@@ -47,6 +47,7 @@ use self::version::{read_version, write_version};
 pub mod biff;
 pub mod collection;
 pub mod color;
+pub(crate) mod compat;
 pub mod custominfotags;
 pub mod expanded;
 pub mod font;

@@ -579,6 +579,30 @@ fn calculate_transmission_factor(disable_lighting_below: Option<f32>) -> Option<
         .map(|v| (1.0 - v) * MAX_TRANSMISSION)
 }
 
+/// Resolve `(opacity_active, opacity)` for a material by name,
+/// looking in the new `MATR` chunk first and falling back to the
+/// legacy `MATE` chunk. `None` for empty/unknown names - mirrors
+/// vpinball's `GetMaterial`, which returns null in that case.
+/// Used by the pre-10.8 compat helper
+/// [`crate::vpx::compat::primitive_disable_lighting_below`].
+fn lookup_material_opacity(vpx: &VPX, name: &str) -> Option<(bool, f32)> {
+    if name.is_empty() {
+        return None;
+    }
+    if let Some(mats) = &vpx.gamedata.materials
+        && let Some(m) = mats.iter().find(|m| m.name.eq_ignore_ascii_case(name))
+    {
+        return Some((m.opacity_active, m.opacity));
+    }
+    for m in &vpx.gamedata.materials_old {
+        if m.name.eq_ignore_ascii_case(name) {
+            let opacity_active = (m.opacity_active_edge_alpha & 1) != 0;
+            return Some((opacity_active, m.opacity));
+        }
+    }
+    None
+}
+
 /// Calculate playfield roughness from VPinball's reflection strength.
 ///
 /// VPinball's playfield reflections are a separate screen-space effect that renders
@@ -777,7 +801,8 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
     for gameitem in &vpx.gameitems {
         match gameitem {
             GameItemEnum::Primitive(primitive) => {
-                if !options.export_invisible_items && !primitive.is_visible {
+                let visible = crate::vpx::compat::primitive_is_visible(primitive, &vpx.version);
+                if !options.export_invisible_items && !visible {
                     continue;
                 }
                 if let Ok(Some(read_mesh)) = effective_primitive_mesh(primitive) {
@@ -823,8 +848,19 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                         (material, texture)
                     };
 
+                    // Route through compat: pre-10.8 vpinball forces
+                    // disable_lighting_below to 1.0 for the playfield, and
+                    // for any primitive whose material is fully opaque
+                    // (alpha-discard compensation, pintable.cpp:1984-1990).
+                    let material_opacity = lookup_material_opacity(vpx, &primitive.material);
+                    let effective_disable_lighting_below =
+                        crate::vpx::compat::primitive_disable_lighting_below(
+                            primitive,
+                            material_opacity,
+                            &vpx.version,
+                        );
                     let transmission_factor =
-                        calculate_transmission_factor(primitive.disable_lighting_below);
+                        calculate_transmission_factor(effective_disable_lighting_below);
 
                     meshes.push(NamedMesh {
                         name: primitive.name.clone(),
@@ -835,7 +871,7 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                         layer_name: prim_layer_name,
                         transmission_factor,
                         translation: Some(translation),
-                        visible: primitive.is_visible,
+                        visible,
                         group_name: Some(primitive.name.clone()),
                         ..Default::default()
                     });
@@ -1421,8 +1457,11 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                 let light_layer_name = group_info.layer_name.clone();
                 item_groups.push(group_info);
 
-                // Generate bulb meshes for lights with show_bulb_mesh enabled
-                if light.show_bulb_mesh
+                // Generate bulb meshes for lights with show_bulb_mesh enabled.
+                // Routed through compat so pre-10.8 classic / invisible lights
+                // don't get a spurious bulb mesh (matches vpinball's load-time
+                // overrides in pintable.cpp:1977-2024).
+                if crate::vpx::compat::light_show_bulb_mesh(light, &vpx.version)
                     && let Some(light_meshes) = build_light_meshes(light)
                 {
                     // Convert center to glTF coordinates (meters, Y-up)
@@ -2694,8 +2733,12 @@ fn build_combined_gltf_payload(
             let surface_height =
                 get_surface_height(vpx, &light.surface, light.center.x, light.center.y);
 
-            // Get light height offset (use provided height or default to 0)
-            let mut light_height_offset = light.height.unwrap_or(0.0);
+            // Get light height offset (use provided height or default to 0).
+            // Routed through compat so pre-10.8 lights use the historical
+            // `is_bulb_light ? bulb_halo_height : 0.0` instead of the stored
+            // value, which was meaningless on old tables.
+            let mut light_height_offset =
+                crate::vpx::compat::light_height(light, &vpx.version).unwrap_or(0.0);
 
             // If a GI light has height 0, move the light up ~1cm
             // so it appears inside the bulb rather than at the base
