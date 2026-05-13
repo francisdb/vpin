@@ -71,7 +71,7 @@ pub enum GameItemEnum {
 impl GameItemEnum {
     // TODO clean up this mess
 
-    pub(crate) fn editor_layer_visibility(&self) -> Option<bool> {
+    pub fn editor_layer_visibility(&self) -> Option<bool> {
         match self {
             GameItemEnum::Wall(wall) => wall.editor_layer_visibility,
             GameItemEnum::Flipper(flipper) => flipper.editor_layer_visibility,
@@ -98,7 +98,7 @@ impl GameItemEnum {
         }
     }
 
-    pub(crate) fn editor_layer_name(&self) -> &Option<String> {
+    pub fn editor_layer_name(&self) -> &Option<String> {
         match self {
             GameItemEnum::Wall(wall) => &wall.editor_layer_name,
             GameItemEnum::Flipper(flipper) => &flipper.editor_layer_name,
@@ -125,7 +125,7 @@ impl GameItemEnum {
         }
     }
 
-    pub(crate) fn editor_layer(&self) -> Option<u32> {
+    pub fn editor_layer(&self) -> Option<u32> {
         match self {
             GameItemEnum::Wall(wall) => wall.editor_layer(),
             GameItemEnum::Flipper(flipper) => flipper.editor_layer(),
@@ -152,7 +152,7 @@ impl GameItemEnum {
         }
     }
 
-    pub(crate) fn is_locked(&self) -> Option<bool> {
+    pub fn is_locked(&self) -> Option<bool> {
         match self {
             GameItemEnum::Wall(wall) => Some(wall.is_locked()),
             GameItemEnum::Flipper(flipper) => Some(flipper.is_locked),
@@ -557,6 +557,172 @@ impl GameItemEnum {
             GameItemEnum::Generic(_, _) => None,
         }
     }
+
+    /// Returns all non-empty texture names this item references, in deterministic
+    /// per-variant order. Includes base textures, side textures, light maps and
+    /// normal maps so callers auditing texture usage see every reference.
+    /// Empty fields and items with no texture fields produce an empty Vec.
+    pub fn images(&self) -> Vec<&str> {
+        fn push_nonempty<'a>(out: &mut Vec<&'a str>, s: &'a str) {
+            if !s.is_empty() {
+                out.push(s);
+            }
+        }
+        fn push_opt<'a>(out: &mut Vec<&'a str>, s: &'a Option<String>) {
+            if let Some(v) = s.as_deref()
+                && !v.is_empty()
+            {
+                out.push(v);
+            }
+        }
+        let mut out = Vec::new();
+        match self {
+            GameItemEnum::Ball(ball) => {
+                push_nonempty(&mut out, &ball.image);
+                push_nonempty(&mut out, &ball.image_decal);
+            }
+            GameItemEnum::Bumper(_) => {}
+            GameItemEnum::Decal(decal) => push_nonempty(&mut out, &decal.image),
+            GameItemEnum::Flasher(flasher) => {
+                push_nonempty(&mut out, &flasher.image_a);
+                push_nonempty(&mut out, &flasher.image_b);
+                push_opt(&mut out, &flasher.image_src_link);
+                push_opt(&mut out, &flasher.light_map);
+            }
+            GameItemEnum::Flipper(flipper) => push_opt(&mut out, &flipper.image),
+            GameItemEnum::Gate(_) => {}
+            GameItemEnum::HitTarget(hittarget) => push_nonempty(&mut out, &hittarget.image),
+            GameItemEnum::Kicker(_) => {}
+            GameItemEnum::Light(light) => push_nonempty(&mut out, &light.image),
+            GameItemEnum::LightSequencer(_) => {}
+            GameItemEnum::Plunger(plunger) => push_nonempty(&mut out, &plunger.image),
+            GameItemEnum::Primitive(primitive) => {
+                push_nonempty(&mut out, &primitive.image);
+                push_opt(&mut out, &primitive.normal_map);
+                push_opt(&mut out, &primitive.light_map);
+            }
+            GameItemEnum::Ramp(ramp) => push_nonempty(&mut out, &ramp.image),
+            GameItemEnum::Reel(reel) => push_nonempty(&mut out, &reel.image),
+            GameItemEnum::Rubber(rubber) => push_nonempty(&mut out, &rubber.image),
+            GameItemEnum::Spinner(spinner) => push_nonempty(&mut out, &spinner.image),
+            GameItemEnum::TextBox(_) => {}
+            GameItemEnum::Timer(_) => {}
+            GameItemEnum::Trigger(_) => {}
+            GameItemEnum::Wall(wall) => {
+                push_nonempty(&mut out, &wall.image);
+                push_nonempty(&mut out, &wall.side_image);
+            }
+            GameItemEnum::PartGroup(_) => {}
+            GameItemEnum::Generic(_, _) => {}
+        }
+        out
+    }
+
+    /// Returns all non-empty material names this item references, in
+    /// deterministic per-variant order. Physics material is exposed separately
+    /// via [`physics_material`](Self::physics_material).
+    pub fn materials(&self) -> Vec<&str> {
+        fn push_nonempty<'a>(out: &mut Vec<&'a str>, s: &'a str) {
+            if !s.is_empty() {
+                out.push(s);
+            }
+        }
+        fn push_opt<'a>(out: &mut Vec<&'a str>, s: &'a Option<String>) {
+            if let Some(v) = s.as_deref()
+                && !v.is_empty()
+            {
+                out.push(v);
+            }
+        }
+        let mut out = Vec::new();
+        match self {
+            GameItemEnum::Ball(_) => {}
+            GameItemEnum::Bumper(bumper) => {
+                push_nonempty(&mut out, &bumper.cap_material);
+                push_nonempty(&mut out, &bumper.base_material);
+                push_opt(&mut out, &bumper.ring_material);
+                push_nonempty(&mut out, &bumper.socket_material);
+            }
+            GameItemEnum::Decal(decal) => push_nonempty(&mut out, &decal.material),
+            GameItemEnum::Flasher(_) => {}
+            GameItemEnum::Flipper(flipper) => {
+                push_nonempty(&mut out, &flipper.material);
+                push_nonempty(&mut out, &flipper.rubber_material);
+            }
+            GameItemEnum::Gate(gate) => push_nonempty(&mut out, &gate.material),
+            GameItemEnum::HitTarget(hittarget) => push_nonempty(&mut out, &hittarget.material),
+            GameItemEnum::Kicker(kicker) => push_nonempty(&mut out, &kicker.material),
+            GameItemEnum::Light(_) => {}
+            GameItemEnum::LightSequencer(_) => {}
+            GameItemEnum::Plunger(plunger) => push_nonempty(&mut out, &plunger.material),
+            GameItemEnum::Primitive(primitive) => push_nonempty(&mut out, &primitive.material),
+            GameItemEnum::Ramp(ramp) => push_nonempty(&mut out, &ramp.material),
+            GameItemEnum::Reel(_) => {}
+            GameItemEnum::Rubber(rubber) => push_nonempty(&mut out, &rubber.material),
+            GameItemEnum::Spinner(spinner) => push_nonempty(&mut out, &spinner.material),
+            GameItemEnum::TextBox(_) => {}
+            GameItemEnum::Timer(_) => {}
+            GameItemEnum::Trigger(trigger) => push_nonempty(&mut out, &trigger.material),
+            GameItemEnum::Wall(wall) => {
+                push_nonempty(&mut out, &wall.top_material);
+                push_nonempty(&mut out, &wall.side_material);
+                push_nonempty(&mut out, &wall.slingshot_material);
+            }
+            GameItemEnum::PartGroup(_) => {}
+            GameItemEnum::Generic(_, _) => {}
+        }
+        out
+    }
+
+    /// Returns the physics-material name this item references, if any.
+    /// Physics material is a separate concept from rendering material and was
+    /// added in 10.x; only items that can be collided with carry it.
+    pub fn physics_material(&self) -> Option<&str> {
+        let s: Option<&Option<String>> = match self {
+            GameItemEnum::HitTarget(hittarget) => Some(&hittarget.physics_material),
+            GameItemEnum::Primitive(primitive) => Some(&primitive.physics_material),
+            GameItemEnum::Ramp(ramp) => Some(&ramp.physics_material),
+            GameItemEnum::Rubber(rubber) => Some(&rubber.physics_material),
+            GameItemEnum::Wall(wall) => Some(&wall.physics_material),
+            _ => None,
+        };
+        s.and_then(|o| o.as_deref()).filter(|v| !v.is_empty())
+    }
+
+    /// Returns the editor-visible flag for items that have one. Normalizes
+    /// across the two source field names (`is_visible: bool` and the newer
+    /// `visible: Option<bool>` on Light). Items with no visibility concept
+    /// (Timer, TextBox, LightSequencer, PartGroup, Ball, Bumper, Decal,
+    /// Kicker) return `None`.
+    pub fn is_visible(&self) -> Option<bool> {
+        match self {
+            // Walls have separate top/bottom and side visibility; report visible
+            // if either surface is shown (the conservative "appears in table" view).
+            GameItemEnum::Wall(wall) => Some(wall.is_top_bottom_visible || wall.is_side_visible),
+            GameItemEnum::Flipper(flipper) => Some(flipper.is_visible),
+            GameItemEnum::Plunger(plunger) => Some(plunger.is_visible),
+            GameItemEnum::Trigger(trigger) => Some(trigger.is_visible),
+            GameItemEnum::Light(light) => light.visible,
+            GameItemEnum::Gate(gate) => Some(gate.is_visible),
+            GameItemEnum::Spinner(spinner) => Some(spinner.is_visible),
+            GameItemEnum::Ramp(ramp) => Some(ramp.is_visible),
+            GameItemEnum::Reel(reel) => Some(reel.is_visible),
+            GameItemEnum::Primitive(primitive) => Some(primitive.is_visible),
+            GameItemEnum::Flasher(flasher) => Some(flasher.is_visible),
+            GameItemEnum::Rubber(rubber) => Some(rubber.is_visible),
+            GameItemEnum::HitTarget(hittarget) => Some(hittarget.is_visible),
+            // Items with no editor visibility concept.
+            GameItemEnum::Ball(_)
+            | GameItemEnum::Bumper(_)
+            | GameItemEnum::Decal(_)
+            | GameItemEnum::Kicker(_)
+            | GameItemEnum::Timer(_)
+            | GameItemEnum::TextBox(_)
+            | GameItemEnum::LightSequencer(_)
+            | GameItemEnum::PartGroup(_) => None,
+            GameItemEnum::Generic(_, _) => None,
+        }
+    }
 }
 
 /// Validates that game items referencing part groups come after the part group definition.
@@ -879,5 +1045,120 @@ mod tests {
             "GameItem[0] 'TestPrimitive' (Primitive) references part_group 'TestGroup' which has not been defined yet",
         ];
         assert_eq!(warnings, expected);
+    }
+
+    #[test]
+    fn test_images_returns_all_non_empty_refs() {
+        // Wall references two images; both should come back, in field order.
+        let mut wall = wall::Wall {
+            name: "W".to_string(),
+            ..Default::default()
+        };
+        wall.image = "top.png".to_string();
+        wall.side_image = "side.png".to_string();
+        let item = GameItemEnum::Wall(wall);
+        assert_eq!(item.images(), vec!["top.png", "side.png"]);
+    }
+
+    #[test]
+    fn test_images_skips_empty_refs() {
+        // A wall with only the side image set should report just that one.
+        let wall = wall::Wall {
+            name: "W".to_string(),
+            side_image: "side.png".to_string(),
+            ..Default::default()
+        };
+        let item = GameItemEnum::Wall(wall);
+        assert_eq!(item.images(), vec!["side.png"]);
+    }
+
+    #[test]
+    fn test_images_empty_for_variants_without_images() {
+        let timer = timer::Timer {
+            name: "T".to_string(),
+            ..Default::default()
+        };
+        let item = GameItemEnum::Timer(timer);
+        assert!(item.images().is_empty());
+    }
+
+    #[test]
+    fn test_materials_for_bumper_includes_all_slots() {
+        let bumper = bumper::Bumper {
+            name: "B".to_string(),
+            cap_material: "cap".to_string(),
+            base_material: "base".to_string(),
+            ring_material: Some("ring".to_string()),
+            socket_material: "socket".to_string(),
+            ..Default::default()
+        };
+        let item = GameItemEnum::Bumper(bumper);
+        assert_eq!(item.materials(), vec!["cap", "base", "ring", "socket"]);
+    }
+
+    #[test]
+    fn test_materials_for_wall_uses_searchselectdialog_order() {
+        let wall = wall::Wall {
+            name: "W".to_string(),
+            top_material: "top".to_string(),
+            side_material: "side".to_string(),
+            slingshot_material: "ss".to_string(),
+            ..Default::default()
+        };
+        let item = GameItemEnum::Wall(wall);
+        // Matches vpinball SearchSelectDialog: top, side, slingshot.
+        assert_eq!(item.materials(), vec!["top", "side", "ss"]);
+    }
+
+    #[test]
+    fn test_physics_material_returns_some_when_set() {
+        let primitive = primitive::Primitive {
+            name: "P".to_string(),
+            physics_material: Some("phys".to_string()),
+            ..Default::default()
+        };
+        let item = GameItemEnum::Primitive(primitive);
+        assert_eq!(item.physics_material(), Some("phys"));
+    }
+
+    #[test]
+    fn test_physics_material_none_for_unsupported_variants() {
+        let light = light::Light {
+            name: "L".to_string(),
+            ..Default::default()
+        };
+        let item = GameItemEnum::Light(light);
+        assert_eq!(item.physics_material(), None);
+    }
+
+    #[test]
+    fn test_is_visible_combines_wall_top_and_side() {
+        let mut wall = wall::Wall {
+            name: "W".to_string(),
+            ..Default::default()
+        };
+        wall.is_top_bottom_visible = false;
+        wall.is_side_visible = false;
+        let item = GameItemEnum::Wall(wall);
+        assert_eq!(item.is_visible(), Some(false));
+
+        let wall = wall::Wall {
+            name: "W".to_string(),
+            is_top_bottom_visible: false,
+            is_side_visible: true,
+            ..Default::default()
+        };
+        let item = GameItemEnum::Wall(wall);
+        assert_eq!(item.is_visible(), Some(true));
+    }
+
+    #[test]
+    fn test_is_visible_none_for_items_without_concept() {
+        let timer = timer::Timer {
+            name: "T".to_string(),
+            ..Default::default()
+        };
+        let item = GameItemEnum::Timer(timer);
+        assert_eq!(item.is_visible(), None);
     }
 }
