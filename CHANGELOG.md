@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.3](https://github.com/francisdb/vpin/compare/v0.26.2...v0.26.3) - 2026-05-14
+
+### Added
+
+- *(obj)* include plunger meshes by default ([#316](https://github.com/francisdb/vpin/pull/316))
+
+### Fixed
+
+- *(mesh)* match vpinball plunger geometry ([#314](https://github.com/francisdb/vpin/pull/314))
+
 ## [0.26.2](https://github.com/francisdb/vpin/compare/v0.26.1...v0.26.2) - 2026-05-14
 
 ### Other
