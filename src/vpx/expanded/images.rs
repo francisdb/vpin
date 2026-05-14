@@ -6,7 +6,7 @@ use crate::vpx::lzw::to_lzw_blocks;
 use log::{debug, info, warn};
 use std::collections::HashSet;
 use std::ffi::OsStr;
-use std::io::{self, BufRead, Seek};
+use std::io::{self, BufRead, BufWriter, Seek, Write};
 use std::path::Path;
 
 use super::WriteError;
@@ -26,7 +26,8 @@ pub(super) fn write_images<P: AsRef<Path>>(
     info!("Starting image processing - total images: {}", images.len());
 
     let images_index_path = expanded_dir.as_ref().join("images.json");
-    let mut images_index_file = fs.create_file(&images_index_path)?;
+    let images_index_file = fs.create_file(&images_index_path)?;
+    let mut images_index_writer = BufWriter::new(images_index_file);
     let mut image_names_lower: HashSet<String> = HashSet::new();
     let mut image_names_dupe_counter = 0;
     let mut json_images = Vec::with_capacity(images.len());
@@ -110,7 +111,8 @@ pub(super) fn write_images<P: AsRef<Path>>(
         })
         .collect();
     let images_list = images_list?;
-    serde_json::to_writer_pretty(&mut images_index_file, &json_images)?;
+    serde_json::to_writer_pretty(&mut images_index_writer, &json_images)?;
+    images_index_writer.flush()?;
 
     let images_dir = expanded_dir.as_ref().join("images");
     fs.create_dir_all(&images_dir)?;
