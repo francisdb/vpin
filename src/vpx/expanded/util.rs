@@ -26,7 +26,7 @@ where
             format!("JSON file not found: {}", path.display()),
         ));
     }
-    let mut json_file = fs.open_file(path)?;
+    let mut json_file = fs.open_buffered_file(path)?;
     serde_json::from_reader(&mut json_file).map_err(|e| {
         io::Error::other(format!(
             "Failed to parse/read json {}: {}",
