@@ -49,6 +49,7 @@ use crate::vpx::mesh::gates::build_gate_meshes_unchecked;
 use crate::vpx::mesh::hittargets::build_hit_target_mesh_unchecked;
 use crate::vpx::mesh::kickers::build_kicker_meshes;
 use crate::vpx::mesh::playfields::build_playfield_mesh;
+use crate::vpx::mesh::plungers::build_plunger_meshes;
 use crate::vpx::mesh::ramps::build_ramp_mesh;
 use crate::vpx::mesh::rubbers::build_rubber_mesh;
 use crate::vpx::mesh::spinners::build_spinner_meshes;
@@ -107,6 +108,19 @@ pub struct ObjExportOptions {
     /// so the OBJ imports at sensible scale into DCC tools. Use
     /// [`ExportUnits::Vpu`] for vpinball parity.
     pub units: ExportUnits,
+
+    /// Include plunger meshes (rod, spring, ring, tip, flat overlay).
+    ///
+    /// - **`true` (default)**: emit plunger geometry, matching what the
+    ///   glTF exporter already does. Most users exporting to OBJ for DCC
+    ///   work expect the plunger to be there.
+    /// - **`false`**: omit plungers entirely. Matches vpinball's
+    ///   `File -> Export -> OBJ Mesh`, which deliberately skips them.
+    ///   Set automatically by [`Self::vpinball_strict`].
+    ///
+    /// See [vpin#313](https://github.com/francisdb/vpin/issues/313) for
+    /// the broader discussion of the OBJ-vs-glTF item-coverage gap.
+    pub include_plunger: bool,
 }
 
 impl Default for ObjExportOptions {
@@ -115,6 +129,7 @@ impl Default for ObjExportOptions {
             dedup_mtl_blocks: true,
             extract_textures: true,
             units: ExportUnits::M,
+            include_plunger: true,
         }
     }
 }
@@ -128,6 +143,7 @@ impl ObjExportOptions {
             dedup_mtl_blocks: false,
             extract_textures: false,
             units: ExportUnits::Vpu,
+            include_plunger: false,
         }
     }
 }
@@ -264,6 +280,9 @@ struct WriterState<'a> {
     /// Multiplier applied to VPU vertex positions on write. Derived
     /// once from `ObjExportOptions::units`.
     position_scale: f32,
+    /// Whether to emit plunger meshes. See
+    /// [`ObjExportOptions::include_plunger`].
+    include_plunger: bool,
 }
 
 impl<'a> WriterState<'a> {
@@ -287,6 +306,7 @@ impl<'a> WriterState<'a> {
             extract_textures: options.extract_textures,
             seen_mtl_pairs: HashSet::new(),
             position_scale: options.units.scale(),
+            include_plunger: options.include_plunger,
         }
     }
 
@@ -423,6 +443,9 @@ fn write_gameitem<O: ObjWriter<f32>, M: MtlWriter<f32>>(
         GameItemEnum::Spinner(spinner) => write_spinner(obj, mtl, state, fs, spinner),
         GameItemEnum::HitTarget(hit_target) => write_hittarget(obj, mtl, state, fs, hit_target),
         GameItemEnum::Trigger(trigger) => write_trigger(obj, mtl, state, fs, trigger),
+        GameItemEnum::Plunger(plunger) if state.include_plunger => {
+            write_plunger(obj, mtl, state, fs, plunger)
+        }
         // Items VPinball does not include in OBJ export.
         GameItemEnum::Light(_)
         | GameItemEnum::Decal(_)
@@ -881,6 +904,67 @@ fn write_bumper<O: ObjWriter<f32>, M: MtlWriter<f32>>(
                 smoothing: true,
             },
         )?;
+    }
+    Ok(())
+}
+
+fn write_plunger<O: ObjWriter<f32>, M: MtlWriter<f32>>(
+    obj: &mut O,
+    mtl: &mut M,
+    state: &mut WriterState,
+    fs: &dyn FileSystem,
+    plunger: &crate::vpx::gameitem::plunger::Plunger,
+) -> io::Result<()> {
+    if !plunger.is_visible {
+        return Ok(());
+    }
+    let surface_height = state.surface_height(&plunger.surface, plunger.center.x, plunger.center.y);
+    // Translation mirrors the glTF exporter: surface height + z_adjust.
+    // The mesh generators already lift the cylinder centerline by `width`
+    // (or `width * 1.25` for the flat overlay) in local space.
+    let translation = Vec3::new(
+        plunger.center.x,
+        plunger.center.y,
+        surface_height + plunger.z_adjust,
+    );
+    let meshes = build_plunger_meshes(plunger);
+
+    let material_name = if plunger.material.is_empty() {
+        None
+    } else {
+        Some(plunger.material.as_str())
+    };
+    let texture_name = if plunger.image.is_empty() {
+        None
+    } else {
+        Some(plunger.image.as_str())
+    };
+
+    let parts: [(&str, Option<(Vec<_>, Vec<_>)>); 5] = [
+        ("Flat", meshes.flat_rod),
+        ("Rod", meshes.rod),
+        ("Spring", meshes.spring),
+        ("Ring", meshes.ring),
+        ("Tip", meshes.tip),
+    ];
+    for (suffix, mesh) in parts {
+        if let Some((vertices, indices)) = mesh {
+            write_block(
+                obj,
+                mtl,
+                state,
+                fs,
+                Block {
+                    name: &format!("{}{}", plunger.name, suffix),
+                    vertices: &vertices,
+                    indices: &indices,
+                    translation,
+                    material_name,
+                    texture_name,
+                    smoothing: true,
+                },
+            )?;
+        }
     }
     Ok(())
 }
