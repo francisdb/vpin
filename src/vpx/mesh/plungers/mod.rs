@@ -283,13 +283,17 @@ fn generate_flat_rod_mesh(plunger: &Plunger) -> (Vec<VertexWrapper>, Vec<VpxFace
     // So rod_radius = (rod_diam / 2) * width = width * rod_diam * 0.5
     let rod_radius = plunger.width * plunger.rod_diam * 0.5;
 
-    // Centered at origin:
-    // Y=0 is at the base (player end), tip extends to Y=-stroke (playfield end)
-    let y_base = 0.0; // Player end
+    // Centered at origin: rod base sits at +height (player end),
+    // tip sits at -stroke when fully extended (playfield end).
+    // Matches vpinball Plunger::RenderSetup (yBot = beginy + height, yTop = ytip).
+    let y_base = plunger.height; // Player end
     let y_tip = -plunger.stroke; // Playfield end
 
-    // Z is relative to z_adjust, centered at height/2
-    let z_center = plunger.height * 0.5;
+    // Z elevation. Vpinball plunger.cpp:565 lifts the flat overlay to
+    // `zheight + width * 1.25`, so in the local centered frame the cylinder
+    // centerline is at `width * 1.25` (the gltf translation adds the surface
+    // height + z_adjust).
+    let z_center = plunger.width * 1.25;
 
     // Generate two rings: one at the base (y_base) and one at the tip (y_tip)
     let ring_base = generate_lathe_ring(y_base, z_center, rod_radius);
@@ -431,19 +435,21 @@ fn generate_rod_mesh(plunger: &Plunger) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
     };
 
     // Centered at origin:
-    // Y=0 is at the base (player end), tip extends to Y=-stroke (playfield end)
-    let y_tip = -plunger.stroke; // Tip when fully extended (lower Y)
-
-    // The rod needs to be long enough to cover the full stroke range.
-    // rody extends beyond Y=0 by height, plus stroke to reach the cabinet edge.
-    let rody = -plunger.height + plunger.stroke; // Rod base (highest Y, relative to center)
+    // Y=0 is the plunger's nominal position. Tip (fully extended) sits at -stroke,
+    // rod base sits at +height. Matches vpinball PlungerMoverObject::RenderSetup:
+    //   beginy = m_d.m_v.y, endy = beginy - stroke, rody = beginy + height
+    let y_tip = -plunger.stroke;
+    let rody = plunger.height;
 
     // Rod runs from rody to where the ring ends (after tip + ring_gap + ring_width)
     let y_ring_top = y_tip + tip_length + plunger.ring_gap + plunger.ring_width;
     let y_rod_start = rody; // Start at rod base (player end, highest Y)
     let y_rod_end = y_ring_top; // End where ring ends (towards tip)
 
-    let z_center = plunger.height * 0.5;
+    // Z elevation. Vpinball plunger.cpp:526 puts the cylinder centerline at
+    // `zheight + width`, so in the local centered frame `z_center = width`.
+    // The gltf translation later adds `surface_height + z_adjust`.
+    let z_center = plunger.width;
 
     // Generate rod as a series of rings along its length
     // Generate from lower Y (ring end) to higher Y (rod base) to match tip direction
@@ -531,19 +537,20 @@ fn generate_spring_mesh(plunger: &Plunger) -> (Vec<VertexWrapper>, Vec<VpxFace>)
         0.0
     };
 
-    // Centered at origin: Y=0 is at base, tip extends to Y=-stroke
-    let y_tip = -plunger.stroke; // Tip when fully extended (lower Y)
-    let rody = -plunger.height + plunger.stroke; // Rod base (highest Y)
+    // Centered at origin: tip extends to Y=-stroke, rod base sits at Y=+height.
+    // Matches vpinball Plunger::RenderSetup (endy = beginy - stroke, rody = beginy + height).
+    let y_tip = -plunger.stroke;
+    let rody = plunger.height;
 
-    // Spring starts at ring top (after tip + ring_gap + ring_width)
+    // Spring starts at ring top (after tip + ring_gap + ring_width) and ends at the rod base.
     let y_ring_top = y_tip + tip_length + plunger.ring_gap + plunger.ring_width;
-    // Spring ends at rod base
     let y_spring_start = y_ring_top; // Near the ring (lower Y)
     let y_spring_end = rody; // At the rod base (highest Y)
 
     let spring_length = y_spring_end - y_spring_start;
 
-    let z_center = plunger.height * 0.5;
+    // Z elevation. Matches the rod (plunger.cpp:526): centerline at `width`.
+    let z_center = plunger.width;
     let cx = 0.0; // Centered at X=0
 
     // Total number of turns (including end loops)
@@ -766,7 +773,8 @@ fn generate_ring_mesh(plunger: &Plunger) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
     let y_ring_bottom = y_tip_end + tip_length + plunger.ring_gap;
     let y_ring_top = y_ring_bottom + plunger.ring_width;
 
-    let z_center = plunger.height * 0.5;
+    // Z elevation. Matches the rod (plunger.cpp:526): centerline at `width`.
+    let z_center = plunger.width;
 
     // Generate rings for the collar profile
     // Bottom inner (rod radius)
@@ -878,7 +886,8 @@ fn generate_tip_mesh(plunger: &Plunger) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
 
     // Centered at origin: Y=0 is at base, tip extends to Y=-stroke
     let y_tip_end = -plunger.stroke; // Playfield end (lower Y)
-    let z_center = plunger.height * 0.5;
+    // Z elevation. Matches the rod (plunger.cpp:526): centerline at `width`.
+    let z_center = plunger.width;
 
     // Get the tip length (max y value from tip points)
     let tip_len = tip_points.last().map(|p| p.y).unwrap_or(1.0);
