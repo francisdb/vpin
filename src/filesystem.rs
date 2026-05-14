@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{self, Cursor, Read, Write};
+use std::io::{self, BufReader, BufWriter, Cursor, Read, Write};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
@@ -11,6 +11,25 @@ pub trait FileSystem: Sync {
     fn write_file(&self, path: &Path, data: &[u8]) -> io::Result<()>;
     fn create_dir_all(&self, path: &Path) -> io::Result<()>;
     fn exists(&self, path: &Path) -> bool;
+
+    /// Writer suitable for many small writes. Default impl wraps
+    /// [`create_file`](Self::create_file) in a [`BufWriter`]. Implementations whose
+    /// writer already buffers (e.g. an in-memory [`Vec<u8>`]-backed one) can
+    /// override to skip the extra layer.
+    ///
+    /// Callers should still invoke `flush()?` before dropping the writer:
+    /// errors from a `Drop`-time flush are otherwise swallowed.
+    fn create_buffered_file(&self, path: &Path) -> io::Result<Box<dyn Write>> {
+        Ok(Box::new(BufWriter::new(self.create_file(path)?)))
+    }
+
+    /// Reader suitable for many small reads. Default impl wraps
+    /// [`open_file`](Self::open_file) in a [`BufReader`]. Implementations whose
+    /// reader already serves bytes from memory (e.g. a [`Cursor`] over a
+    /// [`Vec<u8>`]) can override to skip the extra layer.
+    fn open_buffered_file(&self, path: &Path) -> io::Result<Box<dyn Read>> {
+        Ok(Box::new(BufReader::new(self.open_file(path)?)))
+    }
 }
 
 pub struct RealFileSystem;
@@ -196,6 +215,17 @@ impl FileSystem for MemoryFileSystem {
         let path_str = path.to_string_lossy().to_string();
         let files = self.files.read().unwrap();
         files.contains_key(&path_str)
+    }
+
+    // The in-memory writer is already Vec<u8>-backed and the reader is a Cursor
+    // over a Vec<u8>; both serve bytes without syscalls, so an extra BufWriter
+    // / BufReader layer would be pure overhead.
+    fn create_buffered_file(&self, path: &Path) -> io::Result<Box<dyn Write>> {
+        self.create_file(path)
+    }
+
+    fn open_buffered_file(&self, path: &Path) -> io::Result<Box<dyn Read>> {
+        self.open_file(path)
     }
 }
 

@@ -3,7 +3,7 @@
 use crate::filesystem::FileSystem;
 use crate::vpx::font::{FontData, FontDataJson};
 use log::info;
-use std::io::{self, BufWriter, Write};
+use std::io::{self, Write};
 use std::path::Path;
 
 use super::WriteError;
@@ -15,11 +15,10 @@ pub(super) fn write_fonts<P: AsRef<Path>>(
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
     let fonts_json_path = expanded_dir.as_ref().join("fonts.json");
-    let fonts_index_file = fs.create_file(&fonts_json_path)?;
-    let mut fonts_index_writer = BufWriter::new(fonts_index_file);
+    let mut fonts_index_file = fs.create_buffered_file(&fonts_json_path)?;
     let fonts_index: Vec<FontDataJson> = fonts.iter().map(FontDataJson::from_font_data).collect();
-    serde_json::to_writer_pretty(&mut fonts_index_writer, &fonts_index)?;
-    fonts_index_writer.flush()?;
+    serde_json::to_writer_pretty(&mut fonts_index_file, &fonts_index)?;
+    fonts_index_file.flush()?;
 
     let fonts_dir = expanded_dir.as_ref().join("fonts");
     fs.create_dir_all(&fonts_dir)?;

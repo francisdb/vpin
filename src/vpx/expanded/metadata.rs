@@ -9,7 +9,7 @@ use crate::vpx::renderprobe::{RenderProbeJson, RenderProbeWithGarbage};
 use crate::vpx::tableinfo::TableInfo;
 use log::info;
 use serde_json::Value;
-use std::io::{self, BufWriter, Write};
+use std::io::{self, Write};
 use std::path::Path;
 
 use super::WriteError;
@@ -21,11 +21,10 @@ pub(super) fn write_game_data<P: AsRef<Path>>(
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
     let game_data_path = expanded_dir.as_ref().join("gamedata.json");
-    let game_data_file = fs.create_file(&game_data_path)?;
-    let mut game_data_writer = BufWriter::new(game_data_file);
+    let mut game_data_file = fs.create_buffered_file(&game_data_path)?;
     let json = GameDataJson::from_game_data(gamedata);
-    serde_json::to_writer_pretty(&mut game_data_writer, &json)?;
-    game_data_writer.flush()?;
+    serde_json::to_writer_pretty(&mut game_data_file, &json)?;
+    game_data_file.flush()?;
     let script_path = expanded_dir.as_ref().join("script.vbs");
     let mut script_file = fs.create_file(&script_path)?;
     let script_bytes: Vec<u8> = gamedata.code.clone().into();
@@ -59,11 +58,10 @@ pub(super) fn write_info<P: AsRef<Path>>(
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
     let json_path = expanded_dir.as_ref().join("info.json");
-    let json_file = fs.create_file(&json_path)?;
-    let mut json_writer = BufWriter::new(json_file);
+    let mut json_file = fs.create_buffered_file(&json_path)?;
     let info = info_to_json(info, custominfotags);
-    serde_json::to_writer_pretty(&mut json_writer, &info)?;
-    json_writer.flush()?;
+    serde_json::to_writer_pretty(&mut json_file, &info)?;
+    json_file.flush()?;
     Ok(())
 }
 
@@ -87,11 +85,10 @@ pub(super) fn write_collections<P: AsRef<Path>>(
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
     let collections_json_path = expanded_dir.as_ref().join("collections.json");
-    let collections_json_file = fs.create_file(&collections_json_path)?;
-    let mut collections_json_writer = BufWriter::new(collections_json_file);
+    let mut collections_json_file = fs.create_buffered_file(&collections_json_path)?;
     let json_collections = collections_json(collections);
-    serde_json::to_writer_pretty(&mut collections_json_writer, &json_collections)?;
-    collections_json_writer.flush()?;
+    serde_json::to_writer_pretty(&mut collections_json_file, &json_collections)?;
+    collections_json_file.flush()?;
     Ok(())
 }
 
@@ -116,14 +113,13 @@ pub(super) fn write_renderprobes<P: AsRef<Path>>(
 ) -> Result<(), WriteError> {
     if let Some(renderprobes) = render_probes {
         let renderprobes_path = expanded_dir.as_ref().join("renderprobes.json");
-        let renderprobes_file = fs.create_file(&renderprobes_path)?;
-        let mut renderprobes_writer = BufWriter::new(renderprobes_file);
+        let mut renderprobes_file = fs.create_buffered_file(&renderprobes_path)?;
         let renderprobes_index: Vec<RenderProbeJson> = renderprobes
             .iter()
             .map(RenderProbeJson::from_renderprobe)
             .collect();
-        serde_json::to_writer_pretty(&mut renderprobes_writer, &renderprobes_index)?;
-        renderprobes_writer.flush()?;
+        serde_json::to_writer_pretty(&mut renderprobes_file, &renderprobes_index)?;
+        renderprobes_file.flush()?;
     }
     Ok(())
 }

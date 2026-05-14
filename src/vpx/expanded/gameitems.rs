@@ -6,7 +6,7 @@ use log::info;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::collections::HashSet;
-use std::io::{self, BufWriter, Write};
+use std::io::{self, Write};
 use std::path::Path;
 use tracing::instrument;
 
@@ -98,10 +98,9 @@ pub(super) fn write_gameitems<P: AsRef<Path>>(
     }
 
     let gameitems_index_path = expanded_dir.as_ref().join("gameitems.json");
-    let gameitems_index_file = fs.create_file(&gameitems_index_path)?;
-    let mut gameitems_index_writer = BufWriter::new(gameitems_index_file);
-    serde_json::to_writer_pretty(&mut gameitems_index_writer, &files)?;
-    gameitems_index_writer.flush()?;
+    let mut gameitems_index_file = fs.create_buffered_file(&gameitems_index_path)?;
+    serde_json::to_writer_pretty(&mut gameitems_index_file, &files)?;
+    gameitems_index_file.flush()?;
 
     let gameitems_ref = gameitems;
     let gameitems_dir_clone = gameitems_dir.clone();
