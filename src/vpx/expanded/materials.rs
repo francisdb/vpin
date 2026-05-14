@@ -5,7 +5,7 @@ use crate::vpx::material::{
     Material, MaterialJson, SaveMaterial, SaveMaterialJson, SavePhysicsMaterial,
     SavePhysicsMaterialJson,
 };
-use std::io;
+use std::io::{self, BufWriter, Write};
 use std::path::Path;
 
 use super::WriteError;
@@ -16,10 +16,12 @@ pub(super) fn write_materials<P: AsRef<Path>>(
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
     let materials_path = expanded_dir.as_ref().join("materials.json");
-    let mut materials_file = fs.create_file(&materials_path)?;
+    let materials_file = fs.create_file(&materials_path)?;
+    let mut materials_writer = BufWriter::new(materials_file);
     let materials_index: Vec<MaterialJson> =
         materials.iter().map(MaterialJson::from_material).collect();
-    serde_json::to_writer_pretty(&mut materials_file, &materials_index)?;
+    serde_json::to_writer_pretty(&mut materials_writer, &materials_index)?;
+    materials_writer.flush()?;
     Ok(())
 }
 
@@ -56,12 +58,14 @@ fn write_old_materials<P: AsRef<Path>>(
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
     let materials_path = expanded_dir.as_ref().join("materials-old.json");
-    let mut materials_file = fs.create_file(&materials_path)?;
+    let materials_file = fs.create_file(&materials_path)?;
+    let mut materials_writer = BufWriter::new(materials_file);
     let materials_index: Vec<SaveMaterialJson> = materials_old
         .iter()
         .map(SaveMaterialJson::from_save_material)
         .collect();
-    serde_json::to_writer_pretty(&mut materials_file, &materials_index)?;
+    serde_json::to_writer_pretty(&mut materials_writer, &materials_index)?;
+    materials_writer.flush()?;
     Ok(())
 }
 
@@ -89,12 +93,14 @@ fn write_old_materials_physics<P: AsRef<Path>>(
 ) -> Result<(), WriteError> {
     if let Some(materials) = materials_physics_old {
         let materials_path = expanded_dir.as_ref().join("materials-physics-old.json");
-        let mut materials_file = fs.create_file(&materials_path)?;
+        let materials_file = fs.create_file(&materials_path)?;
+        let mut materials_writer = BufWriter::new(materials_file);
         let materials_index: Vec<SavePhysicsMaterialJson> = materials
             .iter()
             .map(SavePhysicsMaterialJson::from_save_physics_material)
             .collect();
-        serde_json::to_writer_pretty(&mut materials_file, &materials_index)?;
+        serde_json::to_writer_pretty(&mut materials_writer, &materials_index)?;
+        materials_writer.flush()?;
     }
     Ok(())
 }

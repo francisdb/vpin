@@ -4,7 +4,7 @@ use crate::filesystem::FileSystem;
 use crate::vpx::sound::{SoundData, SoundDataJson, read_sound, write_sound};
 use log::info;
 use std::collections::HashSet;
-use std::io::{self, Write};
+use std::io::{self, BufWriter, Write};
 use std::path::Path;
 
 use super::WriteError;
@@ -16,7 +16,8 @@ pub(super) fn write_sounds<P: AsRef<Path>>(
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
     let sounds_index_path = expanded_dir.as_ref().join("sounds.json");
-    let mut sounds_index_file = fs.create_file(&sounds_index_path)?;
+    let sounds_index_file = fs.create_file(&sounds_index_path)?;
+    let mut sounds_index_writer = BufWriter::new(sounds_index_file);
     let mut sound_names_lower: HashSet<String> = HashSet::new();
     let mut sound_names_dupe_counter = 0;
     let mut json_sounds = Vec::with_capacity(sounds.len());
@@ -50,7 +51,8 @@ pub(super) fn write_sounds<P: AsRef<Path>>(
             (file_name, sound)
         })
         .collect();
-    serde_json::to_writer_pretty(&mut sounds_index_file, &json_sounds)?;
+    serde_json::to_writer_pretty(&mut sounds_index_writer, &json_sounds)?;
+    sounds_index_writer.flush()?;
 
     let sounds_dir = expanded_dir.as_ref().join("sounds");
     fs.create_dir_all(&sounds_dir)?;
