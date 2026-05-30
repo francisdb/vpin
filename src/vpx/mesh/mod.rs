@@ -303,6 +303,21 @@ pub(super) fn recurse_smooth_line_2d(
     }
 }
 
+/// Smooth a drag-point outline into 2D points (in vpx units) using VPinball's
+/// Catmull-Rom spline interpolation - the same path walls, rubbers and flashers use to
+/// round their meshes. `accuracy` controls subdivision (4.0 = maximum, VPinball default);
+/// `loop_curve` closes the curve (true for walls/rubbers, false for open ramps).
+pub fn smooth_drag_points_2d(
+    drag_points: &[crate::vpx::gameitem::dragpoint::DragPoint],
+    accuracy: f32,
+    loop_curve: bool,
+) -> Vec<(f32, f32)> {
+    get_rg_vertex_2d(drag_points, accuracy, loop_curve)
+        .iter()
+        .map(|v| (v.x, v.y))
+        .collect()
+}
+
 /// Get the 2D vertices from drag points using spline interpolation.
 /// If `loop_curve` is true, the curve is closed (for rubbers, flashers).
 /// If false, the curve is open (for ramps).

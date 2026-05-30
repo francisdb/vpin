@@ -74,7 +74,7 @@ pub(crate) mod json;
 pub mod export;
 mod gltf;
 pub mod lzw;
-pub(crate) mod mesh;
+pub mod mesh;
 pub(crate) mod obj;
 pub(crate) mod wav;
 
