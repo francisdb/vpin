@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.4](https://github.com/francisdb/vpin/compare/v0.26.3...v0.26.4) - 2026-05-30
+
+### Added
+
+- make the mesh module public ([#319](https://github.com/francisdb/vpin/pull/319))
+
+### Other
+
+- *(deps)* update weezl requirement from 0.1.12 to 0.2.1 ([#317](https://github.com/francisdb/vpin/pull/317))
+
 ## [0.26.3](https://github.com/francisdb/vpin/compare/v0.26.2...v0.26.3) - 2026-05-14
 
 ### Added
