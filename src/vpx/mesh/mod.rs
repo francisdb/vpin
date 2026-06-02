@@ -15,7 +15,7 @@ pub(crate) mod playfields;
 pub(crate) mod plungers;
 pub(crate) mod ramps;
 pub(crate) mod rubbers;
-pub(crate) mod spinners;
+pub mod spinners;
 pub(crate) mod triggers;
 pub(crate) mod walls;
 
