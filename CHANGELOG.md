@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.5](https://github.com/francisdb/vpin/compare/v0.26.4...v0.26.5) - 2026-06-02
+
+### Added
+
+- expose spinner mesh module ([#320](https://github.com/francisdb/vpin/pull/320))
+
 ## [0.26.4](https://github.com/francisdb/vpin/compare/v0.26.3...v0.26.4) - 2026-05-30
 
 ### Added
