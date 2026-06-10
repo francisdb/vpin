@@ -248,20 +248,78 @@ pub(crate) fn flipped_v(tv: f32) -> FlippedV {
             exact: true,
         };
     }
-    for precision in 1..=17 {
-        let s = format!("{flipped:.precision$}");
-        if recovers(&s) {
-            return FlippedV {
-                text: s,
-                exact: true,
-            };
-        }
+    if let Some(text) = shortest_recovering_text(flipped, tv) {
+        return FlippedV { text, exact: true };
     }
     // Unrecoverable tv (see the limits above), write the exact f64 flip.
     FlippedV {
         text: format!("{flipped}"),
         exact: false,
     }
+}
+
+/// Finds the decimal text with the fewest fractional digits that still
+/// recovers `tv` exactly when the read side parses it and flips it back
+/// (`(1.0 - text.parse::<f64>()) as f32 == tv`, compared by bits).
+/// `flipped` must be `1.0 - f64::from(tv)`.
+///
+/// Returns `None` when no precision up to 17 digits recovers tv; that
+/// only happens for the unrecoverable values listed on [`flipped_v`].
+///
+/// Instead of scanning all precisions from 1 (which wastes 6-10
+/// format+parse rounds, as the answer is typically 7-11 digits), the
+/// search starts at [`estimated_flip_precision`] and walks down while
+/// shorter texts still recover, or up if the estimate is not enough.
+/// The recovering precisions form a contiguous range ending at 17, so
+/// this finds the same fewest-digits text as a full scan, usually in one
+/// or two probes.
+fn shortest_recovering_text(flipped: f64, tv: f32) -> Option<String> {
+    let probe = |precision: usize| {
+        let s = format!("{flipped:.precision$}");
+        let recovered =
+            matches!(s.parse::<f64>(), Ok(v) if ((1.0 - v) as f32).to_bits() == tv.to_bits());
+        recovered.then_some(s)
+    };
+    let estimate = estimated_flip_precision(tv);
+    if let Some(mut text) = probe(estimate) {
+        // walk down to the fewest digits that still recover
+        let mut precision = estimate;
+        while precision > 1 {
+            match probe(precision - 1) {
+                Some(shorter) => {
+                    text = shorter;
+                    precision -= 1;
+                }
+                None => break,
+            }
+        }
+        Some(text)
+    } else {
+        // the estimate was too low (tv with an unusually long decimal
+        // expansion, or close to the representation limits), walk up
+        (estimate + 1..=17).find_map(probe)
+    }
+}
+
+/// Estimates how many fractional decimal digits the flipped V text needs
+/// so that the read side recovers `tv` exactly.
+///
+/// Recovery requires the parsed value to land within about half an f32
+/// ulp of the exact `1 - tv`. An f32 ulp near tv is `2^(exponent - 23)`
+/// and a decimal with `p` fractional digits resolves steps of `10^-p`,
+/// so equating the two gives `p ~= (23 - exponent) * log10(2)`. For
+/// example tv around 0.001 (exponent -10) needs about 10 digits, tv
+/// around 0.3 (exponent -2) about 8.
+///
+/// This is an estimate, not a bound: a tv whose decimal expansion happens
+/// to be short needs fewer digits, and for tv below ~2^-30 (where only
+/// lucky f64 grid coincidences can be recovered at all, see [`flipped_v`])
+/// the formula overshoots. It only positions the search in
+/// [`shortest_recovering_text`], which probes in both directions.
+fn estimated_flip_precision(tv: f32) -> usize {
+    let exponent = ((tv.to_bits() >> 23) & 0xff) as i32 - 127;
+    let estimate = ((23 - exponent) as f64 * std::f64::consts::LOG10_2).ceil() as usize;
+    estimate.clamp(1, 17)
 }
 
 #[derive(Debug)]
