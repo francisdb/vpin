@@ -151,16 +151,7 @@ pub(crate) fn write_obj_to_writer<W: io::Write>(
         tv_exact,
     ) in vpx_vertices.iter().zip(tv_exact)
     {
-        // If one of the values is NaN (payload bits do not survive the text
-        // format) or tv cannot be recovered through the V flip, we write a
-        // special comment with the full encoded vertex bytes. The read side
-        // restores the bytes verbatim.
-        let has_nan = [
-            vertex.x, vertex.y, vertex.z, vertex.nx, vertex.ny, vertex.nz, vertex.tu, vertex.tv,
-        ]
-        .iter()
-        .any(|v| v.is_nan());
-        if has_nan || !tv_exact {
+        if needs_byte_preservation(vertex, tv_exact) {
             unrepresentable_vertices += 1;
             let content = obj_vpx_comment(vpx_encoded_vertex);
             obj_writer.write_comment(content)?;
@@ -191,6 +182,27 @@ pub(crate) fn write_obj_to_writer<W: io::Write>(
         ])?;
     }
     Ok(())
+}
+
+/// True when the obj text cannot represent this vertex exactly:
+///
+/// * a value is NaN, whose payload bits do not survive any text format
+///   (every "NaN" parses back as the canonical quiet NaN), or
+/// * tv cannot be recovered through the V flip ([`FlippedV::exact`] is
+///   false: `-0.0` or `0 < |tv| < ~2^-30`).
+///
+/// Such a vertex gets its original vpx bytes preserved in a
+/// `# vpx <hex>` comment ([`VpxCommentBytes`]) that the read side
+/// restores verbatim; the v/vt/vn text then only serves viewers and
+/// editors. `tv_exact` is the [`FlippedV::exact`] flag of the vt line
+/// already written for this vertex.
+fn needs_byte_preservation(vertex: &Vertex3dNoTex2, tv_exact: bool) -> bool {
+    let has_nan = [
+        vertex.x, vertex.y, vertex.z, vertex.nx, vertex.ny, vertex.nz, vertex.tu, vertex.tv,
+    ]
+    .iter()
+    .any(|v| v.is_nan());
+    has_nan || !tv_exact
 }
 
 /// Formats the obj V texture coordinate for a vpx `tv` value.
