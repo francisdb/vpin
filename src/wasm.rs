@@ -366,15 +366,28 @@ pub fn mesh_to_obj(
                 .write_vertex(chunk[0], chunk[1], z_sign * chunk[2], None)
                 .map_err(|e| JsError::new(&format!("write failed: {e}")))?;
         }
-        for chunk in tex_coords.chunks_exact(2) {
-            let v_out = if convert_to_left_handed {
-                1.0 - chunk[1]
-            } else {
-                chunk[1]
-            };
-            writer
-                .write_texture_coordinate(chunk[0], Some(v_out), None)
+        if convert_to_left_handed {
+            // The flipped V value may need more precision than the f32 obj
+            // writer can provide, so these lines are written manually, see
+            // flipped_v_text. Round-trips with `obj_to_mesh(.., true)`.
+            drop(writer);
+            for chunk in tex_coords.chunks_exact(2) {
+                use std::io::Write;
+                writeln!(
+                    buffer,
+                    "vt {} {}",
+                    chunk[0],
+                    crate::vpx::obj::flipped_v_text(chunk[1])
+                )
                 .map_err(|e| JsError::new(&format!("write failed: {e}")))?;
+            }
+            writer = IoObjWriter::new(&mut buffer);
+        } else {
+            for chunk in tex_coords.chunks_exact(2) {
+                writer
+                    .write_texture_coordinate(chunk[0], Some(chunk[1]), None)
+                    .map_err(|e| JsError::new(&format!("write failed: {e}")))?;
+            }
         }
         for chunk in normals.chunks_exact(3) {
             writer

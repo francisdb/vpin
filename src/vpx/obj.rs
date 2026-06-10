@@ -20,6 +20,13 @@
 //! * triangle face winding is reversed (`(i0, i1, i2)` is emitted as `f i2 i1 i0`).
 //!
 //! Reading inverts each of those transformations.
+//!
+//! The Z negations are sign-bit flips and thus exact, but the V flip is
+//! arithmetic: in f32 `1 - (1 - tv)` shifts most tv values in (0, 0.5) by
+//! an ulp, which broke the bit-exact extract/assemble round-trip. The flip
+//! is therefore done at f64 precision on both sides, and the written `vt`
+//! V value gets just enough extra decimal digits that the read side
+//! recovers the original f32 tv bit-for-bit (see [`flipped_v_text`]).
 
 use crate::filesystem::FileSystem;
 use crate::vpx::expanded::BytesMutExt;
@@ -79,7 +86,7 @@ pub(crate) fn write_obj_to_writer<W: io::Write>(
     writer: &mut W,
 ) -> Result<(), Box<dyn Error>> {
     let mut obj_writer: wavefront_obj_io::IoObjWriter<_, f32> =
-        wavefront_obj_io::IoObjWriter::new(writer);
+        wavefront_obj_io::IoObjWriter::new(&mut *writer);
 
     // // material library
     // let mtl_file_path = obj_file_path.with_extension("mtl");
@@ -105,10 +112,15 @@ pub(crate) fn write_obj_to_writer<W: io::Write>(
     for VertexWrapper { vertex, .. } in vpx_vertices {
         obj_writer.write_vertex(vertex.x, vertex.y, -vertex.z, None)?;
     }
+    drop(obj_writer);
     for VertexWrapper { vertex, .. } in vpx_vertices {
-        // vpinball's WriteVertexInfo flips V on write (tv -> 1 - tv)
-        obj_writer.write_texture_coordinate(vertex.tu, Some(1.0 - vertex.tv), None)?;
+        // vpinball's WriteVertexInfo flips V on write (tv -> 1 - tv).
+        // These lines are written manually as the V value may need more
+        // precision than the f32 obj writer can provide, see flipped_v_text.
+        writeln!(writer, "vt {} {}", vertex.tu, flipped_v_text(vertex.tv))?;
     }
+    let mut obj_writer: wavefront_obj_io::IoObjWriter<_, f32> =
+        wavefront_obj_io::IoObjWriter::new(&mut *writer);
     for VertexWrapper {
         vpx_encoded_vertex,
         vertex,
@@ -140,6 +152,51 @@ pub(crate) fn write_obj_to_writer<W: io::Write>(
         ])?;
     }
     Ok(())
+}
+
+/// Formats the obj V texture coordinate for a vpx `tv` value.
+///
+/// vpinball's obj dialect flips V (`obj_v = 1 - tv`). That subtraction
+/// rounds in f32, so writing `1.0f32 - tv` makes the read side recover a
+/// slightly different tv for most values in (0, 0.5). Instead the flip is
+/// done in f64 and the value is printed with the fewest decimal digits
+/// that still recover tv bit-for-bit through the read side's f64 flip.
+/// Typical UV values keep their usual short form; only values that need
+/// extra digits get them.
+///
+/// Limits, inherent to the flipped representation (vpinball has them too):
+/// * `0 < |tv| < ~2^-30`: `1 - tv` falls in (0.5, 2) where even f64 spacing
+///   is coarser than such a tv needs, so no text of any length can recover
+///   it; the closest representable value is written instead.
+/// * `tv = -0.0` is recovered as `0.0` (`1 - v` cannot produce a negative
+///   zero) and NaN tv loses its payload bits, like every value in the
+///   text-based obj format.
+pub(crate) fn flipped_v_text(tv: f32) -> String {
+    if tv.is_nan() {
+        // 1 - NaN stays NaN, no text recovers it through the parse check
+        return "NaN".to_string();
+    }
+    let flipped = 1.0 - f64::from(tv);
+    // For tv in [0.5, 2] the f32 flip is already exact (Sterbenz lemma),
+    // the shortest f32 text recovers tv and needs no verification.
+    if (0.5..=2.0).contains(&tv) {
+        return format!("{}", flipped as f32);
+    }
+    let recovers = |s: &str| matches!(s.parse::<f64>(), Ok(v) if (1.0 - v) as f32 == tv);
+    // The shortest f32 text (what a plain f32 flip would write) is optimal
+    // and usually enough.
+    let short = format!("{}", flipped as f32);
+    if recovers(&short) {
+        return short;
+    }
+    for precision in 1..=17 {
+        let s = format!("{flipped:.precision$}");
+        if recovers(&s) {
+            return s;
+        }
+    }
+    // Unrecoverable tv (see the limits above), write the exact f64 flip.
+    format!("{flipped}")
 }
 
 #[derive(Debug)]
@@ -192,10 +249,12 @@ pub(crate) fn read_obj_from_reader_with_options<R: BufRead>(
         // vpinball's ObjLoader::Load (with `convertToLeftHanded=true`)
         // negates Z on vertices and normals and flips V on texcoords.
         // With the flag false those transforms are skipped.
+        // The V flip is done in f64, recovering the f32 tv the write side
+        // flipped bit-for-bit (see flipped_v_text).
         let (z, nz, tv) = if convert_to_left_handed {
-            (-v.2, -vn.z, 1.0 - vt.1.unwrap_or(0.0))
+            (-v.2, -vn.z, (1.0 - vt.1.unwrap_or(0.0)) as f32)
         } else {
-            (v.2, vn.z, vt.1.unwrap_or(0.0))
+            (v.2, vn.z, vt.1.unwrap_or(0.0) as f32)
         };
 
         let vertext = Vertex3dNoTex2 {
@@ -281,7 +340,8 @@ struct VpxObjReader {
     /// matched-indices form. Drives the post-parse normalization fast path.
     needs_normalize: bool,
     vertices: Vec<(f32, f32, f32, Option<f32>)>,
-    texture_coordinates: Vec<(f32, Option<f32>, Option<f32>)>,
+    /// V is kept at f64 precision so the `1 - v` flip back to vpx tv is exact.
+    texture_coordinates: Vec<(f32, Option<f64>, Option<f32>)>,
     normals: Vec<VpxObjNormal>,
     object_count: usize,
     /// keeps the previous comment to be associated with the next normal
@@ -410,7 +470,11 @@ impl VpxObjReader {
     }
 }
 
-impl ObjReader<f32> for VpxObjReader {
+// Floats are parsed at f64 precision: narrowing an f64 parsed from the
+// shortest round-trip text of an f32 yields that f32 again, and the V
+// texture coordinate needs the extra precision for the exact flip back
+// to vpx tv (see flipped_v_text).
+impl ObjReader<f64> for VpxObjReader {
     fn read_comment(&mut self, comment: &str) {
         self.previous_comment = Some(comment.to_string());
     }
@@ -421,17 +485,20 @@ impl ObjReader<f32> for VpxObjReader {
         self.previous_comment = None;
     }
 
-    fn read_vertex(&mut self, x: f32, y: f32, z: f32, w: Option<f32>) {
-        self.vertices.push((x, y, z, w));
+    fn read_vertex(&mut self, x: f64, y: f64, z: f64, w: Option<f64>) {
+        self.vertices
+            .push((x as f32, y as f32, z as f32, w.map(|w| w as f32)));
         self.previous_comment = None;
     }
 
-    fn read_texture_coordinate(&mut self, u: f32, v: Option<f32>, w: Option<f32>) {
-        self.texture_coordinates.push((u, v, w));
+    fn read_texture_coordinate(&mut self, u: f64, v: Option<f64>, w: Option<f64>) {
+        self.texture_coordinates
+            .push((u as f32, v, w.map(|w| w as f32)));
         self.previous_comment = None;
     }
 
-    fn read_normal(&mut self, nx: f32, ny: f32, nz: f32) {
+    fn read_normal(&mut self, nx: f64, ny: f64, nz: f64) {
+        let (nx, ny, nz) = (nx as f32, ny as f32, nz as f32);
         // If on the write side there was a NaN value that will be stored in a comment
         // This way we stay symmetric
         if let Some(comment) = &self.previous_comment {
@@ -528,7 +595,8 @@ impl VpxFace {
 pub(crate) struct ObjData {
     pub name: String,
     pub vertices: Vec<(f32, f32, f32, Option<f32>)>,
-    pub texture_coordinates: Vec<(f32, Option<f32>, Option<f32>)>,
+    /// V is kept at f64 precision so the `1 - v` flip back to vpx tv is exact.
+    pub texture_coordinates: Vec<(f32, Option<f64>, Option<f32>)>,
     pub normals: Vec<VpxObjNormal>,
     /// Indices can also be relative, so they can be negative
     /// stored by three as vertex, texture, normal are all the same
@@ -671,7 +739,7 @@ f 1/1/1 1/1/1 1/1/1
         let expected = ObjData {
             name: "minimal".to_string(),
             vertices: vec![(1.0f32, 2.0f32, 3.0f32, None)],
-            texture_coordinates: vec![(2.0f32, Some(4.0f32), None)],
+            texture_coordinates: vec![(2.0f32, Some(4.0f64), None)],
             normals: vec![VpxObjNormal::new(0.0f32, 1.0f32, 0.0f32, None)],
             indices: vec![VpxFace::new(0, 0, 0)],
         };
@@ -755,7 +823,7 @@ f 1/1/1 1/1/1 1/1/1
         let expected = ObjData {
             name: "with_nan".to_string(),
             vertices: vec![(1.0f32, 2.0f32, 3.0f32, None)],
-            texture_coordinates: vec![(2.0f32, Some(4.0f32), None)],
+            texture_coordinates: vec![(2.0f32, Some(4.0f64), None)],
             normals: vec![
                 VpxObjNormal::new(
                     f32::NAN,
@@ -795,6 +863,76 @@ f 1/1/1 1/1/1 1/1/1
         read_obj(&mut reader).unwrap();
     }
 
+    /// The V flip (`obj_v = 1 - tv`) must recover tv bit-for-bit through a
+    /// write/read cycle. In plain f32 most tv values in (0, 0.5) come back
+    /// an ulp off, which broke bit-exact extract/assemble round-trips.
+    #[test]
+    fn test_tv_flip_roundtrip_bit_exact() -> TestResult {
+        let mut tvs: Vec<f32> = vec![
+            0.0,
+            1.0,
+            0.5,
+            0.25,
+            0.75,
+            // values that do not survive a plain f32 double flip
+            0.001,
+            0.123_456_79,
+            1.0e-3,
+            4.2e-7,
+            // information limit: smallest tv the flipped format can hold
+            2.0f32.powi(-30),
+            // UV tiling values outside [0, 1]
+            -0.265_023,
+            5.3,
+            -4.2,
+        ];
+        // a dense sweep through the f32 range (0, 1)
+        let mut tv = 1.0e-9f32;
+        while tv < 1.0 {
+            tvs.push(tv);
+            tv = f32::from_bits(tv.to_bits() + 99_991);
+        }
+
+        let vertices: Vec<VertexWrapper> = tvs
+            .iter()
+            .map(|&tv| {
+                let vertex = Vertex3dNoTex2 {
+                    x: 1.0,
+                    y: 2.0,
+                    z: 3.0,
+                    nx: 0.0,
+                    ny: 1.0,
+                    nz: 0.0,
+                    tu: 0.5,
+                    tv,
+                };
+                let mut bytes = BytesMut::new();
+                write_vertex(&mut bytes, &vertex, &None);
+                VertexWrapper {
+                    vpx_encoded_vertex: bytes.as_ref().try_into().unwrap(),
+                    vertex,
+                }
+            })
+            .collect();
+        let indices = vec![VpxFace::new(0, 1, 2)];
+
+        let mut buffer = Vec::new();
+        write_obj_to_writer("tv_test", &vertices, &indices, &mut buffer)?;
+        let mut reader = BufReader::new(buffer.as_slice());
+        let read_result = read_obj_from_reader(&mut reader)?;
+
+        assert_eq!(read_result.final_vertices.len(), tvs.len());
+        for (read, &tv) in read_result.final_vertices.iter().zip(tvs.iter()) {
+            assert_eq!(
+                read.tv.to_bits(),
+                tv.to_bits(),
+                "tv {tv:e} not recovered bit-exact, got {:e}",
+                read.tv
+            );
+        }
+        Ok(())
+    }
+
     const VPIN_SCREW2_OBJ_BYTES: &[u8] = include_bytes!("../../testdata/vpin_screw2.obj");
 
     #[test]
@@ -818,7 +956,7 @@ f 1/1/1 1/1/1 1/1/1
 
                 let z = -v.2;
                 let nz = -vn.z;
-                let tv = 1.0 - vt.1.unwrap_or(0.0);
+                let tv = (1.0 - vt.1.unwrap_or(0.0)) as f32;
 
                 // Write position bytes (0-11)
                 let mut cursor = std::io::Cursor::new(&mut bytes[0..12]);
