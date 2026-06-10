@@ -377,7 +377,7 @@ pub fn mesh_to_obj(
                     buffer,
                     "vt {} {}",
                     chunk[0],
-                    crate::vpx::obj::flipped_v_text(chunk[1])
+                    crate::vpx::obj::flipped_v(chunk[1]).text
                 )
                 .map_err(|e| JsError::new(&format!("write failed: {e}")))?;
             }

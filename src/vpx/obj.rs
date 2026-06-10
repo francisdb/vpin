@@ -26,7 +26,7 @@
 //! an ulp, which broke the bit-exact extract/assemble round-trip. The flip
 //! is therefore done at f64 precision on both sides, and the written `vt`
 //! V value gets just enough extra decimal digits that the read side
-//! recovers the original f32 tv bit-for-bit (see [`flipped_v_text`]).
+//! recovers the original f32 tv bit-for-bit (see [`flipped_v`]).
 
 use crate::filesystem::FileSystem;
 use crate::vpx::expanded::BytesMutExt;
@@ -40,14 +40,26 @@ use std::io::{BufRead, ErrorKind};
 use std::path::Path;
 use tracing::{info_span, instrument};
 use wavefront_obj_io::{ObjReader, ObjWriter};
-// We have some issues where the data in the vpx file contains NaN values for normals.
-// Therefore, we came up with an elaborate way to store the vpx normals data as a comment in the obj file.
-// To be seen if we keep this as it comes with considerable overhead.
+// Some vpx files contain NaN values in their vertex data. NaN payload bits
+// cannot survive a text format (every "NaN" parses back as the canonical
+// quiet NaN), so the original vpx bytes are stored in a comment preceding
+// the vertex's vn line.
+// Older versions only covered NaN normals with a 12 byte comment; NaN
+// texture coordinates or positions now get a comment with the full
+// 32 byte encoded vertex. Both forms are understood when reading.
 
-type VpxNormalBytes = [u8; 12];
+/// The original vpx bytes for a vertex with NaN values, carried in a
+/// `# vpx <hex>` comment.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum VpxCommentBytes {
+    /// Legacy form: only the 12 normal bytes (offsets 12..24).
+    Normal([u8; 12]),
+    /// The full 32 byte encoded vertex.
+    Vertex([u8; 32]),
+}
 
-fn obj_vpx_comment(bytes: &VpxNormalBytes) -> String {
-    // a comment with the full normal bytes as hex string
+fn obj_vpx_comment(bytes: &[u8]) -> String {
+    // a comment with the vertex bytes as hex string
     let hex = bytes
         .iter()
         .map(|b| format!("{b:02x}"))
@@ -56,18 +68,24 @@ fn obj_vpx_comment(bytes: &VpxNormalBytes) -> String {
     format!("vpx {hex}")
 }
 
-fn obj_parse_vpx_comment(comment: &str) -> Option<VpxNormalBytes> {
+fn obj_parse_vpx_comment(comment: &str) -> Option<VpxCommentBytes> {
     if let Some(hex) = comment.strip_prefix("vpx ") {
         let bytes = hex
             .split_whitespace()
             .map(|s| u8::from_str_radix(s, 16).unwrap())
             .collect::<Vec<u8>>();
-        if bytes.len() == 12 {
-            let mut result = [0; 12];
-            result.copy_from_slice(&bytes);
-            Some(result)
-        } else {
-            None
+        match bytes.len() {
+            12 => {
+                let mut result = [0; 12];
+                result.copy_from_slice(&bytes);
+                Some(VpxCommentBytes::Normal(result))
+            }
+            32 => {
+                let mut result = [0; 32];
+                result.copy_from_slice(&bytes);
+                Some(VpxCommentBytes::Vertex(result))
+            }
+            _ => None,
         }
     } else {
         None
@@ -113,30 +131,51 @@ pub(crate) fn write_obj_to_writer<W: io::Write>(
         obj_writer.write_vertex(vertex.x, vertex.y, -vertex.z, None)?;
     }
     drop(obj_writer);
+    let mut tv_exact = Vec::with_capacity(vpx_vertices.len());
     for VertexWrapper { vertex, .. } in vpx_vertices {
         // vpinball's WriteVertexInfo flips V on write (tv -> 1 - tv).
         // These lines are written manually as the V value may need more
-        // precision than the f32 obj writer can provide, see flipped_v_text.
-        writeln!(writer, "vt {} {}", vertex.tu, flipped_v_text(vertex.tv))?;
+        // precision than the f32 obj writer can provide, see flipped_v.
+        let v = flipped_v(vertex.tv);
+        writeln!(writer, "vt {} {}", vertex.tu, v.text)?;
+        tv_exact.push(v.exact);
     }
     let mut obj_writer: wavefront_obj_io::IoObjWriter<_, f32> =
         wavefront_obj_io::IoObjWriter::new(&mut *writer);
-    for VertexWrapper {
-        vpx_encoded_vertex,
-        vertex,
-    } in vpx_vertices
+    let mut unrepresentable_vertices = 0u32;
+    for (
+        VertexWrapper {
+            vpx_encoded_vertex,
+            vertex,
+        },
+        tv_exact,
+    ) in vpx_vertices.iter().zip(tv_exact)
     {
-        // if one of the values is NaN we write a special comment with the bytes
-        if vertex.nx.is_nan() || vertex.ny.is_nan() || vertex.nz.is_nan() {
-            warn!("NaN found in vertex normal: {vertex:?}");
-            let data = vpx_encoded_vertex[12..24].try_into()?;
-            let content = obj_vpx_comment(&data);
+        // If one of the values is NaN (payload bits do not survive the text
+        // format) or tv cannot be recovered through the V flip, we write a
+        // special comment with the full encoded vertex bytes. The read side
+        // restores the bytes verbatim.
+        let has_nan = [
+            vertex.x, vertex.y, vertex.z, vertex.nx, vertex.ny, vertex.nz, vertex.tu, vertex.tv,
+        ]
+        .iter()
+        .any(|v| v.is_nan());
+        if has_nan || !tv_exact {
+            unrepresentable_vertices += 1;
+            let content = obj_vpx_comment(vpx_encoded_vertex);
             obj_writer.write_comment(content)?;
         }
         let x = if vertex.nx.is_nan() { 0.0 } else { vertex.nx };
         let y = if vertex.ny.is_nan() { 0.0 } else { vertex.ny };
         let z = if vertex.nz.is_nan() { 0.0 } else { -vertex.nz };
         obj_writer.write_normal(x, y, z)?;
+    }
+    if unrepresentable_vertices > 0 {
+        warn!(
+            "{unrepresentable_vertices} of {} vertices in {name} have NaN or otherwise \
+            unrepresentable values, their vpx bytes are preserved in comments",
+            vpx_vertices.len()
+        );
     }
     // Write all faces in groups of 3. vpinball's WriteFaceInfoLong reverses
     // the winding order ((i0, i1, i2) emitted as `f i2 i1 i0`); we match it.
@@ -171,32 +210,58 @@ pub(crate) fn write_obj_to_writer<W: io::Write>(
 /// * `tv = -0.0` is recovered as `0.0` (`1 - v` cannot produce a negative
 ///   zero) and NaN tv loses its payload bits, like every value in the
 ///   text-based obj format.
-pub(crate) fn flipped_v_text(tv: f32) -> String {
+///
+/// All these cases are reported via [`FlippedV::exact`] so the writer can
+/// preserve the original bytes in a `# vpx <hex>` comment instead.
+pub(crate) struct FlippedV {
+    pub(crate) text: String,
+    /// True when the text recovers tv bit-for-bit through the read side's
+    /// f64 flip, false for the unrecoverable cases listed above.
+    pub(crate) exact: bool,
+}
+
+pub(crate) fn flipped_v(tv: f32) -> FlippedV {
     if tv.is_nan() {
-        // 1 - NaN stays NaN, no text recovers it through the parse check
-        return "NaN".to_string();
+        // 1 - NaN stays NaN, no text recovers the payload bits
+        return FlippedV {
+            text: "NaN".to_string(),
+            exact: false,
+        };
     }
     let flipped = 1.0 - f64::from(tv);
     // For tv in [0.5, 2] the f32 flip is already exact (Sterbenz lemma),
     // the shortest f32 text recovers tv and needs no verification.
     if (0.5..=2.0).contains(&tv) {
-        return format!("{}", flipped as f32);
+        return FlippedV {
+            text: format!("{}", flipped as f32),
+            exact: true,
+        };
     }
-    let recovers = |s: &str| matches!(s.parse::<f64>(), Ok(v) if (1.0 - v) as f32 == tv);
+    let recovers =
+        |s: &str| matches!(s.parse::<f64>(), Ok(v) if ((1.0 - v) as f32).to_bits() == tv.to_bits());
     // The shortest f32 text (what a plain f32 flip would write) is optimal
     // and usually enough.
     let short = format!("{}", flipped as f32);
     if recovers(&short) {
-        return short;
+        return FlippedV {
+            text: short,
+            exact: true,
+        };
     }
     for precision in 1..=17 {
         let s = format!("{flipped:.precision$}");
         if recovers(&s) {
-            return s;
+            return FlippedV {
+                text: s,
+                exact: true,
+            };
         }
     }
     // Unrecoverable tv (see the limits above), write the exact f64 flip.
-    format!("{flipped}")
+    FlippedV {
+        text: format!("{flipped}"),
+        exact: false,
+    }
 }
 
 #[derive(Debug)]
@@ -292,16 +357,17 @@ pub(crate) fn write_vertex_index_for_vpx(
     }
 }
 
-fn write_vertex(
-    buff: &mut BytesMut,
-    vertex: &Vertex3dNoTex2,
-    vpx_vertex_normal_data: &Option<[u8; 12]>,
-) {
+fn write_vertex(buff: &mut BytesMut, vertex: &Vertex3dNoTex2, vpx_bytes: &Option<VpxCommentBytes>) {
+    if let Some(VpxCommentBytes::Vertex(bytes)) = vpx_bytes {
+        // the full original vertex was preserved in a comment
+        buff.put_slice(bytes);
+        return;
+    }
     buff.put_f32_le(vertex.x);
     buff.put_f32_le(vertex.y);
     buff.put_f32_le(vertex.z);
     // normals
-    if let Some(bytes) = vpx_vertex_normal_data {
+    if let Some(VpxCommentBytes::Normal(bytes)) = vpx_bytes {
         buff.put_slice(bytes);
     } else {
         buff.put_f32_le_nan_as_zero(vertex.nx);
@@ -560,11 +626,12 @@ pub(crate) struct VpxObjNormal {
     pub(crate) x: f32,
     pub(crate) y: f32,
     pub(crate) z: f32,
-    // in case the normal had NaN values, we store the original vpx bytes here
-    vpx_bytes: Option<VpxNormalBytes>,
+    // in case the vertex had NaN or otherwise unrepresentable values, the
+    // original vpx bytes from the preceding `# vpx <hex>` comment go here
+    vpx_bytes: Option<VpxCommentBytes>,
 }
 impl VpxObjNormal {
-    fn new(x: f32, y: f32, z: f32, vpx_bytes: Option<VpxNormalBytes>) -> Self {
+    fn new(x: f32, y: f32, z: f32, vpx_bytes: Option<VpxCommentBytes>) -> Self {
         Self { x, y, z, vpx_bytes }
     }
 }
@@ -829,7 +896,9 @@ f 1/1/1 1/1/1 1/1/1
                     f32::NAN,
                     1.0f32,
                     0.0f32,
-                    Some([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
+                    Some(VpxCommentBytes::Normal([
+                        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+                    ])),
                 ),
                 VpxObjNormal::new(1.0f32, 2.0f32, 3.0f32, None),
             ],
@@ -861,6 +930,84 @@ f 1/1/1 1/1/1 1/1/1
         "#;
         let mut reader = BufReader::new(obj_contents.as_bytes());
         read_obj(&mut reader).unwrap();
+    }
+
+    /// Vertices with values the obj text cannot represent (NaN payload bits
+    /// anywhere, tv values that cannot survive the V flip) must round-trip
+    /// bit-exact via the full-vertex `# vpx <hex>` comment.
+    #[test]
+    fn test_unrepresentable_vertex_bytes_roundtrip() -> TestResult {
+        fn encode(v: &Vertex3dNoTex2) -> [u8; 32] {
+            let mut b = [0u8; 32];
+            for (i, f) in [v.x, v.y, v.z, v.nx, v.ny, v.nz, v.tu, v.tv]
+                .iter()
+                .enumerate()
+            {
+                b[i * 4..i * 4 + 4].copy_from_slice(&f.to_le_bytes());
+            }
+            b
+        }
+        let base = Vertex3dNoTex2 {
+            x: 1.0,
+            y: 2.0,
+            z: 3.0,
+            nx: 0.0,
+            ny: 1.0,
+            nz: 0.0,
+            tu: 0.5,
+            tv: 0.25,
+        };
+        let vertices: Vec<VertexWrapper> = [
+            // negative zero tv (1 - v can never produce it)
+            Vertex3dNoTex2 { tv: -0.0, ..base },
+            // tv below the flipped representation's information limit
+            Vertex3dNoTex2 {
+                tv: f32::from_bits(0x22c00000), // 5.2e-18
+                ..base
+            },
+            // NaN with non-canonical payload bits in tu
+            Vertex3dNoTex2 {
+                tu: f32::from_bits(0xffc00123),
+                ..base
+            },
+            // NaN with non-canonical payload bits in tv
+            Vertex3dNoTex2 {
+                tv: f32::from_bits(0x7fa00001),
+                ..base
+            },
+            // NaN position
+            Vertex3dNoTex2 {
+                x: f32::from_bits(0xffa00042),
+                ..base
+            },
+            // control vertex, needs no preservation
+            base,
+        ]
+        .into_iter()
+        .map(|vertex| VertexWrapper {
+            vpx_encoded_vertex: encode(&vertex),
+            vertex,
+        })
+        .collect();
+        let indices = vec![VpxFace::new(0, 1, 2)];
+
+        let mut buffer = Vec::new();
+        write_obj_to_writer("nan_test", &vertices, &indices, &mut buffer)?;
+        let obj_text = String::from_utf8(buffer.clone())?;
+        assert_eq!(
+            obj_text.matches("# vpx ").count(),
+            5,
+            "expected a byte comment for each unrepresentable vertex:\n{obj_text}"
+        );
+
+        let mut reader = BufReader::new(buffer.as_slice());
+        let read_result = read_obj_from_reader(&mut reader)?;
+        let original_bytes: Vec<u8> = vertices.iter().flat_map(|v| v.vpx_encoded_vertex).collect();
+        assert_eq!(
+            read_result.vpx_encoded_vertices.as_ref(),
+            original_bytes.as_slice()
+        );
+        Ok(())
     }
 
     /// The V flip (`obj_v = 1 - tv`) must recover tv bit-for-bit through a
@@ -966,7 +1113,9 @@ f 1/1/1 1/1/1 1/1/1
 
                 // Write normal bytes (12-23)
                 // If we have VPX bytes from OBJ, use them, otherwise encode the floats
-                if let Some(vpx_bytes) = &vn.vpx_bytes {
+                if let Some(VpxCommentBytes::Vertex(vpx_bytes)) = &vn.vpx_bytes {
+                    bytes.copy_from_slice(vpx_bytes);
+                } else if let Some(VpxCommentBytes::Normal(vpx_bytes)) = &vn.vpx_bytes {
                     bytes[12..24].copy_from_slice(vpx_bytes);
                 } else {
                     // Encode normals as floats
@@ -1069,10 +1218,18 @@ f 1/1/1 1/1/1 1/1/1
 
     #[test]
     fn test_write_read_vpx_comment() {
-        let bytes: VpxNormalBytes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+        let bytes: [u8; 12] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
         let comment = obj_vpx_comment(&bytes);
         let parsed = obj_parse_vpx_comment(&comment).unwrap();
-        assert_eq!(bytes, parsed);
+        assert_eq!(VpxCommentBytes::Normal(bytes), parsed);
+    }
+
+    #[test]
+    fn test_write_read_vpx_comment_full_vertex() {
+        let bytes: [u8; 32] = std::array::from_fn(|i| i as u8);
+        let comment = obj_vpx_comment(&bytes);
+        let parsed = obj_parse_vpx_comment(&comment).unwrap();
+        assert_eq!(VpxCommentBytes::Vertex(bytes), parsed);
     }
 
     #[test]
