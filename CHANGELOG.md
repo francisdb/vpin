@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.6](https://github.com/francisdb/vpin/compare/v0.26.5...v0.26.6) - 2026-06-10
+
+### Fixed
+
+- make internal_name optional when reading sounds.json ([#322](https://github.com/francisdb/vpin/pull/322))
+
 ## [0.26.5](https://github.com/francisdb/vpin/compare/v0.26.4...v0.26.5) - 2026-06-02
 
 ### Added
