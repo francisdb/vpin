@@ -45,17 +45,15 @@ mod test {
         // * Affected by https://github.com/vpinball/vpinball/pull/2286
         //    - CAPTAINSPAULDINGv1.0.vpx - contains boolean value that is not 0 or 1
         //    - RM054.vpx (Rick & Morty Wip)
-        // * TODO something with the M3CX
-        //    - Stranger Things 4 LPE 1.0 (Limited PRO Edition).vpx something with the M3CX
-        //    - Stranger Things 4 Premium.vpx also has problems with the M3CX
-        //    - Ghostbusters LE_4_1 - VLM - VLM - VLM2 - VLM4 - VLM.vpx is messed up, invalid bools and out of sync materials
+        // * Stranger Things 4 (LPE 1.0 / Premium) - NaN texture coordinates,
+        //   their payload bits are now preserved via obj comments
+        // * Ghostbusters LE_4_1 - VLM - VLM - VLM2 - VLM4 - VLM.vpx is messed up, invalid bools and out of sync materials
         let filtered: Vec<&PathBuf> = paths
             .iter()
             .filter(|path| {
                 let name = path.file_name().unwrap().to_str().unwrap();
                 !name.contains("CAPTAINSPAULDINGv1.0")
                     && !name.contains("RM054")
-                    && !name.contains("Stranger Things 4")
                     && !name.contains("Ghostbusters LE_4_1 - VLM - VLM - VLM2 - VLM4 - VLM")
             })
             .collect();
