@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.7](https://github.com/francisdb/vpin/compare/v0.26.6...v0.26.7) - 2026-06-10
+
+### Fixed
+
+- preserve vertex bytes that obj text cannot represent ([#326](https://github.com/francisdb/vpin/pull/326))
+- make the obj V texture coordinate flip lossless ([#324](https://github.com/francisdb/vpin/pull/324))
+
+### Other
+
+- name the byte preservation decision
+- start the flipped V precision search at an estimate
+
 ## [0.26.6](https://github.com/francisdb/vpin/compare/v0.26.5...v0.26.6) - 2026-06-10
 
 ### Fixed
