@@ -124,6 +124,9 @@ pub struct SoundData {
 pub(crate) struct SoundDataJson {
     name: String,
     path: String,
+    /// Not used by vpinball, kept for binary format compatibility.
+    /// Optional as other tools writing the json might not provide it.
+    #[serde(default)]
     internal_name: String,
     fade: u32,
     volume: u32,
@@ -580,6 +583,22 @@ mod test {
         sound.path = "test.mp3".to_string();
         assert_eq!(sound.ext(), "mp3".to_string());
         assert!(!is_wav(&sound.path));
+    }
+
+    /// Other tools writing sounds.json might not provide the unused internal_name field.
+    /// https://github.com/jsm174/vpx-editor/issues/55
+    #[test]
+    fn test_json_missing_internal_name() {
+        let json = serde_json::json!({
+            "name": "test name",
+            "path": "test path.ogg",
+            "fade": 0,
+            "volume": 0,
+            "balance": 0,
+            "output_target": "table",
+        });
+        let sound: SoundDataJson = serde_json::from_value(json).unwrap();
+        assert_eq!(sound.internal_name, "");
     }
 
     #[test]
