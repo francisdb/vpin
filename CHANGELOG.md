@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.8](https://github.com/francisdb/vpin/compare/v0.26.7...v0.26.8) - 2026-06-11
+
+### Added
+
+- make material physics properties public
+
 ## [0.26.7](https://github.com/francisdb/vpin/compare/v0.26.6...v0.26.7) - 2026-06-10
 
 ### Fixed
