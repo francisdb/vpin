@@ -339,11 +339,11 @@ impl SaveMaterial {
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct SavePhysicsMaterial {
-    name: String,
-    elasticity: f32,
-    elasticity_falloff: f32,
-    friction: f32,
-    scatter_angle: f32,
+    pub name: String,
+    pub elasticity: f32,
+    pub elasticity_falloff: f32,
+    pub friction: f32,
+    pub scatter_angle: f32,
 }
 
 impl From<&Material> for SavePhysicsMaterial {
@@ -523,10 +523,10 @@ pub struct Material {
     pub opacity_active: bool,
 
     // physic properties
-    elasticity: f32,
-    elasticity_falloff: f32,
-    friction: f32,
-    scatter_angle: f32,
+    pub elasticity: f32,
+    pub elasticity_falloff: f32,
+    pub friction: f32,
+    pub scatter_angle: f32,
 
     refraction_tint: Color, // 10.8+ only
 }
