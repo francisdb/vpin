@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.9](https://github.com/francisdb/vpin/compare/v0.26.8...v0.26.9) - 2026-06-12
+
+### Added
+
+- make the gameitem mesh modules public ([#330](https://github.com/francisdb/vpin/pull/330))
+
 ## [0.26.8](https://github.com/francisdb/vpin/compare/v0.26.7...v0.26.8) - 2026-06-11
 
 ### Added
