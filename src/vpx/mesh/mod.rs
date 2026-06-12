@@ -1,22 +1,22 @@
 //! Mesh generation
 
-pub(crate) mod balls;
+pub mod balls;
 pub(crate) mod builtin_primitive;
-pub(crate) mod bumpers;
+pub mod bumpers;
 pub(crate) mod decals;
 pub(crate) mod flashers;
-pub(crate) mod flippers;
-pub(crate) mod gates;
-pub(crate) mod hittargets;
-pub(crate) mod kickers;
-pub(crate) mod lights;
+pub mod flippers;
+pub mod gates;
+pub mod hittargets;
+pub mod kickers;
+pub mod lights;
 pub(crate) mod mesh_validation;
 pub(crate) mod playfields;
-pub(crate) mod plungers;
-pub(crate) mod ramps;
+pub mod plungers;
+pub mod ramps;
 pub(crate) mod rubbers;
 pub mod spinners;
-pub(crate) mod triggers;
+pub mod triggers;
 pub(crate) mod walls;
 
 /// Static detail level used by VPinball to approximate ramps and rubbers for physics/collision code.
