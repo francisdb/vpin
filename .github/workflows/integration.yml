@@ -17,14 +17,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Install minimal stable
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2.9.1
       - name: Check out vpinball repository inside the project folder
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: vpinball/vpinball
           path: vpinball
