@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.10](https://github.com/francisdb/vpin/compare/v0.26.9...v0.26.10) - 2026-07-18
+
+### Fixed
+
+- handle unknown GateType values instead of panicking ([#335](https://github.com/francisdb/vpin/pull/335))
+
+### Other
+
+- fix clippy redundant reference warnings
+- *(deps)* bump actions/checkout from 6 to 7 ([#332](https://github.com/francisdb/vpin/pull/332))
+
 ## [0.26.9](https://github.com/francisdb/vpin/compare/v0.26.8...v0.26.9) - 2026-06-12
 
 ### Added
