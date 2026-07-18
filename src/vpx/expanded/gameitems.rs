@@ -76,7 +76,7 @@ pub(super) fn write_gameitems<P: AsRef<Path>>(
 
     for (idx, gameitem) in gameitems.iter().enumerate() {
         let file_name = gameitem_filename_stem(&mut file_name_gen, gameitem);
-        let file_name_json = format!("{}.json", &file_name);
+        let file_name_json = format!("{}.json", file_name);
         let gameitem_info = GameItemInfoJson {
             file_name: file_name_json.clone(),
             is_locked: gameitem.is_locked(),

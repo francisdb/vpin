@@ -47,7 +47,7 @@ pub(super) fn write_images<P: AsRef<Path>>(
             if name_sanitized != image.name {
                 info!(
                     "Image name {} contained invalid characters, sanitized to {}",
-                    image.name, &name_sanitized
+                    image.name, name_sanitized
                 );
                 json.name_dedup = Some(name_sanitized.clone());
             }
@@ -57,7 +57,7 @@ pub(super) fn write_images<P: AsRef<Path>>(
                 let name_dedup = format!("{}_dedup{}", image.name, image_names_dupe_counter);
                 info!(
                     "Image name {} is not unique, renaming file to {}",
-                    name_sanitized, &name_dedup
+                    name_sanitized, name_dedup
                 );
                 json.name_dedup = Some(name_dedup);
             }

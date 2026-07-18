@@ -28,7 +28,7 @@ pub(super) fn write_sounds<P: AsRef<Path>>(
             if name_sanitized != sound.name {
                 info!(
                     "Sound name {} contained invalid characters, sanitized to {}",
-                    sound.name, &name_sanitized
+                    sound.name, name_sanitized
                 );
                 json.name_dedup = Some(name_sanitized.clone());
             }
@@ -38,7 +38,7 @@ pub(super) fn write_sounds<P: AsRef<Path>>(
                 let name_dedup = format!("{}_dedup{}", sound.name, sound_names_dupe_counter);
                 info!(
                     "Sound name {} is not unique, renaming file to {}",
-                    name_sanitized, &name_dedup
+                    name_sanitized, name_dedup
                 );
                 json.name_dedup = Some(name_dedup);
             }

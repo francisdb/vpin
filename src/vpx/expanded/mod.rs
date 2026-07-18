@@ -290,7 +290,7 @@ pub fn read_fs<P: AsRef<Path>>(expanded_dir: &P, fs: &dyn FileSystem) -> io::Res
     let version = Version::parse(&version_string).map_err(|e| {
         io::Error::new(
             io::ErrorKind::InvalidData,
-            format!("Could not parse version {}: {}", &version_string, e),
+            format!("Could not parse version {}: {}", version_string, e),
         )
     })?;
 

@@ -46,7 +46,7 @@ where
         // we seem to be getting other NaN values than f32::NAN
         let bytes = value.to_le_bytes();
         let hex_string = hex::encode(bytes);
-        let nan = format!("NaN|{}", &hex_string);
+        let nan = format!("NaN|{}", hex_string);
         serializer.serialize_str(&nan)
     } else if value.is_sign_positive() && value.is_infinite() {
         let inf = "Inf";
