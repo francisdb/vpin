@@ -48,6 +48,9 @@ fn get_mesh_for_type(gate_type: &GateType) -> (&'static [Vertex3dNoTex2], &'stat
         GateType::WireRectangle => (&GATE_WIRE_RECTANGLE_MESH, &GATE_WIRE_RECTANGLE_INDICES),
         GateType::Plate => (&GATE_PLATE_MESH, &GATE_PLATE_INDICES),
         GateType::LongPlate => (&GATE_LONG_PLATE_MESH, &GATE_LONG_PLATE_INDICES),
+        // VPinball falls back to the wire W mesh for out-of-range gate types,
+        // see Gate load code in vpinball src/parts/gate.cpp
+        GateType::Unknown(_) => (&GATE_WIRE_MESH, &GATE_WIRE_INDICES),
     }
 }
 
