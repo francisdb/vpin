@@ -27,6 +27,16 @@ pub enum GateType {
     Unknown(u32),
 }
 
+impl GateType {
+    /// The gate type to fall back to when the stored value is
+    /// [`GateType::Unknown`] or the `GATY` tag is missing altogether.
+    ///
+    /// Visual Pinball coerces any out-of-range gate type to `GateWireW` at load
+    /// time (since svn r3583 / git 8cc5a7a1a) and also uses it as the default
+    /// for tables predating the `GATY` tag.
+    pub const UNKNOWN_FALLBACK: GateType = GateType::WireW;
+}
+
 impl From<u32> for GateType {
     fn from(value: u32) -> Self {
         match value {
