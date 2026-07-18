@@ -48,6 +48,7 @@ fn get_mesh_for_type(gate_type: &GateType) -> (&'static [Vertex3dNoTex2], &'stat
         GateType::WireRectangle => (&GATE_WIRE_RECTANGLE_MESH, &GATE_WIRE_RECTANGLE_INDICES),
         GateType::Plate => (&GATE_PLATE_MESH, &GATE_PLATE_INDICES),
         GateType::LongPlate => (&GATE_LONG_PLATE_MESH, &GATE_LONG_PLATE_INDICES),
+        GateType::Unknown(_) => get_mesh_for_type(&GateType::UNKNOWN_FALLBACK),
     }
 }
 
@@ -189,7 +190,10 @@ pub fn build_gate_meshes(gate: &Gate) -> Option<GateMeshes> {
 /// runtime visibility flag) - it only filters at the table level via
 /// `m_uiVisible`. The OBJ exporter uses this variant to match.
 pub(crate) fn build_gate_meshes_unchecked(gate: &Gate) -> Option<GateMeshes> {
-    let gate_type = gate.gate_type.as_ref().unwrap_or(&GateType::WireW);
+    let gate_type = gate
+        .gate_type
+        .as_ref()
+        .unwrap_or(&GateType::UNKNOWN_FALLBACK);
     let (mesh, indices) = get_mesh_for_type(gate_type);
 
     Some(GateMeshes {

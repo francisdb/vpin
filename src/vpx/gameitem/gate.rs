@@ -8,10 +8,33 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[derive(Debug, PartialEq, Clone)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum GateType {
-    WireW = 1,
-    WireRectangle = 2,
-    Plate = 3,
-    LongPlate = 4,
+    WireW,
+    WireRectangle,
+    Plate,
+    LongPlate,
+    /// Any value outside the known range 1-4, seen as 0 in the wild, for example in
+    /// "Algar (1980)", "Asteroid Annie (1980)", "Fireball II (1981)", "Tri Zone (1979)".
+    ///
+    /// Visual Pinball introduced the gate type (GATY tag) in November 2015
+    /// (svn r2396 / git db10b60b7) but did not initialize `m_type` when loading
+    /// older tables that lacked the tag, while unconditionally writing it on save.
+    /// Tables re-saved with a build from that era thus got uninitialized memory,
+    /// in practice usually 0, persisted as their gate type. Since December 2018
+    /// (svn r3583 / git 8cc5a7a1a) Visual Pinball falls back to `GateWireW` for any
+    /// out-of-range value at load time, but never rewrites the file.
+    ///
+    /// The raw value is kept here so that files round-trip unchanged.
+    Unknown(u32),
+}
+
+impl GateType {
+    /// The gate type to fall back to when the stored value is
+    /// [`GateType::Unknown`] or the `GATY` tag is missing altogether.
+    ///
+    /// Visual Pinball coerces any out-of-range gate type to `GateWireW` at load
+    /// time (since svn r3583 / git 8cc5a7a1a) and also uses it as the default
+    /// for tables predating the `GATY` tag.
+    pub const UNKNOWN_FALLBACK: GateType = GateType::WireW;
 }
 
 impl From<u32> for GateType {
@@ -21,7 +44,7 @@ impl From<u32> for GateType {
             2 => GateType::WireRectangle,
             3 => GateType::Plate,
             4 => GateType::LongPlate,
-            _ => panic!("Unknown GateType: {value}"),
+            other => GateType::Unknown(other),
         }
     }
 }
@@ -33,10 +56,12 @@ impl From<GateType> for u32 {
             GateType::WireRectangle => 2,
             GateType::Plate => 3,
             GateType::LongPlate => 4,
+            GateType::Unknown(value) => value,
         }
     }
 }
 
+/// Serialize to lowercase string, or the raw number for unknown values
 impl Serialize for GateType {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -47,27 +72,57 @@ impl Serialize for GateType {
             GateType::WireRectangle => serializer.serialize_str("wire_rectangle"),
             GateType::Plate => serializer.serialize_str("plate"),
             GateType::LongPlate => serializer.serialize_str("long_plate"),
+            GateType::Unknown(value) => serializer.serialize_u32(*value),
         }
     }
 }
 
+/// Deserialize from lowercase string or number
 impl<'de> Deserialize<'de> for GateType {
     fn deserialize<D>(deserializer: D) -> Result<GateType, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let value = String::deserialize(deserializer)?;
-        let s = value.as_str();
-        match s {
-            "wire_w" => Ok(GateType::WireW),
-            "wire_rectangle" => Ok(GateType::WireRectangle),
-            "plate" => Ok(GateType::Plate),
-            "long_plate" => Ok(GateType::LongPlate),
-            _ => Err(serde::de::Error::unknown_variant(
-                s,
-                &["wire_w", "wire_rectangle", "plate", "long_plate"],
-            )),
+        struct GateTypeVisitor;
+
+        impl serde::de::Visitor<'_> for GateTypeVisitor {
+            type Value = GateType;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a string or number representing a GateType")
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<GateType, E>
+            where
+                E: serde::de::Error,
+            {
+                let value = u32::try_from(value).map_err(|_| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Unsigned(value),
+                        &"a number that fits in a u32",
+                    )
+                })?;
+                Ok(GateType::from(value))
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<GateType, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "wire_w" => Ok(GateType::WireW),
+                    "wire_rectangle" => Ok(GateType::WireRectangle),
+                    "plate" => Ok(GateType::Plate),
+                    "long_plate" => Ok(GateType::LongPlate),
+                    _ => Err(serde::de::Error::unknown_variant(
+                        value,
+                        &["wire_w", "wire_rectangle", "plate", "long_plate"],
+                    )),
+                }
+            }
         }
+
+        deserializer.deserialize_any(GateTypeVisitor)
     }
 }
 
@@ -482,6 +537,37 @@ mod tests {
         assert_eq!(json, "\"wire_rectangle\"");
         let gate_type_read: GateType = serde_json::from_str(&json).unwrap();
         assert_eq!(gate_type, gate_type_read);
+    }
+
+    #[test]
+    fn test_gate_type_unknown() {
+        // gate type 0 exists in old tables re-saved with 2015-2018 VPX builds,
+        // see https://github.com/francisdb/vpin/issues/334
+        assert_eq!(GateType::from(0u32), GateType::Unknown(0));
+        assert_eq!(u32::from(GateType::Unknown(0)), 0u32);
+        assert_eq!(GateType::from(7u32), GateType::Unknown(7));
+        assert_eq!(u32::from(GateType::Unknown(7)), 7u32);
+    }
+
+    #[test]
+    fn test_gate_type_unknown_json() {
+        let gate_type = GateType::Unknown(0);
+        let json = serde_json::to_string(&gate_type).unwrap();
+        assert_eq!(json, "0");
+        let gate_type_read: GateType = serde_json::from_str(&json).unwrap();
+        assert_eq!(gate_type, gate_type_read);
+    }
+
+    #[test]
+    fn test_write_read_unknown_gate_type() {
+        let gate = Gate {
+            gate_type: Some(GateType::Unknown(0)),
+            ..Default::default()
+        };
+        let mut writer = BiffWriter::new();
+        Gate::biff_write(&gate, &mut writer);
+        let gate_read = Gate::biff_read(&mut BiffReader::new(writer.get_data()));
+        assert_eq!(gate, gate_read);
     }
 
     #[test]
