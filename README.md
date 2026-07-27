@@ -4,8 +4,8 @@
 [![Docs.rs](https://docs.rs/vpin/badge.svg)](https://docs.rs/vpin)
 [![npm](https://img.shields.io/npm/v/@francisdb/vpin-wasm.svg)](https://www.npmjs.com/package/@francisdb/vpin-wasm)
 
-Rust library for working with Visual Pinball VPX files. Also available on npm
-as a WASM package: [`@francisdb/vpin-wasm`](https://www.npmjs.com/package/@francisdb/vpin-wasm).
+Rust library for working with Visual Pinball VPX files. Also available on npm as a WASM package: [
+`@francisdb/vpin-wasm`](https://www.npmjs.com/package/@francisdb/vpin-wasm).
 
 Join [#vpxtool on "Virtual Pinball Chat" discord](https://discord.gg/eYsvyMu8) for support and questions.
 
@@ -108,8 +108,8 @@ https://github.com/jsm174/vpx-editor
 
 ## Running the integration tests
 
-We expect a folder `~/vpinball/tables` to exist that contains a lot of `vpx` files. The tests will
-recursively search for these files and run the tests on them.
+We expect a folder `~/vpinball/tables` to exist that contains a lot of `vpx` files. The tests will recursively search
+for these files and run the tests on them.
 
 ```bash
 cargo test --release -- --ignored --nocapture
@@ -120,6 +120,12 @@ cargo test --release -- --ignored --nocapture
 ```bash
 # Install the target and wasmtime (do this only once)
 rustup target add wasm32-wasip1
+
+# Recommended, installs a prebuilt binary in seconds.
+# See https://docs.wasmtime.dev/cli-install.html for other options like your package manager
+curl https://wasmtime.dev/install.sh -sSf | bash
+
+# Alternative, builds wasmtime from source which takes over 5 minutes
 cargo install wasmtime-cli
 
 # Run tests
