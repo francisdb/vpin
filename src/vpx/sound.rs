@@ -202,6 +202,7 @@ fn write_wav_header2(sound_data: &SoundData) -> Vec<u8> {
         bits_per_sample: sound_data.wave_form.bits_per_sample,
         extension_size,
         extension_fields: Vec::new(),
+        pre_fmt_fields: Vec::new(),
         extra_fields: Vec::new(),
         data_size: data_len,
     };

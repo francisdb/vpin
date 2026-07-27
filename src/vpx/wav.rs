@@ -29,7 +29,9 @@ pub(crate) struct WavHeader {
     pub(crate) extension_size: Option<u16>,
     /// The bytes of the fmt chunk that follow cbSize
     pub(crate) extension_fields: Vec<u8>,
-    /// Chunks between the fmt chunk and the data chunk (e.g. "fact" or "LIST")
+    /// Chunks before the fmt chunk (e.g. "JUNK" or "bext"), kept verbatim
+    pub(crate) pre_fmt_fields: Vec<u8>,
+    /// Chunks between the fmt chunk and the data chunk (e.g. "fact" or "LIST"), kept verbatim
     pub(crate) extra_fields: Vec<u8>,
     pub(crate) data_size: u32,
 }
@@ -67,6 +69,7 @@ impl Default for WavHeader {
             bits_per_sample: 16,
             extension_size: None,
             extension_fields: Vec::new(),
+            pre_fmt_fields: Vec::new(),
             extra_fields: Vec::new(),
             data_size: 0,
         }
@@ -77,6 +80,8 @@ pub(crate) fn write_wav_header(wav_header: &WavHeader, writer: &mut BytesMut) {
     writer.put(&b"RIFF"[..]);
     writer.put_u32_le(wav_header.size);
     writer.put(&b"WAVE"[..]);
+    // write chunks that came before the fmt chunk (e.g. "JUNK" or "bext")
+    writer.put(&wav_header.pre_fmt_fields[..]);
     writer.put(&b"fmt "[..]);
     writer.put_u32_le(wav_header.fmt_size);
     writer.put_u16_le(wav_header.format_tag);
@@ -89,53 +94,130 @@ pub(crate) fn write_wav_header(wav_header: &WavHeader, writer: &mut BytesMut) {
         writer.put_u16_le(extension_size);
         writer.put(&wav_header.extension_fields[..]);
     }
+    if wav_header.fmt_size % 2 == 1 {
+        // RIFF chunks are word aligned, an odd sized chunk is followed by a pad byte
+        writer.put_u8(0);
+    }
     // write extra chunks between fmt and data (e.g. "fact" chunk)
     writer.put(&wav_header.extra_fields[..]);
     writer.put(&b"data"[..]);
     writer.put_u32_le(wav_header.data_size);
 }
 
+/// The parts of a WavHeader that come from the fmt chunk
+struct FmtChunk {
+    fmt_size: u32,
+    format_tag: u16,
+    channels: u16,
+    samples_per_sec: u32,
+    avg_bytes_per_sec: u32,
+    block_align: u16,
+    bits_per_sample: u16,
+    extension_size: Option<u16>,
+    extension_fields: Vec<u8>,
+}
+
+/// Walks the RIFF chunks until the data chunk, picking out the fmt chunk on the way.
+/// Chunks we do not know are kept verbatim so we can write them back in the same order.
+/// The fmt chunk is not required to come first, files with a "JUNK" or "bext" chunk in
+/// front of it are valid.
 pub(crate) fn read_wav_header(reader: &mut BytesMut) -> io::Result<WavHeader> {
     reader.expect_bytes(b"RIFF")?;
     let size = reader.read_u32_le()?;
     reader.expect_bytes(b"WAVE")?;
-    reader.expect_bytes(b"fmt ")?;
-    let fmt_size = reader.read_u32_le()?;
-    if fmt_size < FMT_SIZE_MIN {
+
+    let mut fmt: Option<FmtChunk> = None;
+    let mut pre_fmt_fields: Vec<u8> = Vec::new();
+    let mut extra_fields: Vec<u8> = Vec::new();
+
+    loop {
+        let chunk_id: [u8; 4] = reader.read_bytes()?;
+        if !is_chunk_id(&chunk_id) {
+            return Err(invalid_data(format!(
+                "unexpected wav chunk id {:?} while looking for the data chunk",
+                String::from_utf8_lossy(&chunk_id)
+            )));
+        }
+        let chunk_size = reader.read_u32_le()?;
+
+        if chunk_id == *b"data" {
+            let fmt = fmt.ok_or_else(|| {
+                invalid_data("wav has no fmt chunk before the data chunk".to_string())
+            })?;
+            return Ok(WavHeader {
+                size,
+                fmt_size: fmt.fmt_size,
+                format_tag: fmt.format_tag,
+                channels: fmt.channels,
+                samples_per_sec: fmt.samples_per_sec,
+                avg_bytes_per_sec: fmt.avg_bytes_per_sec,
+                block_align: fmt.block_align,
+                bits_per_sample: fmt.bits_per_sample,
+                extension_size: fmt.extension_size,
+                extension_fields: fmt.extension_fields,
+                pre_fmt_fields,
+                extra_fields,
+                data_size: chunk_size,
+            });
+        }
+
+        if chunk_id == *b"fmt " {
+            if fmt.is_some() {
+                return Err(invalid_data("wav has more than one fmt chunk".to_string()));
+            }
+            fmt = Some(read_fmt_chunk(reader, chunk_size)?);
+            continue;
+        }
+
+        // RIFF chunks are word aligned, an odd sized chunk is followed by a pad byte.
+        // Compute in u64, this overflows usize on 32 bit targets for a bogus size.
+        let padded_size = (chunk_size as u64).next_multiple_of(2);
+        // keep the chunk verbatim, including the pad byte, so we can write it back as is
+        let payload = reader.read_bytes_vec(padded_size)?;
+        let target = if fmt.is_some() {
+            &mut extra_fields
+        } else {
+            &mut pre_fmt_fields
+        };
+        target.extend_from_slice(&chunk_id);
+        target.extend_from_slice(&chunk_size.to_le_bytes());
+        target.extend_from_slice(&payload);
+    }
+}
+
+fn read_fmt_chunk(reader: &mut BytesMut, fmt_size: u32) -> io::Result<FmtChunk> {
+    if fmt_size != FMT_SIZE_MIN && fmt_size < FMT_SIZE_EXTENSIBLE {
         return Err(invalid_data(format!(
-            "wav fmt chunk is {fmt_size} bytes, expected at least {FMT_SIZE_MIN}"
+            "wav fmt chunk is {fmt_size} bytes, expected {FMT_SIZE_MIN} or at least {FMT_SIZE_EXTENSIBLE}"
         )));
     }
-    let format_tag = reader.read_u16_le()?;
-    let channels = reader.read_u16_le()?;
-    let samples_per_sec = reader.read_u32_le()?;
-    let avg_bytes_per_sec = reader.read_u32_le()?;
-    let block_align = reader.read_u16_le()?;
-    let bits_per_sample = reader.read_u16_le()?;
+    let mut chunk =
+        BytesMut::from(&reader.read_bytes_vec((fmt_size as u64).next_multiple_of(2))?[..]);
+    let format_tag = chunk.read_u16_le()?;
+    let channels = chunk.read_u16_le()?;
+    let samples_per_sec = chunk.read_u32_le()?;
+    let avg_bytes_per_sec = chunk.read_u32_le()?;
+    let block_align = chunk.read_u16_le()?;
+    let bits_per_sample = chunk.read_u16_le()?;
 
     // Whether the cbSize extension field is present is decided by the size of the fmt chunk,
     // not by the format tag. Both a 16 byte (PCMWAVEFORMAT) and an 18 byte (WAVEFORMATEX)
     // fmt chunk are seen in the wild for PCM (format_tag 1).
     // See https://github.com/jsm174/vpx-editor/issues/58
-    let mut extension_size = None;
-    let mut extension_fields = Vec::new();
-    if fmt_size >= FMT_SIZE_EXTENSIBLE {
-        extension_size = Some(reader.read_u16_le()?);
+    let (extension_size, extension_fields) = if fmt_size >= FMT_SIZE_EXTENSIBLE {
+        let extension_size = chunk.read_u16_le()?;
         // The fmt chunk size is authoritative, cbSize is not always consistent with it.
-        extension_fields = reader.read_bytes_vec((fmt_size - FMT_SIZE_EXTENSIBLE) as u64)?;
-    } else if fmt_size == FMT_SIZE_MIN && reader.looks_like_stray_extension_size() {
+        let extension_fields = chunk.read_bytes_vec((fmt_size - FMT_SIZE_EXTENSIBLE) as u64)?;
+        (Some(extension_size), extension_fields)
+    } else if reader.looks_like_stray_extension_size() {
         // vpin up to 0.26.x wrote a cbSize field for non-PCM formats while still reporting a
         // fmt chunk size of 16. Recover from those files instead of failing on them.
-        extension_size = Some(reader.read_u16_le()?);
+        (Some(reader.read_u16_le()?), Vec::new())
     } else {
-        // A fmt chunk size of 17 is malformed but the pad byte keeps the stream aligned.
-        reader.read_bytes_vec((fmt_size - FMT_SIZE_MIN) as u64)?;
-    }
+        (None, Vec::new())
+    };
 
-    let extra_fields = read_chunks_until_data(reader)?;
-    let data_size = reader.read_u32_le()?;
-    Ok(WavHeader {
-        size,
+    Ok(FmtChunk {
         fmt_size,
         format_tag,
         channels,
@@ -145,35 +227,7 @@ pub(crate) fn read_wav_header(reader: &mut BytesMut) -> io::Result<WavHeader> {
         bits_per_sample,
         extension_size,
         extension_fields,
-        extra_fields,
-        data_size,
     })
-}
-
-fn read_chunks_until_data(reader: &mut BytesMut) -> io::Result<Vec<u8>> {
-    let mut extra_fields = Vec::new();
-    loop {
-        let chunk_name: [u8; 4] = reader.read_bytes()?;
-        if chunk_name == *b"data" {
-            return Ok(extra_fields);
-        }
-        if !is_chunk_id(&chunk_name) {
-            return Err(invalid_data(format!(
-                "unexpected wav chunk id {:?} while looking for the data chunk",
-                String::from_utf8_lossy(&chunk_name)
-            )));
-        }
-        let size = reader.read_u32_le()?;
-        // RIFF chunks are word aligned, an odd sized chunk is followed by a pad byte.
-        // Compute in u64, this overflows usize on 32 bit targets for a bogus size.
-        let padded_size = (size as u64).next_multiple_of(2);
-        // store the extra fields, including the pad byte so we can write them back verbatim
-        let data = reader.read_bytes_vec(padded_size)?;
-        //println!("chunk {}: {}", String::from_utf8_lossy(&chunk_name), size);
-        extra_fields.extend_from_slice(&chunk_name);
-        extra_fields.extend_from_slice(&size.to_le_bytes());
-        extra_fields.extend_from_slice(&data);
-    }
 }
 
 /// RIFF chunk ids are four printable ascii characters
@@ -282,6 +336,7 @@ mod test {
             bits_per_sample: 16,
             extension_size: None,
             extension_fields: Vec::new(),
+            pre_fmt_fields: Vec::new(),
             extra_fields: Vec::new(),
             data_size: 120,
         };
@@ -305,6 +360,7 @@ mod test {
             bits_per_sample: 16,
             extension_size: Some(0),
             extension_fields: Vec::new(),
+            pre_fmt_fields: Vec::new(),
             extra_fields: Vec::new(),
             data_size: 120,
         };
@@ -329,6 +385,7 @@ mod test {
             bits_per_sample: 16,
             extension_size: Some(0),
             extension_fields: Vec::new(),
+            pre_fmt_fields: Vec::new(),
             extra_fields: Vec::new(),
             // low 16 bits >= 0x8000, which used to be read as a bogus chunk size
             data_size: 40000,
@@ -353,6 +410,7 @@ mod test {
             bits_per_sample: 16,
             extension_size: Some(22),
             extension_fields: (0u8..22).collect(),
+            pre_fmt_fields: Vec::new(),
             extra_fields: Vec::new(),
             data_size: 120,
         };
@@ -385,6 +443,64 @@ mod test {
         assert_eq!(header_read.format_tag, 3);
         assert_eq!(header_read.extension_size, Some(0));
         assert_eq!(header_read.data_size, 120);
+    }
+
+    /// Broadcast Wave files put a "bext" chunk in front of the fmt chunk, other tools write
+    /// "JUNK" padding there. Both have to survive a round trip in the original order.
+    #[test]
+    fn test_read_write_wav_header_chunks_before_fmt() {
+        let mut data = BytesMut::new();
+        data.put(&b"RIFF"[..]);
+        data.put_u32_le(180);
+        data.put(&b"WAVE"[..]);
+        data.put(&b"JUNK"[..]);
+        data.put_u32_le(4);
+        data.put(&b"\0\0\0\0"[..]);
+        data.put(&b"bext"[..]);
+        data.put_u32_le(3);
+        data.put(&b"abc"[..]);
+        data.put_u8(0); // pad byte
+        data.put(&b"fmt "[..]);
+        data.put_u32_le(16);
+        data.put_u16_le(1);
+        data.put_u16_le(1);
+        data.put_u32_le(22050);
+        data.put_u32_le(44100);
+        data.put_u16_le(2);
+        data.put_u16_le(16);
+        data.put(&b"data"[..]);
+        data.put_u32_le(120);
+        let expected = data.to_vec();
+
+        let header_read = read_wav_header(&mut data).unwrap();
+        assert_eq!(header_read.samples_per_sec, 22050);
+        assert_eq!(header_read.data_size, 120);
+        assert_eq!(
+            header_read.pre_fmt_fields,
+            b"JUNK\x04\x00\x00\x00\0\0\0\0bext\x03\x00\x00\x00abc\x00"
+        );
+        assert!(header_read.extra_fields.is_empty());
+
+        let mut written = BytesMut::new();
+        write_wav_header(&header_read, &mut written);
+        assert_eq!(expected, written.to_vec());
+    }
+
+    /// A file without a fmt chunk can not be described by a WaveForm
+    #[test]
+    fn test_read_wav_header_missing_fmt_chunk() {
+        let mut data = BytesMut::new();
+        data.put(&b"RIFF"[..]);
+        data.put_u32_le(28);
+        data.put(&b"WAVE"[..]);
+        data.put(&b"JUNK"[..]);
+        data.put_u32_le(4);
+        data.put(&b"\0\0\0\0"[..]);
+        data.put(&b"data"[..]);
+        data.put_u32_le(120);
+        let error = read_wav_header(&mut data).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("no fmt chunk"), "{error}");
     }
 
     /// An odd sized chunk before the data chunk is followed by a pad byte
