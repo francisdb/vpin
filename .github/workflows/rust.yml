@@ -72,9 +72,18 @@ jobs:
           toolchain: stable
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2.9.1
+      # wasm-bindgen refuses to run when the cli and the crate versions diverge, so resolve
+      # the version from cargo instead of hardcoding it here
+      - name: Resolve wasm-bindgen version
+        id: wasm-bindgen
+        run: |
+          version=$(cargo metadata --format-version 1 --features wasm \
+            | jq -r '.packages[] | select(.name=="wasm-bindgen") | .version')
+          echo "Using wasm-bindgen $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Install wasm-bindgen
         uses: taiki-e/install-action@v2
         with:
-          tool: wasm-bindgen
+          tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
       - name: Run WASM tests
         run: cargo test --target wasm32-unknown-unknown --features wasm
