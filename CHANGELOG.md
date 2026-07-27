@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.0](https://github.com/francisdb/vpin/compare/v0.26.10...v0.27.0) - 2026-07-27
+
+### Fixed
+
+- handle wav chunks that come before the fmt chunk ([#341](https://github.com/francisdb/vpin/pull/341))
+- [**breaking**] derive wav cbSize presence from the fmt chunk size ([#340](https://github.com/francisdb/vpin/pull/340))
+
+### Other
+
+- resolve the wasm-bindgen cli version from cargo ([#343](https://github.com/francisdb/vpin/pull/343))
+- install wasmtime and wasm-bindgen as prebuilt binaries ([#342](https://github.com/francisdb/vpin/pull/342))
+- *(deps)* bump actions/setup-node from 6 to 7 ([#338](https://github.com/francisdb/vpin/pull/338))
+
 ## [0.26.10](https://github.com/francisdb/vpin/compare/v0.26.9...v0.26.10) - 2026-07-18
 
 ### Fixed
