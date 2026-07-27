@@ -27,8 +27,19 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2.9.1
 
-      - name: Install wasm-bindgen-cli
-        run: cargo install wasm-bindgen-cli
+      # wasm-bindgen refuses to run when the cli and the crate versions diverge, so resolve
+      # the version from cargo instead of hardcoding it here
+      - name: Resolve wasm-bindgen version
+        id: wasm-bindgen
+        run: |
+          version=$(cargo metadata --format-version 1 --features wasm \
+            | jq -r '.packages[] | select(.name=="wasm-bindgen") | .version')
+          echo "Using wasm-bindgen $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Install wasm-bindgen
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
 
       - name: Build WASM
         run: cargo build --release --target wasm32-unknown-unknown --features wasm --no-default-features
