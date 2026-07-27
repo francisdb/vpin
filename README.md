@@ -120,9 +120,13 @@ cargo test --release -- --ignored --nocapture
 ```bash
 # Install the target and wasmtime (do this only once)
 rustup target add wasm32-wasip1
-# Building wasmtime from source takes over 5 minutes, prefer a prebuilt binary,
-# see https://docs.wasmtime.dev/cli-install.html or your package manager
+
+# Recommended, installs a prebuilt binary in seconds.
+# See https://docs.wasmtime.dev/cli-install.html for other options like your package manager
 curl https://wasmtime.dev/install.sh -sSf | bash
+
+# Alternative, builds wasmtime from source which takes over 5 minutes
+cargo install wasmtime-cli
 
 # Run tests
 cargo test --target wasm32-wasip1 --features wasm
