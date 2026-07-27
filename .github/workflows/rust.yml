@@ -53,8 +53,11 @@ jobs:
           toolchain: stable
           targets: wasm32-wasip1
       - uses: Swatinem/rust-cache@v2.9.1
-      - name: Install wasmtime-cli
-        run: cargo install wasmtime-cli
+      # Downloads a prebuilt binary, building wasmtime from source takes over 5 minutes
+      - name: Install wasmtime
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasmtime
       - name: Run WASM tests
         run: cargo test --target wasm32-wasip1
 
@@ -69,7 +72,9 @@ jobs:
           toolchain: stable
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2.9.1
-      - name: Install wasm-bindgen-cli
-        run: cargo install wasm-bindgen-cli
+      - name: Install wasm-bindgen
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen
       - name: Run WASM tests
         run: cargo test --target wasm32-unknown-unknown --features wasm
