@@ -93,7 +93,7 @@ pub(super) fn read_sounds<P: AsRef<Path>>(
             let file_path = sounds_dir.join(full_file_name);
             if fs.exists(&file_path) {
                 let sound_data = fs.read_file(&file_path)?;
-                read_sound(&sound_data, &mut sound);
+                read_sound(&sound_data, &mut sound)?;
                 Ok(sound)
             } else {
                 Err(io::Error::new(

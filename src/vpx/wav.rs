@@ -1,10 +1,19 @@
 use bytes::{Buf, BufMut, BytesMut};
+use std::io;
 
-// TODO replace with a library that can read and write wav file headers
-//   one option could be "hound"
+// This parses the wav container only, it never touches samples. Sample level crates like
+// "hound" are not a fit: vpinball stores a raw WAVEFORMATEX in the vpx, so we have to keep
+// format_tag, block_align, avg_bytes_per_sec and cbSize, and pass through the chunks and the
+// data blob verbatim. Those crates normalize all of that away and reject the formats they
+// can not decode.
 
 // An example of a float format wav file can be found in
 // FirePower II (Williams 1983) 1.1.vpx Ding_01.wav
+
+/// Size of the fmt chunk for the plain WAVEFORMAT/PCMWAVEFORMAT layout
+const FMT_SIZE_MIN: u32 = 16;
+/// Size of the fmt chunk for a WAVEFORMATEX layout without extra bytes
+const FMT_SIZE_EXTENSIBLE: u32 = 18;
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct WavHeader {
@@ -16,8 +25,11 @@ pub(crate) struct WavHeader {
     pub(crate) avg_bytes_per_sec: u32,
     pub(crate) block_align: u16,
     pub(crate) bits_per_sample: u16,
-    // These fields are only present if format tag is not 1: PCM
+    /// The cbSize field, only present for a WAVEFORMATEX style fmt chunk
     pub(crate) extension_size: Option<u16>,
+    /// The bytes of the fmt chunk that follow cbSize
+    pub(crate) extension_fields: Vec<u8>,
+    /// Chunks between the fmt chunk and the data chunk (e.g. "fact" or "LIST")
     pub(crate) extra_fields: Vec<u8>,
     pub(crate) data_size: u32,
 }
@@ -46,7 +58,7 @@ impl Default for WavHeader {
         // bits_per_sample: 16 (standard CD quality)
         WavHeader {
             size: 0,
-            fmt_size: 16,
+            fmt_size: FMT_SIZE_MIN,
             format_tag: 1,
             channels: 2,
             samples_per_sec: 44100,
@@ -54,6 +66,7 @@ impl Default for WavHeader {
             block_align: 4,
             bits_per_sample: 16,
             extension_size: None,
+            extension_fields: Vec::new(),
             extra_fields: Vec::new(),
             data_size: 0,
         }
@@ -72,14 +85,9 @@ pub(crate) fn write_wav_header(wav_header: &WavHeader, writer: &mut BytesMut) {
     writer.put_u32_le(wav_header.avg_bytes_per_sec);
     writer.put_u16_le(wav_header.block_align);
     writer.put_u16_le(wav_header.bits_per_sample);
-    if wav_header.format_tag != 1 && wav_header.extension_size.is_none() {
-        panic!(
-            "format_tag {} requires extension_size",
-            wav_header.format_tag
-        );
-    }
     if let Some(extension_size) = wav_header.extension_size {
         writer.put_u16_le(extension_size);
+        writer.put(&wav_header.extension_fields[..]);
     }
     // write extra chunks between fmt and data (e.g. "fact" chunk)
     writer.put(&wav_header.extra_fields[..]);
@@ -87,34 +95,46 @@ pub(crate) fn write_wav_header(wav_header: &WavHeader, writer: &mut BytesMut) {
     writer.put_u32_le(wav_header.data_size);
 }
 
-pub(crate) fn read_wav_header(reader: &mut BytesMut) -> WavHeader {
-    reader.expect_bytes(b"RIFF");
-    let size = reader.get_u32_le();
-    reader.expect_bytes(b"WAVE");
-    reader.expect_bytes(b"fmt ");
-    let fmt_size = reader.get_u32_le();
-    let format_tag = reader.get_u16_le();
-    let channels = reader.get_u16_le();
-    let samples_per_sec = reader.get_u32_le();
-    let avg_bytes_per_sec = reader.get_u32_le();
-    let block_align = reader.get_u16_le();
-    let bits_per_sample = reader.get_u16_le();
-    // format_tag 1 (PCM) has no extension fields.
-    // All other formats (e.g. 3=IEEE Float, 2=ADPCM, etc.) include a cbSize
-    // extension field followed by cbSize bytes of extra data.
-    // VPinball stores the raw WAVEFORMATEX without restricting the format_tag.
-    let (extension_size, _extra_fields) = match format_tag {
-        1 => (None, Vec::<u8>::new()),
-        _ => {
-            let extension_size = reader.get_u16_le();
-            let extra_fields = reader.read_bytes_vec(extension_size as usize);
-            (Some(extension_size), extra_fields)
-        }
-    };
+pub(crate) fn read_wav_header(reader: &mut BytesMut) -> io::Result<WavHeader> {
+    reader.expect_bytes(b"RIFF")?;
+    let size = reader.read_u32_le()?;
+    reader.expect_bytes(b"WAVE")?;
+    reader.expect_bytes(b"fmt ")?;
+    let fmt_size = reader.read_u32_le()?;
+    if fmt_size < FMT_SIZE_MIN {
+        return Err(invalid_data(format!(
+            "wav fmt chunk is {fmt_size} bytes, expected at least {FMT_SIZE_MIN}"
+        )));
+    }
+    let format_tag = reader.read_u16_le()?;
+    let channels = reader.read_u16_le()?;
+    let samples_per_sec = reader.read_u32_le()?;
+    let avg_bytes_per_sec = reader.read_u32_le()?;
+    let block_align = reader.read_u16_le()?;
+    let bits_per_sample = reader.read_u16_le()?;
 
-    let extra_fields = read_chunks_until_data(reader);
-    let data_size = reader.get_u32_le();
-    WavHeader {
+    // Whether the cbSize extension field is present is decided by the size of the fmt chunk,
+    // not by the format tag. Both a 16 byte (PCMWAVEFORMAT) and an 18 byte (WAVEFORMATEX)
+    // fmt chunk are seen in the wild for PCM (format_tag 1).
+    // See https://github.com/jsm174/vpx-editor/issues/58
+    let mut extension_size = None;
+    let mut extension_fields = Vec::new();
+    if fmt_size >= FMT_SIZE_EXTENSIBLE {
+        extension_size = Some(reader.read_u16_le()?);
+        // The fmt chunk size is authoritative, cbSize is not always consistent with it.
+        extension_fields = reader.read_bytes_vec((fmt_size - FMT_SIZE_EXTENSIBLE) as u64)?;
+    } else if fmt_size == FMT_SIZE_MIN && reader.looks_like_stray_extension_size() {
+        // vpin up to 0.26.x wrote a cbSize field for non-PCM formats while still reporting a
+        // fmt chunk size of 16. Recover from those files instead of failing on them.
+        extension_size = Some(reader.read_u16_le()?);
+    } else {
+        // A fmt chunk size of 17 is malformed but the pad byte keeps the stream aligned.
+        reader.read_bytes_vec((fmt_size - FMT_SIZE_MIN) as u64)?;
+    }
+
+    let extra_fields = read_chunks_until_data(reader)?;
+    let data_size = reader.read_u32_le()?;
+    Ok(WavHeader {
         size,
         fmt_size,
         format_tag,
@@ -124,49 +144,112 @@ pub(crate) fn read_wav_header(reader: &mut BytesMut) -> WavHeader {
         block_align,
         bits_per_sample,
         extension_size,
+        extension_fields,
         extra_fields,
         data_size,
-    }
+    })
 }
 
-fn read_chunks_until_data(reader: &mut BytesMut) -> Vec<u8> {
+fn read_chunks_until_data(reader: &mut BytesMut) -> io::Result<Vec<u8>> {
     let mut extra_fields = Vec::new();
-    let mut chunk_name: [u8; 4] = reader.read_bytes();
-    while chunk_name != *b"data" {
-        let size = reader.get_u32_le();
-        // store the extra fields
-        let data = reader.read_bytes_vec(size as usize);
+    loop {
+        let chunk_name: [u8; 4] = reader.read_bytes()?;
+        if chunk_name == *b"data" {
+            return Ok(extra_fields);
+        }
+        if !is_chunk_id(&chunk_name) {
+            return Err(invalid_data(format!(
+                "unexpected wav chunk id {:?} while looking for the data chunk",
+                String::from_utf8_lossy(&chunk_name)
+            )));
+        }
+        let size = reader.read_u32_le()?;
+        // RIFF chunks are word aligned, an odd sized chunk is followed by a pad byte.
+        // Compute in u64, this overflows usize on 32 bit targets for a bogus size.
+        let padded_size = (size as u64).next_multiple_of(2);
+        // store the extra fields, including the pad byte so we can write them back verbatim
+        let data = reader.read_bytes_vec(padded_size)?;
         //println!("chunk {}: {}", String::from_utf8_lossy(&chunk_name), size);
         extra_fields.extend_from_slice(&chunk_name);
         extra_fields.extend_from_slice(&size.to_le_bytes());
         extra_fields.extend_from_slice(&data);
-        chunk_name = reader.read_bytes();
     }
-    extra_fields
+}
+
+/// RIFF chunk ids are four printable ascii characters
+fn is_chunk_id(bytes: &[u8; 4]) -> bool {
+    bytes.iter().all(|b| b.is_ascii_graphic() || *b == b' ')
+}
+
+fn invalid_data(message: String) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
 trait ReadBytesExt {
-    fn read_bytes_vec(&mut self, n: usize) -> Vec<u8>;
-    fn read_bytes<const N: usize>(&mut self) -> [u8; N];
-    fn expect_bytes<const N: usize>(&mut self, expected: &[u8; N]);
+    fn read_bytes_vec(&mut self, n: u64) -> io::Result<Vec<u8>>;
+    fn read_bytes<const N: usize>(&mut self) -> io::Result<[u8; N]>;
+    fn read_u16_le(&mut self) -> io::Result<u16>;
+    fn read_u32_le(&mut self) -> io::Result<u32>;
+    fn expect_bytes<const N: usize>(&mut self, expected: &[u8; N]) -> io::Result<()>;
+    fn looks_like_stray_extension_size(&self) -> bool;
 }
 
 impl ReadBytesExt for BytesMut {
-    fn read_bytes_vec(&mut self, n: usize) -> Vec<u8> {
-        let mut arr = vec![0; n];
-        arr.copy_from_slice(&self.split_to(n));
-        arr
+    /// Reads `n` bytes, `n` is a u64 as a malformed file can declare a chunk size that does
+    /// not fit a usize on 32 bit targets like wasm32. Never allocates more than what is left
+    /// in the buffer, so a bogus chunk size can not blow up the allocator.
+    fn read_bytes_vec(&mut self, n: u64) -> io::Result<Vec<u8>> {
+        if n > self.remaining() as u64 {
+            return Err(invalid_data(format!(
+                "unexpected end of wav data, wanted {n} bytes but only {} left",
+                self.remaining()
+            )));
+        }
+        Ok(self.split_to(n as usize).to_vec())
     }
 
-    fn read_bytes<const N: usize>(&mut self) -> [u8; N] {
+    fn read_bytes<const N: usize>(&mut self) -> io::Result<[u8; N]> {
         let mut arr = [0; N];
+        if self.remaining() < N {
+            return Err(invalid_data(format!(
+                "unexpected end of wav data, wanted {N} bytes but only {} left",
+                self.remaining()
+            )));
+        }
         self.copy_to_slice(&mut arr);
-        arr
+        Ok(arr)
     }
 
-    fn expect_bytes<const N: usize>(&mut self, expected: &[u8; N]) {
-        let bytes = self.read_bytes();
-        assert_eq!(&bytes, expected);
+    fn read_u16_le(&mut self) -> io::Result<u16> {
+        Ok(u16::from_le_bytes(self.read_bytes()?))
+    }
+
+    fn read_u32_le(&mut self) -> io::Result<u32> {
+        Ok(u32::from_le_bytes(self.read_bytes()?))
+    }
+
+    fn expect_bytes<const N: usize>(&mut self, expected: &[u8; N]) -> io::Result<()> {
+        let bytes: [u8; N] = self.read_bytes()?;
+        if &bytes != expected {
+            return Err(invalid_data(format!(
+                "expected {:?} in wav data but found {:?}",
+                String::from_utf8_lossy(expected),
+                String::from_utf8_lossy(&bytes)
+            )));
+        }
+        Ok(())
+    }
+
+    /// True if the next two bytes are not the start of a chunk id but the two bytes after
+    /// them are, which means a cbSize field is present that the fmt chunk size did not
+    /// account for.
+    fn looks_like_stray_extension_size(&self) -> bool {
+        if self.remaining() < 6 {
+            return false;
+        }
+        let head: [u8; 4] = self[0..4].try_into().unwrap();
+        let shifted: [u8; 4] = self[2..6].try_into().unwrap();
+        !is_chunk_id(&head) && is_chunk_id(&shifted)
     }
 }
 
@@ -180,7 +263,7 @@ mod test {
     fn test_read_write_wav_header() {
         let data = include_bytes!("../../testdata/fx_coin_converted.wav");
         let mut bytes_mut_in = BytesMut::from(data.as_bytes());
-        let header_read = read_wav_header(&mut bytes_mut_in);
+        let header_read = read_wav_header(&mut bytes_mut_in).unwrap();
         let mut bytes_mut_out = BytesMut::new();
         write_wav_header(&header_read, &mut bytes_mut_out);
         assert_eq!(data[..78], bytes_mut_out[..78]);
@@ -198,12 +281,13 @@ mod test {
             block_align: 2,
             bits_per_sample: 16,
             extension_size: None,
+            extension_fields: Vec::new(),
             extra_fields: Vec::new(),
             data_size: 120,
         };
         let mut bytes_mut = BytesMut::new();
         write_wav_header(&header, &mut bytes_mut);
-        let header_read = read_wav_header(&mut bytes_mut);
+        let header_read = read_wav_header(&mut bytes_mut).unwrap();
         assert_eq!(header, header_read);
     }
 
@@ -212,7 +296,7 @@ mod test {
     fn test_write_read_wav_header_pcm_float() {
         let header = WavHeader {
             size: 120 + 36,
-            fmt_size: 16,
+            fmt_size: 18,
             format_tag: 3,
             channels: 1,
             samples_per_sec: 44100,
@@ -220,12 +304,150 @@ mod test {
             block_align: 2,
             bits_per_sample: 16,
             extension_size: Some(0),
-            extra_fields: vec![],
+            extension_fields: Vec::new(),
+            extra_fields: Vec::new(),
             data_size: 120,
         };
         let mut bytes_mut = BytesMut::new();
         write_wav_header(&header, &mut bytes_mut);
-        let header_read = read_wav_header(&mut bytes_mut);
+        let header_read = read_wav_header(&mut bytes_mut).unwrap();
         assert_eq!(header, header_read);
+    }
+
+    /// A PCM file with a WAVEFORMATEX (18 byte) fmt chunk, as written by several tools.
+    /// https://github.com/jsm174/vpx-editor/issues/58
+    #[test]
+    fn test_read_wav_header_pcm_with_extension_size() {
+        let header = WavHeader {
+            size: 40000 + 38,
+            fmt_size: 18,
+            format_tag: 1,
+            channels: 1,
+            samples_per_sec: 22050,
+            avg_bytes_per_sec: 44100,
+            block_align: 2,
+            bits_per_sample: 16,
+            extension_size: Some(0),
+            extension_fields: Vec::new(),
+            extra_fields: Vec::new(),
+            // low 16 bits >= 0x8000, which used to be read as a bogus chunk size
+            data_size: 40000,
+        };
+        let mut bytes_mut = BytesMut::new();
+        write_wav_header(&header, &mut bytes_mut);
+        let header_read = read_wav_header(&mut bytes_mut).unwrap();
+        assert_eq!(header, header_read);
+    }
+
+    /// A fmt chunk with extra bytes after cbSize, e.g. WAVE_FORMAT_EXTENSIBLE
+    #[test]
+    fn test_read_wav_header_fmt_extension_fields() {
+        let header = WavHeader {
+            size: 120 + 60,
+            fmt_size: 40,
+            format_tag: 0xFFFE,
+            channels: 1,
+            samples_per_sec: 22050,
+            avg_bytes_per_sec: 44100,
+            block_align: 2,
+            bits_per_sample: 16,
+            extension_size: Some(22),
+            extension_fields: (0u8..22).collect(),
+            extra_fields: Vec::new(),
+            data_size: 120,
+        };
+        let mut bytes_mut = BytesMut::new();
+        write_wav_header(&header, &mut bytes_mut);
+        let header_read = read_wav_header(&mut bytes_mut).unwrap();
+        assert_eq!(header, header_read);
+    }
+
+    /// vpin up to 0.26.x wrote a cbSize field while reporting a fmt chunk size of 16
+    #[test]
+    fn test_read_wav_header_legacy_vpin_extension_size() {
+        let mut data = BytesMut::new();
+        data.put(&b"RIFF"[..]);
+        data.put_u32_le(156);
+        data.put(&b"WAVE"[..]);
+        data.put(&b"fmt "[..]);
+        data.put_u32_le(16);
+        data.put_u16_le(3);
+        data.put_u16_le(1);
+        data.put_u32_le(44100);
+        data.put_u32_le(88200);
+        data.put_u16_le(2);
+        data.put_u16_le(16);
+        // cbSize, not accounted for by the fmt chunk size above
+        data.put_u16_le(0);
+        data.put(&b"data"[..]);
+        data.put_u32_le(120);
+        let header_read = read_wav_header(&mut data).unwrap();
+        assert_eq!(header_read.format_tag, 3);
+        assert_eq!(header_read.extension_size, Some(0));
+        assert_eq!(header_read.data_size, 120);
+    }
+
+    /// An odd sized chunk before the data chunk is followed by a pad byte
+    #[test]
+    fn test_read_wav_header_odd_sized_chunk() {
+        let mut data = BytesMut::new();
+        data.put(&b"RIFF"[..]);
+        data.put_u32_le(168);
+        data.put(&b"WAVE"[..]);
+        data.put(&b"fmt "[..]);
+        data.put_u32_le(16);
+        data.put_u16_le(1);
+        data.put_u16_le(1);
+        data.put_u32_le(22050);
+        data.put_u32_le(44100);
+        data.put_u16_le(2);
+        data.put_u16_le(16);
+        data.put(&b"cue "[..]);
+        data.put_u32_le(3);
+        data.put(&b"abc"[..]);
+        data.put_u8(0); // pad byte
+        data.put(&b"data"[..]);
+        data.put_u32_le(120);
+        let header_read = read_wav_header(&mut data).unwrap();
+        assert_eq!(header_read.data_size, 120);
+        assert_eq!(header_read.extra_fields, b"cue \x03\x00\x00\x00abc\x00");
+    }
+
+    /// A bogus chunk size must not be trusted, u32::MAX would also overflow the pad byte
+    /// calculation on 32 bit targets like wasm32
+    #[test]
+    fn test_read_wav_header_bogus_chunk_size() {
+        let mut data = BytesMut::new();
+        data.put(&b"RIFF"[..]);
+        data.put_u32_le(48);
+        data.put(&b"WAVE"[..]);
+        data.put(&b"fmt "[..]);
+        data.put_u32_le(16);
+        data.put_u16_le(1);
+        data.put_u16_le(1);
+        data.put_u32_le(22050);
+        data.put_u32_le(44100);
+        data.put_u16_le(2);
+        data.put_u16_le(16);
+        data.put(&b"cue "[..]);
+        data.put_u32_le(u32::MAX);
+        data.put(&b"data"[..]);
+        data.put_u32_le(120);
+        let error = read_wav_header(&mut data).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn test_read_wav_header_truncated() {
+        let mut data = BytesMut::from(&b"RIFFxxxxWAVEfmt "[..]);
+        let error = read_wav_header(&mut data).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn test_read_wav_header_not_a_wav() {
+        let mut data = BytesMut::from(&b"OggS0123456789abcdef"[..]);
+        let error = read_wav_header(&mut data).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 }

@@ -8,6 +8,7 @@ use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use std::fmt;
+use std::io;
 use std::path::Path;
 use tracing::instrument;
 
@@ -182,15 +183,17 @@ fn write_wav_header2(sound_data: &SoundData) -> Vec<u8> {
         * sound_data.wave_form.bits_per_sample as u32
         * sound_data.wave_form.channels as u32
         / 8;
-    let (extension_size, extra_fields) = if sound_data.wave_form.format_tag == 1 {
-        (None, Vec::<u8>::new())
+    let extension_size = if sound_data.wave_form.format_tag == 1 {
+        None
     } else {
-        (Some(0), Vec::<u8>::new())
+        Some(0)
     };
+    // a fmt chunk with a cbSize field is 18 bytes instead of 16
+    let fmt_size = if extension_size.is_some() { 18 } else { 16 };
 
     let wav_header = WavHeader {
         size: sound_data.data.len() as u32 + 36,
-        fmt_size: 16,
+        fmt_size,
         format_tag: sound_data.wave_form.format_tag,
         channels: sound_data.wave_form.channels,
         samples_per_sec: sound_data.wave_form.samples_per_sec,
@@ -198,7 +201,8 @@ fn write_wav_header2(sound_data: &SoundData) -> Vec<u8> {
         block_align: sound_data.wave_form.block_align,
         bits_per_sample: sound_data.wave_form.bits_per_sample,
         extension_size,
-        extra_fields,
+        extension_fields: Vec::new(),
+        extra_fields: Vec::new(),
         data_size: data_len,
     };
     let mut buf = BytesMut::with_capacity(WAV_HEADER_SIZE);
@@ -231,10 +235,18 @@ pub fn write_sound(sound_data: &SoundData) -> Vec<u8> {
     }
 }
 
-pub fn read_sound(data: &[u8], sound_data: &mut SoundData) {
+pub fn read_sound(data: &[u8], sound_data: &mut SoundData) -> io::Result<()> {
     if is_wav(&sound_data.path) {
         let mut reader = bytes::BytesMut::from(data);
-        let header = read_wav_header(&mut reader);
+        let header = read_wav_header(&mut reader).map_err(|e| {
+            io::Error::new(
+                e.kind(),
+                format!(
+                    "Failed to read wav header for sound '{}': {e}",
+                    sound_data.name
+                ),
+            )
+        })?;
         let header_data_size = header.data_size;
         // read all remaining bits
         sound_data.data = reader.to_vec();
@@ -249,6 +261,7 @@ pub fn read_sound(data: &[u8], sound_data: &mut SoundData) {
     } else {
         sound_data.data = data.to_vec();
     }
+    Ok(())
 }
 
 #[derive(Debug, PartialEq)]
@@ -537,8 +550,66 @@ mod test {
             balance: 3,
             output_target: OutputTarget::Backglass,
         };
-        read_sound(&sound_data, &mut sound_read);
+        read_sound(&sound_data, &mut sound_read).unwrap();
         assert_eq!(sound, sound_read);
+    }
+
+    /// Sounds written with a WAVEFORMATEX style fmt chunk used to make reading fail
+    /// https://github.com/jsm174/vpx-editor/issues/58
+    #[test]
+    fn test_read_sound_wav_with_fmt_extension_size() {
+        // 16 bit mono 22050 Hz, an 18 byte fmt chunk with cbSize 0 and 40000 bytes of data
+        let data: Vec<u8> = (0..40000u32).map(|i| i as u8).collect();
+        let mut wav: Vec<u8> = Vec::new();
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(data.len() as u32 + 38).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&18u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes()); // format_tag PCM
+        wav.extend_from_slice(&1u16.to_le_bytes()); // channels
+        wav.extend_from_slice(&22050u32.to_le_bytes());
+        wav.extend_from_slice(&44100u32.to_le_bytes());
+        wav.extend_from_slice(&2u16.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(&0u16.to_le_bytes()); // cbSize
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        wav.extend_from_slice(&data);
+
+        let mut sound = SoundData {
+            name: "test name".to_string(),
+            path: "test path.wav".to_string(),
+            data: Vec::new(),
+            wave_form: WaveForm::default(),
+            internal_name: "".to_string(),
+            fade: 0,
+            volume: 0,
+            balance: 0,
+            output_target: OutputTarget::Table,
+        };
+        read_sound(&wav, &mut sound).unwrap();
+        assert_eq!(sound.wave_form.format_tag, 1);
+        assert_eq!(sound.wave_form.channels, 1);
+        assert_eq!(sound.wave_form.samples_per_sec, 22050);
+        assert_eq!(sound.data, data);
+    }
+
+    #[test]
+    fn test_read_sound_invalid_wav() {
+        let mut sound = SoundData {
+            name: "broken".to_string(),
+            path: "broken.wav".to_string(),
+            data: Vec::new(),
+            wave_form: WaveForm::default(),
+            internal_name: "".to_string(),
+            fade: 0,
+            volume: 0,
+            balance: 0,
+            output_target: OutputTarget::Table,
+        };
+        let error = read_sound(b"not a wav file at all", &mut sound).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("broken"), "{error}");
     }
 
     /// We found a vpx file with sound that had a path "* Backglass Output *"
