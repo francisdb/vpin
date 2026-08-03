@@ -55,7 +55,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2.9.1
       # Downloads a prebuilt binary, building wasmtime from source takes over 5 minutes
       - name: Install wasmtime
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.85.5
         with:
           tool: wasmtime
       - name: Run WASM tests
@@ -82,7 +82,7 @@ jobs:
           echo "Using wasm-bindgen $version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Install wasm-bindgen
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.85.5
         with:
           tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
       - name: Run WASM tests
