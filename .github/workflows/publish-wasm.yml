@@ -37,7 +37,7 @@ jobs:
           echo "Using wasm-bindgen $version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Install wasm-bindgen
-        uses: taiki-e/install-action@v2.85.5
+        uses: taiki-e/install-action@v2.85.10
         with:
           tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
 
