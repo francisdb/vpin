@@ -30,7 +30,7 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2.9.1
+      - uses: Swatinem/rust-cache@v2.9.2
         with:
           # Work around https://github.com/Swatinem/rust-cache/issues/341 -
           # cache-bin: true collides with the rustup proxies on the new GitHub
@@ -52,7 +52,7 @@ jobs:
         with:
           toolchain: stable
           targets: wasm32-wasip1
-      - uses: Swatinem/rust-cache@v2.9.1
+      - uses: Swatinem/rust-cache@v2.9.2
       # Downloads a prebuilt binary, building wasmtime from source takes over 5 minutes
       - name: Install wasmtime
         uses: taiki-e/install-action@v2.85.5
@@ -71,7 +71,7 @@ jobs:
         with:
           toolchain: stable
           targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2.9.1
+      - uses: Swatinem/rust-cache@v2.9.2
       # wasm-bindgen refuses to run when the cli and the crate versions diverge, so resolve
       # the version from cargo instead of hardcoding it here
       - name: Resolve wasm-bindgen version
