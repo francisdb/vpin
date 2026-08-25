@@ -42,6 +42,28 @@ jobs:
       - name: Run tests
         run: cargo test --verbose
 
+  # Verify the declared rust-version stays accurate, dependency bumps or
+  # new language features would otherwise silently raise the real MSRV
+  msrv:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+      - name: Resolve rust-version from Cargo.toml
+        id: msrv
+        run: |
+          version=$(cargo metadata --format-version 1 --no-deps \
+            | jq -r '.packages[] | select(.name=="vpin") | .rust_version')
+          echo "Using Rust $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Install MSRV Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: Swatinem/rust-cache@v2.9.2
+      - name: Check with MSRV
+        run: cargo check --all-features
+
   wasm32-wasip1:
     runs-on: ubuntu-latest
 
