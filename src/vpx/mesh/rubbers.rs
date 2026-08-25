@@ -399,7 +399,9 @@ pub(crate) fn build_rubber_mesh(
         .collect();
 
     let faces = indices
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .map(|tri| VpxFace::new(tri[0] as i64, tri[1] as i64, tri[2] as i64))
         .collect();
 

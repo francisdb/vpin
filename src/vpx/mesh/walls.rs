@@ -56,7 +56,9 @@ pub(crate) fn build_wall_meshes(wall: &Wall, table_dims: &TableDimensions) -> Op
                 .map(|vertex| VertexWrapper::new(vertex.to_vpx_bytes(), vertex))
                 .collect::<Vec<_>>();
             let faces = side_indices
-                .chunks_exact(3)
+                .as_chunks::<3>()
+                .0
+                .iter()
                 .map(|tri| VpxFace::new(tri[0] as i64, tri[1] as i64, tri[2] as i64))
                 .collect::<Vec<_>>();
             Some((wrapped, faces))
@@ -83,7 +85,9 @@ pub(crate) fn build_wall_meshes(wall: &Wall, table_dims: &TableDimensions) -> Op
                 .map(|vertex| VertexWrapper::new(vertex.to_vpx_bytes(), vertex))
                 .collect::<Vec<_>>();
             let faces = top_indices
-                .chunks_exact(3)
+                .as_chunks::<3>()
+                .0
+                .iter()
                 .map(|tri| VpxFace::new(tri[0] as i64, tri[1] as i64, tri[2] as i64))
                 .collect::<Vec<_>>();
             Some((wrapped, faces))
@@ -166,7 +170,9 @@ pub(crate) fn build_wall_mesh(wall: &Wall) -> Option<(Vec<VertexWrapper>, Vec<Vp
         .collect::<Vec<_>>();
 
     let faces = indices
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .map(|tri| VpxFace::new(tri[0] as i64, tri[1] as i64, tri[2] as i64))
         .collect::<Vec<_>>();
 
