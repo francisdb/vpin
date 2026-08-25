@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.0](https://github.com/francisdb/vpin/compare/v0.27.0...v0.28.0) - 2026-08-25
+
+### Other
+
+- add msrv check job
+- [**breaking**] raise MSRV to 1.98
+- *(deps)* bump wavefront-obj-io from 0.2.0 to 0.3.0
+- *(deps)* bump taiki-e/install-action from 2.85.5 to 2.86.5 ([#349](https://github.com/francisdb/vpin/pull/349))
+- *(deps)* bump Swatinem/rust-cache from 2.9.1 to 2.9.2 ([#346](https://github.com/francisdb/vpin/pull/346))
+- drop unused itoa dependency ([#350](https://github.com/francisdb/vpin/pull/350))
+- pin clippy job toolchain so new stable releases don't break CI
+- apply clippy 1.98 as_chunks suggestions
+- *(deps)* bump taiki-e/install-action from 2 to 2.85.5 ([#344](https://github.com/francisdb/vpin/pull/344))
+
 ## [0.27.0](https://github.com/francisdb/vpin/compare/v0.26.10...v0.27.0) - 2026-07-27
 
 ### Fixed
