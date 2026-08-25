@@ -221,7 +221,7 @@ impl PrimitiveMesh {
         }
         let mut min = [f32::INFINITY; 3];
         let mut max = [f32::NEG_INFINITY; 3];
-        for chunk in self.positions.chunks_exact(3) {
+        for chunk in self.positions.as_chunks::<3>().0 {
             for axis in 0..3 {
                 if chunk[axis] < min[axis] {
                     min[axis] = chunk[axis];
@@ -361,7 +361,7 @@ pub fn mesh_to_obj(
             .map_err(|e| JsError::new(&format!("write failed: {e}")))?;
 
         let z_sign = if convert_to_left_handed { -1.0 } else { 1.0 };
-        for chunk in positions.chunks_exact(3) {
+        for chunk in positions.as_chunks::<3>().0 {
             writer
                 .write_vertex(chunk[0], chunk[1], z_sign * chunk[2], None)
                 .map_err(|e| JsError::new(&format!("write failed: {e}")))?;
@@ -371,7 +371,7 @@ pub fn mesh_to_obj(
             // writer can provide, so these lines are written manually, see
             // flipped_v_text. Round-trips with `obj_to_mesh(.., true)`.
             drop(writer);
-            for chunk in tex_coords.chunks_exact(2) {
+            for chunk in tex_coords.as_chunks::<2>().0 {
                 use std::io::Write;
                 writeln!(
                     buffer,
@@ -383,13 +383,13 @@ pub fn mesh_to_obj(
             }
             writer = IoObjWriter::new(&mut buffer);
         } else {
-            for chunk in tex_coords.chunks_exact(2) {
+            for chunk in tex_coords.as_chunks::<2>().0 {
                 writer
                     .write_texture_coordinate(chunk[0], Some(chunk[1]), None)
                     .map_err(|e| JsError::new(&format!("write failed: {e}")))?;
             }
         }
-        for chunk in normals.chunks_exact(3) {
+        for chunk in normals.as_chunks::<3>().0 {
             writer
                 .write_normal(chunk[0], chunk[1], z_sign * chunk[2])
                 .map_err(|e| JsError::new(&format!("write failed: {e}")))?;
@@ -398,7 +398,7 @@ pub fn mesh_to_obj(
         // we reverse the per-triangle corner order (matching vpinball's
         // `WriteFaceInfoLong`); with `false` we keep source winding so
         // round-trips with `obj_to_mesh(.., false)` preserve indices.
-        for tri in indices.chunks_exact(3) {
+        for tri in indices.as_chunks::<3>().0 {
             for &idx in tri {
                 if idx as usize >= vert_count {
                     return Err(JsError::new(&format!(

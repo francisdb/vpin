@@ -185,7 +185,9 @@ pub fn build_light_insert_mesh(
     }
 
     let faces: Vec<VpxFace> = indices
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .map(|tri| VpxFace::new(tri[0] as i64, tri[1] as i64, tri[2] as i64))
         .collect();
 

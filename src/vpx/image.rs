@@ -538,7 +538,11 @@ pub(crate) fn vpx_image_to_dynamic_image(
         .expect("Decompressed image data does not match dimensions");
     let dynamic_image = DynamicImage::ImageRgba8(rgba_image);
 
-    let uses_alpha = decompressed_bgra.chunks_exact(4).any(|bgra| bgra[3] != 255);
+    let uses_alpha = decompressed_bgra
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .any(|bgra| bgra[3] != 255);
     if uses_alpha {
         dynamic_image
     } else {
@@ -550,7 +554,7 @@ pub(crate) fn vpx_image_to_dynamic_image(
 /// Can convert between RGBA and BGRA by swapping the red and blue channels
 pub(crate) fn swap_red_and_blue(data: &[u8]) -> Vec<u8> {
     let mut swapped = Vec::with_capacity(data.len());
-    for chunk in data.chunks_exact(4) {
+    for chunk in data.as_chunks::<4>().0 {
         swapped.extend_from_slice(&[chunk[2], chunk[1], chunk[0], chunk[3]])
     }
     swapped
@@ -583,7 +587,11 @@ pub fn image_has_transparency(image: &ImageData) -> bool {
     if let Some(ref bits) = image.bits {
         // Decompress and check raw BGRA data directly (alpha is at index 3)
         let decompressed_bgra = from_lzw_blocks(&bits.lzw_compressed_data);
-        return decompressed_bgra.chunks_exact(4).any(|bgra| bgra[3] != 255);
+        return decompressed_bgra
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|bgra| bgra[3] != 255);
     }
 
     // Default to opaque if we can't determine

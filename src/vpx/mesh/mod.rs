@@ -105,7 +105,7 @@ pub(super) fn compute_normals(vertices: &mut [Vertex3dNoTex2], indices: &[u32]) 
     }
 
     // Accumulate face normals (normalized so each face contributes equally)
-    for tri in indices.chunks_exact(3) {
+    for tri in indices.as_chunks::<3>().0 {
         let i0 = tri[0] as usize;
         let i1 = tri[1] as usize;
         let i2 = tri[2] as usize;
