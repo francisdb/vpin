@@ -547,11 +547,9 @@ pub fn importvbs(vpx_file_path: &Path, vbs_file_path: Option<PathBuf>) -> io::Re
     let mut comp = cfb::open_rw(vpx_file_path)?;
     let version = read_version(&mut comp)?;
     let mut gamedata = read_gamedata(&mut comp, &version)?;
-    // Read raw bytes and detect the encoding the way Visual Pinball does when
-    // it loads a sidecar script: utf8 if valid, latin1 otherwise. This keeps
-    // an extractvbs/importvbs round trip byte-identical.
-    let script = std::fs::read(&script_path)?;
-    gamedata.code = script.into();
+    // Reading with encoding detection keeps an extractvbs/importvbs round
+    // trip byte-identical.
+    gamedata.code = read_script_file(&script_path)?;
     write_game_data(&mut comp, &gamedata, &version)?;
     let mac = generate_mac(&mut comp)?;
     write_mac(&mut comp, &mac)?;
@@ -795,12 +793,26 @@ fn read_bytes_at<F: Read + Seek, P: AsRef<Path>>(
     Ok(bytes)
 }
 
+/// Reads a sidecar script file the way Visual Pinball does: utf8 if valid,
+/// latin1 otherwise. Visual Pinball's `-ExtractVBS` writes the raw script
+/// bytes, so legacy tables can produce latin1 sidecar scripts.
+pub fn read_script_file(vbs_path: &Path) -> io::Result<model::StringWithEncoding> {
+    let bytes = std::fs::read(vbs_path)?;
+    Ok(bytes.into())
+}
+
+/// Writes a sidecar script file in the encoding the script came with, so a
+/// latin1 script stays latin1 instead of being transcoded to utf8.
+pub fn write_script_file(vbs_path: &Path, script: &model::StringWithEncoding) -> io::Result<()> {
+    let bytes: Vec<u8> = script.clone().into();
+    std::fs::write(vbs_path, bytes)
+}
+
 /// Write the script to file, preserving the bytes as they are stored in the
 /// VPX file (Visual Pinball does the same for `-ExtractVBS`, so legacy latin1
 /// scripts stay latin1 instead of being transcoded to utf8).
 pub fn extract_script<P: AsRef<Path>>(gamedata: &GameData, vbs_path: &P) -> Result<(), io::Error> {
-    let script_bytes: Vec<u8> = gamedata.code.clone().into();
-    std::fs::write(vbs_path, script_bytes)
+    write_script_file(vbs_path.as_ref(), &gamedata.code)
 }
 
 fn read_gamedata<F: Seek + Read>(
@@ -1465,6 +1477,25 @@ mod tests {
             "Final size: {final_size} >= Initial size: {initial_size}!"
         );
 
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(not(target_family = "wasm"))]
+    fn test_read_write_script_file_latin1_roundtrip() -> io::Result<()> {
+        let dir: PathBuf = testdir!();
+        let vbs_path = dir.join("test.vbs");
+        // "cafe" with a latin1 e-acute (0xE9), not valid utf8
+        let latin1_script = vec![b'c', b'a', b'f', 0xE9, b'\r', b'\n'];
+        std::fs::write(&vbs_path, &latin1_script)?;
+
+        let script = read_script_file(&vbs_path)?;
+        assert_eq!(script.encoding, model::StringEncoding::Latin1);
+        assert_eq!(script.string, "caf\u{e9}\r\n");
+
+        let out_path = dir.join("out.vbs");
+        write_script_file(&out_path, &script)?;
+        assert_eq!(std::fs::read(&out_path)?, latin1_script);
         Ok(())
     }
 
