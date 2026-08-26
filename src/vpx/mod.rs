@@ -547,8 +547,11 @@ pub fn importvbs(vpx_file_path: &Path, vbs_file_path: Option<PathBuf>) -> io::Re
     let mut comp = cfb::open_rw(vpx_file_path)?;
     let version = read_version(&mut comp)?;
     let mut gamedata = read_gamedata(&mut comp, &version)?;
-    let script = std::fs::read_to_string(&script_path)?;
-    gamedata.set_code(script);
+    // Read raw bytes and detect the encoding the way Visual Pinball does when
+    // it loads a sidecar script: utf8 if valid, latin1 otherwise. This keeps
+    // an extractvbs/importvbs round trip byte-identical.
+    let script = std::fs::read(&script_path)?;
+    gamedata.code = script.into();
     write_game_data(&mut comp, &gamedata, &version)?;
     let mac = generate_mac(&mut comp)?;
     write_mac(&mut comp, &mac)?;
@@ -792,10 +795,12 @@ fn read_bytes_at<F: Read + Seek, P: AsRef<Path>>(
     Ok(bytes)
 }
 
-/// Write the script to file in utf8 encoding
+/// Write the script to file, preserving the bytes as they are stored in the
+/// VPX file (Visual Pinball does the same for `-ExtractVBS`, so legacy latin1
+/// scripts stay latin1 instead of being transcoded to utf8).
 pub fn extract_script<P: AsRef<Path>>(gamedata: &GameData, vbs_path: &P) -> Result<(), io::Error> {
-    let script = &gamedata.code;
-    std::fs::write(vbs_path, &script.string)
+    let script_bytes: Vec<u8> = gamedata.code.clone().into();
+    std::fs::write(vbs_path, script_bytes)
 }
 
 fn read_gamedata<F: Seek + Read>(
@@ -1460,6 +1465,28 @@ mod tests {
             "Final size: {final_size} >= Initial size: {initial_size}!"
         );
 
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(not(target_family = "wasm"))]
+    fn test_importvbs_extractvbs_latin1_roundtrip() -> io::Result<()> {
+        let dir: PathBuf = testdir!();
+        let test_vpx_path = dir.join("test.vpx");
+        new_minimal_vpx(&test_vpx_path)?;
+        // "cafe" with a latin1 e-acute (0xE9), not valid utf8
+        let latin1_script = vec![b'c', b'a', b'f', 0xE9, b'\r', b'\n'];
+        let vbs_path = vbs_path_for(&test_vpx_path);
+        std::fs::write(&vbs_path, &latin1_script)?;
+        importvbs(&test_vpx_path, None)?;
+
+        let vpx = super::read(&test_vpx_path)?;
+        assert_eq!(vpx.gamedata.code.encoding, model::StringEncoding::Latin1);
+
+        std::fs::remove_file(&vbs_path)?;
+        extractvbs(&test_vpx_path, None, false)?;
+        let extracted = std::fs::read(&vbs_path)?;
+        assert_eq!(extracted, latin1_script);
         Ok(())
     }
 
