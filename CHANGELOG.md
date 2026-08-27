@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.2](https://github.com/francisdb/vpin/compare/v0.28.1...v0.28.2) - 2026-08-27
+
+### Fixed
+
+- tolerate Unicode normalization changes in expanded read ([#356](https://github.com/francisdb/vpin/pull/356))
+
 ## [0.28.1](https://github.com/francisdb/vpin/compare/v0.28.0...v0.28.1) - 2026-08-27
 
 ### Added
