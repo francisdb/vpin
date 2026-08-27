@@ -277,6 +277,13 @@ pub fn read<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<VPX> {
 
 pub fn read_fs<P: AsRef<Path>>(expanded_dir: &P, fs: &dyn FileSystem) -> io::Result<VPX> {
     info!("=== Starting VPX assembly process ===");
+    // Storage layers like Safari/WebKit OPFS or macOS HFS+ can change the
+    // Unicode normalization form of file names between write and lookup,
+    // breaking the byte-exact match with names recorded in the index json
+    // files. Retry lookups with NFC/NFD-normalized paths to compensate.
+    // See https://github.com/francisdb/vpin/issues/355
+    let normalizing_fs = util::NormalizingFileSystem::new(fs);
+    let fs: &dyn FileSystem = &normalizing_fs;
     let version_path = expanded_dir.as_ref().join("version.txt");
     if !fs.exists(&version_path) {
         return Err(io::Error::new(
@@ -707,6 +714,136 @@ mod tests {
 
         let read = read_fs(&path, &fs)?;
 
+        assert_eq!(&vpx, &read);
+        Ok(())
+    }
+
+    /// A primitive with a non-ASCII name, mesh fields cleared to work around
+    /// compression errors on fake data (same as in test_read_write).
+    fn unicode_named_primitive() -> Primitive {
+        let mut primitive: Primitive = Faker.fake();
+        // NFC "ö" (U+00F6), the form found in real VPX files
+        primitive.name = "PfL\u{00F6}cher".to_string();
+        primitive.editor_layer_name = Some("Layer_1".to_string());
+        primitive.num_vertices = None;
+        primitive.num_indices = None;
+        primitive.compressed_vertices_len = None;
+        primitive.compressed_vertices_data = None;
+        primitive.compressed_indices_len = None;
+        primitive.compressed_indices_data = None;
+        primitive.compressed_animation_vertices_len = None;
+        primitive.compressed_animation_vertices_data = None;
+        primitive
+    }
+
+    fn unicode_named_vpx() -> VPX {
+        VPX {
+            version: Version::new(1074),
+            gamedata: GameData {
+                gameitems_size: 1,
+                images_size: 1,
+                sounds_size: 1,
+                fonts_size: 1,
+                ..Default::default()
+            },
+            gameitems: vec![GameItemEnum::Primitive(unicode_named_primitive())],
+            images: vec![ImageData {
+                name: "L\u{00F6}cher image".to_string(),
+                internal_name: None,
+                path: "test.png".to_string(),
+                width: 0,
+                height: 0,
+                link: None,
+                alpha_test_value: 0.0,
+                is_opaque: Some(true),
+                is_signed: Some(false),
+                jpeg: Some(ImageDataJpeg {
+                    path: "test.png jpeg".to_string(),
+                    name: "L\u{00F6}cher image jpeg".to_string(),
+                    internal_name: None,
+                    data: vec![0, 1, 2, 3],
+                }),
+                bits: None,
+                md5_hash: None,
+            }],
+            sounds: vec![SoundData {
+                name: "L\u{00F6}cher sound".to_string(),
+                path: "test.wav".to_string(),
+                wave_form: WaveForm {
+                    format_tag: 1,
+                    channels: 0,
+                    samples_per_sec: 0,
+                    avg_bytes_per_sec: 0,
+                    block_align: 0,
+                    bits_per_sample: 0,
+                    cb_size: 0,
+                },
+                data: vec![0, 1, 2, 3],
+                internal_name: "test internal name".to_string(),
+                fade: 0,
+                volume: 0,
+                balance: 0,
+                output_target: OutputTarget::Table,
+            }],
+            fonts: vec![FontData {
+                name: "L\u{00F6}cher font".to_string(),
+                path: "test.ttf".to_string(),
+                data: vec![0, 1, 2, 3],
+            }],
+            ..Default::default()
+        }
+    }
+
+    /// Simulates a storage layer (Safari/WebKit OPFS, macOS HFS+) that returns
+    /// NFD-normalized file names for an extracted tree whose index json files
+    /// reference the NFC forms.
+    /// See https://github.com/francisdb/vpin/issues/355
+    #[test]
+    fn test_read_from_nfd_normalizing_storage() -> TestResult {
+        use unicode_normalization::UnicodeNormalization;
+        let vpx = unicode_named_vpx();
+
+        let fs = MemoryFileSystem::default();
+        let path = Path::new("expanded");
+        write_fs(&vpx, &path, &ExpandOptions::default(), &fs)?;
+
+        let mut renamed = 0;
+        for file in fs.list_files() {
+            let nfd: String = file.nfd().collect();
+            if nfd != file {
+                fs.rename(Path::new(&file), Path::new(&nfd))?;
+                renamed += 1;
+            }
+        }
+        // gameitem json, image, sound, font
+        assert_eq!(renamed, 4, "expected all unicode-named files to be renamed");
+
+        let read = read_fs(&path, &fs)?;
+        assert_eq!(&vpx, &read);
+        Ok(())
+    }
+
+    /// The reverse direction: the index references NFD file names (e.g. a tree
+    /// extracted by an older vpin from a VPX with NFD part names) while the
+    /// storage normalized the files themselves to NFC.
+    #[test]
+    fn test_read_with_nfd_index_and_nfc_files() -> TestResult {
+        use unicode_normalization::UnicodeNormalization;
+        let vpx = unicode_named_vpx();
+
+        let fs = MemoryFileSystem::default();
+        let path = Path::new("expanded");
+        write_fs(&vpx, &path, &ExpandOptions::default(), &fs)?;
+
+        // rewrite the gameitems index to reference the NFD form while the
+        // files on "disk" keep their NFC names
+        let index_path = path.join("gameitems.json");
+        let index = fs.read_to_string(&index_path)?;
+        let index_nfd: String = index.nfd().collect();
+        assert_ne!(index, index_nfd);
+        fs.write_file(&index_path, index_nfd.as_bytes())?;
+
+        let read = read_fs(&path, &fs)?;
         assert_eq!(&vpx, &read);
         Ok(())
     }
