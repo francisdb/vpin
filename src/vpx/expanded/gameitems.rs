@@ -9,6 +9,7 @@ use std::collections::HashSet;
 use std::io::{self, Write};
 use std::path::Path;
 use tracing::instrument;
+use unicode_normalization::UnicodeNormalization;
 
 use super::primitives::{read_gameitem_binaries, write_gameitem_binaries};
 use super::util::read_json;
@@ -133,7 +134,9 @@ pub(super) fn write_gameitems<P: AsRef<Path>>(
 }
 
 fn gameitem_filename_stem(file_name_gen: &mut FileNameGen, gameitem: &GameItemEnum) -> String {
-    let mut name = gameitem.name().to_string();
+    // NFC-normalize so the generated file name is deterministic regardless of
+    // the Unicode form the item name uses inside the VPX.
+    let mut name: String = gameitem.name().nfc().collect();
     if name.is_empty() {
         name = "unnamed".to_string();
     }
