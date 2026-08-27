@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.1](https://github.com/francisdb/vpin/compare/v0.28.0...v0.28.1) - 2026-08-27
+
+### Added
+
+- add read_script_file/write_script_file helpers
+
+### Fixed
+
+- extractvbs/importvbs preserve original script bytes
+
 ## [0.28.0](https://github.com/francisdb/vpin/compare/v0.27.0...v0.28.0) - 2026-08-25
 
 ### Other
