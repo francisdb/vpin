@@ -32,9 +32,11 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: |
+          Get-MpComputerStatus | Select-Object RealTimeProtectionEnabled, AntivirusEnabled, IsTamperProtected | Format-List
           Add-MpPreference -ExclusionPath "$env:GITHUB_WORKSPACE"
           Add-MpPreference -ExclusionPath "$env:USERPROFILE\.cargo"
           Add-MpPreference -ExclusionPath "$env:USERPROFILE\.rustup"
+          Get-MpPreference | Select-Object -ExpandProperty ExclusionPath
       - uses: actions/checkout@v7
       - name: Install minimal stable with clippy and rustfmt
         uses: dtolnay/rust-toolchain@stable
