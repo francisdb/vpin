@@ -19,13 +19,18 @@
 //! `map_Kd`/`map_Ka` lines so the result loads with textures in DCC
 //! tools like Blender.
 //!
-//! Coordinate convention matches VPinball's `ObjLoader`:
+//! The coordinate convention is selected by [`ObjExportOptions::axes`]
+//! (see [`AxisConvention`]). The default matches VPinball's `ObjLoader`:
 //!
 //! - `obj_x = vpx_x + tx`, `obj_y = vpx_y + ty`, `obj_z = -(vpx_z + tz)`
 //! - `obj_v = 1 - vpx_tv`
 //! - normals' Z is negated (`obj_nz = -vpx_nz`)
 //! - triangle winding is reversed (`(i0, i1, i2)` is emitted as `f i2 i1 i0`)
 //! - NaN normals/UVs are written as 0
+//!
+//! Other conventions map positions and normals per [`AxisConvention`];
+//! the winding reversal follows the handedness flip, and only the raw
+//! vpx-internal convention skips the V flip.
 //!
 //! The walk only includes the items that VPinball's `Item::ExportMesh`
 //! implementations cover (primitive, wall, ramp, rubber, bumper, flipper,
@@ -56,7 +61,7 @@ use crate::vpx::mesh::spinners::build_spinner_meshes;
 use crate::vpx::mesh::triggers::build_trigger_mesh;
 use crate::vpx::mesh::walls::build_wall_meshes;
 use crate::vpx::obj::VpxFace;
-pub use crate::vpx::units::ExportUnits;
+pub use crate::vpx::units::{AxisConvention, ExportUnits};
 use log::{info, warn};
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -109,6 +114,22 @@ pub struct ObjExportOptions {
     /// [`ExportUnits::Vpu`] for vpinball parity.
     pub units: ExportUnits,
 
+    /// Axis convention for vertex positions and normals. The winding
+    /// reversal and the V flip follow from it: conventions that flip
+    /// handedness get reversed triangle winding, and only
+    /// [`AxisConvention::ZUpLeftHanded`] (vpx-internal values verbatim)
+    /// skips the V flip.
+    ///
+    /// - **[`AxisConvention::ZDownRightHanded`] (default)**: vpinball's
+    ///   own OBJ export convention; the table opens rotated 90 degrees
+    ///   about X in a Y-up viewer.
+    /// - **[`AxisConvention::YUpRightHanded`]**: the OBJ opens upright in
+    ///   DCC tools with their default import settings.
+    /// - **[`AxisConvention::ZUpLeftHanded`]**: raw vpx values, no
+    ///   winding reversal, no V flip; for tooling that wants the internal
+    ///   representation.
+    pub axes: AxisConvention,
+
     /// Include plunger meshes (rod, spring, ring, tip, flat overlay).
     ///
     /// - **`true` (default)**: emit plunger geometry, matching what the
@@ -129,6 +150,7 @@ impl Default for ObjExportOptions {
             dedup_mtl_blocks: true,
             extract_textures: true,
             units: ExportUnits::M,
+            axes: AxisConvention::ZDownRightHanded,
             include_plunger: true,
         }
     }
@@ -143,6 +165,7 @@ impl ObjExportOptions {
             dedup_mtl_blocks: false,
             extract_textures: false,
             units: ExportUnits::Vpu,
+            axes: AxisConvention::ZDownRightHanded,
             include_plunger: false,
         }
     }
@@ -280,6 +303,9 @@ struct WriterState<'a> {
     /// Multiplier applied to VPU vertex positions on write. Derived
     /// once from `ObjExportOptions::units`.
     position_scale: f32,
+    /// Axis convention for positions and normals; also decides the
+    /// winding reversal and V flip. See [`ObjExportOptions::axes`].
+    axes: AxisConvention,
     /// Whether to emit plunger meshes. See
     /// [`ObjExportOptions::include_plunger`].
     include_plunger: bool,
@@ -306,6 +332,7 @@ impl<'a> WriterState<'a> {
             extract_textures: options.extract_textures,
             seen_mtl_pairs: HashSet::new(),
             position_scale: options.units.scale(),
+            axes: options.axes,
             include_plunger: options.include_plunger,
         }
     }
@@ -1277,16 +1304,22 @@ fn write_block<O: ObjWriter<f32>, M: MtlWriter<f32>>(
 
     obj.write_object_name(block.name)?;
 
-    // Positions: world = local + translation; obj_z = -world_z; scale to chosen unit.
+    // Positions: world = local + translation; scale to chosen unit; map to
+    // the chosen axis convention.
     let s = state.position_scale;
+    let axes = state.axes;
     for vw in block.vertices {
         let v = &vw.vertex;
-        let x = (v.x + block.translation.x) * s;
-        let y = (v.y + block.translation.y) * s;
-        let z = (v.z + block.translation.z) * s;
-        obj.write_vertex(x, y, -z, None)?;
+        let [x, y, z] = axes.from_vpx(
+            (v.x + block.translation.x) * s,
+            (v.y + block.translation.y) * s,
+            (v.z + block.translation.z) * s,
+        );
+        obj.write_vertex(x, y, z, None)?;
     }
-    // UVs: tv -> 1 - tv, NaN -> 0
+    // UVs: tv -> 1 - tv (skipped for the raw vpx-internal convention),
+    // NaN -> 0
+    let flip_v = axes != AxisConvention::ZUpLeftHanded;
     for vw in block.vertices {
         let tu = if vw.vertex.tu.is_nan() {
             0.0
@@ -1295,28 +1328,21 @@ fn write_block<O: ObjWriter<f32>, M: MtlWriter<f32>>(
         };
         let tv = if vw.vertex.tv.is_nan() {
             0.0
-        } else {
+        } else if flip_v {
             1.0 - vw.vertex.tv
+        } else {
+            vw.vertex.tv
         };
         obj.write_texture_coordinate(tu, Some(tv), None)?;
     }
-    // Normals: nz -> -nz, NaN -> 0
+    // Normals: same axis mapping as positions (never unit-scaled), NaN -> 0
+    // after the mapping so a NaN never turns into a negated zero
     for vw in block.vertices {
-        let nx = if vw.vertex.nx.is_nan() {
-            0.0
-        } else {
-            vw.vertex.nx
-        };
-        let ny = if vw.vertex.ny.is_nan() {
-            0.0
-        } else {
-            vw.vertex.ny
-        };
-        let nz = if vw.vertex.nz.is_nan() {
-            0.0
-        } else {
-            -vw.vertex.nz
-        };
+        let v = &vw.vertex;
+        let [nx, ny, nz] = axes.from_vpx(v.nx, v.ny, v.nz);
+        let nx = if nx.is_nan() { 0.0 } else { nx };
+        let ny = if ny.is_nan() { 0.0 } else { ny };
+        let nz = if nz.is_nan() { 0.0 } else { nz };
         obj.write_normal(nx, ny, nz)?;
     }
 
@@ -1333,11 +1359,18 @@ fn write_block<O: ObjWriter<f32>, M: MtlWriter<f32>>(
         obj.write_smoothing_group(SmoothingGroup::Group(1))?;
     }
 
-    // Faces: 1-based, +face_offset, reversed winding.
+    // Faces: 1-based, +face_offset. The winding is reversed exactly when
+    // the axis convention flips handedness, keeping front faces front.
+    let reverse_winding = axes.flips_handedness(AxisConvention::ZUpLeftHanded);
     for face in block.indices {
-        let v1 = (face.i2 as u32 + 1 + state.face_offset) as usize;
-        let v2 = (face.i1 as u32 + 1 + state.face_offset) as usize;
-        let v3 = (face.i0 as u32 + 1 + state.face_offset) as usize;
+        let (a, b, c) = if reverse_winding {
+            (face.i2, face.i1, face.i0)
+        } else {
+            (face.i0, face.i1, face.i2)
+        };
+        let v1 = (a as u32 + 1 + state.face_offset) as usize;
+        let v2 = (b as u32 + 1 + state.face_offset) as usize;
+        let v3 = (c as u32 + 1 + state.face_offset) as usize;
         obj.write_face(&[
             (v1, Some(v1), Some(v1)),
             (v2, Some(v2), Some(v2)),
@@ -1699,6 +1732,92 @@ mod tests {
             newmtl <= usemtl,
             "newmtl ({newmtl}) should not exceed usemtl ({usemtl}) when deduped",
         );
+    }
+
+    /// The three axis conventions must relate exactly as documented on
+    /// [`AxisConvention`]: same geometry, mapped coordinates, winding
+    /// reversed only for the handedness-flipping conventions, V flip
+    /// skipped only for the raw vpx-internal convention.
+    #[test]
+    fn axes_conventions_relate_as_documented() {
+        let export = |axes: AxisConvention| {
+            let (obj, _mtl) = export_to_memory(&ObjExportOptions {
+                axes,
+                ..ObjExportOptions::default()
+            });
+            obj
+        };
+        let zdown = export(AxisConvention::ZDownRightHanded);
+        let yup = export(AxisConvention::YUpRightHanded);
+        let raw = export(AxisConvention::ZUpLeftHanded);
+
+        // the default stays vpinball's convention
+        let (default_obj, _) = export_to_memory(&ObjExportOptions::default());
+        assert_eq!(default_obj, zdown);
+
+        fn lines<'a>(obj: &'a str, prefix: &str) -> Vec<Vec<&'a str>> {
+            let prefix = prefix.to_string();
+            obj.lines()
+                .filter_map(move |l| l.strip_prefix(&prefix))
+                .map(|l| l.split_whitespace().collect())
+                .collect()
+        }
+        fn floats(obj: &str, prefix: &str) -> Vec<Vec<f32>> {
+            lines(obj, prefix)
+                .into_iter()
+                .map(|toks| toks.into_iter().map(|s| s.parse().unwrap()).collect())
+                .collect()
+        }
+
+        // positions: zdown (x, y, -z), yup (x, z, y), raw (x, y, z)
+        let vz = floats(&zdown, "v ");
+        let vy = floats(&yup, "v ");
+        let vr = floats(&raw, "v ");
+        assert!(!vz.is_empty());
+        assert_eq!(vz.len(), vy.len());
+        assert_eq!(vz.len(), vr.len());
+        for ((a, b), c) in vz.iter().zip(&vy).zip(&vr) {
+            // recover the vpx coordinates from the zdown line
+            let (x, y, z) = (a[0], a[1], -a[2]);
+            assert_eq!(b.as_slice(), [x, z, y]);
+            assert_eq!(c.as_slice(), [x, y, z]);
+        }
+
+        // normals map the same way
+        let nz = floats(&zdown, "vn ");
+        let ny = floats(&yup, "vn ");
+        let nr = floats(&raw, "vn ");
+        assert_eq!(nz.len(), ny.len());
+        assert_eq!(nz.len(), nr.len());
+        for ((a, b), c) in nz.iter().zip(&ny).zip(&nr) {
+            let (x, y, z) = (a[0], a[1], -a[2]);
+            assert_eq!(b.as_slice(), [x, z, y]);
+            assert_eq!(c.as_slice(), [x, y, z]);
+        }
+
+        // UVs: both right-handed conventions flip V, raw does not
+        let tz = floats(&zdown, "vt ");
+        let ty = floats(&yup, "vt ");
+        let tr = floats(&raw, "vt ");
+        assert_eq!(tz, ty);
+        assert_eq!(tz.len(), tr.len());
+        for (a, c) in tz.iter().zip(&tr) {
+            assert_eq!(a[0], c[0]);
+            assert_eq!(a[1], 1.0 - c[1]);
+        }
+
+        // faces: both right-handed conventions reverse winding, raw does not
+        let fz = lines(&zdown, "f ");
+        let fy = lines(&yup, "f ");
+        let fr = lines(&raw, "f ");
+        assert!(!fz.is_empty());
+        assert_eq!(fz, fy);
+        assert_eq!(fz.len(), fr.len());
+        for (a, c) in fz.iter().zip(&fr) {
+            let mut reversed = c.clone();
+            reversed.reverse();
+            assert_eq!(a, &reversed);
+        }
     }
 
     /// Find the vertex with the largest |x| in an OBJ string, returning
