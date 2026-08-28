@@ -24,6 +24,17 @@ jobs:
     runs-on: ${{ matrix.platform.os }}
 
     steps:
+      # Defender's real-time scanning inspects every file the build writes
+      # (thousands of incremental artifacts, rlibs, test binaries), roughly
+      # doubling build and test times on the Windows runners. Exclude the
+      # build directories from scanning.
+      - name: Exclude build dirs from Windows Defender
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          Add-MpPreference -ExclusionPath "$env:GITHUB_WORKSPACE"
+          Add-MpPreference -ExclusionPath "$env:USERPROFILE\.cargo"
+          Add-MpPreference -ExclusionPath "$env:USERPROFILE\.rustup"
       - uses: actions/checkout@v7
       - name: Install minimal stable with clippy and rustfmt
         uses: dtolnay/rust-toolchain@stable
