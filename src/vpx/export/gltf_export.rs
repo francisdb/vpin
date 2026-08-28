@@ -129,7 +129,7 @@ use crate::vpx::{TableDimensions, VPX};
 use byteorder::{LittleEndian, WriteBytesExt};
 use log::{info, warn};
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io;
 use std::path::Path;
 use vpx::mesh::decals::build_decal_mesh;
@@ -382,8 +382,10 @@ struct GltfMaterial {
 }
 
 /// Collect all materials from a VPX file
-fn collect_materials(vpx: &VPX) -> HashMap<String, GltfMaterial> {
-    let mut materials = HashMap::new();
+// A sorted map: the materials are iterated when building the glTF materials
+// array, and a HashMap iteration order would make the export nondeterministic.
+fn collect_materials(vpx: &VPX) -> BTreeMap<String, GltfMaterial> {
+    let mut materials = BTreeMap::new();
 
     // Try new format first (10.8+)
     if let Some(ref mats) = vpx.gamedata.materials {
@@ -659,7 +661,7 @@ fn playfield_material(
     vpx: &VPX,
     playfield_image: &ImageData,
     playfield_material_name: &str,
-    materials: &HashMap<String, GltfMaterial>,
+    materials: &BTreeMap<String, GltfMaterial>,
     gltf_samplers: &mut Vec<serde_json::Value>,
     gltf_images: &mut Vec<serde_json::Value>,
     gltf_textures: &mut Vec<serde_json::Value>,
@@ -1923,7 +1925,7 @@ fn build_combined_gltf_payload(
     vpx: &VPX,
     meshes: &[NamedMesh],
     item_groups: Vec<ItemGroupInfo>,
-    materials: &HashMap<String, GltfMaterial>,
+    materials: &BTreeMap<String, GltfMaterial>,
     images: &[ImageData],
     playfield_image: Option<&ImageData>,
     playfield_material_name: &str,
@@ -2374,7 +2376,9 @@ fn build_combined_gltf_payload(
     let mut accessors = Vec::new();
 
     // Track layer groups: layer_name -> (layer_node_index, child_node_indices)
-    let mut layer_groups: HashMap<String, (usize, Vec<usize>)> = HashMap::new();
+    // A sorted map: iterated when creating the layer nodes, and a HashMap
+    // iteration order would make the export nondeterministic.
+    let mut layer_groups: BTreeMap<String, (usize, Vec<usize>)> = BTreeMap::new();
     // Track meshes without a layer (will be at root level)
     let mut root_node_indices: Vec<usize> = Vec::new();
     // Track grouped meshes (e.g., light bulb/socket/insert): group_name -> child node indices
@@ -3217,6 +3221,34 @@ mod tests {
     use super::*;
     use crate::vpx::gameitem::primitive::Primitive;
     use crate::vpx::mesh::test_utils::create_minimal_mesh_data;
+
+    /// Two exports of the same table must be byte-identical. The material
+    /// and layer maps used to be HashMaps, whose per-instance random
+    /// iteration order leaked into the materials array, mesh material
+    /// indices and layer node order (the test table has ~100 materials, so
+    /// two orders coinciding by chance is practically impossible).
+    #[test]
+    #[cfg(not(target_family = "wasm"))]
+    fn test_export_gltf_deterministic() {
+        use crate::filesystem::MemoryFileSystem;
+        let vpx_path = Path::new("testdata/completely_blank_table_10_7_4.vpx");
+        let vpx = crate::vpx::read(vpx_path).unwrap();
+        let export = || {
+            let fs = MemoryFileSystem::new();
+            export_gltf(
+                &vpx,
+                Path::new("out/table.glb"),
+                &fs,
+                &GltfExportOptions::glb(),
+            )
+            .unwrap();
+            fs.get_file("out/table.glb").unwrap()
+        };
+        let first = export();
+        let second = export();
+        // no assert_eq: on failure it would print megabytes of bytes
+        assert!(first == second, "gltf export should be deterministic");
+    }
 
     #[test]
     fn test_collect_meshes_empty_vpx_has_implicit_playfield() {
