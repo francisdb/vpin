@@ -1598,6 +1598,44 @@ mod tests {
         (obj, mtl)
     }
 
+    /// Two exports of the same table must be byte-identical for every
+    /// written file (obj, mtl, extracted textures), so exporter changes can
+    /// be verified with plain file hashes. Counterpart of the gltf export
+    /// determinism test.
+    #[test]
+    #[cfg(not(target_family = "wasm"))]
+    fn test_export_obj_deterministic() {
+        let vpx_path = Path::new("testdata/completely_blank_table_10_7_4.vpx");
+        let vpx = crate::vpx::read(vpx_path).unwrap();
+        let export = || {
+            let fs = MemoryFileSystem::default();
+            export_obj(
+                &vpx,
+                Path::new("out/table.obj"),
+                &fs,
+                &ObjExportOptions::default(),
+            )
+            .unwrap();
+            let mut files = fs.list_files();
+            files.sort();
+            files
+                .into_iter()
+                .map(|f| {
+                    let data = fs.get_file(&f).unwrap();
+                    (f, data)
+                })
+                .collect::<Vec<_>>()
+        };
+        let first = export();
+        let second = export();
+        // no assert_eq: on failure it would print megabytes of bytes
+        assert!(
+            first == second,
+            "obj export should be deterministic (files or bytes differ)"
+        );
+        assert!(first.len() > 1, "expected obj + mtl output");
+    }
+
     #[test]
     fn primitive_world_matrix_does_not_scale_position() {
         // Regression: the previous order `Translate(pos) * Scale * RT`
