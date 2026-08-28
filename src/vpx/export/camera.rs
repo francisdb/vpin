@@ -7,6 +7,7 @@
 //!
 //! See [`crate::vpx::gamedata`] for documentation on VPU units and view settings.
 
+use super::gltf_export::GLTF_AXES;
 use crate::vpx::VPX;
 use crate::vpx::gamedata::ViewLayoutMode;
 use crate::vpx::units::vpu_to_m;
@@ -332,6 +333,8 @@ pub(crate) struct GltfCamera {
     /// The view mode this camera represents
     pub mode: ViewMode,
     /// Position in glTF coordinates (meters)
+    // TODO cameras are hardcoded to meters while the meshes follow the
+    //   units option, so a non-metre export misplaces the cameras
     pub position: [f32; 3],
     /// Rotation as quaternion [x, y, z, w]
     pub rotation: [f32; 4],
@@ -467,12 +470,8 @@ impl GltfCamera {
                     );
                 }
 
-                // Transform VPX -> glTF: (x, y, z) -> (x, z, y)
-                let camera_x = vpu_to_m(vpx_x);
-                let camera_y = vpu_to_m(vpx_z); // VPX Z (height) -> glTF Y
-                let camera_z = vpu_to_m(vpx_y); // VPX Y (depth) -> glTF Z
-
-                let position = [camera_x, camera_y, camera_z];
+                let position =
+                    GLTF_AXES.from_vpx(vpu_to_m(vpx_x), vpu_to_m(vpx_y), vpu_to_m(vpx_z));
 
                 // Camera rotation: pitch down from horizontal
                 // In glTF, cameras look down -Z axis by default. To look at the table (which is below),
@@ -599,12 +598,8 @@ impl GltfCamera {
                     println!("  final vpx: ({}, {}, {})", vpx_x, vpx_y, vpx_z);
                 }
 
-                // Transform VPX -> glTF: (x, y, z) -> (x, z, y)
-                let camera_x = vpu_to_m(vpx_x);
-                let camera_y = vpu_to_m(vpx_z); // VPX Z (height) -> glTF Y
-                let camera_z = vpu_to_m(vpx_y); // VPX Y (depth) -> glTF Z
-
-                let position = [camera_x, camera_y, camera_z];
+                let position =
+                    GLTF_AXES.from_vpx(vpu_to_m(vpx_x), vpu_to_m(vpx_y), vpu_to_m(vpx_z));
 
                 // Camera rotation: pitch down from horizontal
                 // In glTF, cameras look down -Z axis by default. To look at the table (which is below),

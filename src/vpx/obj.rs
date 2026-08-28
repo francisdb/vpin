@@ -97,6 +97,14 @@ fn obj_parse_vpx_comment(comment: &str) -> Option<VpxCommentBytes> {
 ///
 /// VPinball exports obj files with negated z axis compared to vpx files internal representation.
 /// So we have to negate the vertex/normal z values + reverse face winding order.
+///
+/// IMPORTANT: this is the lossless byte-exact path behind extract/assemble.
+/// Never apply a unit scale or a different axis convention in here: scaled
+/// values do not round trip bit-for-bit through the f64 formatting, and the
+/// written coordinates would disagree with the preserved `# vpx <hex>`
+/// comments next to them. Interchange conversions belong in the one-way
+/// exporters (`export::obj_export`) or in a layer on top of the parsed
+/// result, never inside this writer.
 pub(crate) fn write_obj_to_writer<W: io::Write>(
     name: &str,
     vpx_vertices: &[VertexWrapper],
@@ -361,6 +369,12 @@ pub(crate) fn read_obj_from_reader<R: BufRead>(reader: &mut R) -> io::Result<Rea
 /// `extract` writes - and we convert to vpx-internal coordinates).
 /// `false` skips the conversion: the input is assumed to already be in
 /// vpx-internal convention so its values pass through unchanged.
+///
+/// IMPORTANT: this is the lossless byte-exact path behind extract/assemble.
+/// Never apply a unit scale or additional axis conventions in here: the
+/// `vpx_encoded_vertices` this builds feed straight back into the vpx file
+/// and must reproduce the original bytes. Apply interchange conversions to
+/// the parsed result in a layer on top instead.
 pub(crate) fn read_obj_from_reader_with_options<R: BufRead>(
     mut reader: &mut R,
     convert_to_left_handed: bool,
