@@ -124,7 +124,7 @@ use crate::vpx::mesh::spinners::build_spinner_meshes;
 use crate::vpx::mesh::triggers::build_trigger_mesh;
 use crate::vpx::mesh::walls::build_wall_meshes;
 use crate::vpx::obj::VpxFace;
-use crate::vpx::units::{ExportUnits, mm_to_vpu, vpu_to_units};
+use crate::vpx::units::{AxisConvention, ExportUnits, mm_to_vpu, vpu_to_units};
 use crate::vpx::{TableDimensions, VPX};
 use byteorder::{LittleEndian, WriteBytesExt};
 use log::{info, warn};
@@ -272,6 +272,21 @@ impl NamedMesh {
 // Re-export camera types from the camera module
 use super::camera::GltfCamera;
 
+/// The glTF specification mandates Y-up right-handed coordinates, so unlike
+/// OBJ export the axis convention here is fixed rather than an option.
+const GLTF_AXES: AxisConvention = AxisConvention::YUpRightHanded;
+
+/// Convert a point in VPX axes (VPU) to glTF axes, scaled to `units`.
+#[inline]
+fn vpx_point_to_gltf(x: f32, y: f32, z: f32, units: ExportUnits) -> Vec3 {
+    let [gx, gy, gz] = GLTF_AXES.from_vpx(
+        vpu_to_units(x, units),
+        vpu_to_units(y, units),
+        vpu_to_units(z, units),
+    );
+    Vec3::new(gx, gy, gz)
+}
+
 /// Transform primitive vertices using the primitive's transformation matrix,
 /// returning the transformed vertices and the translation for the glTF node.
 ///
@@ -355,13 +370,7 @@ fn transform_primitive_vertices(
         })
         .collect();
 
-    // Convert position to glTF coordinates (Y-up, scaled to `units`).
-    // VPX X -> glTF X, VPX Z -> glTF Y (up), VPX Y -> glTF Z (towards viewer).
-    let translation = Vec3::new(
-        vpu_to_units(pos.x, units),
-        vpu_to_units(pos.z, units),
-        vpu_to_units(pos.y, units),
-    );
+    let translation = vpx_point_to_gltf(pos.x, pos.y, pos.z, units);
 
     (transformed_vertices, translation)
 }
@@ -1023,13 +1032,7 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                     } else {
                         Some(rubber.material.clone())
                     };
-                    // Convert center to glTF coordinates (meters, Y-up)
-                    // VPX (x, y, z) → glTF [x, z, y]
-                    let translation = Some(Vec3::new(
-                        vpu_to_units(center.x, units),
-                        vpu_to_units(center.z, units),
-                        vpu_to_units(center.y, units),
-                    ));
+                    let translation = Some(vpx_point_to_gltf(center.x, center.y, center.z, units));
                     meshes.push(NamedMesh {
                         name: rubber.name.clone(),
                         vertices,
@@ -1068,13 +1071,7 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                         flasher.color.b as f32 / 255.0,
                         flasher.alpha as f32 / 100.0,
                     ]);
-                    // Convert position to glTF coordinates (meters, Y-up)
-                    // VPX (x, y, z) → glTF [x, z, y]
-                    let translation = Some(Vec3::new(
-                        vpu_to_units(center.x, units),
-                        vpu_to_units(center.z, units),
-                        vpu_to_units(center.y, units),
-                    ));
+                    let translation = Some(vpx_point_to_gltf(center.x, center.y, center.z, units));
                     meshes.push(NamedMesh {
                         name: flasher.name.clone(),
                         vertices,
@@ -1099,12 +1096,11 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                     let flipper_layer_name = group_info.layer_name.clone();
                     item_groups.push(group_info);
 
-                    // Convert center to glTF coordinates (meters, Y-up)
-                    // VPX (x, y, z) → glTF [x, z, y]
-                    let translation = Some(Vec3::new(
-                        vpu_to_units(flipper_meshes.center.x, units),
-                        vpu_to_units(flipper_meshes.center.z, units),
-                        vpu_to_units(flipper_meshes.center.y, units),
+                    let translation = Some(vpx_point_to_gltf(
+                        flipper_meshes.center.x,
+                        flipper_meshes.center.y,
+                        flipper_meshes.center.z,
+                        units,
                     ));
 
                     // Add base flipper mesh
@@ -1158,12 +1154,11 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                 let bumper_layer_name = group_info.layer_name.clone();
                 item_groups.push(group_info);
 
-                // Convert center to glTF coordinates (meters, Y-up)
-                // VPX (x, y, z) → glTF [x, z, y]
-                let translation = Some(Vec3::new(
-                    vpu_to_units(bumper.center.x, units),
-                    vpu_to_units(surface_height, units),
-                    vpu_to_units(bumper.center.y, units),
+                let translation = Some(vpx_point_to_gltf(
+                    bumper.center.x,
+                    bumper.center.y,
+                    surface_height,
+                    units,
                 ));
 
                 // Add base mesh if visible
@@ -1253,13 +1248,11 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                 let spinner_layer_name = group_info.layer_name.clone();
                 item_groups.push(group_info);
 
-                // Convert center to glTF coordinates (meters, Y-up)
-                // VPX (x, y, z) → glTF [x, z, y]
-                // pos_z = surface_height + spinner.height
-                let translation = Some(Vec3::new(
-                    vpu_to_units(spinner.center.x, units),
-                    vpu_to_units(surface_height + spinner.height, units),
-                    vpu_to_units(spinner.center.y, units),
+                let translation = Some(vpx_point_to_gltf(
+                    spinner.center.x,
+                    spinner.center.y,
+                    surface_height + spinner.height,
+                    units,
                 ));
 
                 // Add bracket mesh if visible
@@ -1321,12 +1314,11 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                     } else {
                         Some(hit_target.image.clone())
                     };
-                    // Convert position to glTF coordinates (meters, Y-up)
-                    // VPX X → glTF X, VPX Z → glTF Y (up), VPX Y → glTF Z (towards viewer)
-                    let translation = Some(Vec3::new(
-                        vpu_to_units(hit_target.position.x, units),
-                        vpu_to_units(hit_target.position.z, units),
-                        vpu_to_units(hit_target.position.y, units),
+                    let translation = Some(vpx_point_to_gltf(
+                        hit_target.position.x,
+                        hit_target.position.y,
+                        hit_target.position.z,
+                        units,
                     ));
                     meshes.push(NamedMesh {
                         name: hit_target.name.clone(),
@@ -1359,12 +1351,11 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                         Some(gate.material.clone())
                     };
 
-                    // Convert center to glTF coordinates (meters, Y-up)
-                    // VPX (x, y, z) → glTF [x, z, y]
-                    let translation = Some(Vec3::new(
-                        vpu_to_units(gate.center.x, units),
-                        vpu_to_units(surface_height + gate.height, units),
-                        vpu_to_units(gate.center.y, units),
+                    let translation = Some(vpx_point_to_gltf(
+                        gate.center.x,
+                        gate.center.y,
+                        surface_height + gate.height,
+                        units,
                     ));
 
                     // Add bracket mesh if visible
@@ -1423,12 +1414,11 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                         Some(trigger.material.clone())
                     };
 
-                    // Convert center to glTF coordinates (meters, Y-up)
-                    // VPX (x, y, z) → glTF [x, z, y]
-                    let translation = Some(Vec3::new(
-                        vpu_to_units(trigger.center.x, units),
-                        vpu_to_units(surface_height, units),
-                        vpu_to_units(trigger.center.y, units),
+                    let translation = Some(vpx_point_to_gltf(
+                        trigger.center.x,
+                        trigger.center.y,
+                        surface_height,
+                        units,
                     ));
 
                     meshes.push(NamedMesh {
@@ -1466,14 +1456,13 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                 if crate::vpx::compat::light_show_bulb_mesh(light, &vpx.version)
                     && let Some(light_meshes) = build_light_meshes(light)
                 {
-                    // Convert center to glTF coordinates (meters, Y-up)
-                    // VPX (x, y, z) → glTF [x, z, y]
                     // VPinball places the bulb mesh at surface height (light.cpp: bulb_z = m_surfaceHeight)
                     // Note: light.height only affects the light emission point, not the mesh
-                    let translation = Some(Vec3::new(
-                        vpu_to_units(light.center.x, units),
-                        vpu_to_units(surface_height, units),
-                        vpu_to_units(light.center.y, units),
+                    let translation = Some(vpx_point_to_gltf(
+                        light.center.x,
+                        light.center.y,
+                        surface_height,
+                        units,
                     ));
 
                     // Add bulb mesh
@@ -1522,15 +1511,14 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                 if let Some((vertices, indices, center)) =
                     build_light_insert_mesh(light, &table_dims)
                 {
-                    // Convert center to glTF coordinates (meters, Y-up)
-                    // VPX (x, y, z) → glTF [x, z, y]
                     // VPinball offsets light meshes 0.1 VPU above the surface to avoid
                     // z-fighting with the playfield (light.cpp: buf[t].z = height + 0.1f)
                     // Note: light.height only affects the light emission point, not the mesh
-                    let translation = Some(Vec3::new(
-                        vpu_to_units(center.x, units),
-                        vpu_to_units(surface_height + 0.1, units),
-                        vpu_to_units(center.y, units),
+                    let translation = Some(vpx_point_to_gltf(
+                        center.x,
+                        center.y,
+                        surface_height + 0.1,
+                        units,
                     ));
 
                     // VPinball uses the image as the light polygon texture (SHADER_tex_light_color)
@@ -1587,13 +1575,12 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                 let plunger_layer_name = group_info.layer_name.clone();
                 item_groups.push(group_info);
 
-                // Convert center to glTF coordinates (meters, Y-up)
-                // VPX (x, y, z) → glTF [x, z, y]
                 // Note: z_adjust is already baked into mesh z coordinates relative to height/2
-                let translation = Some(Vec3::new(
-                    vpu_to_units(plunger.center.x, units),
-                    vpu_to_units(surface_height + plunger.z_adjust, units),
-                    vpu_to_units(plunger.center.y, units),
+                let translation = Some(vpx_point_to_gltf(
+                    plunger.center.x,
+                    plunger.center.y,
+                    surface_height + plunger.z_adjust,
+                    units,
                 ));
 
                 // Add flat rod mesh (for Flat type)
@@ -1719,12 +1706,11 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                 let kicker_layer_name = group_info.layer_name.clone();
                 item_groups.push(group_info);
 
-                // Convert center to glTF coordinates (meters, Y-up)
-                // VPX (x, y, z) → glTF [x, z, y]
-                let translation = Some(Vec3::new(
-                    vpu_to_units(kicker.center.x, units),
-                    vpu_to_units(surface_height, units),
-                    vpu_to_units(kicker.center.y, units),
+                let translation = Some(vpx_point_to_gltf(
+                    kicker.center.x,
+                    kicker.center.y,
+                    surface_height,
+                    units,
                 ));
 
                 // Default colors based on kicker type to approximate VPinball's built-in textures
@@ -1805,13 +1791,12 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                         None
                     };
 
-                    // Convert center to glTF coordinates (meters, Y-up)
-                    // VPX (x, y, z) → glTF [x, z, y]
                     // Add 0.2 VPU offset for decal (from decal.cpp line 646)
-                    let translation = Some(Vec3::new(
-                        vpu_to_units(decal.center.x, units),
-                        vpu_to_units(surface_height + 0.2, units),
-                        vpu_to_units(decal.center.y, units),
+                    let translation = Some(vpx_point_to_gltf(
+                        decal.center.x,
+                        decal.center.y,
+                        surface_height + 0.2,
+                        units,
                     ));
 
                     meshes.push(NamedMesh {
@@ -1883,13 +1868,8 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                     ])
                 };
 
-                // Convert position to glTF coordinates (meters, Y-up)
-                // VPX (x, y, z) → glTF [x, z, y]
-                let translation = Some(Vec3::new(
-                    vpu_to_units(ball.pos.x, units),
-                    vpu_to_units(ball.pos.z, units),
-                    vpu_to_units(ball.pos.y, units),
-                ));
+                let translation =
+                    Some(vpx_point_to_gltf(ball.pos.x, ball.pos.y, ball.pos.z, units));
 
                 meshes.push(NamedMesh {
                     name: ball.name.clone(),
@@ -2388,30 +2368,31 @@ fn build_combined_gltf_payload(
         let accessor_base = accessors.len();
         let buffer_view_base = buffer_views.len();
 
-        // Write positions (VEC3 float)
-        // Transform from VPinball coordinates (left-handed, Z-up) to glTF (right-handed, Y-up):
-        //   VPX X → glTF X (keep origin at left)
-        //   VPX Y → glTF Z (towards viewer, so player side faces camera)
-        //   VPX Z → glTF Y (up)
-        // Also scale from VP units to meters
-        // Winding order is reversed to change handedness
+        // Write positions (VEC3 float), scaled to `units` and mapped to glTF
+        // axes; winding order is reversed to change handedness (see GLTF_AXES)
         let positions_offset = bin_data.len();
         for VertexWrapper { vertex, .. } in &mesh.vertices {
-            bin_data.write_f32::<LittleEndian>(vpu_to_units(vertex.x, units))?;
-            bin_data.write_f32::<LittleEndian>(vpu_to_units(vertex.z, units))?;
-            bin_data.write_f32::<LittleEndian>(vpu_to_units(vertex.y, units))?;
+            let [px, py, pz] = GLTF_AXES.from_vpx(
+                vpu_to_units(vertex.x, units),
+                vpu_to_units(vertex.y, units),
+                vpu_to_units(vertex.z, units),
+            );
+            bin_data.write_f32::<LittleEndian>(px)?;
+            bin_data.write_f32::<LittleEndian>(py)?;
+            bin_data.write_f32::<LittleEndian>(pz)?;
         }
         let positions_length = bin_data.len() - positions_offset;
 
-        // Write normals (VEC3 float) - same transformation as positions
+        // Write normals (VEC3 float) - same axis mapping as positions, never scaled
         let normals_offset = bin_data.len();
         for VertexWrapper { vertex, .. } in &mesh.vertices {
             let nx = if vertex.nx.is_nan() { 0.0 } else { vertex.nx };
             let ny = if vertex.ny.is_nan() { 0.0 } else { vertex.ny };
             let nz = if vertex.nz.is_nan() { 0.0 } else { vertex.nz };
+            let [nx, ny, nz] = GLTF_AXES.from_vpx(nx, ny, nz);
             bin_data.write_f32::<LittleEndian>(nx)?;
-            bin_data.write_f32::<LittleEndian>(nz)?;
             bin_data.write_f32::<LittleEndian>(ny)?;
+            bin_data.write_f32::<LittleEndian>(nz)?;
         }
         let normals_length = bin_data.len() - normals_offset;
 
@@ -2452,10 +2433,11 @@ fn build_combined_gltf_payload(
                 f32::NEG_INFINITY,
             ),
             |(min_x, max_x, min_y, max_y, min_z, max_z), v| {
-                // Transform: glTF_x = vpx_x, glTF_y = vpx_z, glTF_z = vpx_y (all scaled)
-                let gltf_x = vpu_to_units(v.vertex.x, units);
-                let gltf_y = vpu_to_units(v.vertex.z, units);
-                let gltf_z = vpu_to_units(v.vertex.y, units);
+                let [gltf_x, gltf_y, gltf_z] = GLTF_AXES.from_vpx(
+                    vpu_to_units(v.vertex.x, units),
+                    vpu_to_units(v.vertex.y, units),
+                    vpu_to_units(v.vertex.z, units),
+                );
                 (
                     min_x.min(gltf_x),
                     max_x.max(gltf_x),
@@ -2824,9 +2806,11 @@ fn build_combined_gltf_payload(
     for (i, (name, x, y, z, _layer_name)) in game_lights.into_iter().enumerate() {
         let light_idx = i + 2; // Offset by 2 for table lights
 
-        let gltf_x = vpu_to_units(x, units);
-        let gltf_y = vpu_to_units(z, units); // VPX Z -> glTF Y
-        let gltf_z = vpu_to_units(y, units); // VPX Y -> glTF Z
+        let [gltf_x, gltf_y, gltf_z] = GLTF_AXES.from_vpx(
+            vpu_to_units(x, units),
+            vpu_to_units(y, units),
+            vpu_to_units(z, units),
+        );
 
         let light_node = json!({
             "name": format!("{}_light", name),
