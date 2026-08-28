@@ -112,6 +112,95 @@ pub fn vpu_to_units(vpu: f32, units: ExportUnits) -> f32 {
     vpu * units.scale()
 }
 
+/// Axis convention for 3D mesh interchange (OBJ, glTF/GLB), in either
+/// direction: exporting VPX geometry or importing meshes back in.
+///
+/// VPX space is left-handed with Z up: X right (across the playfield),
+/// Y towards the player (down the playfield), Z up (towards the glass).
+/// [`Self::ZUpLeftHanded`] is that internal frame verbatim; the other
+/// variants negate or swap exactly one axis pair, so each produces a
+/// right-handed frame from the left-handed one. A conversion between two
+/// frames of different [`Self::handedness`] must pair with a reversed
+/// triangle winding (matching vpinball's `ObjLoader`); one between frames
+/// of equal handedness keeps the winding, since such frames differ only
+/// by a pure rotation (the two right-handed variants: 90 degrees about
+/// X).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AxisConvention {
+    /// VPX's internal coordinate system: left-handed with Z up, inherited
+    /// from DirectX. X runs right across the playfield, Y down the
+    /// playfield towards the player, Z up towards the glass.
+    ///
+    /// Converting to or from this convention leaves coordinates untouched
+    /// (vertices keep their vpx-internal values). Only meaningful for
+    /// tooling that works on the raw vpx data; not what any viewer or DCC
+    /// tool expects.
+    ZUpLeftHanded,
+    /// VPinball's exported OBJ convention: `(x, y, -z)`.
+    ///
+    /// Right-handed like [`Self::YUpRightHanded`], but keeping VPX's axis
+    /// roles: Y still runs down the playfield and Z, now negated, points
+    /// down through the table instead of up. This is what vpinball itself
+    /// writes when exporting an OBJ and expects when importing one, so a
+    /// table shows up rotated 90 degrees about X in a Y-up viewer.
+    #[default]
+    ZDownRightHanded,
+    /// Y up, right-handed: `(x, z, y)`. The glTF and Wavefront OBJ
+    /// convention, and what Blender / Maya / 3ds Max assume with their
+    /// default import settings (`Scale 1.0, Forward -Z, Up Y`).
+    YUpRightHanded,
+}
+
+impl AxisConvention {
+    /// Map a position or normal from VPX axes to this convention.
+    ///
+    /// Positions should already be scaled to the target unit; normals use
+    /// the same mapping (axis maps are orthogonal, so normals transform
+    /// like positions) but must never get the unit scale applied.
+    #[inline]
+    pub fn from_vpx(self, x: f32, y: f32, z: f32) -> [f32; 3] {
+        match self {
+            AxisConvention::ZUpLeftHanded => [x, y, z],
+            AxisConvention::ZDownRightHanded => [x, y, -z],
+            AxisConvention::YUpRightHanded => [x, z, y],
+        }
+    }
+
+    /// Inverse of [`Self::from_vpx`], mapping back to VPX axes.
+    /// Every variant is an involution (each map is its own inverse), so
+    /// this intentionally equals `from_vpx`; see the round-trip test.
+    #[inline]
+    pub fn to_vpx(self, x: f32, y: f32, z: f32) -> [f32; 3] {
+        self.from_vpx(x, y, z)
+    }
+
+    /// The handedness of this frame (also spelled out in the variant
+    /// names).
+    #[inline]
+    pub fn handedness(self) -> Handedness {
+        match self {
+            AxisConvention::ZUpLeftHanded => Handedness::Left,
+            AxisConvention::ZDownRightHanded | AxisConvention::YUpRightHanded => Handedness::Right,
+        }
+    }
+
+    /// Whether converting between this convention and `other` flips
+    /// handedness. When true, the conversion must pair with a reversed
+    /// triangle winding to keep front faces front; when false the winding
+    /// stays untouched.
+    #[inline]
+    pub fn flips_handedness(self, other: AxisConvention) -> bool {
+        self.handedness() != other.handedness()
+    }
+}
+
+/// Handedness of a 3D coordinate frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Handedness {
+    Left,
+    Right,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,5 +261,55 @@ mod tests {
             original,
             converted
         );
+    }
+
+    #[test]
+    fn test_export_axes_maps() {
+        assert_eq!(
+            AxisConvention::ZUpLeftHanded.from_vpx(1.0, 2.0, 3.0),
+            [1.0, 2.0, 3.0]
+        );
+        assert_eq!(
+            AxisConvention::ZDownRightHanded.from_vpx(1.0, 2.0, 3.0),
+            [1.0, 2.0, -3.0]
+        );
+        assert_eq!(
+            AxisConvention::YUpRightHanded.from_vpx(1.0, 2.0, 3.0),
+            [1.0, 3.0, 2.0]
+        );
+    }
+
+    /// All axis maps are involutions, which is why `to_vpx` equals
+    /// `vertex`. This test exists so nobody "fixes" that later.
+    #[test]
+    fn test_export_axes_are_involutions() {
+        for axes in [
+            AxisConvention::ZUpLeftHanded,
+            AxisConvention::ZDownRightHanded,
+            AxisConvention::YUpRightHanded,
+        ] {
+            let [x, y, z] = axes.from_vpx(1.0, 2.0, 3.0);
+            assert_eq!(
+                axes.to_vpx(x, y, z),
+                [1.0, 2.0, 3.0],
+                "{axes:?} should round trip"
+            );
+        }
+    }
+
+    #[test]
+    fn test_axis_convention_handedness() {
+        use AxisConvention::*;
+        assert_eq!(ZUpLeftHanded.handedness(), Handedness::Left);
+        assert_eq!(ZDownRightHanded.handedness(), Handedness::Right);
+        assert_eq!(YUpRightHanded.handedness(), Handedness::Right);
+
+        // converting between frames of different handedness reverses winding
+        assert!(ZUpLeftHanded.flips_handedness(ZDownRightHanded));
+        assert!(ZDownRightHanded.flips_handedness(ZUpLeftHanded));
+        assert!(ZUpLeftHanded.flips_handedness(YUpRightHanded));
+        // equal handedness keeps winding
+        assert!(!ZDownRightHanded.flips_handedness(YUpRightHanded));
+        assert!(!ZUpLeftHanded.flips_handedness(ZUpLeftHanded));
     }
 }
