@@ -22,7 +22,14 @@ exclude = [
 [features]
 default = ["parallel"]
 parallel = ["rayon"]
-wasm = ["wasm-bindgen", "js-sys", "console_error_panic_hook", "web-sys"]
+wasm = [
+    "wasm-bindgen",
+    "js-sys",
+    "console_error_panic_hook",
+    "web-sys",
+    "serde-wasm-bindgen",
+    "serde_repr",
+]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -49,6 +56,8 @@ wasm-bindgen = { version = "0.2.108", optional = true }
 js-sys = { version = "0.3.85", optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
 web-sys = { version = "0.3", optional = true, features = ["console"] }
+serde-wasm-bindgen = { version = "0.6", optional = true }
+serde_repr = { version = "0.1", optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 # Use zlib-ng for much faster compression/decompression on native targets
