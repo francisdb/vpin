@@ -20,7 +20,7 @@ jobs:
       # Pinned so new clippy lints from a fresh stable release don't break CI,
       # dependabot proposes updates for this version
       - name: Install minimal toolchain with clippy and rustfmt
-        uses: dtolnay/rust-toolchain@1.98.0
+        uses: dtolnay/rust-toolchain@1.100.0
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2.9.2
