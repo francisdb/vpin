@@ -5,6 +5,7 @@ use wasm_bindgen::prelude::*;
 use crate::filesystem::{FileSystem, MemoryFileSystem};
 use crate::vpx;
 use crate::vpx::expanded::{ExpandOptions, PrimitiveMeshFormat, read_fs, write_fs};
+use crate::vpx::units::AxisConvention;
 
 thread_local! {
     static PROGRESS_CALLBACK: RefCell<Option<js_sys::Function>> = const { RefCell::new(None) };
@@ -138,17 +139,94 @@ pub fn assemble(
 // Mesh I/O surface for vpx-editor and other wasm consumers.
 //
 // `obj_to_mesh` parses an OBJ into renderer-ready typed arrays;
-// `mesh_to_obj` is its symmetric inverse. Both take a
-// `convert_to_left_handed` flag matching vpinball's `ObjLoader::Load`
-// flag of the same name (the "Convert coordinate system" checkbox in
-// vpinball's mesh-import dialog):
-// - `true`: apply Z negate / V flip / winding reverse to convert
-//   between the OBJ's right-handed Y-up convention (Blender / standard)
-//   and vpx-internal left-handed Z-up. Symmetric with `extract` /
-//   `assemble`.
-// - `false`: skip the conversion. Input is assumed to already be in
-//   vpx-internal convention; values pass through unchanged.
+// `mesh_to_obj` is its symmetric inverse. Both take an optional options
+// object (a plain JS literal, see `MeshIoOptions`) with an
+// `AxisConvention` naming the convention of the OBJ side (the mesh side
+// is always vpx-internal) plus a `unitScale` multiplier for positions:
+// - `ZDownRightHanded` (default): vpinball's exported OBJ convention
+//   (Z negate / V flip / winding reverse). This is what the old
+//   `convert_to_left_handed = true` did, what vpinball's "Convert
+//   coordinate system" mesh-import checkbox does, and what `extract` /
+//   `assemble` write and read.
+// - `YUpRightHanded`: the Blender / DCC default (Y-Z swap / V flip /
+//   winding reverse), so a mesh opens upright in Blender with default
+//   import settings.
+// - `ZUpLeftHanded`: vpx-internal values verbatim, no transforms. This
+//   is what the old `convert_to_left_handed = false` did.
 // ---------------------------------------------------------------------------
+
+#[wasm_bindgen(typescript_custom_section)]
+const MESH_IO_OPTIONS_TS: &'static str = r#"
+/**
+ * Options for `obj_to_mesh` / `mesh_to_obj`. Pass a plain object
+ * literal; every field is optional.
+ */
+export interface MeshIoOptions {
+    /**
+     * Axis convention of the OBJ side of the conversion (the mesh side
+     * is always vpx-internal). Default: `AxisConvention.ZDownRightHanded`,
+     * matching what `extract` writes and `assemble` reads.
+     */
+    axes?: AxisConvention;
+    /**
+     * Multiplier applied to positions (on the vpx side for
+     * `obj_to_mesh`, before the axis mapping for `mesh_to_obj`).
+     * Normals and texture coordinates are never scaled. An OBJ written
+     * with scale `k` reads back with `1 / k`. Default: `1.0`.
+     */
+    unitScale?: number;
+}
+"#;
+
+#[wasm_bindgen]
+extern "C" {
+    /// Duck-typed options object for [`obj_to_mesh`] / [`mesh_to_obj`];
+    /// the shape is declared by the `MeshIoOptions` TypeScript interface
+    /// above.
+    #[wasm_bindgen(typescript_type = "MeshIoOptions")]
+    pub type MeshIoOptions;
+}
+
+/// The `MeshIoOptions` TypeScript interface as seen by serde. Field
+/// names go through `rename_all`, so they must match the interface
+/// above. Unknown fields on the JS object are ignored, per JS options
+/// convention (serde-wasm-bindgen reads known fields by name and never
+/// sees the others, so `deny_unknown_fields` would have no effect).
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct MeshIoOptionsData {
+    axes: Option<AxisConvention>,
+    unit_scale: Option<f32>,
+}
+
+/// `MeshIoOptions` with defaults applied.
+struct ResolvedMeshIoOptions {
+    axes: AxisConvention,
+    unit_scale: f32,
+}
+
+fn parse_mesh_io_options(options: Option<MeshIoOptions>) -> Result<ResolvedMeshIoOptions, JsError> {
+    let data = match &options {
+        Some(options) => {
+            let js: &JsValue = options.as_ref();
+            if js.is_undefined() || js.is_null() {
+                MeshIoOptionsData::default()
+            } else {
+                serde_wasm_bindgen::from_value(js.clone())
+                    .map_err(|e| JsError::new(&format!("Invalid options: {}", e)))?
+            }
+        }
+        None => MeshIoOptionsData::default(),
+    };
+    let unit_scale = data.unit_scale.unwrap_or(1.0);
+    if !unit_scale.is_finite() {
+        return Err(JsError::new("options.unitScale must be a finite number"));
+    }
+    Ok(ResolvedMeshIoOptions {
+        axes: data.axes.unwrap_or(AxisConvention::ZDownRightHanded),
+        unit_scale,
+    })
+}
 
 /// Mesh data for a single primitive: positions, texture coordinates,
 /// normals and triangle indices, packed as flat typed arrays for direct
@@ -246,46 +324,82 @@ impl PrimitiveMesh {
 /// anything in between): n-gons are fan-triangulated and `(position, uv,
 /// normal)` corners are deduplicated so the result is renderer-ready.
 ///
-/// `convert_to_left_handed` mirrors vpinball's `ObjLoader::Load` flag of
-/// the same name (the "Convert coordinate system" checkbox in the
-/// vpinball mesh-import dialog):
+/// `options.axes` names the convention the OBJ data is in; the returned
+/// mesh is always in vpx-internal convention:
 ///
-/// - `true` (matches `assemble`'s read path and vpinball's dialog
-///   default): the input is treated as right-handed (Blender / standard
-///   convention). Vertex Z is negated, normal Z is negated, V is flipped
-///   (`vpx_tv = 1 - obj_v`), and the per-triangle corner order is
-///   reversed. The returned mesh data ends up in vpx-internal,
-///   left-handed convention.
-/// - `false`: the input is assumed to already be in vpx-internal
-///   convention (e.g. produced by a previous `mesh_to_obj` with the same
-///   flag). The transforms are skipped and values pass through verbatim.
+/// - [`AxisConvention::ZDownRightHanded`] (the default; matches
+///   `assemble`'s read path and vpinball's mesh-import dialog with
+///   "Convert coordinate system" checked, the old `convert_to_left_handed
+///   = true`): vertex and normal Z are negated, V is flipped (`vpx_tv =
+///   1 - obj_v`) and the per-triangle corner order is reversed. This path
+///   also honors the `# vpx <hex>` byte-preservation comments, so
+///   vpinball-format OBJs from `extract` reproduce the original vpx
+///   values bit-for-bit.
+/// - [`AxisConvention::YUpRightHanded`] (Blender / DCC default export
+///   settings): Y and Z are swapped, V is flipped and winding is
+///   reversed.
+/// - [`AxisConvention::ZUpLeftHanded`] (the old `convert_to_left_handed
+///   = false`): the input is assumed to already hold vpx-internal values
+///   (e.g. produced by a previous `mesh_to_obj` with the same
+///   convention). No transforms; values pass through verbatim.
+///
+/// `options.unitScale` (default `1.0`) multiplies positions after the
+/// axis mapping. Normals and texture coordinates are never scaled. A
+/// mesh exported through `mesh_to_obj` with scale `k` reads back with
+/// scale `1.0 / k`.
 #[wasm_bindgen]
-pub fn obj_to_mesh(data: &[u8], convert_to_left_handed: bool) -> Result<PrimitiveMesh, JsError> {
+pub fn obj_to_mesh(data: &[u8], options: Option<MeshIoOptions>) -> Result<PrimitiveMesh, JsError> {
     use crate::vpx::obj::read_obj_from_reader_with_options;
     use std::io::BufReader;
 
+    let ResolvedMeshIoOptions { axes, unit_scale } = parse_mesh_io_options(options)?;
+
+    // ZDownRightHanded is the reader's own built-in conversion; it must go
+    // through that path because only there the `# vpx <hex>`
+    // byte-preservation sidecars are applied (see the notes on
+    // `read_obj_from_reader_with_options`). The other conventions read raw
+    // and transform below.
+    let built_in_convert = axes == AxisConvention::ZDownRightHanded;
     let mut reader = BufReader::new(data);
-    let result = read_obj_from_reader_with_options(&mut reader, convert_to_left_handed)
+    let result = read_obj_from_reader_with_options(&mut reader, built_in_convert)
         .map_err(|e| JsError::new(&format!("OBJ parse failed: {}", e)))?;
+
+    // When the reader already converted, the data is in vpx space and the
+    // remaining mapping is the identity.
+    let map_axes = if built_in_convert {
+        AxisConvention::ZUpLeftHanded
+    } else {
+        axes
+    };
+    let flip_v = map_axes != AxisConvention::ZUpLeftHanded;
+    let reverse_winding = map_axes.flips_handedness(AxisConvention::ZUpLeftHanded);
 
     let mut positions = Vec::with_capacity(result.final_vertices.len() * 3);
     let mut tex_coords = Vec::with_capacity(result.final_vertices.len() * 2);
     let mut normals = Vec::with_capacity(result.final_vertices.len() * 3);
     for v in &result.final_vertices {
-        positions.push(v.x);
-        positions.push(v.y);
-        positions.push(v.z);
+        let [x, y, z] = map_axes.to_vpx(v.x, v.y, v.z);
+        positions.push(x * unit_scale);
+        positions.push(y * unit_scale);
+        positions.push(z * unit_scale);
         tex_coords.push(v.tu);
-        tex_coords.push(v.tv);
-        normals.push(v.nx);
-        normals.push(v.ny);
-        normals.push(v.nz);
+        tex_coords.push(if flip_v { 1.0 - v.tv } else { v.tv });
+        let [nx, ny, nz] = map_axes.to_vpx(v.nx, v.ny, v.nz);
+        normals.push(nx);
+        normals.push(ny);
+        normals.push(nz);
     }
     let mut indices = Vec::with_capacity(result.indices.len() * 3);
     for face in &result.indices {
-        indices.push(face.i0 as u32);
-        indices.push(face.i1 as u32);
-        indices.push(face.i2 as u32);
+        if reverse_winding {
+            indices.push(face.i2 as u32);
+            indices.push(face.i1 as u32);
+            indices.push(face.i0 as u32);
+        } else {
+            indices.push(face.i0 as u32);
+            indices.push(face.i1 as u32);
+            indices.push(face.i2 as u32);
+        }
     }
 
     Ok(PrimitiveMesh {
@@ -305,16 +419,27 @@ pub fn obj_to_mesh(data: &[u8], convert_to_left_handed: bool) -> Result<Primitiv
 /// normals.len() / 3`); index values must be valid 0-based offsets into
 /// that vertex array.
 ///
-/// `convert_to_left_handed` is the symmetric inverse of the same flag
-/// on [`obj_to_mesh`]:
+/// `options.axes` is the symmetric inverse of the same option on
+/// [`obj_to_mesh`]: the input is always vpx-internal data, `axes` names
+/// the convention to write the OBJ in.
 ///
-/// - `true` (matches `extract`'s write path): the input is treated as
-///   vpx-internal data and converted out: vertex Z is negated, normal Z
-///   is negated, V is flipped (`obj_v = 1 - vpx_tv`), and per-triangle
-///   corner order is reversed. The result is a vpinball-format OBJ
-///   that `assemble` (or `obj_to_mesh(.., true)`) reads back identically.
-/// - `false`: the input vpx-internal data is written out verbatim, no
-///   transforms applied. Round-trips with `obj_to_mesh(.., false)`.
+/// - [`AxisConvention::ZDownRightHanded`] (the default; matches
+///   `extract`'s write path, the old `convert_to_left_handed = true`):
+///   vertex and normal Z are negated, V is flipped (`obj_v = 1 -
+///   vpx_tv`) and per-triangle corner order is reversed. The result is a
+///   vpinball-format OBJ that `assemble` (or `obj_to_mesh` with the same
+///   convention) reads back identically.
+/// - [`AxisConvention::YUpRightHanded`]: Y and Z are swapped, V is
+///   flipped and winding is reversed; the OBJ opens upright in Blender
+///   with default import settings.
+/// - [`AxisConvention::ZUpLeftHanded`] (the old `convert_to_left_handed
+///   = false`): the vpx-internal data is written out verbatim, no
+///   transforms applied.
+///
+/// `options.unitScale` (default `1.0`) multiplies positions before the
+/// axis mapping. Normals and texture coordinates are never scaled.
+/// Round-trips through `obj_to_mesh` with the same convention and scale
+/// `1.0 / unitScale`.
 #[wasm_bindgen]
 pub fn mesh_to_obj(
     name: &str,
@@ -322,9 +447,11 @@ pub fn mesh_to_obj(
     tex_coords: &[f32],
     normals: &[f32],
     indices: &[u32],
-    convert_to_left_handed: bool,
+    options: Option<MeshIoOptions>,
 ) -> Result<Vec<u8>, JsError> {
     use wavefront_obj_io::{IoObjWriter, ObjWriter};
+
+    let ResolvedMeshIoOptions { axes, unit_scale } = parse_mesh_io_options(options)?;
 
     if !positions.len().is_multiple_of(3) {
         return Err(JsError::new("positions length must be a multiple of 3"));
@@ -360,16 +487,24 @@ pub fn mesh_to_obj(
             .write_object_name(object_name)
             .map_err(|e| JsError::new(&format!("write failed: {e}")))?;
 
-        let z_sign = if convert_to_left_handed { -1.0 } else { 1.0 };
+        let flip_v = axes != AxisConvention::ZUpLeftHanded;
+        let reverse_winding = axes.flips_handedness(AxisConvention::ZUpLeftHanded);
+
         for chunk in positions.as_chunks::<3>().0 {
+            let [x, y, z] = axes.from_vpx(
+                chunk[0] * unit_scale,
+                chunk[1] * unit_scale,
+                chunk[2] * unit_scale,
+            );
             writer
-                .write_vertex(chunk[0], chunk[1], z_sign * chunk[2], None)
+                .write_vertex(x, y, z, None)
                 .map_err(|e| JsError::new(&format!("write failed: {e}")))?;
         }
-        if convert_to_left_handed {
+        if flip_v {
             // The flipped V value may need more precision than the f32 obj
             // writer can provide, so these lines are written manually, see
-            // flipped_v_text. Round-trips with `obj_to_mesh(.., true)`.
+            // flipped_v_text. Round-trips with `obj_to_mesh` at the same
+            // convention.
             drop(writer);
             for chunk in tex_coords.as_chunks::<2>().0 {
                 use std::io::Write;
@@ -390,14 +525,16 @@ pub fn mesh_to_obj(
             }
         }
         for chunk in normals.as_chunks::<3>().0 {
+            let [nx, ny, nz] = axes.from_vpx(chunk[0], chunk[1], chunk[2]);
             writer
-                .write_normal(chunk[0], chunk[1], z_sign * chunk[2])
+                .write_normal(nx, ny, nz)
                 .map_err(|e| JsError::new(&format!("write failed: {e}")))?;
         }
-        // OBJ indices are 1-based. With `convert_to_left_handed=true`
-        // we reverse the per-triangle corner order (matching vpinball's
-        // `WriteFaceInfoLong`); with `false` we keep source winding so
-        // round-trips with `obj_to_mesh(.., false)` preserve indices.
+        // OBJ indices are 1-based. When the conversion flips handedness
+        // (both right-handed conventions) we reverse the per-triangle
+        // corner order (matching vpinball's `WriteFaceInfoLong`); for
+        // ZUpLeftHanded we keep source winding so round-trips preserve
+        // indices.
         for tri in indices.as_chunks::<3>().0 {
             for &idx in tri {
                 if idx as usize >= vert_count {
@@ -406,7 +543,7 @@ pub fn mesh_to_obj(
                     )));
                 }
             }
-            let (a, b, c) = if convert_to_left_handed {
+            let (a, b, c) = if reverse_winding {
                 (
                     (tri[2] + 1) as usize,
                     (tri[1] + 1) as usize,
@@ -492,7 +629,31 @@ pub fn generate_builtin_primitive(
 #[cfg(all(test, target_family = "wasm"))]
 mod tests {
     use super::*;
+    use wasm_bindgen::JsCast;
     use wasm_bindgen_test::*;
+
+    /// Build a `MeshIoOptions` object the way a JS caller would: a plain
+    /// object literal with optional fields.
+    fn options(axes: Option<AxisConvention>, unit_scale: Option<f32>) -> MeshIoOptions {
+        let obj = js_sys::Object::new();
+        if let Some(axes) = axes {
+            js_sys::Reflect::set(
+                &obj,
+                &JsValue::from_str("axes"),
+                &JsValue::from_f64(axes as u32 as f64),
+            )
+            .unwrap();
+        }
+        if let Some(scale) = unit_scale {
+            js_sys::Reflect::set(
+                &obj,
+                &JsValue::from_str("unitScale"),
+                &JsValue::from_f64(scale as f64),
+            )
+            .unwrap();
+        }
+        obj.unchecked_into()
+    }
 
     #[wasm_bindgen_test]
     fn test_extract_with_invalid_data() {
@@ -515,7 +676,8 @@ mod tests {
         // (each quad has its own normal, so no corner can be reused
         // across adjacent faces).
         let blender = include_bytes!("../testdata/blender_square.obj");
-        let mesh = obj_to_mesh(blender, true).expect("parse should succeed");
+        // No options: defaults to ZDownRightHanded / scale 1.0.
+        let mesh = obj_to_mesh(blender, None).expect("parse should succeed");
         assert_eq!(mesh.name(), "Cube");
 
         let positions = mesh.positions();
@@ -532,7 +694,7 @@ mod tests {
 
     #[wasm_bindgen_test]
     fn test_obj_to_mesh_rejects_unparseable_input() {
-        let result = obj_to_mesh(b"this is not an obj", true);
+        let result = obj_to_mesh(b"this is not an obj", None);
         // The lenient reader skips unknown lines; this fails on the
         // post-parse "no vertices" check.
         assert!(result.is_err());
@@ -542,17 +704,17 @@ mod tests {
     fn test_mesh_to_obj_round_trip() {
         // obj_to_mesh -> mesh_to_obj -> obj_to_mesh: structure preserved.
         let blender = include_bytes!("../testdata/blender_square.obj");
-        let mesh = obj_to_mesh(blender, true).expect("parse should succeed");
+        let mesh = obj_to_mesh(blender, None).expect("parse should succeed");
 
         let positions: Vec<f32> = mesh.positions().to_vec();
         let tex_coords: Vec<f32> = mesh.tex_coords().to_vec();
         let normals: Vec<f32> = mesh.normals().to_vec();
         let indices: Vec<u32> = mesh.indices().to_vec();
 
-        let obj_bytes = mesh_to_obj("Cube", &positions, &tex_coords, &normals, &indices, true)
+        let obj_bytes = mesh_to_obj("Cube", &positions, &tex_coords, &normals, &indices, None)
             .expect("write should succeed");
 
-        let round_tripped = obj_to_mesh(&obj_bytes, true).expect("reparse should succeed");
+        let round_tripped = obj_to_mesh(&obj_bytes, None).expect("reparse should succeed");
         assert_eq!(round_tripped.positions().length(), positions.len() as u32);
         assert_eq!(round_tripped.tex_coords().length(), tex_coords.len() as u32);
         assert_eq!(round_tripped.normals().length(), normals.len() as u32);
@@ -560,19 +722,100 @@ mod tests {
     }
 
     #[wasm_bindgen_test]
-    fn test_mesh_to_obj_round_trip_no_convert() {
-        // With `convert_to_left_handed=false`, vpx-internal data passes
-        // through verbatim - both vertex Z and triangle indices keep
-        // their original values across a round trip.
+    fn test_mesh_to_obj_round_trip_y_up() {
+        // YUpRightHanded round trip: vpx-internal data written out as a
+        // Blender-convention OBJ and read back. Values chosen so the V
+        // flip (1 - v) is exact in f32.
         let positions: Vec<f32> = vec![0.0, 0.0, 0.5, 1.0, 0.0, 0.5, 0.0, 1.0, 0.5];
         let tex_coords: Vec<f32> = vec![0.0, 0.25, 1.0, 0.25, 0.0, 0.75];
         let normals: Vec<f32> = vec![0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0];
         let indices: Vec<u32> = vec![0, 1, 2];
 
-        let obj_bytes = mesh_to_obj("tri", &positions, &tex_coords, &normals, &indices, false)
-            .expect("write should succeed");
+        let obj_bytes = mesh_to_obj(
+            "tri",
+            &positions,
+            &tex_coords,
+            &normals,
+            &indices,
+            Some(options(Some(AxisConvention::YUpRightHanded), None)),
+        )
+        .expect("write should succeed");
 
-        let parsed = obj_to_mesh(&obj_bytes, false).expect("reparse should succeed");
+        // The written OBJ is in Y-up space: vpx (0, 1, 0.5) -> obj (0, 0.5, 1).
+        let text = String::from_utf8(obj_bytes.clone()).expect("obj should be utf-8");
+        assert!(text.contains("v 0 0.5 1"), "obj should be Y-up:\n{text}");
+
+        let parsed = obj_to_mesh(
+            &obj_bytes,
+            Some(options(Some(AxisConvention::YUpRightHanded), None)),
+        )
+        .expect("reparse should succeed");
+        assert_eq!(parsed.positions().to_vec(), positions);
+        assert_eq!(parsed.tex_coords().to_vec(), tex_coords);
+        assert_eq!(parsed.normals().to_vec(), normals);
+        assert_eq!(parsed.indices().to_vec(), indices);
+    }
+
+    #[wasm_bindgen_test]
+    fn test_unit_scale_round_trip() {
+        // Export with scale k, import with 1/k: positions restored;
+        // normals and tex coords never scaled.
+        let positions: Vec<f32> = vec![0.0, 0.0, 0.5, 1.0, 0.0, 0.5, 0.0, 1.0, 0.5];
+        let tex_coords: Vec<f32> = vec![0.0, 0.25, 1.0, 0.25, 0.0, 0.75];
+        let normals: Vec<f32> = vec![0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0];
+        let indices: Vec<u32> = vec![0, 1, 2];
+
+        let obj_bytes = mesh_to_obj(
+            "tri",
+            &positions,
+            &tex_coords,
+            &normals,
+            &indices,
+            Some(options(Some(AxisConvention::YUpRightHanded), Some(4.0))),
+        )
+        .expect("write should succeed");
+
+        let text = String::from_utf8(obj_bytes.clone()).expect("obj should be utf-8");
+        assert!(
+            text.contains("v 0 2 4"),
+            "positions should be scaled:\n{text}"
+        );
+
+        let parsed = obj_to_mesh(
+            &obj_bytes,
+            Some(options(Some(AxisConvention::YUpRightHanded), Some(0.25))),
+        )
+        .expect("reparse should succeed");
+        assert_eq!(parsed.positions().to_vec(), positions);
+        assert_eq!(parsed.tex_coords().to_vec(), tex_coords);
+        assert_eq!(parsed.normals().to_vec(), normals);
+    }
+
+    #[wasm_bindgen_test]
+    fn test_mesh_to_obj_round_trip_no_convert() {
+        // With `ZUpLeftHanded`, vpx-internal data passes through
+        // verbatim - both vertex Z and triangle indices keep their
+        // original values across a round trip.
+        let positions: Vec<f32> = vec![0.0, 0.0, 0.5, 1.0, 0.0, 0.5, 0.0, 1.0, 0.5];
+        let tex_coords: Vec<f32> = vec![0.0, 0.25, 1.0, 0.25, 0.0, 0.75];
+        let normals: Vec<f32> = vec![0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0];
+        let indices: Vec<u32> = vec![0, 1, 2];
+
+        let obj_bytes = mesh_to_obj(
+            "tri",
+            &positions,
+            &tex_coords,
+            &normals,
+            &indices,
+            Some(options(Some(AxisConvention::ZUpLeftHanded), None)),
+        )
+        .expect("write should succeed");
+
+        let parsed = obj_to_mesh(
+            &obj_bytes,
+            Some(options(Some(AxisConvention::ZUpLeftHanded), None)),
+        )
+        .expect("reparse should succeed");
         let parsed_positions: Vec<f32> = parsed.positions().to_vec();
         let parsed_tex_coords: Vec<f32> = parsed.tex_coords().to_vec();
         let parsed_indices: Vec<u32> = parsed.indices().to_vec();
@@ -591,9 +834,23 @@ mod tests {
             &[0.0, 0.0, 1.0, 0.0],
             &[0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0],
             &[0, 1, 2],
-            true,
+            None,
         );
         assert!(result.is_err());
+    }
+
+    #[wasm_bindgen_test]
+    fn test_options_validation() {
+        let data = include_bytes!("../testdata/blender_square.obj");
+
+        // An axes value outside the enum is rejected.
+        let bad = js_sys::Object::new();
+        js_sys::Reflect::set(&bad, &JsValue::from_str("axes"), &JsValue::from_f64(99.0)).unwrap();
+        assert!(obj_to_mesh(data, Some(bad.unchecked_into())).is_err());
+
+        // An empty options object means all defaults.
+        let empty = js_sys::Object::new();
+        assert!(obj_to_mesh(data, Some(empty.unchecked_into())).is_ok());
     }
 
     #[wasm_bindgen_test]
@@ -629,9 +886,20 @@ mod tests {
         let normals: Vec<f32> = mesh.normals().to_vec();
         let indices: Vec<u32> = mesh.indices().to_vec();
 
-        let obj_bytes = mesh_to_obj("octa", &positions, &tex_coords, &normals, &indices, false)
-            .expect("write should succeed");
-        let parsed = obj_to_mesh(&obj_bytes, false).expect("reparse should succeed");
+        let obj_bytes = mesh_to_obj(
+            "octa",
+            &positions,
+            &tex_coords,
+            &normals,
+            &indices,
+            Some(options(Some(AxisConvention::ZUpLeftHanded), None)),
+        )
+        .expect("write should succeed");
+        let parsed = obj_to_mesh(
+            &obj_bytes,
+            Some(options(Some(AxisConvention::ZUpLeftHanded), None)),
+        )
+        .expect("reparse should succeed");
         assert_eq!(parsed.positions().to_vec(), positions);
         assert_eq!(parsed.indices().to_vec(), indices);
     }

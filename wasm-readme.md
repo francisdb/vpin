@@ -11,7 +11,7 @@ npm install @francisdb/vpin-wasm
 ## Usage
 
 ```typescript
-import init, { extract, assemble, obj_to_mesh, mesh_to_obj } from '@francisdb/vpin-wasm';
+import init, { extract, assemble, obj_to_mesh, mesh_to_obj, AxisConvention } from '@francisdb/vpin-wasm';
 
 await init();
 ```
@@ -62,7 +62,7 @@ const vpxBytes = assemble(files, (message) => {
 
 **Returns:** `Uint8Array` - VPX file bytes
 
-### obj_to_mesh(data) / mesh_to_obj(name, positions, texCoords, normals, indices)
+### obj_to_mesh(data, options?) / mesh_to_obj(name, positions, texCoords, normals, indices, options?)
 
 Renderer-friendly mesh I/O. `obj_to_mesh` parses any flavor of OBJ
 (n-gons fan-triangulated, mismatched `v/vt/vn` corners deduplicated)
@@ -71,7 +71,9 @@ JS-side OBJ parser needed.
 
 ```typescript
 const objBytes = files['/vpx/gameitems/Primitive.MyMesh.obj'];
-const mesh = obj_to_mesh(objBytes);
+const mesh = obj_to_mesh(objBytes); // defaults: vpinball convention, scale 1.0
+// or e.g. for a Blender-exported OBJ:
+// const mesh = obj_to_mesh(objBytes, { axes: AxisConvention.YUpRightHanded });
 
 // mesh.name: string
 // mesh.positions: Float32Array  (length = 3 * vertCount, x,y,z,...)
@@ -101,14 +103,27 @@ via `FinalizationRegistry` when the JS wrapper is garbage-collected.
 You may call `mesh.free()` explicitly for deterministic cleanup of
 large meshes, but it is not required.
 
-**Coordinate convention:** the mesh data is in vpx-internal form -
-`obj_to_mesh` applies the same transforms as `assemble`'s read path
-(vertex Z negated, normal Z negated, V coordinate flipped, per-triangle
-corner order reversed), and `mesh_to_obj` applies the inverse, matching
-`extract`'s write path. Round-trip
-`obj_to_mesh -> edit -> mesh_to_obj -> assemble` preserves vpx data by
-construction. If your renderer uses a different convention than
-vpinball's left-handed +Z up, apply a transform matrix on the JS side.
+**Coordinate convention:** the mesh data is always in vpx-internal
+form; `options.axes` names the convention of the OBJ side:
+
+- `AxisConvention.ZDownRightHanded` (default) - vpinball's exported OBJ
+  convention (vertex/normal Z negated, V coordinate flipped,
+  per-triangle corner order reversed). This is what `extract` writes
+  and `assemble` reads, so it is the right choice for OBJs from the
+  extracted file map. Round-trip
+  `obj_to_mesh -> edit -> mesh_to_obj -> assemble` preserves vpx data
+  by construction.
+- `AxisConvention.YUpRightHanded` - the Blender / DCC default (Y-Z
+  swap, V flip, winding reverse). Use this to hand a Blender-exported
+  OBJ straight to `obj_to_mesh`, or to write an OBJ that opens upright
+  in Blender with default import settings.
+- `AxisConvention.ZUpLeftHanded` - vpx-internal values verbatim, no
+  transforms.
+
+`options.unitScale` (default `1.0`) multiplies positions (on the vpx
+side for `obj_to_mesh`, before the axis mapping for `mesh_to_obj`).
+Normals and texture coordinates are never scaled. An OBJ written with
+scale `k` reads back with scale `1 / k`.
 
 **Animation frames:** primitives with vertex animation extract as
 sibling files `Primitive.MyMesh_00000.obj`, `Primitive.MyMesh_00001.obj`,

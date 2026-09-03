@@ -125,7 +125,10 @@ pub fn vpu_to_units(vpu: f32, units: ExportUnits) -> f32 {
 /// of equal handedness keeps the winding, since such frames differ only
 /// by a pure rotation (the two right-handed variants: 90 degrees about
 /// X).
+#[cfg_attr(feature = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
+#[cfg_attr(feature = "wasm", derive(serde_repr::Deserialize_repr))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[repr(u32)]
 pub enum AxisConvention {
     /// VPX's internal coordinate system: left-handed with Z up, inherited
     /// from DirectX. X runs right across the playfield, Y down the
