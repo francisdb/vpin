@@ -531,6 +531,56 @@ fn read_glb_payload_from_reader<R: Read>(reader: &mut R) -> io::Result<GltfPaylo
     })
 }
 
+fn invalid_data(message: String) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message)
+}
+
+/// Read a non-negative integer field of a glTF JSON object
+fn json_usize(value: &serde_json::Value, what: &str) -> io::Result<usize> {
+    value
+        .as_u64()
+        .map(|v| v as usize)
+        .ok_or_else(|| invalid_data(format!("Missing or invalid {what}")))
+}
+
+/// Look up an accessor and the buffer view it points to
+fn accessor_and_view<'a>(
+    accessors: &'a [serde_json::Value],
+    buffer_views: &'a [serde_json::Value],
+    index: usize,
+    what: &str,
+) -> io::Result<(&'a serde_json::Value, &'a serde_json::Value)> {
+    let accessor = accessors
+        .get(index)
+        .ok_or_else(|| invalid_data(format!("Missing {what} accessor {index}")))?;
+    let view_index = json_usize(
+        &accessor["bufferView"],
+        &format!("{what} accessor bufferView"),
+    )?;
+    let view = buffer_views
+        .get(view_index)
+        .ok_or_else(|| invalid_data(format!("Missing {what} bufferView {view_index}")))?;
+    Ok((accessor, view))
+}
+
+/// A bounds-checked window into the binary buffer
+fn bin_slice<'a>(
+    bin_data: &'a [u8],
+    offset: usize,
+    len: usize,
+    what: &str,
+) -> io::Result<&'a [u8]> {
+    offset
+        .checked_add(len)
+        .and_then(|end| bin_data.get(offset..end))
+        .ok_or_else(|| {
+            invalid_data(format!(
+                "{what} at offset {offset} ({len} bytes) is outside the {} byte buffer",
+                bin_data.len()
+            ))
+        })
+}
+
 fn parse_gltf_payload(
     gltf_json: &serde_json::Value,
     bin_data: &[u8],
@@ -562,32 +612,29 @@ fn parse_gltf_payload(
         });
 
     // Read positions (accessor 0)
-    let pos_accessor = &accessors[0];
-    let pos_view_idx = pos_accessor["bufferView"].as_u64().unwrap() as usize;
-    let pos_view = &buffer_views[pos_view_idx];
-    let pos_offset = pos_view["byteOffset"].as_u64().unwrap() as usize;
-    let pos_count = pos_accessor["count"].as_u64().unwrap() as usize;
+    let (pos_accessor, pos_view) = accessor_and_view(accessors, buffer_views, 0, "position")?;
+    let pos_offset = json_usize(&pos_view["byteOffset"], "position byteOffset")?;
+    let pos_count = json_usize(&pos_accessor["count"], "position count")?;
 
     // Read normals (accessor 1)
-    let norm_accessor = &accessors[1];
-    let norm_view_idx = norm_accessor["bufferView"].as_u64().unwrap() as usize;
-    let norm_view = &buffer_views[norm_view_idx];
-    let norm_offset = norm_view["byteOffset"].as_u64().unwrap() as usize;
+    let (_, norm_view) = accessor_and_view(accessors, buffer_views, 1, "normal")?;
+    let norm_offset = json_usize(&norm_view["byteOffset"], "normal byteOffset")?;
 
     // Read texcoords (accessor 2)
-    let tex_accessor = &accessors[2];
-    let tex_view_idx = tex_accessor["bufferView"].as_u64().unwrap() as usize;
-    let tex_view = &buffer_views[tex_view_idx];
-    let tex_offset = tex_view["byteOffset"].as_u64().unwrap() as usize;
+    let (_, tex_view) = accessor_and_view(accessors, buffer_views, 2, "texcoord")?;
+    let tex_offset = json_usize(&tex_view["byteOffset"], "texcoord byteOffset")?;
 
     // Read indices (accessor 3)
-    let idx_accessor = &accessors[3];
-    let idx_view_idx = idx_accessor["bufferView"].as_u64().unwrap() as usize;
-    let idx_view = &buffer_views[idx_view_idx];
-    let idx_offset = idx_view["byteOffset"].as_u64().unwrap() as usize;
-    let idx_count = idx_accessor["count"].as_u64().unwrap() as usize;
-    let idx_component_type = idx_accessor["componentType"].as_u64().unwrap();
-    let use_u32 = idx_component_type == GLTF_COMPONENT_TYPE_UNSIGNED_INT as u64; // UNSIGNED_INT
+    let (idx_accessor, idx_view) = accessor_and_view(accessors, buffer_views, 3, "index")?;
+    let idx_offset = json_usize(&idx_view["byteOffset"], "index byteOffset")?;
+    let idx_count = json_usize(&idx_accessor["count"], "index count")?;
+    let idx_component_type = json_usize(&idx_accessor["componentType"], "index componentType")?;
+    let use_u32 = idx_component_type == GLTF_COMPONENT_TYPE_UNSIGNED_INT as usize; // UNSIGNED_INT
+
+    // the whole vertex range must fit, not just the first vertex
+    bin_slice(bin_data, pos_offset, pos_count * 12, "position data")?;
+    bin_slice(bin_data, norm_offset, pos_count * 12, "normal data")?;
+    bin_slice(bin_data, tex_offset, pos_count * 8, "texcoord data")?;
 
     // Build vertex data in the same format as write_glb accepts
     let mut vertices = Vec::with_capacity(pos_count);
@@ -655,6 +702,8 @@ fn read_glb_indices(
     idx_count: usize,
     use_u32: bool,
 ) -> io::Result<Vec<VpxFace>> {
+    let index_size = if use_u32 { 4 } else { 2 };
+    bin_slice(bin_data, idx_offset, idx_count * index_size, "index data")?;
     let mut indices = Vec::with_capacity(idx_count / 3);
     for i in 0..idx_count / 3 {
         let idx = if use_u32 {
@@ -898,5 +947,83 @@ mod test {
         assert_eq!(vertices_with_encoded, read_vertices);
         assert_eq!(indices, read_indices);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod corrupt_input_tests {
+    use super::*;
+    use crate::vpx::model::Vertex3dNoTex2;
+    use crate::vpx::obj::VpxFace;
+
+    fn payload() -> GltfPayload {
+        let vertex = Vertex3dNoTex2 {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+            nx: 0.0,
+            ny: 1.0,
+            nz: 0.0,
+            tu: 0.0,
+            tv: 0.0,
+        };
+        let vertices: Vec<VertexWrapper> = (0..3)
+            .map(|_| VertexWrapper::new(vertex.as_vpx_bytes(), vertex.clone()))
+            .collect();
+        build_gltf_payload(
+            "mesh",
+            &vertices,
+            &[VpxFace::new(0, 1, 2)],
+            None,
+            &SingleMeshConversion::SIDECAR,
+        )
+        .unwrap()
+    }
+
+    fn expect_invalid(json: serde_json::Value, bin: &[u8], what: &str) {
+        match parse_gltf_payload(&json, bin) {
+            Ok(_) => panic!("{what}: expected an error"),
+            Err(e) => assert_eq!(e.kind(), io::ErrorKind::InvalidData, "{what}: {e}"),
+        }
+    }
+
+    #[test]
+    fn valid_payload_parses() {
+        let p = payload();
+        let (name, vertices, faces) = parse_gltf_payload(&p.json, &p.bin_data).unwrap();
+        assert_eq!(name, "mesh");
+        assert_eq!(vertices.len(), 3);
+        assert_eq!(faces.len(), 1);
+    }
+
+    #[test]
+    fn broken_payloads_fail_without_panicking() {
+        let p = payload();
+
+        let mut json = p.json.clone();
+        json["accessors"][0]["bufferView"] = serde_json::Value::Null;
+        expect_invalid(json, &p.bin_data, "missing bufferView");
+
+        let mut json = p.json.clone();
+        json["accessors"][1]["bufferView"] = serde_json::json!(42);
+        expect_invalid(json, &p.bin_data, "bufferView out of range");
+
+        let mut json = p.json.clone();
+        json["accessors"] = serde_json::json!([]);
+        expect_invalid(json, &p.bin_data, "no accessors");
+
+        let mut json = p.json.clone();
+        json["accessors"][0]["count"] = serde_json::json!(1_000_000);
+        expect_invalid(json, &p.bin_data, "count beyond buffer");
+
+        let mut json = p.json.clone();
+        json["bufferViews"][3]["byteOffset"] = serde_json::json!(u64::MAX);
+        expect_invalid(json, &p.bin_data, "index offset overflow");
+
+        let mut json = p.json.clone();
+        json["accessors"][3]["count"] = serde_json::json!(-3);
+        expect_invalid(json, &p.bin_data, "negative count");
+
+        expect_invalid(p.json.clone(), &p.bin_data[..10], "truncated buffer");
     }
 }

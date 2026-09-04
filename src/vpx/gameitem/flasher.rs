@@ -93,7 +93,11 @@ impl<'de> Deserialize<'de> for Filter {
                 ))),
             },
             Value::Number(n) => {
-                let n = n.as_u64().unwrap();
+                let Some(n) = n.as_u64() else {
+                    return Err(serde::de::Error::custom(format!(
+                        "Invalid value {n}, we expect a non-negative integer"
+                    )));
+                };
                 match n {
                     0 => Ok(Filter::None),
                     1 => Ok(Filter::Additive),
@@ -196,7 +200,11 @@ impl<'de> Deserialize<'de> for RenderMode {
                 ))),
             },
             Value::Number(n) => {
-                let n = n.as_u64().unwrap();
+                let Some(n) = n.as_u64() else {
+                    return Err(serde::de::Error::custom(format!(
+                        "Invalid value {n}, we expect a non-negative integer"
+                    )));
+                };
                 match n {
                     0 => Ok(RenderMode::Flasher),
                     1 => Ok(RenderMode::DMD),
@@ -987,5 +995,25 @@ mod tests {
     fn test_filter_json_fail() {
         let json = serde_json::Value::from("foo");
         let _: Filter = serde_json::from_value(json).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod json_error_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn invalid_json_numbers_are_errors_not_panics() {
+        for value in [json!(1.5), json!(-1), json!(99), json!(true), json!(null)] {
+            assert!(
+                serde_json::from_value::<Filter>(value.clone()).is_err(),
+                "{value}"
+            );
+            assert!(
+                serde_json::from_value::<RenderMode>(value.clone()).is_err(),
+                "{value}"
+            );
+        }
     }
 }
