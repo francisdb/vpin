@@ -11,100 +11,28 @@ use std::io;
 use std::path::Path;
 use tracing::instrument;
 
-/// Audio device a sound plays on, mirroring vpinball's `SoundOutTypes`.
-///
-/// Values this library does not know are kept in [`OutputTarget::Other`] so the
-/// table round-trips unchanged; reading one logs a warning.
-#[derive(Debug, PartialEq, Clone)]
-#[cfg_attr(test, derive(fake::Dummy))]
-pub enum OutputTarget {
-    /// `SNDOUT_TABLE`: the table (playfield) audio device.
-    Table,
-    /// `SNDOUT_BACKGLASS`: the backglass (music) audio device.
-    Backglass,
-    /// A value not known to this library, kept as is.
+crate::vpx::open_enum::open_enum! {
+    /// Audio device a sound plays on, mirroring vpinball's `SoundOutTypes`.
     ///
-    /// Must not be constructed with a value that maps to a named variant
-    /// (0 or 1): it would write the same bytes as the named variant and
-    /// read back as it, breaking round-trip equality. The library itself
-    /// never does (`From` normalizes known values to their named
-    /// variants), and the test faker is constrained to the genuinely
-    /// unknown range for the same reason.
-    Other(#[cfg_attr(test, dummy(faker = "2..=u8::MAX"))] u8),
-}
-impl From<u8> for OutputTarget {
-    fn from(value: u8) -> Self {
-        match value {
-            0 => OutputTarget::Table,
-            1 => OutputTarget::Backglass,
-            other => {
-                warn!("Unknown OutputTarget value {other}, keeping it as is");
-                OutputTarget::Other(other)
-            }
-        }
-    }
-}
-impl From<&OutputTarget> for u8 {
-    fn from(value: &OutputTarget) -> Self {
-        match value {
-            OutputTarget::Table => 0,
-            OutputTarget::Backglass => 1,
-            OutputTarget::Other(value) => *value,
-        }
-    }
-}
-/// Serialize to lowercase string, or the raw number for [`OutputTarget::Other`]
-impl Serialize for OutputTarget {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            OutputTarget::Table => serializer.serialize_str("table"),
-            OutputTarget::Backglass => serializer.serialize_str("backglass"),
-            OutputTarget::Other(value) => serializer.serialize_u8(*value),
-        }
-    }
-}
-/// Deserialize from lowercase string, or from the raw number
-impl<'de> Deserialize<'de> for OutputTarget {
-    fn deserialize<D>(deserializer: D) -> Result<OutputTarget, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct OutputTargetVisitor;
-        impl serde::de::Visitor<'_> for OutputTargetVisitor {
-            type Value = OutputTarget;
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a OutputTarget as lowercase string or number")
-            }
-            fn visit_u64<E>(self, value: u64) -> Result<OutputTarget, E>
-            where
-                E: serde::de::Error,
-            {
-                let value = u8::try_from(value).map_err(|_| {
-                    serde::de::Error::invalid_value(
-                        serde::de::Unexpected::Unsigned(value),
-                        &"a number that fits in u8",
-                    )
-                })?;
-                Ok(OutputTarget::from(value))
-            }
-            fn visit_str<E>(self, value: &str) -> Result<OutputTarget, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    "table" => Ok(OutputTarget::Table),
-                    "backglass" => Ok(OutputTarget::Backglass),
-                    _ => Err(serde::de::Error::unknown_variant(
-                        value,
-                        &["table", "backglass"],
-                    )),
-                }
-            }
-        }
-        deserializer.deserialize_any(OutputTargetVisitor)
+    /// Values this library does not know are kept in [`OutputTarget::Other`] so the
+    /// table round-trips unchanged; reading one logs a warning.
+    #[derive(Debug, PartialEq, Clone)]
+    #[cfg_attr(test, derive(fake::Dummy))]
+    pub enum OutputTarget(u8) {
+        /// `SNDOUT_TABLE`: the table (playfield) audio device.
+        Table = 0 => "table",
+        /// `SNDOUT_BACKGLASS`: the backglass (music) audio device.
+        Backglass = 1 => "backglass",
+        ;
+        /// A value not known to this library, kept as is.
+        ///
+        /// Must not be constructed with a value that maps to a named variant
+        /// (0 or 1): it would write the same bytes as the named variant and
+        /// read back as it, breaking round-trip equality. The library itself
+        /// never does (`From` normalizes known values to their named
+        /// variants), and the test faker is constrained to the genuinely
+        /// unknown range for the same reason.
+        Other(#[cfg_attr(test, dummy(faker = "2..=u8::MAX"))]),
     }
 }
 #[cfg(test)]

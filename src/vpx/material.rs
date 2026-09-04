@@ -12,117 +12,24 @@ use std::io;
 
 const MAX_NAME_BUFFER: usize = 32;
 
-/// Shading model of a material, mirroring vpinball's `Material::MaterialType`.
-///
-/// Values this library does not know are kept in [`MaterialType::Other`] so the
-/// table round-trips unchanged; reading one logs a warning.
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
-pub enum MaterialType {
-    /// Value -1, outside vpinball's enum, found in "Hot Line (Williams 1966) SG1bsoN.vpx".
-    /// Kept as a named variant for compatibility with existing expanded tables.
-    Unknown,
-    /// Standard non-metallic material.
-    Basic,
-    /// Metallic material: the base color tints the reflections.
-    Metal,
-    /// A value not known to this library, kept as is.
+crate::vpx::open_enum::open_enum! {
+    /// Shading model of a material, mirroring vpinball's `Material::MaterialType`.
     ///
-    /// Must not be constructed with a value that maps to a named variant:
-    /// it would write the same bytes as the named variant and read back as
-    /// it, breaking round-trip equality. The library itself never does
-    /// (`From` normalizes known values to their named variants).
-    Other(i32),
-}
-impl From<i32> for MaterialType {
-    fn from(value: i32) -> Self {
-        match value {
-            -1 => MaterialType::Unknown,
-            0 => MaterialType::Basic,
-            1 => MaterialType::Metal,
-            other => {
-                warn!("Unknown MaterialType value {other}, keeping it as is");
-                MaterialType::Other(other)
-            }
-        }
-    }
-}
-impl From<&MaterialType> for i32 {
-    fn from(value: &MaterialType) -> Self {
-        match value {
-            MaterialType::Unknown => -1,
-            MaterialType::Basic => 0,
-            MaterialType::Metal => 1,
-            MaterialType::Other(value) => *value,
-        }
-    }
-}
-/// Serialize to lowercase string, or the raw number for [`MaterialType::Other`]
-impl Serialize for MaterialType {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            MaterialType::Unknown => serializer.serialize_str("unknown"),
-            MaterialType::Basic => serializer.serialize_str("basic"),
-            MaterialType::Metal => serializer.serialize_str("metal"),
-            MaterialType::Other(value) => serializer.serialize_i32(*value),
-        }
-    }
-}
-/// Deserialize from lowercase string, or from the raw number
-impl<'de> Deserialize<'de> for MaterialType {
-    fn deserialize<D>(deserializer: D) -> Result<MaterialType, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct MaterialTypeVisitor;
-        impl serde::de::Visitor<'_> for MaterialTypeVisitor {
-            type Value = MaterialType;
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a MaterialType as lowercase string or number")
-            }
-            fn visit_u64<E>(self, value: u64) -> Result<MaterialType, E>
-            where
-                E: serde::de::Error,
-            {
-                let value = i32::try_from(value).map_err(|_| {
-                    serde::de::Error::invalid_value(
-                        serde::de::Unexpected::Unsigned(value),
-                        &"a number that fits in i32",
-                    )
-                })?;
-                Ok(MaterialType::from(value))
-            }
-            fn visit_i64<E>(self, value: i64) -> Result<MaterialType, E>
-            where
-                E: serde::de::Error,
-            {
-                let value = i32::try_from(value).map_err(|_| {
-                    serde::de::Error::invalid_value(
-                        serde::de::Unexpected::Signed(value),
-                        &"a number that fits in i32",
-                    )
-                })?;
-                Ok(MaterialType::from(value))
-            }
-            fn visit_str<E>(self, value: &str) -> Result<MaterialType, E>
-            where
-                E: serde::de::Error,
-            {
-                match value.to_lowercase().as_str() {
-                    "unknown" => Ok(MaterialType::Unknown),
-                    "basic" => Ok(MaterialType::Basic),
-                    "metal" => Ok(MaterialType::Metal),
-                    _ => Err(serde::de::Error::unknown_variant(
-                        value,
-                        &["unknown", "basic", "metal"],
-                    )),
-                }
-            }
-        }
-        deserializer.deserialize_any(MaterialTypeVisitor)
+    /// Values this library does not know are kept in [`MaterialType::Other`] so the
+    /// table round-trips unchanged; reading one logs a warning.
+    #[derive(Debug, Clone, PartialEq)]
+    #[cfg_attr(test, derive(fake::Dummy))]
+    pub enum MaterialType(i32) {
+        /// Value -1, outside vpinball's enum, found in "Hot Line (Williams 1966) SG1bsoN.vpx".
+        /// Kept as a named variant for compatibility with existing expanded tables.
+        Unknown = -1 => "unknown",
+        /// Standard non-metallic material.
+        Basic = 0 => "basic",
+        /// Metallic material: the base color tints the reflections.
+        Metal = 1 => "metal",
+        ;
+        /// A value not known to this library, kept as is.
+        Other,
     }
 }
 #[cfg(test)]

@@ -76,103 +76,26 @@ use crate::vpx::{
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// Ball shadow casting of a light, mirroring vpinball's `ShadowMode`.
-///
-/// When enabled, the shader traces rays from the light center to each surface
-/// fragment and checks for ball occlusion (up to 8 balls). The shadow uses a
-/// soft penumbra based on a fixed 5 VPU light radius (`BallShadows.fxh`).
-///
-/// Values this library does not know are kept in [`ShadowMode::Other`] so the
-/// table round-trips unchanged; reading one logs a warning.
-#[derive(Debug, PartialEq, Clone)]
-#[cfg_attr(test, derive(fake::Dummy))]
-pub enum ShadowMode {
-    /// No shadow casting. Uses the `bulb_light` shader technique.
-    None,
-    /// Balls cast raytraced shadows from this light. Uses the
-    /// `bulb_light_with_ball_shadows` shader technique.
-    RaytracedBallShadows,
-    /// A value not known to this library, kept as is.
+crate::vpx::open_enum::open_enum! {
+    /// Ball shadow casting of a light, mirroring vpinball's `ShadowMode`.
     ///
-    /// Must not be constructed with a value that maps to a named variant:
-    /// it would write the same bytes as the named variant and read back as
-    /// it, breaking round-trip equality. The library itself never does
-    /// (`From` normalizes known values to their named variants).
-    Other(u32),
-}
-impl From<u32> for ShadowMode {
-    fn from(value: u32) -> Self {
-        match value {
-            0 => ShadowMode::None,
-            1 => ShadowMode::RaytracedBallShadows,
-            other => {
-                warn!("Unknown ShadowMode value {other}, keeping it as is");
-                ShadowMode::Other(other)
-            }
-        }
-    }
-}
-impl From<&ShadowMode> for u32 {
-    fn from(value: &ShadowMode) -> Self {
-        match value {
-            ShadowMode::None => 0,
-            ShadowMode::RaytracedBallShadows => 1,
-            ShadowMode::Other(value) => *value,
-        }
-    }
-}
-/// Serialize to lowercase string, or the raw number for [`ShadowMode::Other`]
-impl Serialize for ShadowMode {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            ShadowMode::None => serializer.serialize_str("none"),
-            ShadowMode::RaytracedBallShadows => serializer.serialize_str("raytraced_ball_shadows"),
-            ShadowMode::Other(value) => serializer.serialize_u32(*value),
-        }
-    }
-}
-/// Deserialize from lowercase string, or from the raw number
-impl<'de> Deserialize<'de> for ShadowMode {
-    fn deserialize<D>(deserializer: D) -> Result<ShadowMode, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct ShadowModeVisitor;
-        impl serde::de::Visitor<'_> for ShadowModeVisitor {
-            type Value = ShadowMode;
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a ShadowMode as lowercase string or number")
-            }
-            fn visit_u64<E>(self, value: u64) -> Result<ShadowMode, E>
-            where
-                E: serde::de::Error,
-            {
-                let value = u32::try_from(value).map_err(|_| {
-                    serde::de::Error::invalid_value(
-                        serde::de::Unexpected::Unsigned(value),
-                        &"a number that fits in u32",
-                    )
-                })?;
-                Ok(ShadowMode::from(value))
-            }
-            fn visit_str<E>(self, value: &str) -> Result<ShadowMode, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    "none" => Ok(ShadowMode::None),
-                    "raytraced_ball_shadows" => Ok(ShadowMode::RaytracedBallShadows),
-                    _ => Err(serde::de::Error::unknown_variant(
-                        value,
-                        &["none", "raytraced_ball_shadows"],
-                    )),
-                }
-            }
-        }
-        deserializer.deserialize_any(ShadowModeVisitor)
+    /// When enabled, the shader traces rays from the light center to each surface
+    /// fragment and checks for ball occlusion (up to 8 balls). The shadow uses a
+    /// soft penumbra based on a fixed 5 VPU light radius (`BallShadows.fxh`).
+    ///
+    /// Values this library does not know are kept in [`ShadowMode::Other`] so the
+    /// table round-trips unchanged; reading one logs a warning.
+    #[derive(Debug, PartialEq, Clone)]
+    #[cfg_attr(test, derive(fake::Dummy))]
+    pub enum ShadowMode(u32) {
+        /// No shadow casting. Uses the `bulb_light` shader technique.
+        None = 0 => "none",
+        /// Balls cast raytraced shadows from this light. Uses the
+        /// `bulb_light_with_ball_shadows` shader technique.
+        RaytracedBallShadows = 1 => "raytraced_ball_shadows",
+        ;
+        /// A value not known to this library, kept as is.
+        Other,
     }
 }
 #[cfg(test)]
@@ -194,121 +117,40 @@ mod shadow_mode_open_enum_tests {
     }
 }
 
-/// Controls how a light transitions between on/off states, mirroring
-/// vpinball's `Fader`.
-///
-/// See the [Fading section](self#fading) in the module docs for an overview.
-///
-/// Values this library does not know are kept in [`Fader::Other`] so the
-/// table round-trips unchanged; reading one logs a warning.
-#[derive(Debug, PartialEq, Clone)]
-#[cfg_attr(test, derive(fake::Dummy))]
-pub enum Fader {
-    /// Instant on/off - intensity jumps directly to the target value.
-    None,
-    /// Linear fade using [`Light::fade_speed_up`] and [`Light::fade_speed_down`]
-    /// as rates (intensity per ms).
-    Linear,
-    /// Physically-based filament simulation. Models a BULB_44 tungsten filament
-    /// with thermal inertia - it heats up when powered (warm white glow ramping
-    /// on) and cools down when unpowered (red-shifting fade off). The fade speed
-    /// parameters modulate the thermal time constant. The filament temperature
-    /// also tints the light color relative to a 2700K reference.
+crate::vpx::open_enum::open_enum! {
+    /// Controls how a light transitions between on/off states, mirroring
+    /// vpinball's `Fader`.
     ///
-    /// The simulation (in `bulb.cpp`) is based on:
-    /// - **Stefan-Boltzmann law** for radiated power
-    /// - Coblentz & Emerson, *"Luminous radiation from a black body and the
-    ///   mechanical equivalent of light"* - temperature to visible emission
-    /// - D.C. Agrawal, *"The Coiling Factor in the Tungsten Filament Lamps"* -
-    ///   coil form factor corrections for resistivity and emissivity
-    /// - D.C. Agrawal, *"Heating-times of tungsten filament incandescent
-    ///   lamps"* - tungsten specific heat model
-    Incandescent,
-    /// A value not known to this library, kept as is.
+    /// See the [Fading section](self#fading) in the module docs for an overview.
     ///
-    /// Must not be constructed with a value that maps to a named variant:
-    /// it would write the same bytes as the named variant and read back as
-    /// it, breaking round-trip equality. The library itself never does
-    /// (`From` normalizes known values to their named variants).
-    Other(u32),
-}
-impl From<u32> for Fader {
-    fn from(value: u32) -> Self {
-        match value {
-            0 => Fader::None,
-            1 => Fader::Linear,
-            2 => Fader::Incandescent,
-            other => {
-                warn!("Unknown Fader value {other}, keeping it as is");
-                Fader::Other(other)
-            }
-        }
-    }
-}
-impl From<&Fader> for u32 {
-    fn from(value: &Fader) -> Self {
-        match value {
-            Fader::None => 0,
-            Fader::Linear => 1,
-            Fader::Incandescent => 2,
-            Fader::Other(value) => *value,
-        }
-    }
-}
-/// Serialize to lowercase string, or the raw number for [`Fader::Other`]
-impl Serialize for Fader {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            Fader::None => serializer.serialize_str("none"),
-            Fader::Linear => serializer.serialize_str("linear"),
-            Fader::Incandescent => serializer.serialize_str("incandescent"),
-            Fader::Other(value) => serializer.serialize_u32(*value),
-        }
-    }
-}
-/// Deserialize from lowercase string, or from the raw number
-impl<'de> Deserialize<'de> for Fader {
-    fn deserialize<D>(deserializer: D) -> Result<Fader, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct FaderVisitor;
-        impl serde::de::Visitor<'_> for FaderVisitor {
-            type Value = Fader;
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a Fader as lowercase string or number")
-            }
-            fn visit_u64<E>(self, value: u64) -> Result<Fader, E>
-            where
-                E: serde::de::Error,
-            {
-                let value = u32::try_from(value).map_err(|_| {
-                    serde::de::Error::invalid_value(
-                        serde::de::Unexpected::Unsigned(value),
-                        &"a number that fits in u32",
-                    )
-                })?;
-                Ok(Fader::from(value))
-            }
-            fn visit_str<E>(self, value: &str) -> Result<Fader, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    "none" => Ok(Fader::None),
-                    "linear" => Ok(Fader::Linear),
-                    "incandescent" => Ok(Fader::Incandescent),
-                    _ => Err(serde::de::Error::unknown_variant(
-                        value,
-                        &["none", "linear", "incandescent"],
-                    )),
-                }
-            }
-        }
-        deserializer.deserialize_any(FaderVisitor)
+    /// Values this library does not know are kept in [`Fader::Other`] so the
+    /// table round-trips unchanged; reading one logs a warning.
+    #[derive(Debug, PartialEq, Clone)]
+    #[cfg_attr(test, derive(fake::Dummy))]
+    pub enum Fader(u32) {
+        /// Instant on/off - intensity jumps directly to the target value.
+        None = 0 => "none",
+        /// Linear fade using [`Light::fade_speed_up`] and [`Light::fade_speed_down`]
+        /// as rates (intensity per ms).
+        Linear = 1 => "linear",
+        /// Physically-based filament simulation. Models a BULB_44 tungsten filament
+        /// with thermal inertia - it heats up when powered (warm white glow ramping
+        /// on) and cools down when unpowered (red-shifting fade off). The fade speed
+        /// parameters modulate the thermal time constant. The filament temperature
+        /// also tints the light color relative to a 2700K reference.
+        ///
+        /// The simulation (in `bulb.cpp`) is based on:
+        /// - **Stefan-Boltzmann law** for radiated power
+        /// - Coblentz & Emerson, *"Luminous radiation from a black body and the
+        ///   mechanical equivalent of light"* - temperature to visible emission
+        /// - D.C. Agrawal, *"The Coiling Factor in the Tungsten Filament Lamps"* -
+        ///   coil form factor corrections for resistivity and emissivity
+        /// - D.C. Agrawal, *"Heating-times of tungsten filament incandescent
+        ///   lamps"* - tungsten specific heat model
+        Incandescent = 2 => "incandescent",
+        ;
+        /// A value not known to this library, kept as is.
+        Other,
     }
 }
 #[cfg(test)]

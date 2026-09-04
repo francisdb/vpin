@@ -42,7 +42,7 @@ use crate::vpx::math::{dequantize_u8, dequantize_unsigned, quantize_u8, quantize
 use crate::vpx::renderprobe::RenderProbeWithGarbage;
 use bytes::{Buf, BufMut, BytesMut};
 use log::warn;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use std::io;
 
 /// VPinball's editor default for per-table detail level. Used as a fallback
@@ -55,104 +55,23 @@ use std::io;
 /// [`crate::vpx::mesh::vpinball_ring_segments`].
 pub const DEFAULT_DETAIL_LEVEL: u32 = 10;
 
-/// How the camera of a view setup is defined, mirroring vpinball's `ViewLayoutMode`.
-///
-/// Values this library does not know are kept in [`ViewLayoutMode::Other`] so the
-/// table round-trips unchanged; reading one logs a warning.
-#[derive(Debug, PartialEq, Clone, Copy)]
-#[cfg_attr(test, derive(fake::Dummy))]
-pub enum ViewLayoutMode {
-    /// All tables before 10.8 used a viewer position relative to a fitting of a set of bounding vertices (not all parts) with a standard perspective projection skewed by a layback angle
-    Legacy,
-    /// Position viewer relative to the bottom center of the table, use a standard camera perspective projection, replace layback by a frustum offset
-    Camera,
-    /// Position viewer relative to the bottom center of the screen, use an oblique surface (re)projection (would need some postprocess to limit distortion)
-    Window,
-    /// A value not known to this library, kept as is.
+crate::vpx::open_enum::open_enum! {
+    /// How the camera of a view setup is defined, mirroring vpinball's `ViewLayoutMode`.
     ///
-    /// Must not be constructed with a value that maps to a named variant:
-    /// it would write the same bytes as the named variant and read back as
-    /// it, breaking round-trip equality. The library itself never does
-    /// (`From` normalizes known values to their named variants).
-    Other(u32),
-}
-impl From<u32> for ViewLayoutMode {
-    fn from(value: u32) -> Self {
-        match value {
-            0 => ViewLayoutMode::Legacy,
-            1 => ViewLayoutMode::Camera,
-            2 => ViewLayoutMode::Window,
-            other => {
-                warn!("Unknown ViewLayoutMode value {other}, keeping it as is");
-                ViewLayoutMode::Other(other)
-            }
-        }
-    }
-}
-impl From<&ViewLayoutMode> for u32 {
-    fn from(value: &ViewLayoutMode) -> Self {
-        match value {
-            ViewLayoutMode::Legacy => 0,
-            ViewLayoutMode::Camera => 1,
-            ViewLayoutMode::Window => 2,
-            ViewLayoutMode::Other(value) => *value,
-        }
-    }
-}
-/// Serialize to lowercase string, or the raw number for [`ViewLayoutMode::Other`]
-impl Serialize for ViewLayoutMode {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            ViewLayoutMode::Legacy => serializer.serialize_str("legacy"),
-            ViewLayoutMode::Camera => serializer.serialize_str("camera"),
-            ViewLayoutMode::Window => serializer.serialize_str("window"),
-            ViewLayoutMode::Other(value) => serializer.serialize_u32(*value),
-        }
-    }
-}
-/// Deserialize from lowercase string, or from the raw number
-impl<'de> Deserialize<'de> for ViewLayoutMode {
-    fn deserialize<D>(deserializer: D) -> Result<ViewLayoutMode, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct ViewLayoutModeVisitor;
-        impl serde::de::Visitor<'_> for ViewLayoutModeVisitor {
-            type Value = ViewLayoutMode;
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a ViewLayoutMode as lowercase string or number")
-            }
-            fn visit_u64<E>(self, value: u64) -> Result<ViewLayoutMode, E>
-            where
-                E: serde::de::Error,
-            {
-                let value = u32::try_from(value).map_err(|_| {
-                    serde::de::Error::invalid_value(
-                        serde::de::Unexpected::Unsigned(value),
-                        &"a number that fits in u32",
-                    )
-                })?;
-                Ok(ViewLayoutMode::from(value))
-            }
-            fn visit_str<E>(self, value: &str) -> Result<ViewLayoutMode, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    "legacy" => Ok(ViewLayoutMode::Legacy),
-                    "camera" => Ok(ViewLayoutMode::Camera),
-                    "window" => Ok(ViewLayoutMode::Window),
-                    _ => Err(serde::de::Error::unknown_variant(
-                        value,
-                        &["legacy", "camera", "window"],
-                    )),
-                }
-            }
-        }
-        deserializer.deserialize_any(ViewLayoutModeVisitor)
+    /// Values this library does not know are kept in [`ViewLayoutMode::Other`] so the
+    /// table round-trips unchanged; reading one logs a warning.
+    #[derive(Debug, PartialEq, Clone, Copy)]
+    #[cfg_attr(test, derive(fake::Dummy))]
+    pub enum ViewLayoutMode(u32) {
+        /// All tables before 10.8 used a viewer position relative to a fitting of a set of bounding vertices (not all parts) with a standard perspective projection skewed by a layback angle
+        Legacy = 0 => "legacy",
+        /// Position viewer relative to the bottom center of the table, use a standard camera perspective projection, replace layback by a frustum offset
+        Camera = 1 => "camera",
+        /// Position viewer relative to the bottom center of the screen, use an oblique surface (re)projection (would need some postprocess to limit distortion)
+        Window = 2 => "window",
+        ;
+        /// A value not known to this library, kept as is.
+        Other,
     }
 }
 #[cfg(test)]
@@ -223,120 +142,27 @@ impl Default for ViewSetup {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
-#[cfg_attr(test, derive(fake::Dummy))]
-pub enum ToneMapper {
-    /// Reinhard, used to be the default until 10.8
-    Reinhard,
-    /// AgX tonemapper, used in Blender, implementation derived from threeJs which derives its implementation from Filament
-    AgX,
-    /// Filmic tonemapper
-    Filmic,
-    /// Neutral tonemapper, designed for e-commerce, keeps sRGB colors kinda original
-    Neutral,
-    /// AgX tonemapper, punchy look curve (more contrast/saturation)
-    AgXPunchy,
-    Other(u32),
-}
-
-impl From<u32> for ToneMapper {
-    fn from(value: u32) -> Self {
-        match value {
-            0 => ToneMapper::Reinhard,
-            1 => ToneMapper::AgX,
-            2 => ToneMapper::Filmic,
-            3 => ToneMapper::Neutral,
-            4 => ToneMapper::AgXPunchy,
-            other => {
-                warn!("Unknown ToneMapper value {other}, keeping it as is");
-                ToneMapper::Other(other)
-            }
-        }
-    }
-}
-
-impl From<&ToneMapper> for u32 {
-    fn from(value: &ToneMapper) -> Self {
-        match value {
-            ToneMapper::Reinhard => 0,
-            ToneMapper::AgX => 1,
-            ToneMapper::Filmic => 2,
-            ToneMapper::Neutral => 3,
-            ToneMapper::AgXPunchy => 4,
-            ToneMapper::Other(other) => *other,
-        }
-    }
-}
-
-/// Serializes ToneMapper to lowercase string
-impl Serialize for ToneMapper {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match self {
-            ToneMapper::Reinhard => serializer.serialize_str("reinhard"),
-            ToneMapper::AgX => serializer.serialize_str("agx"),
-            ToneMapper::Filmic => serializer.serialize_str("filmic"),
-            ToneMapper::Neutral => serializer.serialize_str("neutral"),
-            ToneMapper::AgXPunchy => serializer.serialize_str("agx_punchy"),
-            ToneMapper::Other(other) => serializer.serialize_u32(*other),
-        }
-    }
-}
-
-/// Deserializes ToneMapper from lowercase string
-/// or number for backwards compatibility
-impl<'de> Deserialize<'de> for ToneMapper {
-    fn deserialize<D>(deserializer: D) -> Result<ToneMapper, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct ToneMapperVisitor;
-
-        impl serde::de::Visitor<'_> for ToneMapperVisitor {
-            type Value = ToneMapper;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a ToneMapper as lowercase string or number")
-            }
-
-            fn visit_u64<E>(self, value: u64) -> Result<ToneMapper, E>
-            where
-                E: serde::de::Error,
-            {
-                // try to convert u64 to u32
-                let val: u32 = value.try_into().map_err(|_| {
-                    serde::de::Error::invalid_value(
-                        serde::de::Unexpected::Unsigned(value),
-                        &"a ToneMapper number",
-                    )
-                })?;
-                Ok(val.into())
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<ToneMapper, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    "reinhard" => Ok(ToneMapper::Reinhard),
-                    "agx" => Ok(ToneMapper::AgX),
-                    "filmic" => Ok(ToneMapper::Filmic),
-                    "neutral" => Ok(ToneMapper::Neutral),
-                    "agx_punchy" => Ok(ToneMapper::AgXPunchy),
-                    // backwards compatibility, tony_mc_mapface was renamed to agx
-                    // see https://github.com/vpinball/vpinball/pull/1999
-                    "tony_mc_mapface" => Ok(ToneMapper::AgX),
-                    _ => Err(serde::de::Error::unknown_variant(
-                        value,
-                        &["reinhard", "agx", "filmic", "neutral", "agx_punchy"],
-                    )),
-                }
-            }
-        }
-
-        deserializer.deserialize_any(ToneMapperVisitor)
+crate::vpx::open_enum::open_enum! {
+    /// The tone mapper applied at render time, mirroring vpinball's `ToneMapper`.
+    ///
+    /// Values this library does not know are kept in [`ToneMapper::Other`] so the
+    /// table round-trips unchanged; reading one logs a warning.
+    #[derive(Debug, PartialEq, Clone, Copy)]
+    #[cfg_attr(test, derive(fake::Dummy))]
+    pub enum ToneMapper(u32) {
+        /// Reinhard, used to be the default until 10.8
+        Reinhard = 0 => "reinhard",
+        /// AgX tonemapper, used in Blender, implementation derived from threeJs which derives its implementation from Filament
+        AgX = 1 => "agx",
+        /// Filmic tonemapper
+        Filmic = 2 => "filmic",
+        /// Neutral tonemapper, designed for e-commerce, keeps sRGB colors kinda original
+        Neutral = 3 => "neutral",
+        /// AgX tonemapper, punchy look curve (more contrast/saturation)
+        AgXPunchy = 4 => "agx_punchy",
+        ;
+    /// A value not known to this library, kept as is.
+        Other,
     }
 }
 

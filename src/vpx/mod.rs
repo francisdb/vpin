@@ -58,6 +58,7 @@ pub mod jsonmodel;
 pub(crate) mod le;
 pub mod math;
 pub mod model;
+pub(crate) mod open_enum;
 pub mod sound;
 pub mod tableinfo;
 pub mod units;
