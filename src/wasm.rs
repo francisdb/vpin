@@ -79,22 +79,31 @@ pub fn extract(data: &[u8], callback: Option<js_sys::Function>) -> Result<VpxFil
     })?;
 
     emit_progress("Building file map...");
-    let result = js_sys::Object::new();
-    for path in fs.list_files() {
-        if let Some(data) = fs.get_file(&path) {
-            let key = JsValue::from_str(&path);
-            let value = js_sys::Uint8Array::from(data.as_slice());
-            js_sys::Reflect::set(&result, &key, &value).map_err(|e| {
-                set_progress_callback(None);
-                JsError::new(&format!("Failed to set file in result: {:?}", e))
-            })?;
-        }
-    }
+    let result = fs_to_file_map(&fs, "").inspect_err(|_| {
+        set_progress_callback(None);
+    })?;
 
     emit_progress("Extraction complete");
     set_progress_callback(None);
 
     Ok(result.unchecked_into())
+}
+
+/// Turn an in-memory filesystem into a `{ path: Uint8Array }` object.
+/// `strip_prefix` is removed from the start of every path, so the
+/// caller can hand out paths relative to an export directory.
+fn fs_to_file_map(fs: &MemoryFileSystem, strip_prefix: &str) -> Result<js_sys::Object, JsError> {
+    let result = js_sys::Object::new();
+    for path in fs.list_files() {
+        if let Some(data) = fs.get_file(&path) {
+            let relative = path.strip_prefix(strip_prefix).unwrap_or(&path);
+            let key = JsValue::from_str(relative);
+            let value = js_sys::Uint8Array::from(data.as_slice());
+            js_sys::Reflect::set(&result, &key, &value)
+                .map_err(|e| JsError::new(&format!("Failed to set file in result: {:?}", e)))?;
+        }
+    }
+    Ok(result)
 }
 
 /// Read a `{ "/vpx/...": Uint8Array }` file map into an in-memory
@@ -197,6 +206,70 @@ extern "C" {
     pub type GlbExportOptions;
 }
 
+#[wasm_bindgen(typescript_custom_section)]
+const OBJ_EXPORT_OPTIONS_TS: &'static str = r#"
+/**
+ * Options for `export_obj`. Pass a plain object literal; every field
+ * is optional.
+ */
+export interface ObjExportOptions {
+    /**
+     * Axis convention of the written OBJ. Default:
+     * `AxisConvention.ZDownRightHanded`, vpinball's own OBJ export
+     * layout. Use `AxisConvention.YUpRightHanded` for Blender and most
+     * other tools with default import settings.
+     */
+    axes?: AxisConvention;
+    /**
+     * Unit of the written positions. Default: `ExportUnits.M`.
+     */
+    units?: ExportUnits;
+    /**
+     * Emit one `newmtl` block per distinct (material, texture) pair
+     * instead of one per `usemtl`. Default: `true`.
+     */
+    dedupMtlBlocks?: boolean;
+    /**
+     * Write the referenced textures to `images/` and reference them
+     * from the MTL. Default: `true`.
+     */
+    extractTextures?: boolean;
+    /**
+     * Include the plunger mesh. Default: `true`.
+     */
+    includePlunger?: boolean;
+}
+
+/**
+ * Result of `export_obj`: path relative to the export directory to file
+ * contents, e.g. `{ "table.obj": Uint8Array, "table.mtl": Uint8Array,
+ * "images/playfield.png": Uint8Array }`.
+ */
+export type ObjExportFileMap = Record<string, Uint8Array>;
+"#;
+
+#[wasm_bindgen]
+extern "C" {
+    /// A JS object literal with the shape of `ObjExportOptions`.
+    #[wasm_bindgen(typescript_type = "ObjExportOptions")]
+    pub type ObjExportOptions;
+
+    /// The object returned by `export_obj`.
+    #[wasm_bindgen(typescript_type = "ObjExportFileMap", extends = js_sys::Object)]
+    pub type ObjExportFileMap;
+}
+
+/// The `ObjExportOptions` TypeScript interface as seen by serde.
+#[derive(Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ObjExportOptionsData {
+    axes: Option<AxisConvention>,
+    units: Option<crate::vpx::units::ExportUnits>,
+    dedup_mtl_blocks: Option<bool>,
+    extract_textures: Option<bool>,
+    include_plunger: Option<bool>,
+}
+
 /// The `GlbExportOptions` TypeScript interface as seen by serde.
 #[derive(serde::Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -277,6 +350,70 @@ pub fn export_glb(
     set_progress_callback(None);
 
     Ok(bytes)
+}
+
+/// Export a whole table as a Wavefront OBJ with its MTL and, by
+/// default, the referenced textures. Takes the file map produced by
+/// `extract` and returns a file map relative to the export directory:
+/// `table.obj`, `table.mtl` and `images/*`.
+///
+/// Sound entries are ignored like in `export_glb`.
+#[wasm_bindgen]
+pub fn export_obj(
+    files: VpxFileMap,
+    options: Option<ObjExportOptions>,
+    callback: Option<js_sys::Function>,
+) -> Result<ObjExportFileMap, JsError> {
+    use crate::vpx::export::obj_export::{ObjExportOptions as NativeOptions, export_obj};
+
+    let js: Option<&JsValue> = options.as_ref().map(|o| o.as_ref());
+    let data: ObjExportOptionsData = parse_js_options(js)?;
+    let defaults = NativeOptions::default();
+    let export_options = NativeOptions {
+        axes: data.axes.unwrap_or(defaults.axes),
+        units: data.units.unwrap_or(defaults.units),
+        dedup_mtl_blocks: data.dedup_mtl_blocks.unwrap_or(defaults.dedup_mtl_blocks),
+        extract_textures: data.extract_textures.unwrap_or(defaults.extract_textures),
+        include_plunger: data.include_plunger.unwrap_or(defaults.include_plunger),
+    };
+
+    set_progress_callback(callback);
+
+    emit_progress("Reading files...");
+    let fs = file_map_to_fs_filtered(&files, |path| {
+        path != "/vpx/sounds.json" && !path.starts_with("/vpx/sounds/")
+    })
+    .inspect_err(|_| {
+        set_progress_callback(None);
+    })?;
+
+    emit_progress("Reading VPX data...");
+    let vpx_data = read_fs(&"/vpx".to_string(), &fs).map_err(|e| {
+        set_progress_callback(None);
+        JsError::new(&format!("Failed to read VPX: {}", e))
+    })?;
+
+    emit_progress("Exporting OBJ...");
+    let out_fs = MemoryFileSystem::new();
+    export_obj(
+        &vpx_data,
+        Path::new("/export/table.obj"),
+        &out_fs,
+        &export_options,
+    )
+    .map_err(|e| {
+        set_progress_callback(None);
+        JsError::new(&format!("Failed to export OBJ: {}", e))
+    })?;
+
+    let result = fs_to_file_map(&out_fs, "/export/").inspect_err(|_| {
+        set_progress_callback(None);
+    })?;
+
+    emit_progress("OBJ export complete");
+    set_progress_callback(None);
+
+    Ok(result.unchecked_into())
 }
 
 // ---------------------------------------------------------------------------
@@ -978,6 +1115,72 @@ mod tests {
 
         let glb = export_glb(files, None, None).expect("GLB export should ignore sounds");
         assert_eq!(&glb[0..4], b"glTF");
+    }
+
+    fn file_map_keys(map: &js_sys::Object) -> Vec<String> {
+        js_sys::Object::keys(map)
+            .iter()
+            .filter_map(|k| k.as_string())
+            .collect()
+    }
+
+    fn file_map_text(map: &js_sys::Object, key: &str) -> String {
+        let value = js_sys::Reflect::get(map, &JsValue::from_str(key)).unwrap();
+        let bytes = js_sys::Uint8Array::new(&value).to_vec();
+        String::from_utf8(bytes).unwrap()
+    }
+
+    #[wasm_bindgen_test]
+    fn test_export_obj() {
+        let original_data = include_bytes!("../testdata/completely_blank_table_10_7_4.vpx");
+        let files = extract(original_data, None).expect("Extraction failed");
+
+        let out = export_obj(files, None, None).expect("OBJ export failed");
+        let keys = file_map_keys(&out);
+        assert!(keys.contains(&"table.obj".to_string()), "{keys:?}");
+        assert!(keys.contains(&"table.mtl".to_string()), "{keys:?}");
+
+        let obj = file_map_text(&out, "table.obj");
+        assert!(
+            obj.contains("mtllib table.mtl"),
+            "{}",
+            &obj[..obj.len().min(200)]
+        );
+        assert!(obj.contains("\nv "), "no vertices in obj");
+    }
+
+    #[wasm_bindgen_test]
+    fn test_export_obj_options() {
+        let original_data = include_bytes!("../testdata/completely_blank_table_10_7_4.vpx");
+        let files = extract(original_data, None).expect("Extraction failed");
+
+        let options = js_sys::Object::new();
+        js_sys::Reflect::set(
+            &options,
+            &JsValue::from_str("axes"),
+            &JsValue::from(AxisConvention::YUpRightHanded as u32),
+        )
+        .unwrap();
+        js_sys::Reflect::set(
+            &options,
+            &JsValue::from_str("extractTextures"),
+            &JsValue::from_bool(false),
+        )
+        .unwrap();
+        let options: ObjExportOptions = options.unchecked_into();
+
+        let out = export_obj(files, Some(options), None).expect("OBJ export failed");
+        let keys = file_map_keys(&out);
+        assert!(
+            keys.iter().all(|k| !k.starts_with("images/")),
+            "textures should not be extracted: {keys:?}"
+        );
+    }
+
+    #[wasm_bindgen_test]
+    fn test_export_obj_with_empty_files() {
+        let files: VpxFileMap = js_sys::Object::new().unchecked_into();
+        assert!(export_obj(files, None, None).is_err());
     }
 
     #[wasm_bindgen_test]
