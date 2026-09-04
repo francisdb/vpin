@@ -163,7 +163,7 @@ pub enum VerifyResult {
 /// Handle to an underlying VPX file
 ///
 /// [`VpxFile::open`] only needs a `Read + Seek` source, so a byte slice
-/// works. The mutating methods such as [`VpxFile::lock`] and
+/// works. The mutating methods such as [`VpxFile::lock_table`] and
 /// [`VpxFile::write_gamedata`] are only available when the source also
 /// implements `Write`. Like [`std::fs::File`], a file opened read-only still
 /// satisfies `Write` at the type level; use [`open_rw`] to get a handle whose
@@ -219,12 +219,14 @@ impl<F: Read + Seek + Write> VpxFile<F> {
     /// `ToggleLock()` (single increment of the `TLCK` counter, preserving
     /// the audit trail).
     ///
+    /// This is vpinball's editor lock stored in the table, not a file lock.
+    ///
     /// This is vpinball's editor lock stored in the table, unrelated to
     /// the read/write mode of this handle.
     ///
     /// Returns `true` if the call actually modified the file, `false` if
     /// the table was already locked and nothing was written.
-    pub fn lock(&mut self) -> io::Result<bool> {
+    pub fn lock_table(&mut self) -> io::Result<bool> {
         let mut gamedata = self.read_gamedata()?;
         let counter = gamedata.locked.unwrap_or(0);
         if counter & 1 != 0 {
@@ -235,13 +237,13 @@ impl<F: Read + Seek + Write> VpxFile<F> {
         Ok(true)
     }
 
-    /// Unlock the table if it is currently locked. Like `lock`, this
+    /// Unlock the table if it is currently locked. Like `lock_table`, this
     /// increments the `TLCK` counter rather than resetting it, to
     /// preserve the audit trail.
     ///
     /// Returns `true` if the call actually modified the file, `false` if
     /// the table was already unlocked and nothing was written.
-    pub fn unlock(&mut self) -> io::Result<bool> {
+    pub fn unlock_table(&mut self) -> io::Result<bool> {
         let mut gamedata = self.read_gamedata()?;
         let counter = gamedata.locked.unwrap_or(0);
         if counter & 1 == 0 {
@@ -285,7 +287,7 @@ impl<F: Read + Seek> VpxFile<F> {
     ///
     /// vpinball stores `TLCK` as a monotonic counter; the lock bit is the
     /// counter's parity (odd = locked, even or absent = unlocked).
-    pub fn is_locked(&mut self) -> io::Result<bool> {
+    pub fn is_table_locked(&mut self) -> io::Result<bool> {
         Ok(self.read_gamedata()?.locked.unwrap_or(0) & 1 != 0)
     }
 
@@ -1266,7 +1268,7 @@ mod tests {
     fn test_open_read_only_from_slice() -> io::Result<()> {
         let mut vpx = VpxFile::open(Cursor::new(TEST_TABLE_BYTES))?;
         assert_eq!(vpx.read_version()?, Version::new(1072));
-        assert!(!vpx.is_locked()?);
+        assert!(!vpx.is_table_locked()?);
         assert_eq!(
             vpx.read_gameitems()?.len(),
             vpx.read_gamedata()?.gameitems_size as usize
@@ -1399,35 +1401,35 @@ mod tests {
         let mut vpx = VpxFile::open(cursor)?;
 
         // Normalise to a known unlocked state without losing test independence.
-        if vpx.is_locked()? {
-            assert!(vpx.unlock()?);
+        if vpx.is_table_locked()? {
+            assert!(vpx.unlock_table()?);
         }
         let unlocked_counter = vpx.read_gamedata()?.locked.unwrap_or(0);
-        assert!(!vpx.is_locked()?);
+        assert!(!vpx.is_table_locked()?);
 
         // unlock on an already-unlocked table is a no-op (no write, counter unchanged).
-        assert!(!vpx.unlock()?);
+        assert!(!vpx.unlock_table()?);
         assert_eq!(vpx.read_gamedata()?.locked.unwrap_or(0), unlocked_counter);
-        assert!(!vpx.is_locked()?);
+        assert!(!vpx.is_table_locked()?);
 
         // lock advances by 1 and reports it wrote.
-        assert!(vpx.lock()?);
-        assert!(vpx.is_locked()?);
+        assert!(vpx.lock_table()?);
+        assert!(vpx.is_table_locked()?);
         assert_eq!(
             vpx.read_gamedata()?.locked.unwrap_or(0),
             unlocked_counter.wrapping_add(1)
         );
 
         // lock on an already-locked table is a no-op (no write).
-        assert!(!vpx.lock()?);
+        assert!(!vpx.lock_table()?);
         assert_eq!(
             vpx.read_gamedata()?.locked.unwrap_or(0),
             unlocked_counter.wrapping_add(1)
         );
 
         // unlock advances by 1 and reports it wrote.
-        assert!(vpx.unlock()?);
-        assert!(!vpx.is_locked()?);
+        assert!(vpx.unlock_table()?);
+        assert!(!vpx.is_table_locked()?);
         assert_eq!(
             vpx.read_gamedata()?.locked.unwrap_or(0),
             unlocked_counter.wrapping_add(2)
