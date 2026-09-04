@@ -741,7 +741,8 @@ fn build_wire_ramp_mesh(
 
             (vertices, indices)
         }
-        RampType::Flat => {
+        // anything that is not a wire ramp is rendered flat, like vpinball's isHabitrail()
+        RampType::Flat | RampType::Other(_) => {
             // This shouldn't happen as we handle flat ramps separately
             return None;
         }

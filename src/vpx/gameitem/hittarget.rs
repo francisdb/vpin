@@ -6,20 +6,39 @@ use crate::vpx::math::{dequantize_unsigned, quantize_unsigned};
 use log::warn;
 use serde::{Deserialize, Serialize};
 
+/// Shape of a hit or drop target, mirroring vpinball's `TargetType`.
+///
+/// Values this library does not know are kept in [`TargetType::Other`] so the
+/// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum TargetType {
-    DropTargetBeveled = 1,
-    DropTargetSimple = 2,
-    HitTargetRound = 3,
-    HitTargetRectangle = 4,
-    HitFatTargetRectangle = 5,
-    HitFatTargetSquare = 6,
-    DropTargetFlatSimple = 7,
-    HitFatTargetSlim = 8,
-    HitTargetSlim = 9,
+    /// `DropTargetBeveled`: drop target with beveled edges.
+    DropTargetBeveled,
+    /// `DropTargetSimple`: plain drop target.
+    DropTargetSimple,
+    /// `HitTargetRound`: round stand-up target.
+    HitTargetRound,
+    /// `HitTargetRectangle`: rectangular stand-up target.
+    HitTargetRectangle,
+    /// `HitFatTargetRectangle`: thick rectangular stand-up target.
+    HitFatTargetRectangle,
+    /// `HitFatTargetSquare`: thick square stand-up target.
+    HitFatTargetSquare,
+    /// `DropTargetFlatSimple`: flat drop target.
+    DropTargetFlatSimple,
+    /// `HitFatTargetSlim`: thick narrow stand-up target.
+    HitFatTargetSlim,
+    /// `HitTargetSlim`: narrow stand-up target.
+    HitTargetSlim,
+    /// A value not known to this library, kept as is.
+    ///
+    /// Must not be constructed with a value that maps to a named variant:
+    /// it would write the same bytes as the named variant and read back as
+    /// it, breaking round-trip equality. The library itself never does
+    /// (`From` normalizes known values to their named variants).
+    Other(u32),
 }
-
 impl From<u32> for TargetType {
     fn from(value: u32) -> Self {
         match value {
@@ -32,11 +51,13 @@ impl From<u32> for TargetType {
             7 => TargetType::DropTargetFlatSimple,
             8 => TargetType::HitFatTargetSlim,
             9 => TargetType::HitTargetSlim,
-            _ => panic!("Invalid TargetType value {value}"),
+            other => {
+                warn!("Unknown TargetType value {other}, keeping it as is");
+                TargetType::Other(other)
+            }
         }
     }
 }
-
 impl From<&TargetType> for u32 {
     fn from(value: &TargetType) -> Self {
         match value {
@@ -49,11 +70,11 @@ impl From<&TargetType> for u32 {
             TargetType::DropTargetFlatSimple => 7,
             TargetType::HitFatTargetSlim => 8,
             TargetType::HitTargetSlim => 9,
+            TargetType::Other(value) => *value,
         }
     }
 }
-
-/// Serialize TargetType as lowercase string
+/// Serialize to lowercase string, or the raw number for [`TargetType::Other`]
 impl Serialize for TargetType {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -71,47 +92,34 @@ impl Serialize for TargetType {
             TargetType::DropTargetFlatSimple => serializer.serialize_str("drop_target_flat_simple"),
             TargetType::HitFatTargetSlim => serializer.serialize_str("hit_fat_target_slim"),
             TargetType::HitTargetSlim => serializer.serialize_str("hit_target_slim"),
+            TargetType::Other(value) => serializer.serialize_u32(*value),
         }
     }
 }
-
-/// Deserialize TargetType from lowercase string
-/// or number for backwards compatibility
+/// Deserialize from lowercase string, or from the raw number
 impl<'de> Deserialize<'de> for TargetType {
     fn deserialize<D>(deserializer: D) -> Result<TargetType, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         struct TargetTypeVisitor;
-
         impl serde::de::Visitor<'_> for TargetTypeVisitor {
             type Value = TargetType;
-
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a string or number representing a TargetType")
+                formatter.write_str("a TargetType as lowercase string or number")
             }
-
             fn visit_u64<E>(self, value: u64) -> Result<TargetType, E>
             where
                 E: serde::de::Error,
             {
-                match value {
-                    1 => Ok(TargetType::DropTargetBeveled),
-                    2 => Ok(TargetType::DropTargetSimple),
-                    3 => Ok(TargetType::HitTargetRound),
-                    4 => Ok(TargetType::HitTargetRectangle),
-                    5 => Ok(TargetType::HitFatTargetRectangle),
-                    6 => Ok(TargetType::HitFatTargetSquare),
-                    7 => Ok(TargetType::DropTargetFlatSimple),
-                    8 => Ok(TargetType::HitFatTargetSlim),
-                    9 => Ok(TargetType::HitTargetSlim),
-                    _ => Err(serde::de::Error::invalid_value(
+                let value = u32::try_from(value).map_err(|_| {
+                    serde::de::Error::invalid_value(
                         serde::de::Unexpected::Unsigned(value),
-                        &"a number between 1 and 9",
-                    )),
-                }
+                        &"a number that fits in u32",
+                    )
+                })?;
+                Ok(TargetType::from(value))
             }
-
             fn visit_str<E>(self, value: &str) -> Result<TargetType, E>
             where
                 E: serde::de::Error,
@@ -143,8 +151,25 @@ impl<'de> Deserialize<'de> for TargetType {
                 }
             }
         }
-
         deserializer.deserialize_any(TargetTypeVisitor)
+    }
+}
+#[cfg(test)]
+mod target_type_open_enum_tests {
+    use super::TargetType;
+
+    #[test]
+    fn unknown_value_round_trips() {
+        let value = TargetType::from(4_000_000_000);
+        assert_eq!(value, TargetType::Other(4_000_000_000));
+        assert_eq!(u32::from(&value), 4_000_000_000);
+        let json = serde_json::to_value(value.clone()).unwrap();
+        assert_eq!(json, serde_json::json!(4_000_000_000u32));
+        let back: TargetType = serde_json::from_value(json).unwrap();
+        assert_eq!(back, value);
+        assert!(
+            serde_json::from_value::<TargetType>(serde_json::json!("no_such_variant")).is_err()
+        );
     }
 }
 
@@ -661,9 +686,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic = "Error(\"invalid value: integer `0`, expected a number between 1 and 9\", line: 0, column: 0)"]
-    fn test_target_type_json_fail_number() {
+    fn test_target_type_json_unknown_number() {
         let json = serde_json::Value::from(0);
-        let _: TargetType = serde_json::from_value(json).unwrap();
+        let read: TargetType = serde_json::from_value(json).unwrap();
+        assert_eq!(read, TargetType::Other(0));
     }
 }

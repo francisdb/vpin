@@ -1730,7 +1730,7 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                         // Gottlieb kicker - darker metallic
                         Some([0.45, 0.42, 0.40, 1.0])
                     }
-                    KickerType::Hole | KickerType::HoleSimple => {
+                    KickerType::Hole | KickerType::HoleSimple | KickerType::Other(_) => {
                         // Wood hole - brown color
                         Some([0.36, 0.25, 0.15, 1.0])
                     }

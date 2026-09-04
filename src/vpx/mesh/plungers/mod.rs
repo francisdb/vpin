@@ -958,7 +958,7 @@ pub fn build_plunger_meshes(plunger: &Plunger) -> PlungerMeshes {
     }
 
     match plunger.plunger_type {
-        PlungerType::Unknown | PlungerType::Flat => {
+        PlungerType::Flat => {
             // Flat plunger: just a simple rod
             PlungerMeshes {
                 flat_rod: Some(generate_flat_rod_mesh(plunger)),
@@ -968,7 +968,13 @@ pub fn build_plunger_meshes(plunger: &Plunger) -> PlungerMeshes {
                 tip: None,
             }
         }
-        PlungerType::Modern | PlungerType::Custom => {
+        // vpinball only special-cases PlungerTypeFlat; everything else -
+        // including the out-of-enum value 0 (PlungerType::Unknown) and any
+        // future value - renders as the modern plunger.
+        PlungerType::Unknown
+        | PlungerType::Modern
+        | PlungerType::Custom
+        | PlungerType::Other(_) => {
             // Modern/Custom plunger: rod + spring + ring + tip
             PlungerMeshes {
                 flat_rod: None,

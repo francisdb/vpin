@@ -5,87 +5,124 @@ use super::{
 use crate::vpx::wav::{WavHeader, read_wav_header, write_wav_header};
 use bytes::{BufMut, BytesMut};
 use log::warn;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::io;
 use std::path::Path;
 use tracing::instrument;
 
+/// Audio device a sound plays on, mirroring vpinball's `SoundOutTypes`.
+///
+/// Values this library does not know are kept in [`OutputTarget::Other`] so the
+/// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum OutputTarget {
-    Table = 0,
-    Backglass = 1,
+    /// `SNDOUT_TABLE`: the table (playfield) audio device.
+    Table,
+    /// `SNDOUT_BACKGLASS`: the backglass (music) audio device.
+    Backglass,
+    /// A value not known to this library, kept as is.
+    ///
+    /// Must not be constructed with a value that maps to a named variant
+    /// (0 or 1): it would write the same bytes as the named variant and
+    /// read back as it, breaking round-trip equality. The library itself
+    /// never does (`From` normalizes known values to their named
+    /// variants), and the test faker is constrained to the genuinely
+    /// unknown range for the same reason.
+    Other(#[cfg_attr(test, dummy(faker = "2..=u8::MAX"))] u8),
 }
-
-impl From<&OutputTarget> for u8 {
-    fn from(decal_type: &OutputTarget) -> u8 {
-        match decal_type {
-            OutputTarget::Table => 0,
-            OutputTarget::Backglass => 1,
-        }
-    }
-}
-
 impl From<u8> for OutputTarget {
     fn from(value: u8) -> Self {
         match value {
             0 => OutputTarget::Table,
             1 => OutputTarget::Backglass,
-            _ => panic!("Invalid value for OutputTarget: {value}, we expect 0, 1"),
+            other => {
+                warn!("Unknown OutputTarget value {other}, keeping it as is");
+                OutputTarget::Other(other)
+            }
         }
     }
 }
-
-/// A serializer for OutputTarget that writes it as lowercase
+impl From<&OutputTarget> for u8 {
+    fn from(value: &OutputTarget) -> Self {
+        match value {
+            OutputTarget::Table => 0,
+            OutputTarget::Backglass => 1,
+            OutputTarget::Other(value) => *value,
+        }
+    }
+}
+/// Serialize to lowercase string, or the raw number for [`OutputTarget::Other`]
 impl Serialize for OutputTarget {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: Serializer,
+        S: serde::Serializer,
     {
-        let value = match self {
-            OutputTarget::Table => "table",
-            OutputTarget::Backglass => "backglass",
-        };
-        serializer.serialize_str(value)
+        match self {
+            OutputTarget::Table => serializer.serialize_str("table"),
+            OutputTarget::Backglass => serializer.serialize_str("backglass"),
+            OutputTarget::Other(value) => serializer.serialize_u8(*value),
+        }
     }
 }
-
-/// A deserializer for OutputTarget that reads it as lowercase
-/// or number for backwards compatibility.
+/// Deserialize from lowercase string, or from the raw number
 impl<'de> Deserialize<'de> for OutputTarget {
     fn deserialize<D>(deserializer: D) -> Result<OutputTarget, D::Error>
     where
-        D: Deserializer<'de>,
+        D: serde::Deserializer<'de>,
     {
-        let value = Value::deserialize(deserializer);
-        match value {
-            Ok(Value::String(value)) => match value.as_str() {
-                "table" => Ok(OutputTarget::Table),
-                "backglass" => Ok(OutputTarget::Backglass),
-                _ => Err(serde::de::Error::custom(format!(
-                    "Invalid value for OutputTarget: {value}, we expect \"table\", \"backglass\""
-                ))),
-            },
-            Ok(Value::Number(value)) => {
-                let Some(value) = value.as_u64() else {
-                    return Err(serde::de::Error::custom(format!(
-                        "Invalid value {value}, we expect a non-negative integer"
-                    )));
-                };
+        struct OutputTargetVisitor;
+        impl serde::de::Visitor<'_> for OutputTargetVisitor {
+            type Value = OutputTarget;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a OutputTarget as lowercase string or number")
+            }
+            fn visit_u64<E>(self, value: u64) -> Result<OutputTarget, E>
+            where
+                E: serde::de::Error,
+            {
+                let value = u8::try_from(value).map_err(|_| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Unsigned(value),
+                        &"a number that fits in u8",
+                    )
+                })?;
+                Ok(OutputTarget::from(value))
+            }
+            fn visit_str<E>(self, value: &str) -> Result<OutputTarget, E>
+            where
+                E: serde::de::Error,
+            {
                 match value {
-                    0 => Ok(OutputTarget::Table),
-                    1 => Ok(OutputTarget::Backglass),
-                    _ => Err(serde::de::Error::custom(format!(
-                        "Invalid value for OutputTarget: {value}, we expect 0, 1"
-                    ))),
+                    "table" => Ok(OutputTarget::Table),
+                    "backglass" => Ok(OutputTarget::Backglass),
+                    _ => Err(serde::de::Error::unknown_variant(
+                        value,
+                        &["table", "backglass"],
+                    )),
                 }
             }
-            _ => Err(serde::de::Error::custom(format!(
-                "Invalid value for OutputTarget: {value:?}, we expect a string or a number"
-            ))),
         }
+        deserializer.deserialize_any(OutputTargetVisitor)
+    }
+}
+#[cfg(test)]
+mod output_target_open_enum_tests {
+    use super::OutputTarget;
+
+    #[test]
+    fn unknown_value_round_trips() {
+        let value = OutputTarget::from(250);
+        assert_eq!(value, OutputTarget::Other(250));
+        assert_eq!(u8::from(&value), 250);
+        let json = serde_json::to_value(value.clone()).unwrap();
+        assert_eq!(json, serde_json::json!(250u8));
+        let back: OutputTarget = serde_json::from_value(json).unwrap();
+        assert_eq!(back, value);
+        assert!(
+            serde_json::from_value::<OutputTarget>(serde_json::json!("no_such_variant")).is_err()
+        );
     }
 }
 
@@ -696,7 +733,7 @@ mod json_error_tests {
 
     #[test]
     fn invalid_json_numbers_are_errors_not_panics() {
-        for value in [json!(1.5), json!(-1), json!(99), json!(true), json!(null)] {
+        for value in [json!(1.5), json!(-1), json!(true), json!(null)] {
             assert!(
                 serde_json::from_value::<OutputTarget>(value.clone()).is_err(),
                 "{value}"

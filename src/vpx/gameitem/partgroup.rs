@@ -5,65 +5,106 @@ use crate::vpx::gameitem::vertex2d::Vertex2D;
 use log::warn;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq)]
+/// A part group visibility mask, one bit per view/window.
+///
+/// Mirrors an earlier revision of vpinball's `PartGroup` visibility mask,
+/// before it became the player mode mask (desktop, FSS, cabinet, MR, VR).
+/// Not read from tables yet.
+///
+/// This is a bit mask, not an enumeration: any combination of the
+/// constants below is a legitimate value, and bits this library does not
+/// know are simply kept, so the table round-trips unchanged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(test, derive(fake::Dummy))]
-pub enum VisibilityMask {
-    Playfield = 0x0001,
-    Scoreview = 0x0002,
-    Backglass = 0x0004,
-    Topper = 0x0008,
-    ApronLeft = 0x0010,
-    ApronRight = 0x0020,
-    MixedReality = 0x0040,
-    VirtualReality = 0x0080,
+pub struct VisibilityMask(pub u32);
+
+impl VisibilityMask {
+    /// Visible on the playfield window.
+    pub const PLAYFIELD: VisibilityMask = VisibilityMask(1);
+    /// Visible on the score view window.
+    pub const SCOREVIEW: VisibilityMask = VisibilityMask(2);
+    /// Visible on the backglass window.
+    pub const BACKGLASS: VisibilityMask = VisibilityMask(4);
+    /// Visible on the topper window.
+    pub const TOPPER: VisibilityMask = VisibilityMask(8);
+    /// Visible on the left apron window.
+    pub const APRON_LEFT: VisibilityMask = VisibilityMask(16);
+    /// Visible on the right apron window.
+    pub const APRON_RIGHT: VisibilityMask = VisibilityMask(32);
+    /// Visible in mixed reality (AR) mode.
+    pub const MIXED_REALITY: VisibilityMask = VisibilityMask(64);
+    /// Visible in virtual reality mode.
+    pub const VIRTUAL_REALITY: VisibilityMask = VisibilityMask(128);
+
+    /// Whether every bit of `mask` is set in `self`.
+    pub fn contains(self, mask: VisibilityMask) -> bool {
+        self.0 & mask.0 == mask.0
+    }
 }
 
 impl From<u32> for VisibilityMask {
     fn from(value: u32) -> Self {
-        match value {
-            0x0001 => VisibilityMask::Playfield,
-            0x0002 => VisibilityMask::Scoreview,
-            0x0004 => VisibilityMask::Backglass,
-            0x0008 => VisibilityMask::Topper,
-            0x0010 => VisibilityMask::ApronLeft,
-            0x0020 => VisibilityMask::ApronRight,
-            0x0040 => VisibilityMask::MixedReality,
-            0x0080 => VisibilityMask::VirtualReality,
-            _ => panic!("Unknown visibility mask value: {value}"),
-        }
+        VisibilityMask(value)
     }
 }
-
+impl From<&VisibilityMask> for u32 {
+    fn from(value: &VisibilityMask) -> Self {
+        value.0
+    }
+}
 impl From<VisibilityMask> for u32 {
     fn from(value: VisibilityMask) -> Self {
-        match value {
-            VisibilityMask::Playfield => 0x0001,
-            VisibilityMask::Scoreview => 0x0002,
-            VisibilityMask::Backglass => 0x0004,
-            VisibilityMask::Topper => 0x0008,
-            VisibilityMask::ApronLeft => 0x0010,
-            VisibilityMask::ApronRight => 0x0020,
-            VisibilityMask::MixedReality => 0x0040,
-            VisibilityMask::VirtualReality => 0x0080,
-        }
+        value.0
+    }
+}
+#[cfg(test)]
+mod visibility_mask_tests {
+    use super::VisibilityMask;
+
+    #[test]
+    fn combinations_are_legitimate_values_and_round_trip() {
+        // A combination is a normal mask value, not an unknown.
+        let mask = VisibilityMask(VisibilityMask::PLAYFIELD.0 | VisibilityMask::SCOREVIEW.0);
+        assert!(mask.contains(VisibilityMask::PLAYFIELD));
+        assert!(mask.contains(VisibilityMask::SCOREVIEW));
+        assert!(!mask.contains(VisibilityMask::BACKGLASS));
+        assert_eq!(u32::from(mask), 3);
+        assert_eq!(VisibilityMask::from(3), mask);
+    }
+
+    #[test]
+    fn unknown_bits_round_trip() {
+        let mask = VisibilityMask::from(4_000_000_000);
+        assert_eq!(u32::from(&mask), 4_000_000_000);
     }
 }
 
+/// Coordinate space a part group is positioned in, mirroring vpinball's
+/// `PartGroup::SpaceReference`.
+///
+/// Values this library does not know are kept in [`SpaceReference::Other`] so the
+/// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum SpaceReference {
-    /// Inherit space reference from parent (note that root defaults to Playfield reference space)
-    Inherit,
-    /// Base space, aligned to (offsetted) real world, without any scaling (to match real world room in AR/VR)
-    Room,
-    /// Relative to room, scaled to fit cabinet size (without any height adjustment, for cabinet feet to touch ground)
-    CabinetFeet,
-    /// Relative to cabinet feet, with height adjustment (with height adjustment for lockbar ro match cabinet lockbar height after scaling)
-    Cabinet,
     /// Relative to cabinet with playfield inclination and local coordinate system applied (usual local playfield coordinate system tailored for table design)
     Playfield,
+    /// Relative to cabinet feet, with height adjustment (with height adjustment for lockbar to match cabinet lockbar height after scaling)
+    Cabinet,
+    /// Relative to room, scaled to fit cabinet size (without any height adjustment, for cabinet feet to touch ground)
+    CabinetFeet,
+    /// Base space, aligned to (offsetted) real world, without any scaling (to match real world room in AR/VR)
+    Room,
+    /// Inherit space reference from parent (note that root defaults to Playfield reference space)
+    Inherit,
+    /// A value not known to this library, kept as is.
+    ///
+    /// Must not be constructed with a value that maps to a named variant:
+    /// it would write the same bytes as the named variant and read back as
+    /// it, breaking round-trip equality. The library itself never does
+    /// (`From` normalizes known values to their named variants).
+    Other(u32),
 }
-
 impl From<u32> for SpaceReference {
     fn from(value: u32) -> Self {
         match value {
@@ -72,11 +113,13 @@ impl From<u32> for SpaceReference {
             2 => SpaceReference::CabinetFeet,
             3 => SpaceReference::Room,
             4 => SpaceReference::Inherit,
-            _ => panic!("Unknown space reference value: {value}"),
+            other => {
+                warn!("Unknown SpaceReference value {other}, keeping it as is");
+                SpaceReference::Other(other)
+            }
         }
     }
 }
-
 impl From<&SpaceReference> for u32 {
     fn from(value: &SpaceReference) -> Self {
         match value {
@@ -85,42 +128,86 @@ impl From<&SpaceReference> for u32 {
             SpaceReference::CabinetFeet => 2,
             SpaceReference::Room => 3,
             SpaceReference::Inherit => 4,
+            SpaceReference::Other(value) => *value,
         }
     }
 }
-
+/// Serialize to lowercase string, or the raw number for [`SpaceReference::Other`]
 impl Serialize for SpaceReference {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        let value = match self {
-            SpaceReference::Inherit => "inherit",
-            SpaceReference::Room => "room",
-            SpaceReference::CabinetFeet => "cabinet_feet",
-            SpaceReference::Cabinet => "cabinet",
-            SpaceReference::Playfield => "playfield",
-        };
-        serializer.serialize_str(value)
+        match self {
+            SpaceReference::Playfield => serializer.serialize_str("playfield"),
+            SpaceReference::Cabinet => serializer.serialize_str("cabinet"),
+            SpaceReference::CabinetFeet => serializer.serialize_str("cabinet_feet"),
+            SpaceReference::Room => serializer.serialize_str("room"),
+            SpaceReference::Inherit => serializer.serialize_str("inherit"),
+            SpaceReference::Other(value) => serializer.serialize_u32(*value),
+        }
     }
 }
-
+/// Deserialize from lowercase string, or from the raw number
 impl<'de> Deserialize<'de> for SpaceReference {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> Result<SpaceReference, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        let value = String::deserialize(deserializer)?;
-        match value.as_str() {
-            "inherit" => Ok(SpaceReference::Inherit),
-            "room" => Ok(SpaceReference::Room),
-            "cabinet_feet" => Ok(SpaceReference::CabinetFeet),
-            "cabinet" => Ok(SpaceReference::Cabinet),
-            "playfield" => Ok(SpaceReference::Playfield),
-            _ => Err(serde::de::Error::custom(format!(
-                "Unknown space reference value: {value}"
-            ))),
+        struct SpaceReferenceVisitor;
+        impl serde::de::Visitor<'_> for SpaceReferenceVisitor {
+            type Value = SpaceReference;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a SpaceReference as lowercase string or number")
+            }
+            fn visit_u64<E>(self, value: u64) -> Result<SpaceReference, E>
+            where
+                E: serde::de::Error,
+            {
+                let value = u32::try_from(value).map_err(|_| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Unsigned(value),
+                        &"a number that fits in u32",
+                    )
+                })?;
+                Ok(SpaceReference::from(value))
+            }
+            fn visit_str<E>(self, value: &str) -> Result<SpaceReference, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "playfield" => Ok(SpaceReference::Playfield),
+                    "cabinet" => Ok(SpaceReference::Cabinet),
+                    "cabinet_feet" => Ok(SpaceReference::CabinetFeet),
+                    "room" => Ok(SpaceReference::Room),
+                    "inherit" => Ok(SpaceReference::Inherit),
+                    _ => Err(serde::de::Error::unknown_variant(
+                        value,
+                        &["playfield", "cabinet", "cabinet_feet", "room", "inherit"],
+                    )),
+                }
+            }
         }
+        deserializer.deserialize_any(SpaceReferenceVisitor)
+    }
+}
+#[cfg(test)]
+mod space_reference_open_enum_tests {
+    use super::SpaceReference;
+
+    #[test]
+    fn unknown_value_round_trips() {
+        let value = SpaceReference::from(4_000_000_000);
+        assert_eq!(value, SpaceReference::Other(4_000_000_000));
+        assert_eq!(u32::from(&value), 4_000_000_000);
+        let json = serde_json::to_value(value.clone()).unwrap();
+        assert_eq!(json, serde_json::json!(4_000_000_000u32));
+        let back: SpaceReference = serde_json::from_value(json).unwrap();
+        assert_eq!(back, value);
+        assert!(
+            serde_json::from_value::<SpaceReference>(serde_json::json!("no_such_variant")).is_err()
+        );
     }
 }
 
@@ -334,7 +421,7 @@ mod tests {
                 interval: 1000,
             },
             backglass: true,
-            visibility_mask: Some(VisibilityMask::Playfield.into()),
+            visibility_mask: Some(VisibilityMask::PLAYFIELD.into()),
             space_reference: SpaceReference::Cabinet,
             player_mode_visibility_mask: Some(0x00FF),
             is_locked: true,

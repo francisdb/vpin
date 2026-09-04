@@ -6,26 +6,55 @@ use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// The visual shape of a trigger.
+///
+/// Values this library does not know are kept in [`TriggerShape::Other`]
+/// so the table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone, Default)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum TriggerShape {
-    /// No visible mesh (invisible trigger)
-    None = 0,
-    /// Simple wire trigger
+    /// No visible mesh (invisible trigger): 0
+    None,
+    /// Simple wire trigger: 1
     #[default]
-    WireA = 1,
-    /// Star-shaped trigger (uses `radius` for scaling)
-    Star = 2,
-    /// Wire trigger rotated -23° around X axis
-    WireB = 3,
-    /// Button trigger (uses `radius` for scaling, z offset +5)
-    Button = 4,
-    /// Wire trigger rotated 140° around X axis, z offset -19
-    WireC = 5,
-    /// D-shaped wire trigger
-    WireD = 6,
-    /// Inder-style trigger
-    Inder = 7,
+    WireA,
+    /// Star-shaped trigger (uses `radius` for scaling): 2
+    Star,
+    /// Wire trigger rotated -23° around X axis: 3
+    WireB,
+    /// Button trigger (uses `radius` for scaling, z offset +5): 4
+    Button,
+    /// Wire trigger rotated 140° around X axis, z offset -19: 5
+    WireC,
+    /// D-shaped wire trigger: 6
+    WireD,
+    /// Inder-style trigger: 7
+    Inder,
+    /// A value not known to this library, kept as is.
+    ///
+    /// Must not be constructed with a value that maps to a named variant:
+    /// it would write the same bytes as the named variant and read back as
+    /// it, breaking round-trip equality. The library itself never does
+    /// (`From` normalizes known values to their named variants).
+    Other(u32),
+}
+
+#[cfg(test)]
+mod trigger_shape_open_enum_tests {
+    use super::TriggerShape;
+
+    #[test]
+    fn unknown_value_round_trips() {
+        let value = TriggerShape::from(4_000_000_000);
+        assert_eq!(value, TriggerShape::Other(4_000_000_000));
+        assert_eq!(u32::from(&value), 4_000_000_000);
+        let json = serde_json::to_value(value.clone()).unwrap();
+        assert_eq!(json, serde_json::json!(4_000_000_000u32));
+        let back: TriggerShape = serde_json::from_value(json).unwrap();
+        assert_eq!(back, value);
+        assert!(
+            serde_json::from_value::<TriggerShape>(serde_json::json!("no_such_variant")).is_err()
+        );
+    }
 }
 
 impl From<u32> for TriggerShape {
@@ -39,7 +68,10 @@ impl From<u32> for TriggerShape {
             5 => TriggerShape::WireC,
             6 => TriggerShape::WireD,
             7 => TriggerShape::Inder,
-            _ => TriggerShape::WireA,
+            other => {
+                warn!("Unknown TriggerShape value {other}, keeping it as is");
+                TriggerShape::Other(other)
+            }
         }
     }
 }
@@ -55,6 +87,7 @@ impl From<&TriggerShape> for u32 {
             TriggerShape::WireC => 5,
             TriggerShape::WireD => 6,
             TriggerShape::Inder => 7,
+            TriggerShape::Other(value) => *value,
         }
     }
 }
@@ -65,17 +98,17 @@ impl Serialize for TriggerShape {
     where
         S: Serializer,
     {
-        let shape_str = match self {
-            TriggerShape::None => "none",
-            TriggerShape::WireA => "wire_a",
-            TriggerShape::Star => "star",
-            TriggerShape::WireB => "wire_b",
-            TriggerShape::Button => "button",
-            TriggerShape::WireC => "wire_c",
-            TriggerShape::WireD => "wire_d",
-            TriggerShape::Inder => "inder",
-        };
-        serializer.serialize_str(shape_str)
+        match self {
+            TriggerShape::None => serializer.serialize_str("none"),
+            TriggerShape::WireA => serializer.serialize_str("wire_a"),
+            TriggerShape::Star => serializer.serialize_str("star"),
+            TriggerShape::WireB => serializer.serialize_str("wire_b"),
+            TriggerShape::Button => serializer.serialize_str("button"),
+            TriggerShape::WireC => serializer.serialize_str("wire_c"),
+            TriggerShape::WireD => serializer.serialize_str("wire_d"),
+            TriggerShape::Inder => serializer.serialize_str("inder"),
+            TriggerShape::Other(value) => serializer.serialize_u32(*value),
+        }
     }
 }
 
@@ -92,27 +125,20 @@ impl<'de> Deserialize<'de> for TriggerShape {
             type Value = TriggerShape;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a string or number representing a TargetType")
+                formatter.write_str("a string or number representing a TriggerShape")
             }
 
             fn visit_u64<E>(self, value: u64) -> Result<TriggerShape, E>
             where
                 E: serde::de::Error,
             {
-                match value {
-                    0 => Ok(TriggerShape::None),
-                    1 => Ok(TriggerShape::WireA),
-                    2 => Ok(TriggerShape::Star),
-                    3 => Ok(TriggerShape::WireB),
-                    4 => Ok(TriggerShape::Button),
-                    5 => Ok(TriggerShape::WireC),
-                    6 => Ok(TriggerShape::WireD),
-                    7 => Ok(TriggerShape::Inder),
-                    _ => Err(serde::de::Error::invalid_value(
+                let value = u32::try_from(value).map_err(|_| {
+                    serde::de::Error::invalid_value(
                         serde::de::Unexpected::Unsigned(value),
-                        &"a number between 0 and 7",
-                    )),
-                }
+                        &"a number that fits in a u32",
+                    )
+                })?;
+                Ok(TriggerShape::from(value))
             }
 
             fn visit_str<E>(self, value: &str) -> Result<TriggerShape, E>

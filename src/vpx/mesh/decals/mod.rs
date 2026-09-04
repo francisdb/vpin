@@ -30,12 +30,14 @@ use log::warn;
 /// Tuple of (vertices, faces) or None if the decal should not be rendered
 /// (e.g., text decals which we can't render without a font renderer)
 pub fn build_decal_mesh(decal: &Decal) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
-    // Skip text decals - we can't render text without a font renderer
-    // In VPinball, text is rendered to a texture at runtime
-    if decal.decal_type == DecalType::Text {
+    // Skip everything that is not an image decal - we can't render text
+    // without a font renderer (VPinball renders text to a texture at
+    // runtime), and VPinball itself treats any decal type other than
+    // DecalImage as text, so unknown types follow the text path too.
+    if decal.decal_type != DecalType::Image {
         warn!(
-            "Skipping text decal '{}': text decals require runtime font rendering",
-            decal.name
+            "Skipping decal '{}' ({:?}): non-image decals require runtime font rendering",
+            decal.name, decal.decal_type
         );
         return None;
     }
@@ -51,8 +53,8 @@ pub fn build_decal_mesh(decal: &Decal) -> Option<(Vec<VertexWrapper>, Vec<VpxFac
         return None;
     }
 
-    // Skip if no image is set for image decals
-    if decal.decal_type == DecalType::Image && decal.image.is_empty() {
+    // Skip if no image is set
+    if decal.image.is_empty() {
         warn!("Skipping image decal '{}': no image specified", decal.name);
         return None;
     }

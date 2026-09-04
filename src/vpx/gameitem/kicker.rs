@@ -5,18 +5,35 @@ use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// Visual style of a kicker, mirroring vpinball's `KickerType`.
+///
+/// Values this library does not know are kept in [`KickerType::Other`] so the
+/// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum KickerType {
-    Invisible = 0,
-    Hole = 1,
-    Cup = 2,
-    HoleSimple = 3,
-    Williams = 4,
-    Gottlieb = 5,
-    Cup2 = 6,
+    /// `KickerInvisible`: no mesh, only the hit area.
+    Invisible,
+    /// `KickerHole`: hole with a rim.
+    Hole,
+    /// `KickerCup`: cup shaped kicker.
+    Cup,
+    /// `KickerHoleSimple`: plain hole.
+    HoleSimple,
+    /// `KickerWilliams`: Williams style kicker.
+    Williams,
+    /// `KickerGottlieb`: Gottlieb style kicker.
+    Gottlieb,
+    /// `KickerCup2`: second cup shape.
+    Cup2,
+    /// A value not known to this library, kept as is.
+    ///
+    /// Must not be constructed with a value that maps to a named variant:
+    /// it would write the same bytes as the named variant and read back as
+    /// it, breaking round-trip equality. The library itself never does
+    /// (`From` normalizes known values to their named variants).
+    Other(u32),
 }
-
 impl From<u32> for KickerType {
     fn from(value: u32) -> Self {
         match value {
@@ -27,11 +44,13 @@ impl From<u32> for KickerType {
             4 => KickerType::Williams,
             5 => KickerType::Gottlieb,
             6 => KickerType::Cup2,
-            _ => panic!("Invalid KickerType value {value}"),
+            other => {
+                warn!("Unknown KickerType value {other}, keeping it as is");
+                KickerType::Other(other)
+            }
         }
     }
 }
-
 impl From<&KickerType> for u32 {
     fn from(value: &KickerType) -> Self {
         match value {
@@ -42,64 +61,52 @@ impl From<&KickerType> for u32 {
             KickerType::Williams => 4,
             KickerType::Gottlieb => 5,
             KickerType::Cup2 => 6,
+            KickerType::Other(value) => *value,
         }
     }
 }
-
-/// Serialize as lowercase string
+/// Serialize to lowercase string, or the raw number for [`KickerType::Other`]
 impl Serialize for KickerType {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: Serializer,
+        S: serde::Serializer,
     {
-        let value = match self {
-            KickerType::Invisible => "invisible",
-            KickerType::Hole => "hole",
-            KickerType::Cup => "cup",
-            KickerType::HoleSimple => "hole_simple",
-            KickerType::Williams => "williams",
-            KickerType::Gottlieb => "gottlieb",
-            KickerType::Cup2 => "cup2",
-        };
-        serializer.serialize_str(value)
+        match self {
+            KickerType::Invisible => serializer.serialize_str("invisible"),
+            KickerType::Hole => serializer.serialize_str("hole"),
+            KickerType::Cup => serializer.serialize_str("cup"),
+            KickerType::HoleSimple => serializer.serialize_str("hole_simple"),
+            KickerType::Williams => serializer.serialize_str("williams"),
+            KickerType::Gottlieb => serializer.serialize_str("gottlieb"),
+            KickerType::Cup2 => serializer.serialize_str("cup2"),
+            KickerType::Other(value) => serializer.serialize_u32(*value),
+        }
     }
 }
-
-/// Deserialize from lowercase string
-/// or number for backwards compatibility
+/// Deserialize from lowercase string, or from the raw number
 impl<'de> Deserialize<'de> for KickerType {
     fn deserialize<D>(deserializer: D) -> Result<KickerType, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         struct KickerTypeVisitor;
-
         impl serde::de::Visitor<'_> for KickerTypeVisitor {
             type Value = KickerType;
-
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a string or number representing a TargetType")
+                formatter.write_str("a KickerType as lowercase string or number")
             }
-
             fn visit_u64<E>(self, value: u64) -> Result<KickerType, E>
             where
                 E: serde::de::Error,
             {
-                match value {
-                    0 => Ok(KickerType::Invisible),
-                    1 => Ok(KickerType::Hole),
-                    2 => Ok(KickerType::Cup),
-                    3 => Ok(KickerType::HoleSimple),
-                    4 => Ok(KickerType::Williams),
-                    5 => Ok(KickerType::Gottlieb),
-                    6 => Ok(KickerType::Cup2),
-                    _ => Err(serde::de::Error::invalid_value(
+                let value = u32::try_from(value).map_err(|_| {
+                    serde::de::Error::invalid_value(
                         serde::de::Unexpected::Unsigned(value),
-                        &"a number between 0 and 6",
-                    )),
-                }
+                        &"a number that fits in u32",
+                    )
+                })?;
+                Ok(KickerType::from(value))
             }
-
             fn visit_str<E>(self, value: &str) -> Result<KickerType, E>
             where
                 E: serde::de::Error,
@@ -127,8 +134,25 @@ impl<'de> Deserialize<'de> for KickerType {
                 }
             }
         }
-
         deserializer.deserialize_any(KickerTypeVisitor)
+    }
+}
+#[cfg(test)]
+mod kicker_type_open_enum_tests {
+    use super::KickerType;
+
+    #[test]
+    fn unknown_value_round_trips() {
+        let value = KickerType::from(4_000_000_000);
+        assert_eq!(value, KickerType::Other(4_000_000_000));
+        assert_eq!(u32::from(&value), 4_000_000_000);
+        let json = serde_json::to_value(value.clone()).unwrap();
+        assert_eq!(json, serde_json::json!(4_000_000_000u32));
+        let back: KickerType = serde_json::from_value(json).unwrap();
+        assert_eq!(back, value);
+        assert!(
+            serde_json::from_value::<KickerType>(serde_json::json!("no_such_variant")).is_err()
+        );
     }
 }
 

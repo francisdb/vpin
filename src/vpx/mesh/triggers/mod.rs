@@ -47,6 +47,9 @@ fn get_mesh_for_shape(shape: &TriggerShape) -> Option<(&'static [Vertex3dNoTex2]
         TriggerShape::Star => Some((&TRIGGER_STAR_MESH, &TRIGGER_STAR_INDICES)),
         TriggerShape::Button => Some((&TRIGGER_BUTTON_MESH, &TRIGGER_BUTTON_INDICES)),
         TriggerShape::Inder => Some((&TRIGGER_INDER_MESH, &TRIGGER_INDER_INDICES)),
+        // An unknown shape renders like the simple wire trigger, matching
+        // the WireA fallback this library used before shapes became open.
+        TriggerShape::Other(_) => Some((&TRIGGER_SIMPLE_MESH, &TRIGGER_SIMPLE_INDICES)),
     }
 }
 

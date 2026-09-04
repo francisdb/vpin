@@ -5,17 +5,30 @@ use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// Visual style of a plunger, mirroring vpinball's `PlungerType`.
+///
+/// Values this library does not know are kept in [`PlungerType::Other`] so the
+/// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum PlungerType {
-    /// non-official, found in Star Wars (Data East 1992)/Star Wars (Data East 1992) VPW v1.2.2.vpx
-    /// This is not in the official VPX documentation
-    Unknown = 0,
-    Modern = 1,
-    Flat = 2,
-    Custom = 3,
+    /// Value 0, outside vpinball's enum, found in "Star Wars (Data East 1992) VPW v1.2.2.vpx".
+    /// Kept as a named variant for compatibility with existing expanded tables.
+    Unknown,
+    /// `PlungerTypeModern`: rendered 3D plunger with rod and spring.
+    Modern,
+    /// `PlungerTypeFlat`: flat textured plunger.
+    Flat,
+    /// `PlungerTypeCustom`: plunger built from the custom rod, ring, spring and tip parameters.
+    Custom,
+    /// A value not known to this library, kept as is.
+    ///
+    /// Must not be constructed with a value that maps to a named variant:
+    /// it would write the same bytes as the named variant and read back as
+    /// it, breaking round-trip equality. The library itself never does
+    /// (`From` normalizes known values to their named variants).
+    Other(u32),
 }
-
 impl From<u32> for PlungerType {
     fn from(value: u32) -> Self {
         match value {
@@ -23,11 +36,13 @@ impl From<u32> for PlungerType {
             1 => PlungerType::Modern,
             2 => PlungerType::Flat,
             3 => PlungerType::Custom,
-            _ => panic!("Invalid PlungerType value {value}"),
+            other => {
+                warn!("Unknown PlungerType value {other}, keeping it as is");
+                PlungerType::Other(other)
+            }
         }
     }
 }
-
 impl From<&PlungerType> for u32 {
     fn from(value: &PlungerType) -> Self {
         match value {
@@ -35,57 +50,49 @@ impl From<&PlungerType> for u32 {
             PlungerType::Modern => 1,
             PlungerType::Flat => 2,
             PlungerType::Custom => 3,
+            PlungerType::Other(value) => *value,
         }
     }
 }
-
-/// Serialize to lowercase string
+/// Serialize to lowercase string, or the raw number for [`PlungerType::Other`]
 impl Serialize for PlungerType {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: Serializer,
+        S: serde::Serializer,
     {
         match self {
             PlungerType::Unknown => serializer.serialize_str("unknown"),
             PlungerType::Modern => serializer.serialize_str("modern"),
             PlungerType::Flat => serializer.serialize_str("flat"),
             PlungerType::Custom => serializer.serialize_str("custom"),
+            PlungerType::Other(value) => serializer.serialize_u32(*value),
         }
     }
 }
-
-/// Deserialize from lowercase string
-/// or number for backwards compatibility
+/// Deserialize from lowercase string, or from the raw number
 impl<'de> Deserialize<'de> for PlungerType {
     fn deserialize<D>(deserializer: D) -> Result<PlungerType, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         struct PlungerTypeVisitor;
-
         impl serde::de::Visitor<'_> for PlungerTypeVisitor {
             type Value = PlungerType;
-
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a string or number representing a TargetType")
+                formatter.write_str("a PlungerType as lowercase string or number")
             }
-
             fn visit_u64<E>(self, value: u64) -> Result<PlungerType, E>
             where
                 E: serde::de::Error,
             {
-                match value {
-                    0 => Ok(PlungerType::Unknown),
-                    1 => Ok(PlungerType::Modern),
-                    2 => Ok(PlungerType::Flat),
-                    3 => Ok(PlungerType::Custom),
-                    _ => Err(serde::de::Error::invalid_value(
+                let value = u32::try_from(value).map_err(|_| {
+                    serde::de::Error::invalid_value(
                         serde::de::Unexpected::Unsigned(value),
-                        &"1, 2, or 3",
-                    )),
-                }
+                        &"a number that fits in u32",
+                    )
+                })?;
+                Ok(PlungerType::from(value))
             }
-
             fn visit_str<E>(self, value: &str) -> Result<PlungerType, E>
             where
                 E: serde::de::Error,
@@ -95,16 +102,40 @@ impl<'de> Deserialize<'de> for PlungerType {
                     "modern" => Ok(PlungerType::Modern),
                     "flat" => Ok(PlungerType::Flat),
                     "custom" => Ok(PlungerType::Custom),
-
                     _ => Err(serde::de::Error::unknown_variant(
                         value,
-                        &["modern", "flat", "custom"],
+                        &["unknown", "modern", "flat", "custom"],
                     )),
                 }
             }
         }
-
         deserializer.deserialize_any(PlungerTypeVisitor)
+    }
+}
+#[cfg(test)]
+mod plunger_type_open_enum_tests {
+    /// The legacy raw value 0 must normalize to the named Unknown
+    /// variant, never to Other(0): both write the same bytes, so two
+    /// representations would break round-trip equality.
+    #[test]
+    fn legacy_unknown_value_normalizes() {
+        assert_eq!(PlungerType::from(0), PlungerType::Unknown);
+    }
+
+    use super::PlungerType;
+
+    #[test]
+    fn unknown_value_round_trips() {
+        let value = PlungerType::from(4_000_000_000);
+        assert_eq!(value, PlungerType::Other(4_000_000_000));
+        assert_eq!(u32::from(&value), 4_000_000_000);
+        let json = serde_json::to_value(value.clone()).unwrap();
+        assert_eq!(json, serde_json::json!(4_000_000_000u32));
+        let back: PlungerType = serde_json::from_value(json).unwrap();
+        assert_eq!(back, value);
+        assert!(
+            serde_json::from_value::<PlungerType>(serde_json::json!("no_such_variant")).is_err()
+        );
     }
 }
 
@@ -586,7 +617,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic = " Error(\"unknown variant `foo`, expected one of `modern`, `flat`, `custom`\", line: 0, column: 0)"]
+    #[should_panic = "unknown variant `foo`, expected one of `unknown`, `modern`, `flat`, `custom`"]
     fn test_plunger_type_json_fail_string() {
         let json = serde_json::Value::from("foo");
         let _: PlungerType = serde_json::from_value(json).unwrap();
