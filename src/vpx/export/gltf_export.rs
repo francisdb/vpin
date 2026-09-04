@@ -766,7 +766,6 @@ fn playfield_material(
 /// This range represents the light's area of effect. For lights with drag points
 /// (polygon-shaped lights), the range approximates the polygon boundary since
 /// glTF's KHR_lights_punctual extension only supports point lights.
-#[allow(unused)]
 fn calculate_light_range(light: &Light, units: ExportUnits) -> f32 {
     if !light.drag_points.is_empty() {
         // Calculate maximum distance from center to any drag point
