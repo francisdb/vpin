@@ -1223,6 +1223,26 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_write_read_unknown_gameitem() -> io::Result<()> {
+        let generic = gameitem::generic::Generic {
+            name: "future item".to_string(),
+            fields: vec![
+                ("ABCD".to_string(), vec![1, 2, 3, 4]),
+                ("NAME".to_string(), vec![]),
+                ("EFGH".to_string(), vec![5, 6]),
+            ],
+        };
+        let mut vpx = VPX::default();
+        vpx.add_game_item(GameItemEnum::Generic(0x7FFF_FFFF, generic));
+
+        let bytes = to_bytes(&vpx)?;
+        let read = from_bytes(&bytes)?;
+
+        assert_eq!(read.gameitems, vpx.gameitems);
+        Ok(())
+    }
+
     const TEST_TABLE_BYTES: &[u8] =
         include_bytes!("../../testdata/completely_blank_table_10_7_4.vpx");
 

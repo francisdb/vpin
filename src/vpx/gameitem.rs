@@ -929,11 +929,7 @@ pub(crate) fn write(gameitem: &GameItemEnum) -> Vec<u8> {
         GameItemEnum::HitTarget(hittarget) => write_with_type(ITEM_TYPE_HIT_TARGET, hittarget),
         GameItemEnum::Ball(ball) => write_with_type(ITEM_TYPE_BALL, ball),
         GameItemEnum::PartGroup(partgroup) => write_with_type(ITEM_TYPE_PART_GROUP, partgroup),
-        // GameItemEnum::Generic(item_type, generic) => write_with_type(*item_type, generic),
-        _ => {
-            unimplemented!("write gameitem {:?}", gameitem);
-            //vec![]
-        }
+        GameItemEnum::Generic(item_type, generic) => write_with_type(*item_type, generic),
     }
 }
 
@@ -974,6 +970,29 @@ mod tests {
                 None
             }
         }
+    }
+
+    #[test]
+    fn test_read_write_unknown_item_type() {
+        const UNKNOWN_TYPE: u32 = 0x7FFF_FFFF;
+        let mut writer = BiffWriter::new();
+        writer.write_u32(UNKNOWN_TYPE);
+        writer.write_tagged_u32("ABCD", 42);
+        writer.write_tagged_wide_string("NAME", "future item");
+        writer.write_tagged_bool("EFGH", true);
+        writer.close(true);
+        let bytes = writer.get_data().to_vec();
+
+        let item = read(&bytes);
+        match &item {
+            GameItemEnum::Generic(item_type, generic) => {
+                assert_eq!(*item_type, UNKNOWN_TYPE);
+                assert_eq!(generic.name, "future item");
+            }
+            other => panic!("expected Generic, got {other:?}"),
+        }
+        assert_eq!(item.name(), "future item");
+        assert_eq!(write(&item), bytes);
     }
 
     #[test]
