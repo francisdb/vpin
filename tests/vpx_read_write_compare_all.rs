@@ -21,7 +21,7 @@ mod test {
         let test_vpx_path = dir.join("test.vpx");
         vpin::vpx::write(&test_vpx_path, &original)?;
 
-        let vpx_bytes = std::fs::read(&test_vpx_path)?;
+        let vpx_bytes = std::fs::read(&path)?;
         let test_vpx_bytes = std::fs::read(&test_vpx_path)?;
         assert_equal_vpx(&vpx_bytes, &test_vpx_bytes, &path);
         Ok(())
