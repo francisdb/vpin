@@ -600,7 +600,7 @@ mod tests {
         // (indicating smooth shading, not flat shading with hard edges)
         // We check vertices that are on the same ring (same position along the rubber)
         // VPinball's formula for detail level 10 + static_rendering=true gives
-        // `(int)(10.0f * 1.3f)` segments. In Rust's f32 this evaluates to 13.
+        // `(int)(10.f * 1.30000007152557373046875f)` = 13 segments.
         let num_segments =
             super::super::vpinball_ring_segments(crate::vpx::gamedata::DEFAULT_DETAIL_LEVEL, true)
                 as usize;
