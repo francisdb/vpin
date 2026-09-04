@@ -264,13 +264,22 @@ impl SaveMaterialJson {
 }
 
 impl SaveMaterial {
-    pub(crate) fn read(bytes: &mut BytesMut) -> SaveMaterial {
-        if !bytes.has_remaining() {
-            panic!("No more bytes to read SaveMaterial from");
+    /// Size of a serialized `SaveMaterial` in the `MATE` record
+    const SIZE: usize = MAX_NAME_BUFFER + 44;
+
+    pub(crate) fn read(bytes: &mut BytesMut) -> io::Result<SaveMaterial> {
+        if bytes.remaining() < Self::SIZE {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "MATE record too short: {} bytes left, need {}",
+                    bytes.remaining(),
+                    Self::SIZE
+                ),
+            ));
         }
-        // total should be 76 bytes
         // string can have max size of 32 bytes (including null terminator)
-        let name = read_padded_cstring(bytes, MAX_NAME_BUFFER).unwrap();
+        let name = read_padded_cstring(bytes, MAX_NAME_BUFFER)?;
         let base_color = bytes.get_u32_le();
         let glossy_color = bytes.get_u32_le();
         let clearcoat_color = bytes.get_u32_le();
@@ -289,7 +298,7 @@ impl SaveMaterial {
         // TODO split opacity_active_edge_alpha into on/off and edge weight
         get_padding_3_validate(bytes);
 
-        SaveMaterial {
+        Ok(SaveMaterial {
             name,
             base_color: Color::from_win_color(base_color),
             glossy_color: Color::from_win_color(glossy_color),
@@ -302,7 +311,7 @@ impl SaveMaterial {
             thickness,
             opacity,
             opacity_active_edge_alpha,
-        }
+        })
     }
 
     pub(crate) fn write(&self, bytes: &mut BytesMut) {
@@ -389,25 +398,34 @@ impl SavePhysicsMaterialJson {
 }
 
 impl SavePhysicsMaterial {
-    pub(crate) fn read(bytes: &mut BytesMut) -> SavePhysicsMaterial {
-        if !bytes.has_remaining() {
-            panic!("No more bytes to read SavePhysicsMaterial from");
+    /// Size of a serialized `SavePhysicsMaterial` in the `PHMA` record
+    const SIZE: usize = MAX_NAME_BUFFER + 16;
+
+    pub(crate) fn read(bytes: &mut BytesMut) -> io::Result<SavePhysicsMaterial> {
+        if bytes.remaining() < Self::SIZE {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "PHMA record too short: {} bytes left, need {}",
+                    bytes.remaining(),
+                    Self::SIZE
+                ),
+            ));
         }
-        // total should be 24 bytes
         // string can have max size of 32 bytes (including null terminator)
-        let name = read_padded_cstring(bytes, MAX_NAME_BUFFER).unwrap();
+        let name = read_padded_cstring(bytes, MAX_NAME_BUFFER)?;
         let elasticity = bytes.get_f32_le();
         let elasticity_falloff = bytes.get_f32_le();
         let friction = bytes.get_f32_le();
         let scatter_angle = bytes.get_f32_le();
 
-        SavePhysicsMaterial {
+        Ok(SavePhysicsMaterial {
             name,
             elasticity,
             elasticity_falloff,
             friction,
             scatter_angle,
-        }
+        })
     }
 
     pub(crate) fn write(&self, bytes: &mut BytesMut) {
@@ -757,7 +775,7 @@ mod tests {
         save_material.write(&mut bytes);
         // is there a better way to reset the cursor?
         bytes = BytesMut::from(bytes.to_vec().as_slice());
-        let read_save_material = SaveMaterial::read(&mut bytes);
+        let read_save_material = SaveMaterial::read(&mut bytes).unwrap();
         assert_eq!(save_material, read_save_material);
     }
 
@@ -768,7 +786,7 @@ mod tests {
         save_physics_material.write(&mut bytes);
         // is there a better way to reset the cursor?
         bytes = BytesMut::from(bytes.to_vec().as_slice());
-        let read_save_physics_material = SavePhysicsMaterial::read(&mut bytes);
+        let read_save_physics_material = SavePhysicsMaterial::read(&mut bytes).unwrap();
         assert_eq!(save_physics_material, read_save_physics_material);
     }
 
@@ -851,5 +869,22 @@ mod tests {
         let json = r##"{"name":"m","type_":"basic","wrap_lighting":0.0,"roughness":0.0,"glossy_image_lerp":1.0,"thickness":0.05,"edge":1.0,"edge_alpha":1.0,"opacity":1.0,"base_color":"#000000","glossy_color":"#000000","clearcoat_color":"#000000","opacity_active":false,"elasticity":0.0,"elasticity_falloff":0.0,"friction":0.0,"scatter_angle":0.0,"refraction_tint":"#ffffff"}"##;
         let material: Material = serde_json::from_str(json).unwrap();
         assert_eq!(material.type_, MaterialType::Basic);
+    }
+}
+
+#[cfg(test)]
+mod corrupt_input_tests {
+    use super::*;
+
+    #[test]
+    fn short_save_material_fails() {
+        let mut bytes = BytesMut::from(&[0u8; 10][..]);
+        assert!(SaveMaterial::read(&mut bytes).is_err());
+        let mut bytes = BytesMut::new();
+        assert!(SaveMaterial::read(&mut bytes).is_err());
+        let mut bytes = BytesMut::from(&[0u8; 10][..]);
+        assert!(SavePhysicsMaterial::read(&mut bytes).is_err());
+        let mut bytes = BytesMut::new();
+        assert!(SavePhysicsMaterial::read(&mut bytes).is_err());
     }
 }

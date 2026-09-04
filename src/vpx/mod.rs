@@ -747,6 +747,8 @@ fn generate_mac<F: Read + Seek>(comp: &mut CompoundFile<F>) -> io::Result<Vec<u8
                         }
                     }
                 }
+                biff.check()
+                    .map_err(|e| with_context(e.into(), &item.path.display()))?;
             }
         }
 
@@ -771,6 +773,8 @@ fn generate_mac<F: Read + Seek>(comp: &mut CompoundFile<F>) -> io::Result<Vec<u8
                     biff.skip_tag();
                 }
             }
+            biff.check()
+                .map_err(|e| with_context(e.into(), &item.path.display()))?;
         }
     }
     let result = hasher.finalize();
@@ -823,10 +827,15 @@ fn read_gamedata<F: Seek + Read>(
     let game_data_path = Path::new(MAIN_SEPARATOR_STR)
         .join("GameStg")
         .join("GameData");
-    let mut stream = comp.open_stream(game_data_path)?;
+    let mut stream = comp.open_stream(&game_data_path)?;
     stream.read_to_end(&mut game_data_vec)?;
-    let gamedata = gamedata::read_all_gamedata_records(&game_data_vec[..], version);
-    Ok(gamedata)
+    gamedata::read_all_gamedata_records(&game_data_vec[..], version)
+        .map_err(|e| with_context(e, &game_data_path.display()))
+}
+
+/// Prefix an error with the stream or item it came from, keeping its kind
+fn with_context(e: io::Error, context: &dyn std::fmt::Display) -> io::Error {
+    io::Error::new(e.kind(), format!("{context}: {e}"))
 }
 
 fn write_game_data<F: Read + Write + Seek>(
@@ -857,8 +866,7 @@ fn read_gameitems<F: Read + Seek>(
             let mut input = Vec::new();
             let mut stream = comp.open_stream(&path)?;
             stream.read_to_end(&mut input)?;
-            let game_item = gameitem::read(&input);
-            Ok(game_item)
+            gameitem::read(&input).map_err(|e| with_context(e, &path.display()))
         })
         .collect()
 }
@@ -914,6 +922,9 @@ fn read_sound<F: Read + Seek>(
     drop(span);
     let mut reader = BiffReader::new(&input);
     let sound = sound::read(file_version, &mut reader);
+    reader
+        .check()
+        .map_err(|e| with_context(e.into(), &path.display()))?;
     Ok(Ok(sound))
 }
 
@@ -947,7 +958,7 @@ fn read_collections<F: Read + Seek>(
             let mut input = Vec::new();
             let mut stream = comp.open_stream(&path)?;
             stream.read_to_end(&mut input)?;
-            Ok(collection::read(&input))
+            collection::read(&input).map_err(|e| with_context(e, &path.display()))
         })
         .collect()
 }
@@ -983,7 +994,9 @@ fn read_image<F: Read + Seek>(comp: &mut CompoundFile<F>, index: u32) -> Result<
     let mut stream = comp.open_stream(&path)?;
     stream.read_to_end(&mut input)?;
     let mut reader = BiffReader::new(&input);
-    Ok(ImageData::biff_read(&mut reader))
+    let image = ImageData::biff_read(&mut reader);
+    reader.check().map_err(|e| with_context(e.into(), &path))?;
+    Ok(image)
 }
 
 #[instrument(skip(comp, images), fields(image_count = images.len()))]
@@ -1072,7 +1085,8 @@ fn images_to_webp<F: Read + Write + Seek>(
                         &bits.lzw_compressed_data,
                         image_data.width,
                         image_data.height,
-                    );
+                    )
+                    .map_err(|e| with_context(e, &image_data.name))?;
 
                     // write as webp back to the image
                     let mut webp = Vec::new();
@@ -1113,9 +1127,7 @@ fn read_fonts<F: Read + Seek>(
             let mut input = Vec::new();
             let mut stream = comp.open_stream(&path)?;
             stream.read_to_end(&mut input)?;
-
-            let font = font::read(&input);
-            Ok(font)
+            font::read(&input).map_err(|e| with_context(e, &path))
         })
         .collect()
 }
@@ -1139,10 +1151,10 @@ fn read_custominfotags<F: Read + Seek>(comp: &mut CompoundFile<F>) -> io::Result
         .join("CustomInfoTags");
     let mut tags_data = Vec::new();
     let tags = if comp.is_stream(&path) {
-        let mut stream = comp.open_stream(path)?;
+        let mut stream = comp.open_stream(&path)?;
         stream.read_to_end(&mut tags_data)?;
-
         custominfotags::read_custominfotags(&tags_data)
+            .map_err(|e| with_context(e, &path.display()))?
     } else {
         CustomInfoTags::default()
     };
@@ -1213,6 +1225,46 @@ mod tests {
 
     const TEST_TABLE_BYTES: &[u8] =
         include_bytes!("../../testdata/completely_blank_table_10_7_4.vpx");
+
+    /// Truncate every BIFF stream of the blank table in turn and check that
+    /// reading reports an error naming the stream instead of panicking.
+    #[test]
+    fn test_truncated_streams_fail_instead_of_panicking() -> io::Result<()> {
+        let comp = CompoundFile::open(Cursor::new(TEST_TABLE_BYTES.to_vec()))?;
+        let paths: Vec<std::path::PathBuf> = comp
+            .walk_storage("/GameStg")?
+            .filter(|entry| entry.is_stream())
+            .map(|entry| entry.path().to_path_buf())
+            .collect();
+        let mut checked = Vec::new();
+        for path in paths {
+            let name = path.file_name().unwrap().to_string_lossy().to_string();
+            let biff = name == "GameData"
+                || name == "CustomInfoTags"
+                || ["GameItem", "Image", "Sound", "Font", "Collection"]
+                    .iter()
+                    .any(|prefix| name.starts_with(prefix));
+            if !biff {
+                continue;
+            }
+            let mut comp = CompoundFile::open(Cursor::new(TEST_TABLE_BYTES.to_vec()))?;
+            let mut stream = comp.open_stream(&path)?;
+            let len = stream.len();
+            stream.set_len(len / 2)?;
+            drop(stream);
+            comp.flush()?;
+            let bytes = comp.into_inner().into_inner();
+            let err = match from_bytes(&bytes) {
+                Ok(_) => panic!("truncated {name} should fail"),
+                Err(e) => e,
+            };
+            assert_eq!(err.kind(), io::ErrorKind::InvalidData, "{name}: {err}");
+            assert!(err.to_string().contains(&name), "{name}: {err}");
+            checked.push(name);
+        }
+        assert!(checked.iter().any(|n| n == "GameData"), "{checked:?}");
+        Ok(())
+    }
 
     #[test]
     fn test_mac_generation() -> io::Result<()> {

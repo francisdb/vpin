@@ -214,7 +214,7 @@ pub(crate) fn read_tableinfo<F: Read + Seek>(
     let table_info_path = Path::new(MAIN_SEPARATOR_STR).join("TableInfo");
     let mut table_info = TableInfo::new();
 
-    let entries = comp.read_storage(table_info_path).unwrap();
+    let entries = comp.read_storage(table_info_path)?;
     // read all the entries in the entrues
     let paths: Vec<_> = entries
         .filter(|entry| entry.is_stream())
@@ -286,9 +286,9 @@ fn read_stream_string<F: Read + Seek>(
     comp: &mut CompoundFile<F>,
     path: &Path,
 ) -> Result<String, std::io::Error> {
-    let mut stream = comp.open_stream(path).unwrap();
+    let mut stream = comp.open_stream(path)?;
     let mut buffer = Vec::new();
-    stream.read_to_end(&mut buffer).unwrap();
+    stream.read_to_end(&mut buffer)?;
 
     match decode_utf16le(&buffer) {
         Ok(str) => Ok(str),

@@ -9,20 +9,29 @@
 //! <https://github.com/freezy/VisualPinball.Engine/blob/master/VisualPinball.Engine/IO/LzwWriter.cs>
 //! <https://github.com/freezy/VisualPinball.Engine/blob/master/VisualPinball.Engine/IO/LzwReader.cs>
 
+use std::io;
 use weezl::BitOrder;
 
 /// Convert gif blocks to continuous bytes
 /// We could optimize this in an iterator
-fn from_blocks(uncompressed: &[u8]) -> Vec<u8> {
+fn from_blocks(uncompressed: &[u8]) -> io::Result<Vec<u8>> {
     let mut bytes: Vec<u8> = vec![];
-    let mut iter = uncompressed.iter();
-    while let Some(block_size) = iter.next() {
+    let mut rest = uncompressed;
+    while let Some((block_size, tail)) = rest.split_first() {
         let block_size = *block_size as usize;
-        for _ in 0..block_size {
-            bytes.push(*iter.next().unwrap());
+        if tail.len() < block_size {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "LZW block claims {block_size} bytes, {} left in data",
+                    tail.len()
+                ),
+            ));
         }
+        bytes.extend_from_slice(&tail[..block_size]);
+        rest = &tail[block_size..];
     }
-    bytes
+    Ok(bytes)
 }
 
 /// Convert bytes to gif blocks
@@ -62,16 +71,20 @@ pub fn to_lzw_blocks(data: &[u8]) -> Vec<u8> {
     to_blocks(&compressed, 254)
 }
 
-pub fn from_lzw_blocks(compressed: &[u8]) -> Vec<u8> {
+/// Decompress the gif-style block data of a `BITS` record.
+///
+/// Fails with [`io::ErrorKind::InvalidData`] when the data is truncated or
+/// not valid LZW.
+pub fn from_lzw_blocks(compressed: &[u8]) -> io::Result<Vec<u8>> {
     // convert gif blocks to compressed bytes
-    let compressed = from_blocks(compressed);
+    let compressed = from_blocks(compressed)?;
     from_lzw(&compressed)
 }
 
-fn from_lzw(compressed: &[u8]) -> Vec<u8> {
+fn from_lzw(compressed: &[u8]) -> io::Result<Vec<u8>> {
     weezl::decode::Decoder::new(BitOrder::Lsb, 8)
         .decode(compressed)
-        .unwrap()
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Invalid LZW data: {e}")))
 }
 
 #[cfg(test)]
@@ -81,7 +94,7 @@ mod tests {
     use std::collections::HashSet;
 
     fn lzw_blocks_to_codes(compressed: &[u8]) -> Vec<u16> {
-        let unblocked = from_blocks(compressed);
+        let unblocked = from_blocks(compressed).unwrap();
         lzw_to_codes(&unblocked)
     }
 
@@ -155,7 +168,7 @@ mod tests {
         let compressed = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
         let max_block_len = 3;
         let blocks = to_blocks(&compressed, max_block_len);
-        let uncompressed = from_blocks(&blocks);
+        let uncompressed = from_blocks(&blocks).unwrap();
         assert_eq!(uncompressed, compressed);
     }
 
@@ -250,7 +263,7 @@ mod tests {
         let bits: Vec<u8> = (0..=end).collect();
 
         let compressed_blocks = to_lzw_blocks(&bits);
-        let compressed = from_blocks(&compressed_blocks);
+        let compressed = from_blocks(&compressed_blocks).unwrap();
 
         let codes = lzw_to_codes(&compressed);
         // 256 = clear code
@@ -290,7 +303,7 @@ mod tests {
         }
 
         let compressed_blocks = to_lzw_blocks(&bits);
-        let decompressed = from_lzw_blocks(&compressed_blocks);
+        let decompressed = from_lzw_blocks(&compressed_blocks).unwrap();
         assert_eq!(bits, decompressed);
     }
 
@@ -303,11 +316,29 @@ mod tests {
         let height: u32 = 128;
         let bytes_per_pixel: u8 = 4;
         let compressed_original = RAW_LZW_BMP_128_128_DATA;
-        let decompressed = from_lzw_blocks(compressed_original);
+        let decompressed = from_lzw_blocks(compressed_original).unwrap();
 
         assert_eq!(
             decompressed.len(),
             (width * height * bytes_per_pixel as u32) as usize
         );
+    }
+}
+
+#[cfg(test)]
+mod corrupt_input_tests {
+    use super::*;
+
+    #[test]
+    fn truncated_block_fails() {
+        let err = from_lzw_blocks(&[5, 1, 2]).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn garbage_does_not_panic() {
+        let bytes: Vec<u8> = (0..=255u8).cycle().take(1000).collect();
+        let _ = from_lzw_blocks(&to_blocks(&bytes, 254));
+        let _ = from_lzw_blocks(&bytes);
     }
 }

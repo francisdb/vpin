@@ -1607,7 +1607,7 @@ fn write_image_bmp(
 ) -> io::Result<()> {
     use crate::vpx::image::vpx_image_to_dynamic_image;
     use std::io::Cursor;
-    let dynamic = vpx_image_to_dynamic_image(lzw_compressed, width, height);
+    let dynamic = vpx_image_to_dynamic_image(lzw_compressed, width, height)?;
     let mut buffer = Cursor::new(Vec::new());
     dynamic
         .write_to(&mut buffer, image::ImageFormat::Bmp)

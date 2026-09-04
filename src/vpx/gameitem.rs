@@ -32,6 +32,7 @@ use super::biff::{BiffReader, BiffWrite, BiffWriter};
 use crate::vpx::biff::BiffRead;
 use crate::vpx::gameitem::select::HasSharedAttributes;
 use serde::{Deserialize, Serialize};
+use std::io;
 
 // TODO we might come up with a macro that generates the biff reading from the struct annotations
 //   like VPE
@@ -846,10 +847,22 @@ const _ITEM_TYPE_INVALID: u32 = 0xffffffff;
 //     "Target",
 // ];
 
-pub fn read(input: &[u8]) -> GameItemEnum {
+fn not_standalone(name: &str) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!("{name} should not be read on its own"),
+    )
+}
+
+/// Read a game item from the bytes of a `GameItemN` stream.
+///
+/// Fails with [`io::ErrorKind::InvalidData`] when the stream is truncated or
+/// structurally invalid instead of panicking.
+pub fn read(input: &[u8]) -> io::Result<GameItemEnum> {
     let mut reader = BiffReader::new(input);
     let item_type = reader.get_u32_no_remaining_update();
-    match item_type {
+    reader.check()?;
+    let item = match item_type {
         ITEM_TYPE_WALL => GameItemEnum::Wall(wall::Wall::biff_read(&mut reader)),
         ITEM_TYPE_FLIPPER => GameItemEnum::Flipper(flipper::Flipper::biff_read(&mut reader)),
         ITEM_TYPE_TIMER => GameItemEnum::Timer(timer::Timer::biff_read(&mut reader)),
@@ -863,10 +876,10 @@ pub fn read(input: &[u8]) -> GameItemEnum {
         ITEM_TYPE_GATE => GameItemEnum::Gate(gate::Gate::biff_read(&mut reader)),
         ITEM_TYPE_SPINNER => GameItemEnum::Spinner(spinner::Spinner::biff_read(&mut reader)),
         ITEM_TYPE_RAMP => GameItemEnum::Ramp(ramp::Ramp::biff_read(&mut reader)),
-        ITEM_TYPE_TABLE => panic!("Table should not be read on it's own"),
-        ITEM_TYPE_LIGHT_CENTER => panic!("LightCenter should not be read on it's own"),
-        ITEM_TYPE_DRAG_POINT => panic!("DragPoint should not be read on it's own"),
-        ITEM_TYPE_COLLECTION => panic!("Collection should not be read on it's own"),
+        ITEM_TYPE_TABLE => return Err(not_standalone("Table")),
+        ITEM_TYPE_LIGHT_CENTER => return Err(not_standalone("LightCenter")),
+        ITEM_TYPE_DRAG_POINT => return Err(not_standalone("DragPoint")),
+        ITEM_TYPE_COLLECTION => return Err(not_standalone("Collection")),
         ITEM_TYPE_REEL => GameItemEnum::Reel(reel::Reel::biff_read(&mut reader)),
         ITEM_TYPE_LIGHT_SEQUENCER => {
             GameItemEnum::LightSequencer(lightsequencer::LightSequencer::biff_read(&mut reader))
@@ -886,7 +899,9 @@ pub fn read(input: &[u8]) -> GameItemEnum {
         other_item_type => {
             GameItemEnum::Generic(other_item_type, generic::Generic::biff_read(&mut reader))
         }
-    }
+    };
+    reader.check()?;
+    Ok(item)
 }
 
 pub(crate) fn write(gameitem: &GameItemEnum) -> Vec<u8> {
@@ -1160,5 +1175,64 @@ mod tests {
         };
         let item = GameItemEnum::Timer(timer);
         assert_eq!(item.is_visible(), None);
+    }
+}
+
+#[cfg(test)]
+mod corrupt_input_tests {
+    use super::*;
+    use fake::{Fake, Faker};
+
+    #[test]
+    fn truncated_gameitems_fail_without_panicking() {
+        let items: Vec<GameItemEnum> = vec![
+            GameItemEnum::Wall(Faker.fake()),
+            GameItemEnum::Flipper(Faker.fake()),
+            GameItemEnum::Light(Faker.fake()),
+            GameItemEnum::Ramp(Faker.fake()),
+            GameItemEnum::Rubber(Faker.fake()),
+            GameItemEnum::Primitive(Faker.fake()),
+            GameItemEnum::HitTarget(Faker.fake()),
+            GameItemEnum::Kicker(Faker.fake()),
+            GameItemEnum::Timer(Faker.fake()),
+            GameItemEnum::Bumper(Faker.fake()),
+            GameItemEnum::Flasher(Faker.fake()),
+            GameItemEnum::Decal(Faker.fake()),
+            GameItemEnum::Gate(Faker.fake()),
+            GameItemEnum::Spinner(Faker.fake()),
+            GameItemEnum::Trigger(Faker.fake()),
+            GameItemEnum::Plunger(Faker.fake()),
+            GameItemEnum::TextBox(Faker.fake()),
+            GameItemEnum::Reel(Faker.fake()),
+            GameItemEnum::LightSequencer(Faker.fake()),
+            GameItemEnum::PartGroup(Faker.fake()),
+        ];
+        for item in items {
+            let bytes = write(&item);
+            let full = read(&bytes).unwrap();
+            assert_eq!(full.type_name(), item.type_name());
+            for len in 0..bytes.len() {
+                let result = read(&bytes[..len]);
+                let err = match result {
+                    Ok(_) => panic!(
+                        "{} truncated to {len}/{} bytes should fail",
+                        item.type_name(),
+                        bytes.len()
+                    ),
+                    Err(e) => e,
+                };
+                assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+            }
+        }
+    }
+
+    #[test]
+    fn nested_item_types_are_rejected() {
+        let mut writer = BiffWriter::new();
+        writer.write_u32(ITEM_TYPE_DRAG_POINT);
+        writer.close(true);
+        let err = read(writer.get_data()).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("DragPoint"), "{err}");
     }
 }

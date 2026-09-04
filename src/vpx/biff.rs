@@ -1,7 +1,7 @@
 use encoding_rs::mem::{decode_latin1, encode_latin1_lossy};
 use log::warn;
-use nom::ToUsize;
-use nom::number::complete::{le_f32, le_f64, le_i16, le_i32, le_i64, le_u16, le_u32, le_u64};
+use std::fmt;
+use std::io;
 
 use super::model::{StringEncoding, StringWithEncoding};
 use super::utf16::{decode_utf16le, encode_utf16le};
@@ -14,10 +14,49 @@ pub trait BiffWrite {
     fn biff_write(&self, writer: &mut BiffWriter);
 }
 
-// TODO: can we improve this with:
-//   let mut buf = BytesMut::with_capacity(1024);
+/// A structural problem in a BIFF stream: truncated data, a record that
+/// claims more bytes than the stream holds, a missing `ENDB`, ...
+///
+/// Reading never panics on such input. The [`BiffReader`] records the first
+/// problem it hits, moves to the end of the stream so every following read
+/// yields a default value, and the caller checks [`BiffReader::check`] once
+/// the item is read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BiffError {
+    pub message: String,
+    /// Tag of the record being read when the problem was found, empty if none
+    pub tag: String,
+    /// Byte offset in the stream where the problem was found
+    pub pos: usize,
+    /// Length of the stream
+    pub len: usize,
+}
 
-// TODO find a better solution for the _no_remaining_update methods
+impl fmt::Display for BiffError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.tag.is_empty() {
+            write!(
+                f,
+                "{} (at offset {} of {} bytes)",
+                self.message, self.pos, self.len
+            )
+        } else {
+            write!(
+                f,
+                "{} (tag {:?} at offset {} of {} bytes)",
+                self.message, self.tag, self.pos, self.len
+            )
+        }
+    }
+}
+
+impl std::error::Error for BiffError {}
+
+impl From<BiffError> for io::Error {
+    fn from(e: BiffError) -> Self {
+        io::Error::new(io::ErrorKind::InvalidData, e)
+    }
+}
 
 pub struct BiffReader<'a> {
     data: &'a [u8],
@@ -26,6 +65,7 @@ pub struct BiffReader<'a> {
     record_start: usize,
     tag: String,
     warn_remaining: bool,
+    error: Option<BiffError>,
 }
 // TODO make private
 /**
@@ -35,29 +75,24 @@ pub const RECORD_TAG_LEN: u32 = 4;
 
 pub const WARN: bool = true;
 
+/// Tag the reader reports once the end of the stream is reached
+const END_TAG: &str = "ENDB";
+
 impl<'a> BiffReader<'a> {
     pub fn new(data: &'a [u8]) -> Self {
-        let reader: BiffReader<'a> = BiffReader {
-            data,
-            pos: 0,
-            bytes_in_record_remaining: 0,
-            record_start: 0,
-            tag: "".to_string(),
-            warn_remaining: true,
-        };
-        reader
+        BiffReader::with_remaining(data, 0)
     }
 
     pub fn with_remaining(data: &'a [u8], bytes_in_record_remaining: usize) -> Self {
-        let reader: BiffReader<'a> = BiffReader {
+        BiffReader {
             data,
             pos: 0,
             bytes_in_record_remaining,
             record_start: 0,
             tag: "".to_string(),
             warn_remaining: true,
-        };
-        reader
+            error: None,
+        }
     }
 
     /**
@@ -76,18 +111,94 @@ impl<'a> BiffReader<'a> {
     }
 
     pub fn is_eof(&self) -> bool {
-        self.pos >= self.data.len() || self.tag == "ENDB"
+        self.pos >= self.data.len() || self.tag == END_TAG
     }
 
-    pub fn get(&mut self, count: usize) -> &[u8] {
-        self.bytes_in_record_remaining -= count;
-        self.get_no_remaining_update(count)
+    /// The first structural problem found in the stream, if any
+    pub fn error(&self) -> Option<&BiffError> {
+        self.error.as_ref()
     }
 
-    pub fn get_no_remaining_update(&mut self, count: usize) -> &[u8] {
+    /// Fails if a structural problem was found while reading the stream
+    pub fn check(&self) -> Result<(), BiffError> {
+        match &self.error {
+            Some(e) => Err(e.clone()),
+            None => Ok(()),
+        }
+    }
+
+    /// Record a structural problem and move to the end of the stream.
+    ///
+    /// Only the first problem is kept. After this call [`Self::is_eof`] is
+    /// true, [`Self::next`] returns `None` and every getter returns a
+    /// default value, so read loops terminate without panicking.
+    pub fn fail(&mut self, message: impl Into<String>) {
+        if self.error.is_none() {
+            self.error = Some(BiffError {
+                message: message.into(),
+                tag: self.tag.clone(),
+                pos: self.pos,
+                len: self.data.len(),
+            });
+        }
+        self.pos = self.data.len();
+        self.bytes_in_record_remaining = 0;
+        self.tag = END_TAG.to_string();
+    }
+
+    /// Take over the problem found by a child reader, if any
+    pub fn absorb(&mut self, child: &BiffReader<'_>) {
+        if let Some(e) = &child.error {
+            let message = e.message.clone();
+            self.fail(message);
+        }
+    }
+
+    /// Take `count` bytes from the stream, failing if not enough are left
+    fn take(&mut self, count: usize) -> &'a [u8] {
+        let available = self.data.len().saturating_sub(self.pos);
+        if count > available {
+            self.fail(format!(
+                "{count} bytes requested, {available} left in stream"
+            ));
+            return &[];
+        }
         let p = self.pos;
         self.pos += count;
         &self.data[p..p + count]
+    }
+
+    /// Take `count` bytes from the current record, failing if the record or
+    /// the stream does not hold that many
+    fn take_in_record(&mut self, count: usize) -> &'a [u8] {
+        if count > self.bytes_in_record_remaining {
+            self.fail(format!(
+                "{count} bytes requested, {} left in record",
+                self.bytes_in_record_remaining
+            ));
+            return &[];
+        }
+        let d = self.take(count);
+        if d.len() == count {
+            self.bytes_in_record_remaining -= count;
+        }
+        d
+    }
+
+    fn array<const N: usize>(d: &[u8]) -> [u8; N] {
+        let mut a = [0u8; N];
+        if d.len() == N {
+            a.copy_from_slice(d);
+        }
+        a
+    }
+
+    pub fn get(&mut self, count: usize) -> &[u8] {
+        self.take_in_record(count)
+    }
+
+    pub fn get_no_remaining_update(&mut self, count: usize) -> &[u8] {
+        self.take(count)
     }
 
     pub fn remaining_in_record(&mut self) -> usize {
@@ -95,7 +206,10 @@ impl<'a> BiffReader<'a> {
     }
 
     pub fn get_bool(&mut self) -> bool {
-        let all = &self.data[self.pos..self.pos + 4];
+        let all = self.take_in_record(4);
+        if all.is_empty() {
+            return false;
+        }
         // Match VPX permissive behavior: log and treat nonzero as true.
         if all != [0, 0, 0, 0] && all != [1, 0, 0, 0] {
             warn!(
@@ -103,86 +217,58 @@ impl<'a> BiffReader<'a> {
                 self.tag
             );
         }
-        let b = all != [0, 0, 0, 0];
-        self.pos += 4;
-        self.bytes_in_record_remaining -= 4;
-        b
+        all != [0, 0, 0, 0]
     }
 
     pub fn get_u8(&mut self) -> u8 {
-        let i = self.get_u8_no_remaining_update();
-        self.bytes_in_record_remaining -= 1;
-        i
+        Self::array::<1>(self.take_in_record(1))[0]
     }
 
     pub fn get_u8_no_remaining_update(&mut self) -> u8 {
-        let i = self.data[self.pos];
-        self.pos += 1;
-        i
+        Self::array::<1>(self.take(1))[0]
     }
 
     pub fn get_u16(&mut self) -> u16 {
-        let res = self.get_u16_no_remaining_update();
-        self.bytes_in_record_remaining -= 2;
-        res
+        u16::from_le_bytes(Self::array(self.take_in_record(2)))
     }
 
     pub fn get_u16_no_remaining_update(&mut self) -> u16 {
-        let i: Result<(&[u8], u16), nom::Err<()>> = le_u16(&self.data[self.pos..]);
-        self.pos += 2;
-        i.unwrap().1
+        u16::from_le_bytes(Self::array(self.take(2)))
     }
 
     pub fn get_u32(&mut self) -> u32 {
-        let res = self.get_u32_no_remaining_update();
-        self.bytes_in_record_remaining -= 4;
-        res
+        u32::from_le_bytes(Self::array(self.take_in_record(4)))
     }
 
     pub fn get_u32_no_remaining_update(&mut self) -> u32 {
-        let i: Result<(&[u8], u32), nom::Err<()>> = le_u32(&self.data[self.pos..]);
-        self.pos += 4;
-        i.unwrap().1
+        u32::from_le_bytes(Self::array(self.take(4)))
     }
 
     pub fn get_32(&mut self) -> i32 {
-        let res = self.get_32_no_remaining_update();
-        self.bytes_in_record_remaining -= 4;
-        res
+        self.get_i32()
     }
+
     pub fn get_32_no_remaining_update(&mut self) -> i32 {
-        let i: Result<(&[u8], i32), nom::Err<()>> = le_i32(&self.data[self.pos..]);
-        self.pos += 4;
-        i.unwrap().1
+        i32::from_le_bytes(Self::array(self.take(4)))
     }
 
     pub fn get_f32(&mut self) -> f32 {
-        let data = &self.data[self.pos..self.pos + 4];
-        let i: Result<(&[u8], f32), nom::Err<()>> = le_f32(data);
-        self.pos += 4;
-        self.bytes_in_record_remaining -= 4;
-
-        let res = i.unwrap().1;
+        let data = self.take_in_record(4);
+        let res = f32::from_le_bytes(Self::array(data));
         if res.is_nan() {
             warn!("NaN value found for tag {} f32: {data:?}", self.tag);
         }
         res
     }
 
+    /// Decode a 0-terminated latin1 string from a fixed size buffer
+    fn decode_cstr(data: &[u8]) -> String {
+        let end = data.iter().position(|b| *b == 0).unwrap_or(data.len());
+        decode_latin1(&data[..end]).to_string()
+    }
+
     pub fn get_str(&mut self, count: usize) -> String {
-        let mut pos_0 = count;
-        // find the end of the string
-        for p in 0..count {
-            if self.data[self.pos + p] == 0 {
-                pos_0 = p;
-                break;
-            }
-        }
-        let data = &self.data[self.pos..self.pos + pos_0];
-        let s = decode_latin1(data);
-        self.pos += count;
-        self.sub_remaining(count);
-        s.to_string()
+        Self::decode_cstr(self.take_in_record(count))
     }
 
     pub fn get_str_with_encoding_no_remaining_update(
@@ -201,54 +287,36 @@ impl<'a> BiffReader<'a> {
         //
         // https://github.com/vpinball/vpinball/blob/5ac9cfcb19e721ed9373465866cb724a655ad55f/codeview.cpp#L1761-L1767
 
-        let mut pos_0 = count;
-        // find the end of the 0-terminated string
-        for p in 0..count {
-            if self.data[self.pos + p] == 0 {
-                pos_0 = p;
-                break;
-            }
-        }
-        let data = &self.data[self.pos..self.pos + pos_0];
-
-        self.pos += count;
-        let s: StringWithEncoding = data.into();
+        let data = self.take(count);
+        let end = data.iter().position(|b| *b == 0).unwrap_or(data.len());
+        let s: StringWithEncoding = data[..end].into();
         s
     }
 
     pub fn get_str_no_remaining_update(&mut self, count: usize) -> String {
-        let mut pos_0 = count;
-        // find the end of the string
-        for p in 0..count {
-            if self.data[self.pos + p] == 0 {
-                pos_0 = p;
-                break;
-            }
-        }
-        let data = &self.data[self.pos..self.pos + pos_0];
-
-        let s = decode_latin1(data);
-        self.pos += count;
-        s.to_string()
+        Self::decode_cstr(self.take(count))
     }
 
     pub fn get_string(&mut self) -> String {
-        let size = self.get_u32().to_usize();
+        let size = self.get_u32() as usize;
         self.get_str(size)
     }
 
     pub fn get_string_no_remaining_update(&mut self) -> String {
-        let size = self.get_u32_no_remaining_update().to_usize();
+        let size = self.get_u32_no_remaining_update() as usize;
         self.get_str_no_remaining_update(size)
     }
 
     pub fn get_wide_string(&mut self) -> String {
-        let count = self.get_u32().to_usize();
-        let data = &self.data[self.pos..self.pos + count];
-        let i = decode_utf16le(data).unwrap();
-        self.pos += count;
-        self.bytes_in_record_remaining -= count;
-        i
+        let count = self.get_u32() as usize;
+        let data = self.take_in_record(count);
+        match decode_utf16le(data) {
+            Ok(s) => s,
+            Err(e) => {
+                self.fail(format!("Invalid utf16le string: {e}"));
+                String::new()
+            }
+        }
     }
 
     #[deprecated]
@@ -271,138 +339,90 @@ impl<'a> BiffReader<'a> {
     }
 
     pub fn get_double(&mut self) -> f64 {
-        let i: Result<(&[u8], f64), nom::Err<()>> = le_f64(&self.data[self.pos..]);
-        self.pos += 8;
-        self.bytes_in_record_remaining -= 8;
-        i.unwrap().1
+        f64::from_le_bytes(Self::array(self.take_in_record(8)))
     }
 
     pub fn get_i16(&mut self) -> i16 {
-        let i: Result<(&[u8], i16), nom::Err<()>> = le_i16(&self.data[self.pos..]);
-        self.pos += 2;
-        self.bytes_in_record_remaining -= 2;
-        i.unwrap().1
+        i16::from_le_bytes(Self::array(self.take_in_record(2)))
     }
 
     pub fn get_i32(&mut self) -> i32 {
-        let i: Result<(&[u8], i32), nom::Err<()>> = le_i32(&self.data[self.pos..]);
-        self.pos += 4;
-        self.bytes_in_record_remaining -= 4;
-        i.unwrap().1
+        i32::from_le_bytes(Self::array(self.take_in_record(4)))
     }
 
     pub fn get_i64(&mut self) -> i64 {
-        let i: Result<(&[u8], i64), nom::Err<()>> = le_i64(&self.data[self.pos..]);
-        self.pos += 8;
-        self.bytes_in_record_remaining -= 8;
-        i.unwrap().1
+        i64::from_le_bytes(Self::array(self.take_in_record(8)))
     }
 
     pub fn get_u64(&mut self) -> u64 {
-        let i: Result<(&[u8], u64), nom::Err<()>> = le_u64(&self.data[self.pos..]);
-        self.pos += 8;
-        self.bytes_in_record_remaining -= 8;
-        i.unwrap().1
+        u64::from_le_bytes(Self::array(self.take_in_record(8)))
     }
 
     pub fn get_u32_array(&mut self, count: usize) -> Vec<u32> {
-        let mut v = Vec::with_capacity(count);
-        for _ in 0..count {
-            v.push(self.get_u32());
-        }
-        v
+        (0..count).map(|_| self.get_u32()).collect()
     }
 
     pub fn get_u16_array(&mut self, count: usize) -> Vec<u16> {
-        let mut v = Vec::with_capacity(count);
-        for _ in 0..count {
-            v.push(self.get_u16());
-        }
-        v
+        (0..count).map(|_| self.get_u16()).collect()
     }
 
     pub fn get_i16_array(&mut self, count: usize) -> Vec<i16> {
-        let mut v = Vec::with_capacity(count);
-        for _ in 0..count {
-            v.push(self.get_i16());
-        }
-        v
+        (0..count).map(|_| self.get_i16()).collect()
     }
 
     pub fn get_i32_array(&mut self, count: usize) -> Vec<i32> {
-        let mut v = Vec::with_capacity(count);
-        for _ in 0..count {
-            v.push(self.get_i32());
-        }
-        v
+        (0..count).map(|_| self.get_i32()).collect()
     }
 
     pub fn get_i64_array(&mut self, count: usize) -> Vec<i64> {
-        let mut v = Vec::with_capacity(count);
-        for _ in 0..count {
-            v.push(self.get_i64());
-        }
-        v
+        (0..count).map(|_| self.get_i64()).collect()
     }
 
     pub fn get_u64_array(&mut self, count: usize) -> Vec<u64> {
-        let mut v = Vec::with_capacity(count);
-        for _ in 0..count {
-            v.push(self.get_u64());
-        }
-        v
+        (0..count).map(|_| self.get_u64()).collect()
     }
 
     pub fn get_f32_array(&mut self, count: usize) -> Vec<f32> {
-        let mut v = Vec::with_capacity(count);
-        for _ in 0..count {
-            v.push(self.get_f32());
-        }
-        v
+        (0..count).map(|_| self.get_f32()).collect()
     }
 
     pub fn get_f64_array(&mut self, count: usize) -> Vec<f64> {
-        let mut v = Vec::with_capacity(count);
-        for _ in 0..count {
-            v.push(self.get_double());
-        }
-        v
+        (0..count).map(|_| self.get_double()).collect()
     }
 
     pub fn get_string_array(&mut self, count: usize) -> Vec<String> {
-        let mut v = Vec::with_capacity(count);
-        for _ in 0..count {
-            v.push(self.get_string().to_string());
-        }
-        v
+        (0..count).map(|_| self.get_string()).collect()
     }
 
     pub fn get_record_data(&mut self, with_tag: bool) -> Vec<u8> {
-        let d = if with_tag {
-            &self.data[self.pos - 4..self.pos + self.bytes_in_record_remaining]
-        } else {
-            if self.pos + self.bytes_in_record_remaining >= self.data.len() {
-                panic!("range is too big for {}", self.tag);
+        let remaining = self.bytes_in_record_remaining;
+        if with_tag {
+            let Some(start) = self.pos.checked_sub(RECORD_TAG_LEN as usize) else {
+                self.fail("No record tag to include");
+                return Vec::new();
+            };
+            let d = self.take(remaining);
+            if d.is_empty() && remaining > 0 {
+                return Vec::new();
             }
-            &self.data[self.pos..self.pos + self.bytes_in_record_remaining]
-        };
-        self.pos += self.bytes_in_record_remaining;
-        self.bytes_in_record_remaining = 0;
-        d.to_vec()
+            self.bytes_in_record_remaining = 0;
+            self.data[start..self.pos].to_vec()
+        } else {
+            let d = self.take(remaining).to_vec();
+            self.bytes_in_record_remaining = 0;
+            d
+        }
     }
 
     pub fn get_data_no_remaining_update(&mut self) -> Vec<u8> {
         let len = self.get_u32_no_remaining_update() as usize;
-        let data = &self.data[self.pos..self.pos + len];
-
-        self.pos += len;
+        let data = self.take(len).to_vec();
         self.bytes_in_record_remaining = 0;
-        data.to_vec()
+        data
     }
 
     pub fn get_data(&mut self, count: usize) -> &[u8] {
-        let d = &self.data[self.pos..self.pos + count];
-        self.pos += count;
+        let d = self.take(count);
         self.bytes_in_record_remaining = 0;
         d
     }
@@ -412,23 +432,25 @@ impl<'a> BiffReader<'a> {
     }
 
     pub fn skip(&mut self, count: usize) {
-        self.pos += count;
-        self.bytes_in_record_remaining -= count;
+        self.take_in_record(count);
     }
 
     pub fn skip_end_tag(&mut self, count: usize) {
-        self.pos += count;
+        self.take(count);
         self.bytes_in_record_remaining = 0;
     }
 
     pub fn skip_tag(&mut self) -> usize {
         let remaining = self.bytes_in_record_remaining;
-        self.pos += remaining;
+        self.take(remaining);
         self.bytes_in_record_remaining = 0;
         remaining
     }
 
     pub fn next(&mut self, warn: bool) -> Option<String> {
+        if self.error.is_some() {
+            return None;
+        }
         if self.bytes_in_record_remaining > 0 {
             if warn {
                 warn!(
@@ -437,73 +459,100 @@ impl<'a> BiffReader<'a> {
                 );
             }
             self.skip(self.bytes_in_record_remaining);
+            if self.error.is_some() {
+                return None;
+            }
         }
         self.record_start = self.pos;
         if self.pos >= self.data.len() {
-            panic!(
-                "Unexpected end of biff stream at {}/{} while reading next tag. Missing ENDB?",
-                self.pos(),
-                self.data.len()
-            );
+            self.fail("Unexpected end of biff stream while reading next tag. Missing ENDB?");
+            return None;
         }
-        self.bytes_in_record_remaining = self.get_u32_no_remaining_update().to_usize();
-        let tag = self.get_str(RECORD_TAG_LEN.try_into().unwrap());
+        let record_size = self.get_u32_no_remaining_update() as usize;
+        let tag = Self::decode_cstr(self.take(RECORD_TAG_LEN as usize));
+        if self.error.is_some() {
+            return None;
+        }
+        if record_size < RECORD_TAG_LEN as usize {
+            self.fail(format!(
+                "Record size {record_size} of tag {tag:?} is smaller than the tag itself"
+            ));
+            return None;
+        }
         if tag.is_empty() {
-            panic!("Empty tag at {}/{}", self.pos(), self.data.len());
+            self.fail("Empty tag");
+            return None;
         }
+        let remaining = record_size - RECORD_TAG_LEN as usize;
+        let available = self.data.len() - self.pos;
+        if remaining > available {
+            self.fail(format!(
+                "Record {tag:?} claims {remaining} bytes, {available} left in stream"
+            ));
+            return None;
+        }
+        self.bytes_in_record_remaining = remaining;
         self.tag = tag;
-        if self.warn_remaining && self.tag == "ENDB" && self.pos < self.data.len() {
-            panic!("{} Remaining bytes after ENDB", self.data.len() - self.pos);
+        if self.tag == END_TAG {
+            if self.warn_remaining && self.pos < self.data.len() {
+                self.fail(format!(
+                    "{} remaining bytes after ENDB",
+                    self.data.len() - self.pos
+                ));
+            }
+            return None;
         }
-        if self.is_eof() {
-            None
-        } else {
-            Some(self.tag.clone())
+        if self.pos >= self.data.len() {
+            // a record other than ENDB ends the stream
+            self.fail("Unexpected end of biff stream after last record. Missing ENDB?");
+            return None;
         }
+        Some(self.tag.clone())
     }
 
-    pub fn child_reader(&mut self) -> BiffReader<'_> {
+    /// A reader over the rest of the stream, for records that embed another
+    /// BIFF stream. Call [`Self::absorb`] afterwards so a problem found by
+    /// the child is not lost.
+    pub fn child_reader(&mut self) -> BiffReader<'a> {
+        let data: &'a [u8] = self.data;
         BiffReader {
-            data: &self.data[self.pos..],
+            data: &data[self.pos.min(data.len())..],
             pos: 0,
             bytes_in_record_remaining: 0,
             record_start: 0,
             tag: "".to_string(),
             warn_remaining: false,
-        }
-    }
-
-    fn sub_remaining(&mut self, count: usize) {
-        if self.bytes_in_record_remaining < count {
-            panic!(
-                "WARN: {} bytes remaining in record {}, but {} bytes requested",
-                self.bytes_in_record_remaining, self.tag, count
-            );
-        } else {
-            self.bytes_in_record_remaining -= count;
+            error: None,
         }
     }
 
     pub fn data_until(&mut self, tag: &[u8]) -> Vec<u8> {
         // read bytes until we see tag and return it, put pos to the beginning of the tag
-        let mut pos = self.pos;
-        let mut found = false;
-        while pos < self.data.len() {
-            if &self.data[pos..pos + tag.len()] == tag {
-                found = true;
-                break;
-            }
-            pos += 1;
-        }
-        if !found {
-            panic!("Tag {tag:?} not found");
-        }
+        let found = (self.pos..self.data.len().saturating_sub(tag.len()) + 1)
+            .find(|p| &self.data[*p..*p + tag.len()] == tag);
+        let Some(pos) = found else {
+            self.fail(format!("Tag {:?} not found", String::from_utf8_lossy(tag)));
+            return Vec::new();
+        };
         // go back one u32 to the tag size
-        pos -= 4;
-        let data = &self.data[self.pos..pos];
+        let Some(pos) = pos.checked_sub(RECORD_TAG_LEN as usize) else {
+            self.fail(format!(
+                "Tag {:?} found without a preceding size",
+                String::from_utf8_lossy(tag)
+            ));
+            return Vec::new();
+        };
+        if pos < self.pos {
+            self.fail(format!(
+                "Tag {:?} found before the current position",
+                String::from_utf8_lossy(tag)
+            ));
+            return Vec::new();
+        }
+        let data = self.data[self.pos..pos].to_vec();
         self.pos = pos;
         self.bytes_in_record_remaining = 0;
-        data.to_vec()
+        data
     }
 }
 
@@ -807,5 +856,159 @@ mod tests {
         assert_eq!(reader.next(false), Some("TEST".to_string()));
         reader.next(false);
         assert_eq!(reader.is_eof(), true);
+    }
+}
+
+#[cfg(test)]
+mod corrupt_input_tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    fn stream_with(tag: &str, data: &[u8]) -> Vec<u8> {
+        let mut writer = BiffWriter::new();
+        writer.write_tagged_data(tag, data);
+        writer.close(true);
+        writer.get_data().to_vec()
+    }
+
+    #[test]
+    fn truncated_stream_fails_without_panicking() {
+        let bytes = stream_with("ABCD", &[1, 2, 3, 4, 5, 6, 7, 8]);
+        for len in 0..bytes.len() {
+            let mut reader = BiffReader::new(&bytes[..len]);
+            while reader.next(false).is_some() {
+                reader.get_u32();
+                reader.get_u32();
+            }
+            assert!(reader.check().is_err(), "prefix of {len} bytes should fail");
+            assert!(reader.is_eof());
+        }
+        let mut reader = BiffReader::new(&bytes);
+        assert_eq!(reader.next(false), Some("ABCD".to_string()));
+        assert_eq!(reader.get_u32(), 0x0403_0201);
+        assert_eq!(reader.next(false), None);
+        assert!(reader.check().is_ok());
+    }
+
+    #[test]
+    fn record_larger_than_stream() {
+        let mut bytes = 100u32.to_le_bytes().to_vec();
+        bytes.extend_from_slice(b"ABCD");
+        let mut reader = BiffReader::new(&bytes);
+        assert_eq!(reader.next(false), None);
+        assert_eq!(reader.get_u32_array(50), vec![0; 50]);
+        let err = reader.check().unwrap_err();
+        assert!(err.message.contains("left in stream"), "{err}");
+    }
+
+    #[test]
+    fn read_past_record_end() {
+        let bytes = stream_with("ABCD", &[1, 2, 3, 4]);
+        let mut reader = BiffReader::new(&bytes);
+        reader.next(false);
+        assert_eq!(reader.get_u32(), 0x0403_0201);
+        assert_eq!(reader.get_u32(), 0);
+        let err = reader.check().unwrap_err();
+        assert!(err.message.contains("left in record"), "{err}");
+        assert_eq!(reader.next(false), None);
+    }
+
+    #[test]
+    fn missing_endb() {
+        let mut writer = BiffWriter::new();
+        writer.write_tagged_u32("ABCD", 1);
+        let bytes = writer.get_data().to_vec();
+        let mut reader = BiffReader::new(&bytes);
+        assert_eq!(reader.next(false), Some("ABCD".to_string()));
+        reader.get_u32();
+        assert_eq!(reader.next(false), None);
+        let err = reader.check().unwrap_err();
+        assert!(err.message.contains("Missing ENDB"), "{err}");
+    }
+
+    #[test]
+    fn data_after_endb() {
+        let mut bytes = stream_with("ABCD", &[0; 4]);
+        bytes.extend_from_slice(&[0xAA; 3]);
+        let mut reader = BiffReader::new(&bytes);
+        reader.next(false);
+        reader.get_u32();
+        assert_eq!(reader.next(false), None);
+        let err = reader.check().unwrap_err();
+        assert!(err.message.contains("after ENDB"), "{err}");
+    }
+
+    #[test]
+    fn record_size_smaller_than_tag() {
+        let mut bytes = 2u32.to_le_bytes().to_vec();
+        bytes.extend_from_slice(b"ABCD");
+        let mut reader = BiffReader::new(&bytes);
+        assert_eq!(reader.next(false), None);
+        assert!(reader.check().is_err());
+    }
+
+    #[test]
+    fn empty_tag() {
+        let mut bytes = 4u32.to_le_bytes().to_vec();
+        bytes.extend_from_slice(&[0, 0, 0, 0]);
+        let mut reader = BiffReader::new(&bytes);
+        assert_eq!(reader.next(false), None);
+        let err = reader.check().unwrap_err();
+        assert!(err.message.contains("Empty tag"), "{err}");
+    }
+
+    #[test]
+    fn oversized_string_length() {
+        let mut writer = BiffWriter::new();
+        writer.new_tag("NAME");
+        writer.write_u32(u32::MAX);
+        writer.write_data(b"ab");
+        writer.end_tag();
+        writer.close(true);
+
+        let mut reader = BiffReader::new(writer.get_data());
+        reader.next(false);
+        assert_eq!(reader.get_string(), "");
+        assert!(reader.check().is_err());
+
+        let mut reader = BiffReader::new(writer.get_data());
+        reader.next(false);
+        assert_eq!(reader.get_wide_string(), "");
+        assert!(reader.check().is_err());
+    }
+
+    #[test]
+    fn data_until_missing_tag() {
+        let bytes = stream_with("BITS", &[1, 2, 3]);
+        let mut reader = BiffReader::new(&bytes);
+        reader.next(false);
+        assert_eq!(reader.data_until(b"ALTV"), Vec::<u8>::new());
+        assert!(reader.check().is_err());
+    }
+
+    #[test]
+    fn child_reader_error_is_absorbed() {
+        let mut bytes = 50u32.to_le_bytes().to_vec();
+        bytes.extend_from_slice(b"INNR");
+        let mut parent = BiffReader::new(&bytes);
+        let mut child = parent.child_reader();
+        assert_eq!(child.next(false), None);
+        assert!(child.check().is_err());
+        assert!(parent.check().is_ok());
+        parent.absorb(&child);
+        assert!(parent.check().is_err());
+        assert!(parent.is_eof());
+    }
+
+    #[test]
+    fn error_converts_to_invalid_data_io_error() {
+        let bytes = stream_with("ABCD", &[1, 2, 3, 4]);
+        let mut reader = BiffReader::new(&bytes);
+        reader.next(false);
+        reader.get_double();
+        let err = reader.check().unwrap_err();
+        let io_err: io::Error = err.into();
+        assert_eq!(io_err.kind(), io::ErrorKind::InvalidData);
+        assert!(io_err.to_string().contains("ABCD"), "{io_err}");
     }
 }

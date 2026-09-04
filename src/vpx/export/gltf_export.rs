@@ -516,7 +516,8 @@ fn get_image_bytes(image: &ImageData) -> Option<Vec<u8>> {
         use std::io::Cursor;
 
         let dynamic_image =
-            vpx_image_to_dynamic_image(&bits.lzw_compressed_data, image.width, image.height);
+            vpx_image_to_dynamic_image(&bits.lzw_compressed_data, image.width, image.height)
+                .ok()?;
 
         let mut png_bytes = Vec::new();
         let mut cursor = Cursor::new(&mut png_bytes);
