@@ -105,6 +105,7 @@ use crate::vpx::gltf::{
     GLTF_TARGET_ELEMENT_ARRAY_BUFFER, GLTF_VERSION, GLTF_WRAP_REPEAT,
 };
 use crate::vpx::image::{ImageData, image_has_transparency};
+use crate::vpx::le::WriteLe;
 use crate::vpx::material::MaterialType;
 use crate::vpx::math::Vec3;
 use crate::vpx::mesh::balls::build_ball_mesh;
@@ -126,7 +127,6 @@ use crate::vpx::mesh::walls::build_wall_meshes;
 use crate::vpx::obj::VpxFace;
 use crate::vpx::units::{AxisConvention, ExportUnits, mm_to_vpu, vpu_to_units};
 use crate::vpx::{TableDimensions, VPX};
-use byteorder::{LittleEndian, WriteBytesExt};
 use log::{info, warn};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
@@ -2378,9 +2378,9 @@ fn build_combined_gltf_payload(
                 vpu_to_units(vertex.y, units),
                 vpu_to_units(vertex.z, units),
             );
-            bin_data.write_f32::<LittleEndian>(px)?;
-            bin_data.write_f32::<LittleEndian>(py)?;
-            bin_data.write_f32::<LittleEndian>(pz)?;
+            bin_data.write_f32_le(px)?;
+            bin_data.write_f32_le(py)?;
+            bin_data.write_f32_le(pz)?;
         }
         let positions_length = bin_data.len() - positions_offset;
 
@@ -2391,17 +2391,17 @@ fn build_combined_gltf_payload(
             let ny = if vertex.ny.is_nan() { 0.0 } else { vertex.ny };
             let nz = if vertex.nz.is_nan() { 0.0 } else { vertex.nz };
             let [nx, ny, nz] = GLTF_AXES.from_vpx(nx, ny, nz);
-            bin_data.write_f32::<LittleEndian>(nx)?;
-            bin_data.write_f32::<LittleEndian>(ny)?;
-            bin_data.write_f32::<LittleEndian>(nz)?;
+            bin_data.write_f32_le(nx)?;
+            bin_data.write_f32_le(ny)?;
+            bin_data.write_f32_le(nz)?;
         }
         let normals_length = bin_data.len() - normals_offset;
 
         // Write texcoords (VEC2 float)
         let texcoords_offset = bin_data.len();
         for VertexWrapper { vertex, .. } in &mesh.vertices {
-            bin_data.write_f32::<LittleEndian>(vertex.tu)?;
-            bin_data.write_f32::<LittleEndian>(vertex.tv)?;
+            bin_data.write_f32_le(vertex.tu)?;
+            bin_data.write_f32_le(vertex.tv)?;
         }
         let texcoords_length = bin_data.len() - texcoords_offset;
 
@@ -2411,13 +2411,13 @@ fn build_combined_gltf_payload(
         let use_u32 = mesh.vertices.len() > 65535;
         for face in &mesh.indices {
             if use_u32 {
-                bin_data.write_u32::<LittleEndian>(face.i0 as u32)?;
-                bin_data.write_u32::<LittleEndian>(face.i2 as u32)?;
-                bin_data.write_u32::<LittleEndian>(face.i1 as u32)?;
+                bin_data.write_u32_le(face.i0 as u32)?;
+                bin_data.write_u32_le(face.i2 as u32)?;
+                bin_data.write_u32_le(face.i1 as u32)?;
             } else {
-                bin_data.write_u16::<LittleEndian>(face.i0 as u16)?;
-                bin_data.write_u16::<LittleEndian>(face.i2 as u16)?;
-                bin_data.write_u16::<LittleEndian>(face.i1 as u16)?;
+                bin_data.write_u16_le(face.i0 as u16)?;
+                bin_data.write_u16_le(face.i2 as u16)?;
+                bin_data.write_u16_le(face.i1 as u16)?;
             }
         }
         let indices_length = bin_data.len() - indices_offset;
@@ -2993,16 +2993,16 @@ fn write_glb<W: io::Write>(
 
     // Write GLB header
     writer.write_all(GLTF_MAGIC)?;
-    writer.write_u32::<LittleEndian>(GLTF_VERSION)?;
+    writer.write_u32_le(GLTF_VERSION)?;
     let total_length = GLB_HEADER_BYTES
         + GLB_CHUNK_HEADER_BYTES
         + json_padded_length as u32
         + GLB_CHUNK_HEADER_BYTES
         + bin_data.len() as u32;
-    writer.write_u32::<LittleEndian>(total_length)?;
+    writer.write_u32_le(total_length)?;
 
     // Write JSON chunk
-    writer.write_u32::<LittleEndian>(json_padded_length as u32)?;
+    writer.write_u32_le(json_padded_length as u32)?;
     writer.write_all(GLB_JSON_CHUNK_TYPE)?;
     writer.write_all(json_bytes)?;
     for _ in 0..json_padding {
@@ -3010,7 +3010,7 @@ fn write_glb<W: io::Write>(
     }
 
     // Write BIN chunk
-    writer.write_u32::<LittleEndian>(bin_data.len() as u32)?;
+    writer.write_u32_le(bin_data.len() as u32)?;
     writer.write_all(GLB_BIN_CHUNK_TYPE)?;
     writer.write_all(bin_data)?;
 

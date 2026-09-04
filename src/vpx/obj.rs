@@ -1176,7 +1176,7 @@ f 1/1/1 1/1/1 1/1/1
         // Z on positions and normals, and flip the V texture coordinate
         // (`vpx_tv = 1 - obj_v`) so the subsequent `write_obj` round-trips
         // back to the original OBJ bytes.
-        use byteorder::{LittleEndian, WriteBytesExt};
+        use crate::vpx::le::WriteLe;
         let vertices: Vec<VertexWrapper> = obj_data
             .vertices
             .iter()
@@ -1191,9 +1191,9 @@ f 1/1/1 1/1/1 1/1/1
 
                 // Write position bytes (0-11)
                 let mut cursor = std::io::Cursor::new(&mut bytes[0..12]);
-                cursor.write_f32::<LittleEndian>(v.0).unwrap();
-                cursor.write_f32::<LittleEndian>(v.1).unwrap();
-                cursor.write_f32::<LittleEndian>(z).unwrap();
+                cursor.write_f32_le(v.0).unwrap();
+                cursor.write_f32_le(v.1).unwrap();
+                cursor.write_f32_le(z).unwrap();
 
                 // Write normal bytes (12-23)
                 // If we have VPX bytes from OBJ, use them, otherwise encode the floats
@@ -1204,15 +1204,15 @@ f 1/1/1 1/1/1 1/1/1
                 } else {
                     // Encode normals as floats
                     let mut cursor = std::io::Cursor::new(&mut bytes[12..24]);
-                    cursor.write_f32::<LittleEndian>(vn.x).unwrap();
-                    cursor.write_f32::<LittleEndian>(vn.y).unwrap();
-                    cursor.write_f32::<LittleEndian>(nz).unwrap();
+                    cursor.write_f32_le(vn.x).unwrap();
+                    cursor.write_f32_le(vn.y).unwrap();
+                    cursor.write_f32_le(nz).unwrap();
                 }
 
                 // Write texcoord bytes (24-31)
                 let mut cursor = std::io::Cursor::new(&mut bytes[24..32]);
-                cursor.write_f32::<LittleEndian>(vt.0).unwrap();
-                cursor.write_f32::<LittleEndian>(tv).unwrap();
+                cursor.write_f32_le(vt.0).unwrap();
+                cursor.write_f32_le(tv).unwrap();
 
                 VertexWrapper {
                     vpx_encoded_vertex: bytes,

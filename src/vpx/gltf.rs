@@ -11,8 +11,8 @@
 
 use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::primitive::VertexWrapper;
+use crate::vpx::le::{ReadLe, WriteLe};
 use crate::vpx::obj::VpxFace;
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use serde_json::json;
 use std::error::Error;
 use std::io::{self, Read};
@@ -175,9 +175,9 @@ pub(crate) fn build_gltf_payload(
             (vertex.x * scale, vertex.y * scale, vertex.z * scale)
         };
         let mapped = axes.from_vpx(x, y, z);
-        bin_data.write_f32::<LittleEndian>(mapped[0])?;
-        bin_data.write_f32::<LittleEndian>(mapped[1])?;
-        bin_data.write_f32::<LittleEndian>(mapped[2])?;
+        bin_data.write_f32_le(mapped[0])?;
+        bin_data.write_f32_le(mapped[1])?;
+        bin_data.write_f32_le(mapped[2])?;
         mapped_positions.push(mapped);
     }
     let positions_length = bin_data.len();
@@ -191,9 +191,9 @@ pub(crate) fn build_gltf_payload(
         let nz = if vertex.nz.is_nan() { 0.0 } else { vertex.nz };
         let [nx, ny, nz] = axes.from_vpx(nx, ny, nz);
 
-        bin_data.write_f32::<LittleEndian>(nx)?;
-        bin_data.write_f32::<LittleEndian>(ny)?;
-        bin_data.write_f32::<LittleEndian>(nz)?;
+        bin_data.write_f32_le(nx)?;
+        bin_data.write_f32_le(ny)?;
+        bin_data.write_f32_le(nz)?;
     }
     let normals_length = bin_data.len() - normals_offset;
 
@@ -213,8 +213,8 @@ pub(crate) fn build_gltf_payload(
     // Write texcoords (VEC2 float)
     let texcoords_offset = bin_data.len();
     for VertexWrapper { vertex, .. } in vertices {
-        bin_data.write_f32::<LittleEndian>(vertex.tu)?;
-        bin_data.write_f32::<LittleEndian>(vertex.tv)?;
+        bin_data.write_f32_le(vertex.tu)?;
+        bin_data.write_f32_le(vertex.tv)?;
     }
     let texcoords_length = bin_data.len() - texcoords_offset;
 
@@ -230,13 +230,13 @@ pub(crate) fn build_gltf_payload(
             (face.i1, face.i2)
         };
         if use_u32 {
-            bin_data.write_u32::<LittleEndian>(face.i0 as u32)?;
-            bin_data.write_u32::<LittleEndian>(i1 as u32)?;
-            bin_data.write_u32::<LittleEndian>(i2 as u32)?;
+            bin_data.write_u32_le(face.i0 as u32)?;
+            bin_data.write_u32_le(i1 as u32)?;
+            bin_data.write_u32_le(i2 as u32)?;
         } else {
-            bin_data.write_u16::<LittleEndian>(face.i0 as u16)?;
-            bin_data.write_u16::<LittleEndian>(i1 as u16)?;
-            bin_data.write_u16::<LittleEndian>(i2 as u16)?;
+            bin_data.write_u16_le(face.i0 as u16)?;
+            bin_data.write_u16_le(i1 as u16)?;
+            bin_data.write_u16_le(i2 as u16)?;
         }
     }
     let indices_length = bin_data.len() - indices_offset;
@@ -372,16 +372,16 @@ pub(crate) fn write_glb_payload<W: io::Write>(
 
     // Write GLB header
     writer.write_all(GLTF_MAGIC)?; // magic
-    writer.write_u32::<LittleEndian>(GLTF_VERSION)?; // version
+    writer.write_u32_le(GLTF_VERSION)?; // version
     let total_length = GLB_HEADER_BYTES
         + GLB_CHUNK_HEADER_BYTES
         + json_padded_length as u32
         + GLB_CHUNK_HEADER_BYTES
         + payload.bin_data.len() as u32;
-    writer.write_u32::<LittleEndian>(total_length)?; // length
+    writer.write_u32_le(total_length)?; // length
 
     // Write JSON chunk
-    writer.write_u32::<LittleEndian>(json_padded_length as u32)?; // chunk length
+    writer.write_u32_le(json_padded_length as u32)?; // chunk length
     writer.write_all(GLB_JSON_CHUNK_TYPE)?; // chunk type
     writer.write_all(json_bytes)?;
     for _ in 0..json_padding {
@@ -389,7 +389,7 @@ pub(crate) fn write_glb_payload<W: io::Write>(
     }
 
     // Write BIN chunk
-    writer.write_u32::<LittleEndian>(payload.bin_data.len() as u32)?; // chunk length
+    writer.write_u32_le(payload.bin_data.len() as u32)?; // chunk length
     writer.write_all(GLB_BIN_CHUNK_TYPE)?; // chunk type
     writer.write_all(&payload.bin_data)?;
 
@@ -462,7 +462,7 @@ pub(crate) fn read_glb_from_reader<R: Read>(
 }
 
 fn read_glb_payload_from_reader<R: Read>(reader: &mut R) -> io::Result<GltfPayload> {
-    use byteorder::{LittleEndian, ReadBytesExt};
+    use crate::vpx::le::ReadLe;
 
     // Read all GLB data into memory for random access
     let mut glb_data = Vec::new();
@@ -480,7 +480,7 @@ fn read_glb_payload_from_reader<R: Read>(reader: &mut R) -> io::Result<GltfPaylo
         ));
     }
 
-    let version = cursor.read_u32::<LittleEndian>()?;
+    let version = cursor.read_u32_le()?;
     if version != GLTF_VERSION {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -488,10 +488,10 @@ fn read_glb_payload_from_reader<R: Read>(reader: &mut R) -> io::Result<GltfPaylo
         ));
     }
 
-    let _total_length = cursor.read_u32::<LittleEndian>()?;
+    let _total_length = cursor.read_u32_le()?;
 
     // Read JSON chunk
-    let json_length = cursor.read_u32::<LittleEndian>()? as usize;
+    let json_length = cursor.read_u32_le()? as usize;
     let mut chunk_type = [0u8; 4];
     cursor.read_exact(&mut chunk_type)?;
     if &chunk_type != GLB_JSON_CHUNK_TYPE {
@@ -513,7 +513,7 @@ fn read_glb_payload_from_reader<R: Read>(reader: &mut R) -> io::Result<GltfPaylo
     cursor.set_position((json_start + json_length) as u64);
 
     // Read BIN chunk
-    let bin_length = cursor.read_u32::<LittleEndian>()? as usize;
+    let bin_length = cursor.read_u32_le()? as usize;
     cursor.read_exact(&mut chunk_type)?;
     if &chunk_type != GLB_BIN_CHUNK_TYPE {
         return Err(io::Error::new(
@@ -535,8 +535,8 @@ fn parse_gltf_payload(
     gltf_json: &serde_json::Value,
     bin_data: &[u8],
 ) -> io::Result<(String, Vec<VertexWrapper>, Vec<VpxFace>)> {
+    use crate::vpx::le::ReadLe;
     use crate::vpx::model::Vertex3dNoTex2;
-    use byteorder::{LittleEndian, ReadBytesExt};
 
     // Parse GLTF structure
     let accessors = gltf_json["accessors"]
@@ -594,18 +594,18 @@ fn parse_gltf_payload(
 
     for i in 0..pos_count {
         let mut pos_cursor = io::Cursor::new(&bin_data[pos_offset + i * 12..]);
-        let x = pos_cursor.read_f32::<LittleEndian>()?;
-        let y = pos_cursor.read_f32::<LittleEndian>()?;
-        let z = pos_cursor.read_f32::<LittleEndian>()?;
+        let x = pos_cursor.read_f32_le()?;
+        let y = pos_cursor.read_f32_le()?;
+        let z = pos_cursor.read_f32_le()?;
 
         let mut norm_cursor = io::Cursor::new(&bin_data[norm_offset + i * 12..]);
-        let nx = norm_cursor.read_f32::<LittleEndian>()?;
-        let ny = norm_cursor.read_f32::<LittleEndian>()?;
-        let nz = norm_cursor.read_f32::<LittleEndian>()?;
+        let nx = norm_cursor.read_f32_le()?;
+        let ny = norm_cursor.read_f32_le()?;
+        let nz = norm_cursor.read_f32_le()?;
 
         let mut tex_cursor = io::Cursor::new(&bin_data[tex_offset + i * 8..]);
-        let tu = tex_cursor.read_f32::<LittleEndian>()?;
-        let tv = tex_cursor.read_f32::<LittleEndian>()?;
+        let tu = tex_cursor.read_f32_le()?;
+        let tv = tex_cursor.read_f32_le()?;
 
         let vertex = Vertex3dNoTex2 {
             x,
@@ -623,9 +623,9 @@ fn parse_gltf_payload(
 
         // Write position (0-11)
         let mut byte_cursor = std::io::Cursor::new(&mut bytes[0..12]);
-        byte_cursor.write_f32::<LittleEndian>(x)?;
-        byte_cursor.write_f32::<LittleEndian>(y)?;
-        byte_cursor.write_f32::<LittleEndian>(z)?;
+        byte_cursor.write_f32_le(x)?;
+        byte_cursor.write_f32_le(y)?;
+        byte_cursor.write_f32_le(z)?;
 
         // Restore VPX normal bytes (12-23) from extras
         if let Some(ref normals) = vpx_normals
@@ -638,8 +638,8 @@ fn parse_gltf_payload(
 
         // Write texcoords (24-31)
         let mut byte_cursor = std::io::Cursor::new(&mut bytes[24..32]);
-        byte_cursor.write_f32::<LittleEndian>(tu)?;
-        byte_cursor.write_f32::<LittleEndian>(tv)?;
+        byte_cursor.write_f32_le(tu)?;
+        byte_cursor.write_f32_le(tv)?;
 
         vertices.push(VertexWrapper::new(bytes, vertex));
     }
@@ -661,17 +661,17 @@ fn read_glb_indices(
             // Each face has 3 indices, each u32 is 4 bytes, so offset is i * 12
             let mut c = io::Cursor::new(&bin_data[idx_offset + i * 12..]);
             VpxFace::new(
-                c.read_u32::<LittleEndian>()? as i64,
-                c.read_u32::<LittleEndian>()? as i64,
-                c.read_u32::<LittleEndian>()? as i64,
+                c.read_u32_le()? as i64,
+                c.read_u32_le()? as i64,
+                c.read_u32_le()? as i64,
             )
         } else {
             // Each face has 3 indices, each u16 is 2 bytes, so offset is i * 6
             let mut c = io::Cursor::new(&bin_data[idx_offset + i * 6..]);
             VpxFace::new(
-                c.read_u16::<LittleEndian>()? as i64,
-                c.read_u16::<LittleEndian>()? as i64,
-                c.read_u16::<LittleEndian>()? as i64,
+                c.read_u16_le()? as i64,
+                c.read_u16_le()? as i64,
+                c.read_u16_le()? as i64,
             )
         };
         indices.push(idx);
