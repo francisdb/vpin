@@ -137,12 +137,15 @@ pub(crate) fn build_flasher_mesh(
     // - ImageModeWorld: uses table coordinates (m_left, m_top, m_right, m_bottom)
     let use_world_coords = flasher.image_alignment == RampImageAlignment::World;
 
+    // World mode matches vpinball's flasher.cpp: `tu = x * inv_tablewidth`
+    // - the table origin is NOT subtracted, only the table size divides.
+    // Wrap mode subtracts the flasher's own bounding-box origin.
     let (uv_minx, uv_miny, uv_maxx, uv_maxy) = if use_world_coords {
         (
-            table_dims.left,
-            table_dims.top,
-            table_dims.right,
-            table_dims.bottom,
+            0.0,
+            0.0,
+            table_dims.right - table_dims.left,
+            table_dims.bottom - table_dims.top,
         )
     } else {
         (minx, miny, maxx, maxy)
@@ -220,6 +223,47 @@ pub(crate) fn build_flasher_mesh(
 mod tests {
     use super::*;
     use crate::vpx::gameitem::dragpoint::DragPoint;
+
+    #[test]
+    fn world_alignment_ignores_the_table_origin() {
+        // vpinball: tu = x * inv_tablewidth - the table's left/top are NOT
+        // subtracted, only the table size divides (flasher.cpp).
+        let flasher = Flasher {
+            height: 50.0,
+            image_alignment: RampImageAlignment::World,
+            drag_points: vec![
+                DragPoint {
+                    x: 100.0,
+                    y: 100.0,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 100.0,
+                    y: 400.0,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 400.0,
+                    y: 400.0,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+
+        // A table with a shifted origin: left/top must not shift the UVs.
+        let shifted = TableDimensions::new(50.0, 80.0, 1050.0, 2080.0);
+        let (vertices, _, position) = build_flasher_mesh(&flasher, &shifted).unwrap();
+        // Vertices are re-centered on the flasher center after UVs are
+        // computed, so reconstruct the original table-space coordinate.
+        for v in &vertices {
+            let v = &v.vertex;
+            let x = v.x + position.x;
+            let y = v.y + position.y;
+            assert!((v.tu - x / 1000.0).abs() < 1e-5, "tu {} for x {x}", v.tu);
+            assert!((v.tv - y / 2000.0).abs() < 1e-5, "tv {} for y {y}", v.tv);
+        }
+    }
 
     #[test]
     fn test_simple_flasher() {
