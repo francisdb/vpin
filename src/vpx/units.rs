@@ -79,7 +79,10 @@ pub fn m_to_vpu(m: f32) -> f32 {
 /// is roughly 950 VPU. Loaded straight into a tool that treats
 /// numbers as metres, that becomes a ~950 m table. Pick a metric
 /// variant to scale positions on the way out.
+#[cfg_attr(feature = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
+#[cfg_attr(feature = "wasm", derive(serde_repr::Deserialize_repr))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[repr(u32)]
 pub enum ExportUnits {
     /// Raw VPinball Units (no scaling).
     #[default]
