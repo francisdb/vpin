@@ -55,68 +55,88 @@ use std::io;
 /// [`crate::vpx::mesh::vpinball_ring_segments`].
 pub const DEFAULT_DETAIL_LEVEL: u32 = 10;
 
+/// How the camera of a view setup is defined, mirroring vpinball's `ViewLayoutMode`.
+///
+/// Values this library does not know are kept in [`ViewLayoutMode::Other`] so the
+/// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone, Copy)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum ViewLayoutMode {
     /// All tables before 10.8 used a viewer position relative to a fitting of a set of bounding vertices (not all parts) with a standard perspective projection skewed by a layback angle
-    Legacy = 0,
+    Legacy,
     /// Position viewer relative to the bottom center of the table, use a standard camera perspective projection, replace layback by a frustum offset
-    Camera = 1,
+    Camera,
     /// Position viewer relative to the bottom center of the screen, use an oblique surface (re)projection (would need some postprocess to limit distortion)
-    Window = 2,
+    Window,
+    /// A value not known to this library, kept as is.
+    ///
+    /// Must not be constructed with a value that maps to a named variant:
+    /// it would write the same bytes as the named variant and read back as
+    /// it, breaking round-trip equality. The library itself never does
+    /// (`From` normalizes known values to their named variants).
+    Other(u32),
 }
-
 impl From<u32> for ViewLayoutMode {
     fn from(value: u32) -> Self {
         match value {
             0 => ViewLayoutMode::Legacy,
             1 => ViewLayoutMode::Camera,
             2 => ViewLayoutMode::Window,
-            _ => panic!("Invalid ViewLayoutMode {value}"),
+            other => {
+                warn!("Unknown ViewLayoutMode value {other}, keeping it as is");
+                ViewLayoutMode::Other(other)
+            }
         }
     }
 }
-
 impl From<&ViewLayoutMode> for u32 {
     fn from(value: &ViewLayoutMode) -> Self {
         match value {
             ViewLayoutMode::Legacy => 0,
             ViewLayoutMode::Camera => 1,
             ViewLayoutMode::Window => 2,
+            ViewLayoutMode::Other(value) => *value,
         }
     }
 }
-
-// Serialize ViewLayoutMode as to lowercase string
+/// Serialize to lowercase string, or the raw number for [`ViewLayoutMode::Other`]
 impl Serialize for ViewLayoutMode {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: Serializer,
+        S: serde::Serializer,
     {
         match self {
             ViewLayoutMode::Legacy => serializer.serialize_str("legacy"),
             ViewLayoutMode::Camera => serializer.serialize_str("camera"),
             ViewLayoutMode::Window => serializer.serialize_str("window"),
+            ViewLayoutMode::Other(value) => serializer.serialize_u32(*value),
         }
     }
 }
-
-// Deserialize ViewLayoutMode from lowercase string
-// or number for backwards compatibility
+/// Deserialize from lowercase string, or from the raw number
 impl<'de> Deserialize<'de> for ViewLayoutMode {
     fn deserialize<D>(deserializer: D) -> Result<ViewLayoutMode, D::Error>
     where
-        D: Deserializer<'de>,
+        D: serde::Deserializer<'de>,
     {
         struct ViewLayoutModeVisitor;
-
         impl serde::de::Visitor<'_> for ViewLayoutModeVisitor {
             type Value = ViewLayoutMode;
-
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("a ViewLayoutMode as lowercase string or number")
             }
-
+            fn visit_u64<E>(self, value: u64) -> Result<ViewLayoutMode, E>
+            where
+                E: serde::de::Error,
+            {
+                let value = u32::try_from(value).map_err(|_| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Unsigned(value),
+                        &"a number that fits in u32",
+                    )
+                })?;
+                Ok(ViewLayoutMode::from(value))
+            }
             fn visit_str<E>(self, value: &str) -> Result<ViewLayoutMode, E>
             where
                 E: serde::de::Error,
@@ -131,24 +151,26 @@ impl<'de> Deserialize<'de> for ViewLayoutMode {
                     )),
                 }
             }
-
-            fn visit_u64<E>(self, value: u64) -> Result<ViewLayoutMode, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    0 => Ok(ViewLayoutMode::Legacy),
-                    1 => Ok(ViewLayoutMode::Camera),
-                    2 => Ok(ViewLayoutMode::Window),
-                    _ => Err(serde::de::Error::invalid_value(
-                        serde::de::Unexpected::Unsigned(value),
-                        &"0, 1, or 2",
-                    )),
-                }
-            }
         }
-
         deserializer.deserialize_any(ViewLayoutModeVisitor)
+    }
+}
+#[cfg(test)]
+mod view_layout_mode_open_enum_tests {
+    use super::ViewLayoutMode;
+
+    #[test]
+    fn unknown_value_round_trips() {
+        let value = ViewLayoutMode::from(4_000_000_000);
+        assert_eq!(value, ViewLayoutMode::Other(4_000_000_000));
+        assert_eq!(u32::from(&value), 4_000_000_000);
+        let json = serde_json::to_value(value).unwrap();
+        assert_eq!(json, serde_json::json!(4_000_000_000u32));
+        let back: ViewLayoutMode = serde_json::from_value(json).unwrap();
+        assert_eq!(back, value);
+        assert!(
+            serde_json::from_value::<ViewLayoutMode>(serde_json::json!("no_such_variant")).is_err()
+        );
     }
 }
 
@@ -225,7 +247,10 @@ impl From<u32> for ToneMapper {
             2 => ToneMapper::Filmic,
             3 => ToneMapper::Neutral,
             4 => ToneMapper::AgXPunchy,
-            other => ToneMapper::Other(other),
+            other => {
+                warn!("Unknown ToneMapper value {other}, keeping it as is");
+                ToneMapper::Other(other)
+            }
         }
     }
 }

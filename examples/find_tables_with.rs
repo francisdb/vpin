@@ -94,7 +94,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             } else {
                                 match decal.decal_type {
                                     DecalType::Image => table_decals.image.push(decal),
-                                    DecalType::Text => table_decals.text.push(decal),
+                                    DecalType::Text | DecalType::Other(_) => {
+                                        table_decals.text.push(decal)
+                                    }
                                 }
                             }
                         }
@@ -231,6 +233,7 @@ fn print_decals(decals: &TableDecals) {
             let type_str = match decal.decal_type {
                 DecalType::Image => "image",
                 DecalType::Text => "text",
+                DecalType::Other(_) => "unknown",
             };
             println!("     - {} [{}]", decal.name, type_str);
         }

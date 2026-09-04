@@ -3,60 +3,85 @@ use crate::vpx::gameitem::vertex4d::Vertex4D;
 use log::warn;
 use serde::{Deserialize, Serialize};
 
+/// Kind of render probe, mirroring vpinball's `RenderProbe::ProbeType`.
+///
+/// Values this library does not know are kept in [`RenderProbeType::Other`] so the
+/// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub(crate) enum RenderProbeType {
-    PlaneReflection = 0,
-    ScreenSpaceTransparency = 1,
+    /// Planar reflection of the scene on a plane, for example the playfield mirror.
+    PlaneReflection,
+    /// Screen space refraction through transparent parts.
+    ScreenSpaceTransparency,
+    /// A value not known to this library, kept as is.
+    ///
+    /// Must not be constructed with a value that maps to a named variant:
+    /// it would write the same bytes as the named variant and read back as
+    /// it, breaking round-trip equality. The library itself never does
+    /// (`From` normalizes known values to their named variants).
+    Other(u32),
 }
-
 impl From<u32> for RenderProbeType {
-    fn from(i: u32) -> Self {
-        match i {
+    fn from(value: u32) -> Self {
+        match value {
             0 => RenderProbeType::PlaneReflection,
             1 => RenderProbeType::ScreenSpaceTransparency,
-            _ => panic!("Unknown MaterialType {i}"),
+            other => {
+                warn!("Unknown RenderProbeType value {other}, keeping it as is");
+                RenderProbeType::Other(other)
+            }
         }
     }
 }
-
 impl From<&RenderProbeType> for u32 {
-    fn from(r: &RenderProbeType) -> Self {
-        match r {
+    fn from(value: &RenderProbeType) -> Self {
+        match value {
             RenderProbeType::PlaneReflection => 0,
             RenderProbeType::ScreenSpaceTransparency => 1,
+            RenderProbeType::Other(value) => *value,
         }
     }
 }
-
-/// Serialize as lowercase string
+/// Serialize to lowercase string, or the raw number for [`RenderProbeType::Other`]
+impl Serialize for RenderProbeType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            RenderProbeType::PlaneReflection => serializer.serialize_str("plane_reflection"),
+            RenderProbeType::ScreenSpaceTransparency => {
+                serializer.serialize_str("screen_space_transparency")
+            }
+            RenderProbeType::Other(value) => serializer.serialize_u32(*value),
+        }
+    }
+}
+/// Deserialize from lowercase string, or from the raw number
 impl<'de> Deserialize<'de> for RenderProbeType {
     fn deserialize<D>(deserializer: D) -> Result<RenderProbeType, D::Error>
     where
-        D: serde::de::Deserializer<'de>,
+        D: serde::Deserializer<'de>,
     {
         struct RenderProbeTypeVisitor;
         impl serde::de::Visitor<'_> for RenderProbeTypeVisitor {
             type Value = RenderProbeType;
-
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a string or a number")
+                formatter.write_str("a RenderProbeType as lowercase string or number")
             }
-
             fn visit_u64<E>(self, value: u64) -> Result<RenderProbeType, E>
             where
                 E: serde::de::Error,
             {
-                match value {
-                    0 => Ok(RenderProbeType::PlaneReflection),
-                    1 => Ok(RenderProbeType::ScreenSpaceTransparency),
-                    _ => Err(serde::de::Error::invalid_value(
+                let value = u32::try_from(value).map_err(|_| {
+                    serde::de::Error::invalid_value(
                         serde::de::Unexpected::Unsigned(value),
-                        &"a number between 0 and 1",
-                    )),
-                }
+                        &"a number that fits in u32",
+                    )
+                })?;
+                Ok(RenderProbeType::from(value))
             }
-
             fn visit_str<E>(self, value: &str) -> Result<RenderProbeType, E>
             where
                 E: serde::de::Error,
@@ -74,44 +99,60 @@ impl<'de> Deserialize<'de> for RenderProbeType {
         deserializer.deserialize_any(RenderProbeTypeVisitor)
     }
 }
+#[cfg(test)]
+mod render_probe_type_open_enum_tests {
+    use super::RenderProbeType;
 
-/// Deserialize from lowercase string
-/// or number for backwards compatibility
-impl Serialize for RenderProbeType {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::ser::Serializer,
-    {
-        let s = match self {
-            RenderProbeType::PlaneReflection => "plane_reflection",
-            RenderProbeType::ScreenSpaceTransparency => "screen_space_transparency",
-        };
-        serializer.serialize_str(s)
+    #[test]
+    fn unknown_value_round_trips() {
+        let value = RenderProbeType::from(4_000_000_000);
+        assert_eq!(value, RenderProbeType::Other(4_000_000_000));
+        assert_eq!(u32::from(&value), 4_000_000_000);
+        let json = serde_json::to_value(value.clone()).unwrap();
+        assert_eq!(json, serde_json::json!(4_000_000_000u32));
+        let back: RenderProbeType = serde_json::from_value(json).unwrap();
+        assert_eq!(back, value);
+        assert!(
+            serde_json::from_value::<RenderProbeType>(serde_json::json!("no_such_variant"))
+                .is_err()
+        );
     }
 }
 
+/// What a plane reflection probe reflects, mirroring vpinball's
+/// `RenderProbe::ReflectionMode`.
+///
+/// Values this library does not know are kept in [`ReflectionMode::Other`] so the
+/// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 enum ReflectionMode {
     /// No reflections
-    None = 0,
+    None,
     /// Only balls reflections
-    Balls = 1,
+    Balls,
     /// Only static (prerendered) reflections
-    Static = 2,
+    Static,
     /// Static reflections and balls, without depth sync (static or dynamic reflection may be rendered while they should be occluded)
-    StaticNBalls = 3,
+    StaticNBalls,
     /// Static and dynamic reflections, without depth sync (static or dynamic reflection may be rendered while they should be occluded)
-    StaticNDynamic = 4,
+    StaticNDynamic,
     /// All reflections are dynamic allowing for correct occlusion between them at the cost of performance (static are still prerendered)
-    Dynamic = 5,
-    /// Unknown mode - seen on a blank table created a while ago
-    Unknown = 6,
+    Dynamic,
+    /// Value 6, outside vpinball's enum, seen on a blank table created a while ago.
+    /// Kept as a named variant for compatibility with existing expanded tables.
+    Unknown,
+    /// A value not known to this library, kept as is.
+    ///
+    /// Must not be constructed with a value that maps to a named variant:
+    /// it would write the same bytes as the named variant and read back as
+    /// it, breaking round-trip equality. The library itself never does
+    /// (`From` normalizes known values to their named variants).
+    Other(u32),
 }
-
 impl From<u32> for ReflectionMode {
-    fn from(i: u32) -> Self {
-        match i {
+    fn from(value: u32) -> Self {
+        match value {
             0 => ReflectionMode::None,
             1 => ReflectionMode::Balls,
             2 => ReflectionMode::Static,
@@ -119,14 +160,16 @@ impl From<u32> for ReflectionMode {
             4 => ReflectionMode::StaticNDynamic,
             5 => ReflectionMode::Dynamic,
             6 => ReflectionMode::Unknown,
-            _ => panic!("Unknown ReflectionMode {i}"),
+            other => {
+                warn!("Unknown ReflectionMode value {other}, keeping it as is");
+                ReflectionMode::Other(other)
+            }
         }
     }
 }
-
 impl From<&ReflectionMode> for u32 {
-    fn from(r: &ReflectionMode) -> Self {
-        match r {
+    fn from(value: &ReflectionMode) -> Self {
+        match value {
             ReflectionMode::None => 0,
             ReflectionMode::Balls => 1,
             ReflectionMode::Static => 2,
@@ -134,44 +177,52 @@ impl From<&ReflectionMode> for u32 {
             ReflectionMode::StaticNDynamic => 4,
             ReflectionMode::Dynamic => 5,
             ReflectionMode::Unknown => 6,
+            ReflectionMode::Other(value) => *value,
         }
     }
 }
-
-/// Serialize as lowercase string
+/// Serialize to lowercase string, or the raw number for [`ReflectionMode::Other`]
 impl Serialize for ReflectionMode {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::ser::Serializer,
+        S: serde::Serializer,
     {
-        let s = match self {
-            ReflectionMode::None => "none",
-            ReflectionMode::Balls => "balls",
-            ReflectionMode::Static => "static",
-            ReflectionMode::StaticNBalls => "static_and_balls",
-            ReflectionMode::StaticNDynamic => "static_and_dynamic",
-            ReflectionMode::Dynamic => "dynamic",
-            ReflectionMode::Unknown => "unknown",
-        };
-        serializer.serialize_str(s)
+        match self {
+            ReflectionMode::None => serializer.serialize_str("none"),
+            ReflectionMode::Balls => serializer.serialize_str("balls"),
+            ReflectionMode::Static => serializer.serialize_str("static"),
+            ReflectionMode::StaticNBalls => serializer.serialize_str("static_and_balls"),
+            ReflectionMode::StaticNDynamic => serializer.serialize_str("static_and_dynamic"),
+            ReflectionMode::Dynamic => serializer.serialize_str("dynamic"),
+            ReflectionMode::Unknown => serializer.serialize_str("unknown"),
+            ReflectionMode::Other(value) => serializer.serialize_u32(*value),
+        }
     }
 }
-
-/// Deserialize from lowercase string
-/// or number for backwards compatibility
+/// Deserialize from lowercase string, or from the raw number
 impl<'de> Deserialize<'de> for ReflectionMode {
     fn deserialize<D>(deserializer: D) -> Result<ReflectionMode, D::Error>
     where
-        D: serde::de::Deserializer<'de>,
+        D: serde::Deserializer<'de>,
     {
         struct ReflectionModeVisitor;
         impl serde::de::Visitor<'_> for ReflectionModeVisitor {
             type Value = ReflectionMode;
-
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a string or a number")
+                formatter.write_str("a ReflectionMode as lowercase string or number")
             }
-
+            fn visit_u64<E>(self, value: u64) -> Result<ReflectionMode, E>
+            where
+                E: serde::de::Error,
+            {
+                let value = u32::try_from(value).map_err(|_| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Unsigned(value),
+                        &"a number that fits in u32",
+                    )
+                })?;
+                Ok(ReflectionMode::from(value))
+            }
             fn visit_str<E>(self, value: &str) -> Result<ReflectionMode, E>
             where
                 E: serde::de::Error,
@@ -198,27 +249,34 @@ impl<'de> Deserialize<'de> for ReflectionMode {
                     )),
                 }
             }
-
-            fn visit_u64<E>(self, value: u64) -> Result<ReflectionMode, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    0 => Ok(ReflectionMode::None),
-                    1 => Ok(ReflectionMode::Balls),
-                    2 => Ok(ReflectionMode::Static),
-                    3 => Ok(ReflectionMode::StaticNBalls),
-                    4 => Ok(ReflectionMode::StaticNDynamic),
-                    5 => Ok(ReflectionMode::Dynamic),
-                    6 => Ok(ReflectionMode::Unknown),
-                    _ => Err(serde::de::Error::invalid_value(
-                        serde::de::Unexpected::Unsigned(value),
-                        &"a number between 0 and 6",
-                    )),
-                }
-            }
         }
         deserializer.deserialize_any(ReflectionModeVisitor)
+    }
+}
+#[cfg(test)]
+mod reflection_mode_open_enum_tests {
+    /// The legacy raw value 6 must normalize to the named Unknown
+    /// variant, never to Other(6): both write the same bytes, so two
+    /// representations would break round-trip equality.
+    #[test]
+    fn legacy_unknown_value_normalizes() {
+        assert_eq!(ReflectionMode::from(6), ReflectionMode::Unknown);
+    }
+
+    use super::ReflectionMode;
+
+    #[test]
+    fn unknown_value_round_trips() {
+        let value = ReflectionMode::from(4_000_000_000);
+        assert_eq!(value, ReflectionMode::Other(4_000_000_000));
+        assert_eq!(u32::from(&value), 4_000_000_000);
+        let json = serde_json::to_value(value.clone()).unwrap();
+        assert_eq!(json, serde_json::json!(4_000_000_000u32));
+        let back: ReflectionMode = serde_json::from_value(json).unwrap();
+        assert_eq!(back, value);
+        assert!(
+            serde_json::from_value::<ReflectionMode>(serde_json::json!("no_such_variant")).is_err()
+        );
     }
 }
 

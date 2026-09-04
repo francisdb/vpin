@@ -175,7 +175,8 @@ fn generate_kicker_mesh(kicker: &Kicker) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
             0.0_f32,
             0.0_f32, // Hole type ignores orientation
         ),
-        KickerType::HoleSimple | KickerType::Invisible => (
+        // vpinball's GenerateMesh falls back to the simple hole for unknown types
+        KickerType::HoleSimple | KickerType::Invisible | KickerType::Other(_) => (
             &KICKER_SIMPLE_HOLE_VERTICES[..],
             &KICKER_SIMPLE_HOLE_INDICES[..],
             0.0_f32,

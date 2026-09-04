@@ -10,81 +10,89 @@ use crate::vpx::{
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// Horizontal text alignment of a text box, mirroring vpinball's `TextAlignment`.
+///
+/// Values this library does not know are kept in [`TextAlignment::Other`] so the
+/// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone, Default)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum TextAlignment {
+    /// `TextAlignLeft`
     #[default]
-    Left = 0,
-    Center = 1,
-    Right = 2,
+    Left,
+    /// `TextAlignCenter`
+    Center,
+    /// `TextAlignRight`
+    Right,
+    /// A value not known to this library, kept as is.
+    ///
+    /// Must not be constructed with a value that maps to a named variant:
+    /// it would write the same bytes as the named variant and read back as
+    /// it, breaking round-trip equality. The library itself never does
+    /// (`From` normalizes known values to their named variants).
+    Other(u32),
 }
-
 impl From<u32> for TextAlignment {
     fn from(value: u32) -> Self {
         match value {
             0 => TextAlignment::Left,
             1 => TextAlignment::Center,
             2 => TextAlignment::Right,
-            _ => panic!("Invalid value for TextAlignment: {value}"),
+            other => {
+                warn!("Unknown TextAlignment value {other}, keeping it as is");
+                TextAlignment::Other(other)
+            }
         }
     }
 }
-
 impl From<&TextAlignment> for u32 {
     fn from(value: &TextAlignment) -> Self {
         match value {
             TextAlignment::Left => 0,
             TextAlignment::Center => 1,
             TextAlignment::Right => 2,
+            TextAlignment::Other(value) => *value,
         }
     }
 }
-
-/// Serialize to lowercase string
+/// Serialize to lowercase string, or the raw number for [`TextAlignment::Other`]
 impl Serialize for TextAlignment {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: Serializer,
+        S: serde::Serializer,
     {
         match self {
             TextAlignment::Left => serializer.serialize_str("left"),
             TextAlignment::Center => serializer.serialize_str("center"),
             TextAlignment::Right => serializer.serialize_str("right"),
+            TextAlignment::Other(value) => serializer.serialize_u32(*value),
         }
     }
 }
-
-/// Deserialize from lowercase string
-/// or number for backwards compatibility
+/// Deserialize from lowercase string, or from the raw number
 impl<'de> Deserialize<'de> for TextAlignment {
     fn deserialize<D>(deserializer: D) -> Result<TextAlignment, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         struct TextAlignmentVisitor;
-
         impl serde::de::Visitor<'_> for TextAlignmentVisitor {
             type Value = TextAlignment;
-
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a string or number representing a TargetType")
+                formatter.write_str("a TextAlignment as lowercase string or number")
             }
-
             fn visit_u64<E>(self, value: u64) -> Result<TextAlignment, E>
             where
                 E: serde::de::Error,
             {
-                match value {
-                    0 => Ok(TextAlignment::Left),
-                    1 => Ok(TextAlignment::Center),
-                    2 => Ok(TextAlignment::Right),
-                    _ => Err(serde::de::Error::invalid_value(
+                let value = u32::try_from(value).map_err(|_| {
+                    serde::de::Error::invalid_value(
                         serde::de::Unexpected::Unsigned(value),
-                        &"0, 1, or 2",
-                    )),
-                }
+                        &"a number that fits in u32",
+                    )
+                })?;
+                Ok(TextAlignment::from(value))
             }
-
             fn visit_str<E>(self, value: &str) -> Result<TextAlignment, E>
             where
                 E: serde::de::Error,
@@ -100,8 +108,25 @@ impl<'de> Deserialize<'de> for TextAlignment {
                 }
             }
         }
-
         deserializer.deserialize_any(TextAlignmentVisitor)
+    }
+}
+#[cfg(test)]
+mod text_alignment_open_enum_tests {
+    use super::TextAlignment;
+
+    #[test]
+    fn unknown_value_round_trips() {
+        let value = TextAlignment::from(4_000_000_000);
+        assert_eq!(value, TextAlignment::Other(4_000_000_000));
+        assert_eq!(u32::from(&value), 4_000_000_000);
+        let json = serde_json::to_value(value.clone()).unwrap();
+        assert_eq!(json, serde_json::json!(4_000_000_000u32));
+        let back: TextAlignment = serde_json::from_value(json).unwrap();
+        assert_eq!(back, value);
+        assert!(
+            serde_json::from_value::<TextAlignment>(serde_json::json!("no_such_variant")).is_err()
+        );
     }
 }
 

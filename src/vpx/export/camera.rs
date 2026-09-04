@@ -11,6 +11,7 @@ use super::gltf_export::GLTF_AXES;
 use crate::vpx::VPX;
 use crate::vpx::gamedata::ViewLayoutMode;
 use crate::vpx::units::{ExportUnits, vpu_to_units};
+use log::warn;
 use serde_json::json;
 
 /// TODO: This scaling factor compensates for using simplified table bounds (8 corner vertices)
@@ -490,7 +491,15 @@ impl GltfCamera {
 
                 (position, rotation)
             }
-            ViewLayoutMode::Camera | ViewLayoutMode::Window => {
+            // An unknown layout mode takes the camera/window math: vpinball
+            // itself branches on `isLegacy = mMode == VLM_LEGACY`, so any
+            // mode other than exactly Legacy goes down the non-legacy path.
+            ViewLayoutMode::Camera | ViewLayoutMode::Window | ViewLayoutMode::Other(_) => {
+                if let ViewLayoutMode::Other(mode) = settings.layout_mode {
+                    warn!(
+                        "Unknown ViewLayoutMode {mode}, exporting the camera with the camera/window math like vpinball would"
+                    );
+                }
                 // In camera/window mode (VPinball 10.8+):
                 // The camera orbits around the table center at a fixed distance.
                 // Offsets are in CAMERA-LOCAL coordinates:

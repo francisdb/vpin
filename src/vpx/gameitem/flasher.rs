@@ -8,29 +8,35 @@ use crate::vpx::{
 };
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde_json::Value;
 
-/// Blend mode used when combining image_a and image_b on flashers.
-///
 /// When a flasher has both `image_a` and `image_b` set, this filter determines
 /// how the two textures are blended together. The blend intensity is controlled
-/// by `filter_amount` (0-100).
+/// by `filter_amount` (0-100). Mirrors vpinball's `Filters`.
+///
+/// Values this library does not know are kept in [`Filter::Other`] so the
+/// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone, Default)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum Filter {
     /// No filtering/blending applied
-    None = 0,
+    None,
     /// Additive blending - adds the color values together, creating a brightening effect
-    Additive = 1,
+    Additive,
     /// Overlay blending - combines Multiply and Screen modes based on the base color
     #[default]
-    Overlay = 2,
+    Overlay,
     /// Multiply blending - multiplies the color values, creating a darkening effect
-    Multiply = 3,
+    Multiply,
     /// Screen blending - inverts, multiplies, and inverts again, creating a brightening effect
-    Screen = 4,
+    Screen,
+    /// A value not known to this library, kept as is.
+    ///
+    /// Must not be constructed with a value that maps to a named variant:
+    /// it would write the same bytes as the named variant and read back as
+    /// it, breaking round-trip equality. The library itself never does
+    /// (`From` normalizes known values to their named variants).
+    Other(u32),
 }
-
 impl From<u32> for Filter {
     fn from(value: u32) -> Self {
         match value {
@@ -39,11 +45,13 @@ impl From<u32> for Filter {
             2 => Filter::Overlay,
             3 => Filter::Multiply,
             4 => Filter::Screen,
-            _ => panic!("Invalid Filter value {value}"),
+            other => {
+                warn!("Unknown Filter value {other}, keeping it as is");
+                Filter::Other(other)
+            }
         }
     }
 }
-
 impl From<&Filter> for u32 {
     fn from(value: &Filter) -> Self {
         match value {
@@ -52,72 +60,89 @@ impl From<&Filter> for u32 {
             Filter::Overlay => 2,
             Filter::Multiply => 3,
             Filter::Screen => 4,
+            Filter::Other(value) => *value,
         }
     }
 }
-
-/// Serialize Filter as a lowercase string
+/// Serialize to lowercase string, or the raw number for [`Filter::Other`]
 impl Serialize for Filter {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: Serializer,
+        S: serde::Serializer,
     {
-        let value = match self {
-            Filter::None => "none",
-            Filter::Additive => "additive",
-            Filter::Overlay => "overlay",
-            Filter::Multiply => "multiply",
-            Filter::Screen => "screen",
-        };
-        serializer.serialize_str(value)
+        match self {
+            Filter::None => serializer.serialize_str("none"),
+            Filter::Additive => serializer.serialize_str("additive"),
+            Filter::Overlay => serializer.serialize_str("overlay"),
+            Filter::Multiply => serializer.serialize_str("multiply"),
+            Filter::Screen => serializer.serialize_str("screen"),
+            Filter::Other(value) => serializer.serialize_u32(*value),
+        }
     }
 }
-
-/// Deserialize Filter from a lowercase string
-/// or number for backwards compatibility
+/// Deserialize from lowercase string, or from the raw number
 impl<'de> Deserialize<'de> for Filter {
     fn deserialize<D>(deserializer: D) -> Result<Filter, D::Error>
     where
-        D: Deserializer<'de>,
+        D: serde::Deserializer<'de>,
     {
-        let value = Value::deserialize(deserializer)?;
-        match value {
-            Value::String(s) => match s.as_str() {
-                "none" => Ok(Filter::None),
-                "additive" => Ok(Filter::Additive),
-                "overlay" => Ok(Filter::Overlay),
-                "multiply" => Ok(Filter::Multiply),
-                "screen" => Ok(Filter::Screen),
-                _ => Err(serde::de::Error::custom(format!(
-                    "Invalid Filter value {s}, expecting \"none\", \"additive\", \"overlay\", \"multiply\" or \"screen\""
-                ))),
-            },
-            Value::Number(n) => {
-                let Some(n) = n.as_u64() else {
-                    return Err(serde::de::Error::custom(format!(
-                        "Invalid value {n}, we expect a non-negative integer"
-                    )));
-                };
-                match n {
-                    0 => Ok(Filter::None),
-                    1 => Ok(Filter::Additive),
-                    2 => Ok(Filter::Overlay),
-                    3 => Ok(Filter::Multiply),
-                    4 => Ok(Filter::Screen),
-                    _ => Err(serde::de::Error::custom(
-                        "Invalid Filter value, expecting 0, 1, 2, 3 or 4",
+        struct FilterVisitor;
+        impl serde::de::Visitor<'_> for FilterVisitor {
+            type Value = Filter;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a Filter as lowercase string or number")
+            }
+            fn visit_u64<E>(self, value: u64) -> Result<Filter, E>
+            where
+                E: serde::de::Error,
+            {
+                let value = u32::try_from(value).map_err(|_| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Unsigned(value),
+                        &"a number that fits in u32",
+                    )
+                })?;
+                Ok(Filter::from(value))
+            }
+            fn visit_str<E>(self, value: &str) -> Result<Filter, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "none" => Ok(Filter::None),
+                    "additive" => Ok(Filter::Additive),
+                    "overlay" => Ok(Filter::Overlay),
+                    "multiply" => Ok(Filter::Multiply),
+                    "screen" => Ok(Filter::Screen),
+                    _ => Err(serde::de::Error::unknown_variant(
+                        value,
+                        &["none", "additive", "overlay", "multiply", "screen"],
                     )),
                 }
             }
-            _ => Err(serde::de::Error::custom(
-                "Invalid Filter value, expecting string or number",
-            )),
         }
+        deserializer.deserialize_any(FilterVisitor)
+    }
+}
+#[cfg(test)]
+mod filter_open_enum_tests {
+    use super::Filter;
+
+    #[test]
+    fn unknown_value_round_trips() {
+        let value = Filter::from(4_000_000_000);
+        assert_eq!(value, Filter::Other(4_000_000_000));
+        assert_eq!(u32::from(&value), 4_000_000_000);
+        let json = serde_json::to_value(value.clone()).unwrap();
+        assert_eq!(json, serde_json::json!(4_000_000_000u32));
+        let back: Filter = serde_json::from_value(json).unwrap();
+        assert_eq!(back, value);
+        assert!(serde_json::from_value::<Filter>(serde_json::json!("no_such_variant")).is_err());
     }
 }
 
 /// Render mode for flashers, determining how the flasher is rendered and which
-/// properties are used.
+/// properties are used. Mirrors vpinball's `Flasher::RenderMode`.
 ///
 /// Default in use by vpinball is [`RenderMode::Flasher`].
 ///
@@ -125,22 +150,31 @@ impl<'de> Deserialize<'de> for Filter {
 ///
 /// See also [`render_style`](Flasher::render_style) which is interpreted differently
 /// depending on this mode.
+///
+/// Values this library does not know are kept in [`RenderMode::Other`] so the
+/// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone, Default)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum RenderMode {
     /// Custom blended images
     #[default]
-    Flasher = 0,
+    Flasher,
     /// Dot matrix display (Plasma, LED, ...)
-    DMD = 1,
+    DMD,
     /// Screen (CRT, LCD, ...)
-    Display = 2,
+    Display,
     /// Alphanumeric segment display (VFD, Plasma, LED, ...)
-    AlphaSeg = 3,
+    AlphaSeg,
     /// Render of one of the ancillary windows (backglass, topper, scoreview)
-    ExtRender = 4,
+    ExtRender,
+    /// A value not known to this library, kept as is.
+    ///
+    /// Must not be constructed with a value that maps to a named variant:
+    /// it would write the same bytes as the named variant and read back as
+    /// it, breaking round-trip equality. The library itself never does
+    /// (`From` normalizes known values to their named variants).
+    Other(u32),
 }
-
 impl From<u32> for RenderMode {
     fn from(value: u32) -> Self {
         match value {
@@ -149,11 +183,13 @@ impl From<u32> for RenderMode {
             2 => RenderMode::Display,
             3 => RenderMode::AlphaSeg,
             4 => RenderMode::ExtRender,
-            _ => panic!("Invalid RenderMode value {value}"),
+            other => {
+                warn!("Unknown RenderMode value {other}, keeping it as is");
+                RenderMode::Other(other)
+            }
         }
     }
 }
-
 impl From<&RenderMode> for u32 {
     fn from(value: &RenderMode) -> Self {
         match value {
@@ -162,85 +198,121 @@ impl From<&RenderMode> for u32 {
             RenderMode::Display => 2,
             RenderMode::AlphaSeg => 3,
             RenderMode::ExtRender => 4,
+            RenderMode::Other(value) => *value,
         }
     }
 }
-
+/// Serialize to lowercase string, or the raw number for [`RenderMode::Other`]
 impl Serialize for RenderMode {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: Serializer,
+        S: serde::Serializer,
     {
-        let value = match self {
-            RenderMode::Flasher => "flasher",
-            RenderMode::DMD => "dmd",
-            RenderMode::Display => "display",
-            RenderMode::AlphaSeg => "alpha_seg",
-            RenderMode::ExtRender => "ext_render",
-        };
-        serializer.serialize_str(value)
+        match self {
+            RenderMode::Flasher => serializer.serialize_str("flasher"),
+            RenderMode::DMD => serializer.serialize_str("dmd"),
+            RenderMode::Display => serializer.serialize_str("display"),
+            RenderMode::AlphaSeg => serializer.serialize_str("alpha_seg"),
+            RenderMode::ExtRender => serializer.serialize_str("ext_render"),
+            RenderMode::Other(value) => serializer.serialize_u32(*value),
+        }
     }
 }
-
+/// Deserialize from lowercase string, or from the raw number
 impl<'de> Deserialize<'de> for RenderMode {
     fn deserialize<D>(deserializer: D) -> Result<RenderMode, D::Error>
     where
-        D: Deserializer<'de>,
+        D: serde::Deserializer<'de>,
     {
-        let value = Value::deserialize(deserializer)?;
-        match value {
-            Value::String(s) => match s.as_str() {
-                "flasher" => Ok(RenderMode::Flasher),
-                "dmd" => Ok(RenderMode::DMD),
-                "display" => Ok(RenderMode::Display),
-                "alpha_seg" => Ok(RenderMode::AlphaSeg),
-                "ext_render" => Ok(RenderMode::ExtRender),
-                _ => Err(serde::de::Error::custom(format!(
-                    "Invalid RenderMode value {s}, expecting \"flasher\", \"dmd\", \"display\", \"alpha_seg\" or \"ext_render\""
-                ))),
-            },
-            Value::Number(n) => {
-                let Some(n) = n.as_u64() else {
-                    return Err(serde::de::Error::custom(format!(
-                        "Invalid value {n}, we expect a non-negative integer"
-                    )));
-                };
-                match n {
-                    0 => Ok(RenderMode::Flasher),
-                    1 => Ok(RenderMode::DMD),
-                    2 => Ok(RenderMode::Display),
-                    3 => Ok(RenderMode::AlphaSeg),
-                    4 => Ok(RenderMode::ExtRender),
-                    _ => Err(serde::de::Error::custom(
-                        "Invalid RenderMode value, expecting 0, 1, 2, 3 or 4",
+        struct RenderModeVisitor;
+        impl serde::de::Visitor<'_> for RenderModeVisitor {
+            type Value = RenderMode;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a RenderMode as lowercase string or number")
+            }
+            fn visit_u64<E>(self, value: u64) -> Result<RenderMode, E>
+            where
+                E: serde::de::Error,
+            {
+                let value = u32::try_from(value).map_err(|_| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Unsigned(value),
+                        &"a number that fits in u32",
+                    )
+                })?;
+                Ok(RenderMode::from(value))
+            }
+            fn visit_str<E>(self, value: &str) -> Result<RenderMode, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "flasher" => Ok(RenderMode::Flasher),
+                    "dmd" => Ok(RenderMode::DMD),
+                    "display" => Ok(RenderMode::Display),
+                    "alpha_seg" => Ok(RenderMode::AlphaSeg),
+                    "ext_render" => Ok(RenderMode::ExtRender),
+                    _ => Err(serde::de::Error::unknown_variant(
+                        value,
+                        &["flasher", "dmd", "display", "alpha_seg", "ext_render"],
                     )),
                 }
             }
-            _ => Err(serde::de::Error::custom(
-                "Invalid RenderMode value, expecting string or number",
-            )),
         }
+        deserializer.deserialize_any(RenderModeVisitor)
+    }
+}
+#[cfg(test)]
+mod render_mode_open_enum_tests {
+    use super::RenderMode;
+
+    #[test]
+    fn unknown_value_round_trips() {
+        let value = RenderMode::from(4_000_000_000);
+        assert_eq!(value, RenderMode::Other(4_000_000_000));
+        assert_eq!(u32::from(&value), 4_000_000_000);
+        let json = serde_json::to_value(value.clone()).unwrap();
+        assert_eq!(json, serde_json::json!(4_000_000_000u32));
+        let back: RenderMode = serde_json::from_value(json).unwrap();
+        assert_eq!(back, value);
+        assert!(
+            serde_json::from_value::<RenderMode>(serde_json::json!("no_such_variant")).is_err()
+        );
     }
 }
 
 /// DMD shading profile used as [`Flasher::render_style`] when
 /// [`render_mode`](Flasher::render_mode) is [`RenderMode::DMD`].
 ///
-/// These are indices into the DMD profile settings arrays (7 profiles).
+/// These are indices into vpinball's DMD profile settings arrays (7 profiles).
+///
+/// Values this library does not know are kept in [`DmdStyle::Other`] so the
+/// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone, Copy, Default)]
 pub enum DmdStyle {
+    /// Legacy DMD rendering from before the profiles existed
     #[default]
-    Legacy = 0,
+    Legacy,
     /// Classic neon plasma DMD
-    Plasma = 1,
+    Plasma,
     /// Red LED DMD (used after RoHS regulation entry into force)
-    RedLED = 2,
-    GreenLED = 3,
-    YellowLED = 4,
-    GenericPlasma = 5,
-    GenericLED = 6,
+    RedLED,
+    /// Green LED DMD
+    GreenLED,
+    /// Yellow LED DMD
+    YellowLED,
+    /// Generic plasma profile
+    GenericPlasma,
+    /// Generic LED profile
+    GenericLED,
+    /// A value not known to this library, kept as is.
+    ///
+    /// Must not be constructed with a value that maps to a named variant:
+    /// it would write the same bytes as the named variant and read back as
+    /// it, breaking round-trip equality. The library itself never does
+    /// (`From` normalizes known values to their named variants).
+    Other(u32),
 }
-
 impl From<u32> for DmdStyle {
     fn from(value: u32) -> Self {
         match value {
@@ -251,14 +323,36 @@ impl From<u32> for DmdStyle {
             4 => DmdStyle::YellowLED,
             5 => DmdStyle::GenericPlasma,
             6 => DmdStyle::GenericLED,
-            _ => panic!("Invalid DmdStyle value {value}, expected 0–6"),
+            other => {
+                warn!("Unknown DmdStyle value {other}, keeping it as is");
+                DmdStyle::Other(other)
+            }
         }
     }
 }
+impl From<&DmdStyle> for u32 {
+    fn from(value: &DmdStyle) -> Self {
+        match value {
+            DmdStyle::Legacy => 0,
+            DmdStyle::Plasma => 1,
+            DmdStyle::RedLED => 2,
+            DmdStyle::GreenLED => 3,
+            DmdStyle::YellowLED => 4,
+            DmdStyle::GenericPlasma => 5,
+            DmdStyle::GenericLED => 6,
+            DmdStyle::Other(value) => *value,
+        }
+    }
+}
+#[cfg(test)]
+mod dmd_style_open_enum_tests {
+    use super::DmdStyle;
 
-impl From<DmdStyle> for u32 {
-    fn from(value: DmdStyle) -> Self {
-        value as u32
+    #[test]
+    fn unknown_value_round_trips() {
+        let value = DmdStyle::from(4_000_000_000);
+        assert_eq!(value, DmdStyle::Other(4_000_000_000));
+        assert_eq!(u32::from(&value), 4_000_000_000);
     }
 }
 
@@ -266,28 +360,58 @@ impl From<DmdStyle> for u32 {
 /// [`render_mode`](Flasher::render_mode) is [`RenderMode::Display`].
 ///
 /// The profile index is passed directly to the CRT shader.
+///
+/// Values this library does not know are kept in [`DisplayStyle::Other`] so the
+/// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone, Copy, Default)]
 pub enum DisplayStyle {
+    /// Nearest neighbour pixels
     #[default]
-    Pixelated = 0,
-    Smoothed = 1,
-    CRT = 2,
+    Pixelated,
+    /// Bilinear filtered pixels
+    Smoothed,
+    /// CRT emulation with scanlines and bloom
+    CRT,
+    /// A value not known to this library, kept as is.
+    ///
+    /// Must not be constructed with a value that maps to a named variant:
+    /// it would write the same bytes as the named variant and read back as
+    /// it, breaking round-trip equality. The library itself never does
+    /// (`From` normalizes known values to their named variants).
+    Other(u32),
 }
-
 impl From<u32> for DisplayStyle {
     fn from(value: u32) -> Self {
         match value {
             0 => DisplayStyle::Pixelated,
             1 => DisplayStyle::Smoothed,
             2 => DisplayStyle::CRT,
-            _ => panic!("Invalid DisplayStyle value {value}, expected 0–2"),
+            other => {
+                warn!("Unknown DisplayStyle value {other}, keeping it as is");
+                DisplayStyle::Other(other)
+            }
         }
     }
 }
+impl From<&DisplayStyle> for u32 {
+    fn from(value: &DisplayStyle) -> Self {
+        match value {
+            DisplayStyle::Pixelated => 0,
+            DisplayStyle::Smoothed => 1,
+            DisplayStyle::CRT => 2,
+            DisplayStyle::Other(value) => *value,
+        }
+    }
+}
+#[cfg(test)]
+mod display_style_open_enum_tests {
+    use super::DisplayStyle;
 
-impl From<DisplayStyle> for u32 {
-    fn from(value: DisplayStyle) -> Self {
-        value as u32
+    #[test]
+    fn unknown_value_round_trips() {
+        let value = DisplayStyle::from(4_000_000_000);
+        assert_eq!(value, DisplayStyle::Other(4_000_000_000));
+        assert_eq!(u32::from(&value), 4_000_000_000);
     }
 }
 
@@ -295,23 +419,37 @@ impl From<DisplayStyle> for u32 {
 /// [`Flasher::render_style`] when [`render_mode`](Flasher::render_mode) is
 /// [`RenderMode::AlphaSeg`].
 ///
-/// These are indices into the 8 alphanumeric segment profile settings arrays.
+/// These are indices into vpinball's 8 alphanumeric segment profile settings arrays.
+///
+/// Values this library does not know are kept in [`SegStyle::Other`] so the
+/// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone, Copy, Default)]
 pub enum SegStyle {
     /// Neon plasma
     #[default]
-    Plasma = 0,
+    Plasma,
     /// VFD blueish
-    BlueVFD = 1,
+    BlueVFD,
     /// VFD greenish
-    GreenVFD = 2,
-    RedLED = 3,
-    GreenLED = 4,
-    YellowLED = 5,
-    GenericPlasma = 6,
-    GenericLED = 7,
+    GreenVFD,
+    /// Red LED
+    RedLED,
+    /// Green LED
+    GreenLED,
+    /// Yellow LED
+    YellowLED,
+    /// Generic plasma profile
+    GenericPlasma,
+    /// Generic LED profile
+    GenericLED,
+    /// A value not known to this library, kept as is.
+    ///
+    /// Must not be constructed with a value that maps to a named variant:
+    /// it would write the same bytes as the named variant and read back as
+    /// it, breaking round-trip equality. The library itself never does
+    /// (`From` normalizes known values to their named variants).
+    Other(u32),
 }
-
 impl From<u32> for SegStyle {
     fn from(value: u32) -> Self {
         match value {
@@ -323,32 +461,69 @@ impl From<u32> for SegStyle {
             5 => SegStyle::YellowLED,
             6 => SegStyle::GenericPlasma,
             7 => SegStyle::GenericLED,
-            _ => panic!("Invalid SegStyle value {value}, expected 0–7"),
+            other => {
+                warn!("Unknown SegStyle value {other}, keeping it as is");
+                SegStyle::Other(other)
+            }
         }
     }
 }
+impl From<&SegStyle> for u32 {
+    fn from(value: &SegStyle) -> Self {
+        match value {
+            SegStyle::Plasma => 0,
+            SegStyle::BlueVFD => 1,
+            SegStyle::GreenVFD => 2,
+            SegStyle::RedLED => 3,
+            SegStyle::GreenLED => 4,
+            SegStyle::YellowLED => 5,
+            SegStyle::GenericPlasma => 6,
+            SegStyle::GenericLED => 7,
+            SegStyle::Other(value) => *value,
+        }
+    }
+}
+#[cfg(test)]
+mod seg_style_open_enum_tests {
+    use super::SegStyle;
 
-impl From<SegStyle> for u32 {
-    fn from(value: SegStyle) -> Self {
-        value as u32
+    #[test]
+    fn unknown_value_round_trips() {
+        let value = SegStyle::from(4_000_000_000);
+        assert_eq!(value, SegStyle::Other(4_000_000_000));
+        assert_eq!(u32::from(&value), 4_000_000_000);
     }
 }
 
 /// Segment display family/shape hint, used as the high bits (`value / 8`) of
 /// [`Flasher::render_style`] when [`render_mode`](Flasher::render_mode) is
-/// [`RenderMode::AlphaSeg`].
+/// [`RenderMode::AlphaSeg`]. Mirrors vpinball's `Renderer::SegmentFamily`.
 ///
 /// Selects the segment shape assets (e.g. `7seg-gts.png`, `7seg-bally.png`).
+///
+/// Values this library does not know are kept in [`SegFamily::Other`] so the
+/// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone, Copy, Default)]
 pub enum SegFamily {
+    /// Generic segment shapes
     #[default]
-    Generic = 0,
-    Gottlieb = 1,
-    Williams = 2,
-    Bally = 3,
-    Atari = 4,
+    Generic,
+    /// Gottlieb segment shapes
+    Gottlieb,
+    /// Williams segment shapes
+    Williams,
+    /// Bally segment shapes
+    Bally,
+    /// Atari segment shapes
+    Atari,
+    /// A value not known to this library, kept as is.
+    ///
+    /// Must not be constructed with a value that maps to a named variant:
+    /// it would write the same bytes as the named variant and read back as
+    /// it, breaking round-trip equality. The library itself never does
+    /// (`From` normalizes known values to their named variants).
+    Other(u32),
 }
-
 impl From<u32> for SegFamily {
     fn from(value: u32) -> Self {
         match value {
@@ -357,14 +532,34 @@ impl From<u32> for SegFamily {
             2 => SegFamily::Williams,
             3 => SegFamily::Bally,
             4 => SegFamily::Atari,
-            _ => panic!("Invalid SegFamily value {value}, expected 0–4"),
+            other => {
+                warn!("Unknown SegFamily value {other}, keeping it as is");
+                SegFamily::Other(other)
+            }
         }
     }
 }
+impl From<&SegFamily> for u32 {
+    fn from(value: &SegFamily) -> Self {
+        match value {
+            SegFamily::Generic => 0,
+            SegFamily::Gottlieb => 1,
+            SegFamily::Williams => 2,
+            SegFamily::Bally => 3,
+            SegFamily::Atari => 4,
+            SegFamily::Other(value) => *value,
+        }
+    }
+}
+#[cfg(test)]
+mod seg_family_open_enum_tests {
+    use super::SegFamily;
 
-impl From<SegFamily> for u32 {
-    fn from(value: SegFamily) -> Self {
-        value as u32
+    #[test]
+    fn unknown_value_round_trips() {
+        let value = SegFamily::from(4_000_000_000);
+        assert_eq!(value, SegFamily::Other(4_000_000_000));
+        assert_eq!(u32::from(&value), 4_000_000_000);
     }
 }
 
@@ -991,10 +1186,10 @@ mod tests {
     }
 
     #[test]
-    #[should_panic = "Error(\"Invalid Filter value foo, expecting \\\"none\\\", \\\"additive\\\", \\\"overlay\\\", \\\"multiply\\\" or \\\"screen\\\"\", line: 0, column: 0)"]
     fn test_filter_json_fail() {
         let json = serde_json::Value::from("foo");
-        let _: Filter = serde_json::from_value(json).unwrap();
+        let err = serde_json::from_value::<Filter>(json).unwrap_err();
+        assert!(err.to_string().contains("unknown variant `foo`"), "{err}");
     }
 }
 
@@ -1005,7 +1200,7 @@ mod json_error_tests {
 
     #[test]
     fn invalid_json_numbers_are_errors_not_panics() {
-        for value in [json!(1.5), json!(-1), json!(99), json!(true), json!(null)] {
+        for value in [json!(1.5), json!(-1), json!(true), json!(null)] {
             assert!(
                 serde_json::from_value::<Filter>(value.clone()).is_err(),
                 "{value}"

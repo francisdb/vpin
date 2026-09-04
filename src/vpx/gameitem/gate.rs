@@ -24,12 +24,12 @@ pub enum GateType {
     /// out-of-range value at load time, but never rewrites the file.
     ///
     /// The raw value is kept here so that files round-trip unchanged.
-    Unknown(u32),
+    Other(u32),
 }
 
 impl GateType {
     /// The gate type to fall back to when the stored value is
-    /// [`GateType::Unknown`] or the `GATY` tag is missing altogether.
+    /// [`GateType::Other`] or the `GATY` tag is missing altogether.
     ///
     /// Visual Pinball coerces any out-of-range gate type to `GateWireW` at load
     /// time (since svn r3583 / git 8cc5a7a1a) and also uses it as the default
@@ -44,7 +44,10 @@ impl From<u32> for GateType {
             2 => GateType::WireRectangle,
             3 => GateType::Plate,
             4 => GateType::LongPlate,
-            other => GateType::Unknown(other),
+            other => {
+                warn!("Unknown GateType value {other}, keeping it as is");
+                GateType::Other(other)
+            }
         }
     }
 }
@@ -56,7 +59,7 @@ impl From<GateType> for u32 {
             GateType::WireRectangle => 2,
             GateType::Plate => 3,
             GateType::LongPlate => 4,
-            GateType::Unknown(value) => value,
+            GateType::Other(value) => value,
         }
     }
 }
@@ -72,7 +75,7 @@ impl Serialize for GateType {
             GateType::WireRectangle => serializer.serialize_str("wire_rectangle"),
             GateType::Plate => serializer.serialize_str("plate"),
             GateType::LongPlate => serializer.serialize_str("long_plate"),
-            GateType::Unknown(value) => serializer.serialize_u32(*value),
+            GateType::Other(value) => serializer.serialize_u32(*value),
         }
     }
 }
@@ -543,15 +546,15 @@ mod tests {
     fn test_gate_type_unknown() {
         // gate type 0 exists in old tables re-saved with 2015-2018 VPX builds,
         // see https://github.com/francisdb/vpin/issues/334
-        assert_eq!(GateType::from(0u32), GateType::Unknown(0));
-        assert_eq!(u32::from(GateType::Unknown(0)), 0u32);
-        assert_eq!(GateType::from(7u32), GateType::Unknown(7));
-        assert_eq!(u32::from(GateType::Unknown(7)), 7u32);
+        assert_eq!(GateType::from(0u32), GateType::Other(0));
+        assert_eq!(u32::from(GateType::Other(0)), 0u32);
+        assert_eq!(GateType::from(7u32), GateType::Other(7));
+        assert_eq!(u32::from(GateType::Other(7)), 7u32);
     }
 
     #[test]
     fn test_gate_type_unknown_json() {
-        let gate_type = GateType::Unknown(0);
+        let gate_type = GateType::Other(0);
         let json = serde_json::to_string(&gate_type).unwrap();
         assert_eq!(json, "0");
         let gate_type_read: GateType = serde_json::from_str(&json).unwrap();
@@ -561,7 +564,7 @@ mod tests {
     #[test]
     fn test_write_read_unknown_gate_type() {
         let gate = Gate {
-            gate_type: Some(GateType::Unknown(0)),
+            gate_type: Some(GateType::Other(0)),
             ..Default::default()
         };
         let mut writer = BiffWriter::new();

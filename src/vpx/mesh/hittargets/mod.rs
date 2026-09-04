@@ -49,7 +49,10 @@ use hit_target_t2_slim_mesh::{HIT_TARGET_T2_SLIM_INDICES, HIT_TARGET_T2_SLIM_MES
 fn get_mesh_for_type(target_type: &TargetType) -> (&'static [Vertex3dNoTex2], &'static [u16]) {
     match target_type {
         TargetType::DropTargetBeveled => (&DROP_TARGET_T2_MESH, &DROP_TARGET_T2_INDICES),
-        TargetType::DropTargetSimple => (&DROP_TARGET_T3_MESH, &DROP_TARGET_T3_INDICES),
+        // vpinball falls back to the simple drop target for unknown types
+        TargetType::DropTargetSimple | TargetType::Other(_) => {
+            (&DROP_TARGET_T3_MESH, &DROP_TARGET_T3_INDICES)
+        }
         TargetType::DropTargetFlatSimple => (&DROP_TARGET_T4_MESH, &DROP_TARGET_T4_INDICES),
         TargetType::HitTargetRound => (&HIT_TARGET_ROUND_MESH, &HIT_TARGET_ROUND_INDICES),
         TargetType::HitTargetRectangle => {

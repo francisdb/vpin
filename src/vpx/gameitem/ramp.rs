@@ -6,17 +6,33 @@ use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// Shape of a ramp, mirroring vpinball's `RampType`.
+///
+/// Values this library does not know are kept in [`RampType::Other`] so the
+/// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum RampType {
-    Flat = 0,
-    FourWire = 1,
-    TwoWire = 2,
-    ThreeWireLeft = 3,
-    ThreeWireRight = 4,
-    OneWire = 5,
+    /// `RampTypeFlat`: solid ramp with a floor and walls.
+    Flat,
+    /// `RampType4Wire`: wire ramp with four wires.
+    FourWire,
+    /// `RampType2Wire`: wire ramp with two wires.
+    TwoWire,
+    /// `RampType3WireLeft`: wire ramp with a third wire on the left.
+    ThreeWireLeft,
+    /// `RampType3WireRight`: wire ramp with a third wire on the right.
+    ThreeWireRight,
+    /// `RampType1Wire`: wire ramp with a single wire.
+    OneWire,
+    /// A value not known to this library, kept as is.
+    ///
+    /// Must not be constructed with a value that maps to a named variant:
+    /// it would write the same bytes as the named variant and read back as
+    /// it, breaking round-trip equality. The library itself never does
+    /// (`From` normalizes known values to their named variants).
+    Other(u32),
 }
-
 impl From<u32> for RampType {
     fn from(value: u32) -> Self {
         match value {
@@ -26,11 +42,13 @@ impl From<u32> for RampType {
             3 => RampType::ThreeWireLeft,
             4 => RampType::ThreeWireRight,
             5 => RampType::OneWire,
-            _ => panic!("Invalid RampType {value}"),
+            other => {
+                warn!("Unknown RampType value {other}, keeping it as is");
+                RampType::Other(other)
+            }
         }
     }
 }
-
 impl From<&RampType> for u32 {
     fn from(value: &RampType) -> Self {
         match value {
@@ -40,15 +58,15 @@ impl From<&RampType> for u32 {
             RampType::ThreeWireLeft => 3,
             RampType::ThreeWireRight => 4,
             RampType::OneWire => 5,
+            RampType::Other(value) => *value,
         }
     }
 }
-
-/// Serializes RampType to lowercase string
+/// Serialize to lowercase string, or the raw number for [`RampType::Other`]
 impl Serialize for RampType {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: Serializer,
+        S: serde::Serializer,
     {
         match self {
             RampType::Flat => serializer.serialize_str("flat"),
@@ -57,44 +75,34 @@ impl Serialize for RampType {
             RampType::ThreeWireLeft => serializer.serialize_str("three_wire_left"),
             RampType::ThreeWireRight => serializer.serialize_str("three_wire_right"),
             RampType::OneWire => serializer.serialize_str("one_wire"),
+            RampType::Other(value) => serializer.serialize_u32(*value),
         }
     }
 }
-
-/// Deserializes RampType from lowercase string
-/// or number for backwards compatibility
+/// Deserialize from lowercase string, or from the raw number
 impl<'de> Deserialize<'de> for RampType {
     fn deserialize<D>(deserializer: D) -> Result<RampType, D::Error>
     where
-        D: Deserializer<'de>,
+        D: serde::Deserializer<'de>,
     {
         struct RampTypeVisitor;
-
         impl serde::de::Visitor<'_> for RampTypeVisitor {
             type Value = RampType;
-
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a string or number representing a TargetType")
+                formatter.write_str("a RampType as lowercase string or number")
             }
-
             fn visit_u64<E>(self, value: u64) -> Result<RampType, E>
             where
                 E: serde::de::Error,
             {
-                match value {
-                    0 => Ok(RampType::Flat),
-                    1 => Ok(RampType::FourWire),
-                    2 => Ok(RampType::TwoWire),
-                    3 => Ok(RampType::ThreeWireLeft),
-                    4 => Ok(RampType::ThreeWireRight),
-                    5 => Ok(RampType::OneWire),
-                    _ => Err(serde::de::Error::unknown_variant(
-                        &value.to_string(),
-                        &["0", "1", "2", "3", "4", "5"],
-                    )),
-                }
+                let value = u32::try_from(value).map_err(|_| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Unsigned(value),
+                        &"a number that fits in u32",
+                    )
+                })?;
+                Ok(RampType::from(value))
             }
-
             fn visit_str<E>(self, value: &str) -> Result<RampType, E>
             where
                 E: serde::de::Error,
@@ -120,8 +128,23 @@ impl<'de> Deserialize<'de> for RampType {
                 }
             }
         }
-
         deserializer.deserialize_any(RampTypeVisitor)
+    }
+}
+#[cfg(test)]
+mod ramp_type_open_enum_tests {
+    use super::RampType;
+
+    #[test]
+    fn unknown_value_round_trips() {
+        let value = RampType::from(4_000_000_000);
+        assert_eq!(value, RampType::Other(4_000_000_000));
+        assert_eq!(u32::from(&value), 4_000_000_000);
+        let json = serde_json::to_value(value.clone()).unwrap();
+        assert_eq!(json, serde_json::json!(4_000_000_000u32));
+        let back: RampType = serde_json::from_value(json).unwrap();
+        assert_eq!(back, value);
+        assert!(serde_json::from_value::<RampType>(serde_json::json!("no_such_variant")).is_err());
     }
 }
 
@@ -638,7 +661,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic = "Error(\"unknown variant `foo`, expected `world` or `wrap`\", line: 0, column: 0)"]
+    #[should_panic = "unknown variant `foo`, expected one of `world`, `wrap`, `unknown`"]
     fn test_image_alignment_json_fail_string() {
         let json = serde_json::Value::from("foo");
         let _: RampImageAlignment = serde_json::from_value(json).unwrap();

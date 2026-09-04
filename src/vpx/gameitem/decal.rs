@@ -7,165 +7,231 @@ use crate::vpx::{
 };
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde_json::Value;
 
+/// What a decal shows, mirroring vpinball's `DecalType`.
+///
+/// Values this library does not know are kept in [`DecalType::Other`] so the
+/// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum DecalType {
-    Text = 0,
-    Image = 1,
+    /// `DecalText`: renders the decal text with its font.
+    Text,
+    /// `DecalImage`: renders the decal image.
+    Image,
+    /// A value not known to this library, kept as is.
+    ///
+    /// Must not be constructed with a value that maps to a named variant:
+    /// it would write the same bytes as the named variant and read back as
+    /// it, breaking round-trip equality. The library itself never does
+    /// (`From` normalizes known values to their named variants).
+    Other(u32),
 }
-
-#[derive(Debug, PartialEq, Clone)]
-#[cfg_attr(test, derive(fake::Dummy))]
-pub enum SizingType {
-    AutoSize = 0,
-    AutoWidth = 1,
-    ManualSize = 2,
-}
-
-impl From<&DecalType> for u32 {
-    fn from(decal_type: &DecalType) -> u32 {
-        match decal_type {
-            DecalType::Text => 0,
-            DecalType::Image => 1,
-        }
-    }
-}
-
 impl From<u32> for DecalType {
     fn from(value: u32) -> Self {
         match value {
             0 => DecalType::Text,
             1 => DecalType::Image,
-            _ => panic!("Invalid value for DecalType: {value}, we expect 0, 1"),
+            other => {
+                warn!("Unknown DecalType value {other}, keeping it as is");
+                DecalType::Other(other)
+            }
         }
     }
 }
-
-/// A serializer for DecalType that writes it as lowercase
+impl From<&DecalType> for u32 {
+    fn from(value: &DecalType) -> Self {
+        match value {
+            DecalType::Text => 0,
+            DecalType::Image => 1,
+            DecalType::Other(value) => *value,
+        }
+    }
+}
+/// Serialize to lowercase string, or the raw number for [`DecalType::Other`]
 impl Serialize for DecalType {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: Serializer,
+        S: serde::Serializer,
     {
-        let value = match self {
-            DecalType::Text => "text",
-            DecalType::Image => "image",
-        };
-        serializer.serialize_str(value)
+        match self {
+            DecalType::Text => serializer.serialize_str("text"),
+            DecalType::Image => serializer.serialize_str("image"),
+            DecalType::Other(value) => serializer.serialize_u32(*value),
+        }
     }
 }
-
-/// A deserializer for DecalType that reads it as lowercase
-/// or number for backwards compatibility.
+/// Deserialize from lowercase string, or from the raw number
 impl<'de> Deserialize<'de> for DecalType {
     fn deserialize<D>(deserializer: D) -> Result<DecalType, D::Error>
     where
-        D: Deserializer<'de>,
+        D: serde::Deserializer<'de>,
     {
-        let value = Value::deserialize(deserializer);
-        match value {
-            Ok(Value::String(value)) => match value.as_str() {
-                "text" => Ok(DecalType::Text),
-                "image" => Ok(DecalType::Image),
-                _ => Err(serde::de::Error::custom(format!(
-                    "Invalid value for DecalType: {value}, we expect \"text\", \"image\""
-                ))),
-            },
-            Ok(Value::Number(value)) => {
-                let Some(value) = value.as_u64() else {
-                    return Err(serde::de::Error::custom(format!(
-                        "Invalid value {value}, we expect a non-negative integer"
-                    )));
-                };
+        struct DecalTypeVisitor;
+        impl serde::de::Visitor<'_> for DecalTypeVisitor {
+            type Value = DecalType;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a DecalType as lowercase string or number")
+            }
+            fn visit_u64<E>(self, value: u64) -> Result<DecalType, E>
+            where
+                E: serde::de::Error,
+            {
+                let value = u32::try_from(value).map_err(|_| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Unsigned(value),
+                        &"a number that fits in u32",
+                    )
+                })?;
+                Ok(DecalType::from(value))
+            }
+            fn visit_str<E>(self, value: &str) -> Result<DecalType, E>
+            where
+                E: serde::de::Error,
+            {
                 match value {
-                    0 => Ok(DecalType::Text),
-                    1 => Ok(DecalType::Image),
-                    _ => Err(serde::de::Error::custom(format!(
-                        "Invalid value for DecalType: {value}, we expect 0, 1"
-                    ))),
+                    "text" => Ok(DecalType::Text),
+                    "image" => Ok(DecalType::Image),
+                    _ => Err(serde::de::Error::unknown_variant(value, &["text", "image"])),
                 }
             }
-            _ => Err(serde::de::Error::custom(format!(
-                "Invalid value for DecalType: {value:?}, we expect a string or a number"
-            ))),
         }
+        deserializer.deserialize_any(DecalTypeVisitor)
+    }
+}
+#[cfg(test)]
+mod decal_type_open_enum_tests {
+    use super::DecalType;
+
+    #[test]
+    fn unknown_value_round_trips() {
+        let value = DecalType::from(4_000_000_000);
+        assert_eq!(value, DecalType::Other(4_000_000_000));
+        assert_eq!(u32::from(&value), 4_000_000_000);
+        let json = serde_json::to_value(value.clone()).unwrap();
+        assert_eq!(json, serde_json::json!(4_000_000_000u32));
+        let back: DecalType = serde_json::from_value(json).unwrap();
+        assert_eq!(back, value);
+        assert!(serde_json::from_value::<DecalType>(serde_json::json!("no_such_variant")).is_err());
     }
 }
 
-impl From<&SizingType> for u32 {
-    fn from(sizing_type: &SizingType) -> u32 {
-        match sizing_type {
-            SizingType::AutoSize => 0,
-            SizingType::AutoWidth => 1,
-            SizingType::ManualSize => 2,
-        }
-    }
+/// How a decal is sized, mirroring vpinball's `SizingType`.
+///
+/// Values this library does not know are kept in [`SizingType::Other`] so the
+/// table round-trips unchanged; reading one logs a warning.
+#[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(test, derive(fake::Dummy))]
+pub enum SizingType {
+    /// `AutoSize`: width and height follow the content.
+    AutoSize,
+    /// `AutoWidth`: the width follows the content, the height is set manually.
+    AutoWidth,
+    /// `ManualSize`: width and height are set manually.
+    ManualSize,
+    /// A value not known to this library, kept as is.
+    ///
+    /// Must not be constructed with a value that maps to a named variant:
+    /// it would write the same bytes as the named variant and read back as
+    /// it, breaking round-trip equality. The library itself never does
+    /// (`From` normalizes known values to their named variants).
+    Other(u32),
 }
-
 impl From<u32> for SizingType {
     fn from(value: u32) -> Self {
         match value {
             0 => SizingType::AutoSize,
             1 => SizingType::AutoWidth,
             2 => SizingType::ManualSize,
-            _ => panic!("Invalid value for SizingType: {value}, we expect 0, 1, 2"),
+            other => {
+                warn!("Unknown SizingType value {other}, keeping it as is");
+                SizingType::Other(other)
+            }
         }
     }
 }
-
-/// A serializer for SizingType that writes it as lowercase
+impl From<&SizingType> for u32 {
+    fn from(value: &SizingType) -> Self {
+        match value {
+            SizingType::AutoSize => 0,
+            SizingType::AutoWidth => 1,
+            SizingType::ManualSize => 2,
+            SizingType::Other(value) => *value,
+        }
+    }
+}
+/// Serialize to lowercase string, or the raw number for [`SizingType::Other`]
 impl Serialize for SizingType {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: Serializer,
+        S: serde::Serializer,
     {
-        let value = match self {
-            SizingType::AutoSize => "auto_size",
-            SizingType::AutoWidth => "auto_width",
-            SizingType::ManualSize => "manual_size",
-        };
-        serializer.serialize_str(value)
+        match self {
+            SizingType::AutoSize => serializer.serialize_str("auto_size"),
+            SizingType::AutoWidth => serializer.serialize_str("auto_width"),
+            SizingType::ManualSize => serializer.serialize_str("manual_size"),
+            SizingType::Other(value) => serializer.serialize_u32(*value),
+        }
     }
 }
-
-/// A deserializer for SizingType that reads it as lowercase
-/// or number for backwards compatibility.
+/// Deserialize from lowercase string, or from the raw number
 impl<'de> Deserialize<'de> for SizingType {
     fn deserialize<D>(deserializer: D) -> Result<SizingType, D::Error>
     where
-        D: Deserializer<'de>,
+        D: serde::Deserializer<'de>,
     {
-        let value = Value::deserialize(deserializer);
-        match value {
-            Ok(Value::String(value)) => match value.as_str() {
-                "auto_size" => Ok(SizingType::AutoSize),
-                "auto_width" => Ok(SizingType::AutoWidth),
-                "manual_size" => Ok(SizingType::ManualSize),
-                _ => Err(serde::de::Error::custom(format!(
-                    "Invalid value for SizingType: {value}, we expect \"auto_size\", \"auto_width\", \"manual_size\""
-                ))),
-            },
-            Ok(Value::Number(value)) => {
-                let Some(value) = value.as_u64() else {
-                    return Err(serde::de::Error::custom(format!(
-                        "Invalid value {value}, we expect a non-negative integer"
-                    )));
-                };
+        struct SizingTypeVisitor;
+        impl serde::de::Visitor<'_> for SizingTypeVisitor {
+            type Value = SizingType;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a SizingType as lowercase string or number")
+            }
+            fn visit_u64<E>(self, value: u64) -> Result<SizingType, E>
+            where
+                E: serde::de::Error,
+            {
+                let value = u32::try_from(value).map_err(|_| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Unsigned(value),
+                        &"a number that fits in u32",
+                    )
+                })?;
+                Ok(SizingType::from(value))
+            }
+            fn visit_str<E>(self, value: &str) -> Result<SizingType, E>
+            where
+                E: serde::de::Error,
+            {
                 match value {
-                    0 => Ok(SizingType::AutoSize),
-                    1 => Ok(SizingType::AutoWidth),
-                    2 => Ok(SizingType::ManualSize),
-                    _ => Err(serde::de::Error::custom(format!(
-                        "Invalid value for SizingType: {value}, we expect 0, 1, 2"
-                    ))),
+                    "auto_size" => Ok(SizingType::AutoSize),
+                    "auto_width" => Ok(SizingType::AutoWidth),
+                    "manual_size" => Ok(SizingType::ManualSize),
+                    _ => Err(serde::de::Error::unknown_variant(
+                        value,
+                        &["auto_size", "auto_width", "manual_size"],
+                    )),
                 }
             }
-            _ => Err(serde::de::Error::custom(format!(
-                "Invalid value for SizingType: {value:?}, we expect a string or a number"
-            ))),
         }
+        deserializer.deserialize_any(SizingTypeVisitor)
+    }
+}
+#[cfg(test)]
+mod sizing_type_open_enum_tests {
+    use super::SizingType;
+
+    #[test]
+    fn unknown_value_round_trips() {
+        let value = SizingType::from(4_000_000_000);
+        assert_eq!(value, SizingType::Other(4_000_000_000));
+        assert_eq!(u32::from(&value), 4_000_000_000);
+        let json = serde_json::to_value(value.clone()).unwrap();
+        assert_eq!(json, serde_json::json!(4_000_000_000u32));
+        let back: SizingType = serde_json::from_value(json).unwrap();
+        assert_eq!(back, value);
+        assert!(
+            serde_json::from_value::<SizingType>(serde_json::json!("no_such_variant")).is_err()
+        );
     }
 }
 
@@ -518,10 +584,10 @@ mod tests {
     }
 
     #[test]
-    #[should_panic = "Error(\"Invalid value for SizingType: foo, we expect \\\"auto_size\\\", \\\"auto_width\\\", \\\"manual_size\\\"\", line: 0, column: 0)"]
     fn test_sizing_type_json_fail() {
         let json: Value = serde_json::Value::from("foo");
-        let _: SizingType = serde_json::from_value(json).unwrap();
+        let err = serde_json::from_value::<SizingType>(json).unwrap_err();
+        assert!(err.to_string().contains("unknown variant `foo`"), "{err}");
     }
 }
 
@@ -532,7 +598,7 @@ mod json_error_tests {
 
     #[test]
     fn invalid_json_numbers_are_errors_not_panics() {
-        for value in [json!(1.5), json!(-1), json!(99), json!(true), json!(null)] {
+        for value in [json!(1.5), json!(-1), json!(true), json!(null)] {
             assert!(
                 serde_json::from_value::<DecalType>(value.clone()).is_err(),
                 "{value}"
