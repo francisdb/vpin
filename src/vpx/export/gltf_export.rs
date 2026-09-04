@@ -2897,7 +2897,7 @@ fn build_combined_gltf_payload(
 
     // Create cameras for all three view modes (Desktop, Fullscreen, FSS)
     // Each provides a different view of the table based on VPinball's view settings
-    let cameras = GltfCamera::all_from_vpx(vpx);
+    let cameras = GltfCamera::all_from_vpx(vpx, units);
 
     // Add all cameras to glTF
     let gltf_cameras: Vec<_> = cameras.iter().map(|c| c.to_gltf_camera_json()).collect();
@@ -3044,12 +3044,18 @@ pub struct GltfExportOptions {
     /// `KHR_node_visibility`.
     pub export_invisible_items: bool,
 
-    /// Output unit for vertex positions and translations.
+    /// Output unit for vertex positions and translations, including the
+    /// camera positions and clip planes.
     ///
-    /// Defaults to [`ExportUnits::M`] - matches the historical
-    /// behaviour of this exporter (and is the canonical glTF unit).
-    /// Other variants are useful when feeding the result into a
-    /// pipeline that expects a different scale.
+    /// Defaults to [`ExportUnits::M`].
+    ///
+    /// **The glTF specification defines all linear distances as meters**,
+    /// so any other value produces a technically non-conforming file:
+    /// a spec-abiding viewer will show a giant (VPU) or oversized (mm/cm)
+    /// scene. The other variants exist only for pipelines that treat the
+    /// numbers as arbitrary units and expect a different scale; the whole
+    /// scene (meshes, cameras, clip planes) stays internally consistent
+    /// at whatever unit is chosen.
     pub units: ExportUnits,
 }
 
