@@ -196,6 +196,7 @@ impl BiffRead for DragPoint {
             }
         }
         let pos = sub_data.pos();
+        reader.absorb(&sub_data);
         reader.skip_end_tag(pos);
         dragpoint
     }

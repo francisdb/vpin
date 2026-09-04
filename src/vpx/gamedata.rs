@@ -43,6 +43,7 @@ use crate::vpx::renderprobe::RenderProbeWithGarbage;
 use bytes::{Buf, BufMut, BytesMut};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::io;
 
 /// VPinball's editor default for per-table detail level. Used as a fallback
 /// when [`GameData::user_detail_level`] is `None`.
@@ -2084,7 +2085,11 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
     writer.get_data().to_vec()
 }
 
-pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
+/// Read the `GameData` stream.
+///
+/// Fails with [`io::ErrorKind::InvalidData`] when the stream is truncated or
+/// structurally invalid instead of panicking.
+pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> io::Result<GameData> {
     let mut reader = BiffReader::new(input);
     let mut gamedata = GameData::default();
     let mut previous_tag = String::new();
@@ -2260,7 +2265,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
                 let mut materials: Vec<SaveMaterial> = Vec::new();
                 let mut buff = BytesMut::from(data.as_slice());
                 for _ in 0..gamedata.materials_size {
-                    let material = SaveMaterial::read(&mut buff);
+                    let material = SaveMaterial::read(&mut buff)?;
                     materials.push(material);
                 }
                 gamedata.materials_old = materials;
@@ -2270,7 +2275,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
                 let mut materials: Vec<SavePhysicsMaterial> = Vec::new();
                 let mut buff = BytesMut::from(data.as_slice());
                 for _ in 0..gamedata.materials_size {
-                    let material = SavePhysicsMaterial::read(&mut buff);
+                    let material = SavePhysicsMaterial::read(&mut buff)?;
                     materials.push(material);
                 }
                 gamedata.materials_physics_old = Some(materials);
@@ -2278,8 +2283,9 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             // see https://github.com/vpinball/vpinball/blob/1a994086a6092733272fda36a2f449753a1ca21a/pintable.cpp#L4429
             "MATR" => {
                 let data = reader.get_record_data(false).to_vec();
-                let mut reader = BiffReader::new(&data);
-                let material = Material::biff_read(&mut reader);
+                let mut material_reader = BiffReader::new(&data);
+                let material = Material::biff_read(&mut material_reader);
+                material_reader.check()?;
                 gamedata
                     .materials
                     .get_or_insert_with(Vec::new)
@@ -2287,8 +2293,9 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             }
             "RPRB" => {
                 let data = reader.get_record_data(false).to_vec();
-                let mut reader = BiffReader::new(&data);
-                let render_probe = RenderProbeWithGarbage::biff_read(&mut reader);
+                let mut probe_reader = BiffReader::new(&data);
+                let render_probe = RenderProbeWithGarbage::biff_read(&mut probe_reader);
+                probe_reader.check()?;
                 gamedata
                     .render_probes
                     .get_or_insert_with(Vec::new)
@@ -2302,8 +2309,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
             "NAME" => gamedata.name = reader.get_wide_string(),
             "CCUS" => {
                 let data = reader.get_record_data(false);
-                let custom_colors = read_colors(data);
-                gamedata.custom_colors = custom_colors;
+                gamedata.custom_colors = read_colors(&data)?;
             }
             "SECB" => gamedata.protection_data = Some(reader.get_record_data(false).to_vec()),
             "CODE" => {
@@ -2319,19 +2325,23 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> GameData {
         };
         previous_tag = tag;
     }
-    gamedata
+    reader.check()?;
+    Ok(gamedata)
 }
 
-fn read_colors(data: Vec<u8>) -> [Color; 16] {
+fn read_colors(data: &[u8]) -> io::Result<[Color; 16]> {
     // COLORREF: 0x00BBGGRR
     // sizeof(COLORREF) * 16
-    let mut colors = Vec::new();
-    let mut buff = BytesMut::from(data.as_slice());
-    for _ in 0..16 {
-        let color = Color::from_win_color(buff.get_u32_le());
-        colors.push(color);
+    if data.len() < 16 * 4 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("CCUS record holds {} bytes, expected 64", data.len()),
+        ));
     }
-    <[Color; 16]>::try_from(colors).unwrap()
+    let mut buff = BytesMut::from(data);
+    Ok(std::array::from_fn(|_| {
+        Color::from_win_color(buff.get_u32_le())
+    }))
 }
 
 fn write_colors(colors: &[Color; 16]) -> Vec<u8> {
@@ -2393,7 +2403,7 @@ mod tests {
         let game_data = GameData::default();
         let version: Version = Version::new(1074);
         let bytes = write_all_gamedata_records(&game_data, &version);
-        let read_game_data = read_all_gamedata_records(&bytes, &version);
+        let read_game_data = read_all_gamedata_records(&bytes, &version).unwrap();
 
         assert_eq!(game_data, read_game_data);
     }
@@ -2558,7 +2568,7 @@ mod tests {
         };
         let version = Version::new(1074);
         let bytes = write_all_gamedata_records(&gamedata, &version);
-        let read_game_data = read_all_gamedata_records(&bytes, &version);
+        let read_game_data = read_all_gamedata_records(&bytes, &version).unwrap();
 
         assert_eq!(gamedata, read_game_data);
     }
@@ -2570,7 +2580,52 @@ mod tests {
             *color = Faker.fake();
         }
         let bytes = write_colors(&colors);
-        let read_colors = read_colors(bytes);
+        let read_colors = read_colors(&bytes).unwrap();
         assert_eq!(colors, read_colors);
+    }
+}
+
+#[cfg(test)]
+mod corrupt_input_tests {
+    use super::*;
+    use crate::vpx::biff::BiffWriter;
+
+    #[test]
+    fn truncated_gamedata_fails_without_panicking() {
+        let version = Version::new(1074);
+        let bytes = write_all_gamedata_records(&GameData::default(), &version);
+        assert!(read_all_gamedata_records(&bytes, &version).is_ok());
+        for len in 0..bytes.len() {
+            let result = read_all_gamedata_records(&bytes[..len], &version);
+            let err = match result {
+                Ok(_) => panic!("truncated to {len}/{} bytes should fail", bytes.len()),
+                Err(e) => e,
+            };
+            assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        }
+    }
+
+    #[test]
+    fn short_material_records_fail() {
+        for tag in ["MATE", "PHMA"] {
+            let mut writer = BiffWriter::new();
+            writer.write_tagged_u32("MASI", 3);
+            writer.write_tagged_data(tag, &[0u8; 10]);
+            writer.close(true);
+            let err =
+                read_all_gamedata_records(writer.get_data(), &Version::new(1074)).unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+            assert!(err.to_string().contains(tag), "{err}");
+        }
+    }
+
+    #[test]
+    fn short_custom_colors_record_fails() {
+        let mut writer = BiffWriter::new();
+        writer.write_tagged_data("CCUS", &[0u8; 10]);
+        writer.close(true);
+        let err = read_all_gamedata_records(writer.get_data(), &Version::new(1074)).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("CCUS"), "{err}");
     }
 }

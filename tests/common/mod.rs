@@ -289,7 +289,7 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, usize, u
                 // up with the same compressed size but different compressed data.
                 // However, vpinball can also read the standard lzw stream we write.
                 // So for these images we look at the raw data hash.
-                let decompressed = from_lzw_blocks(&data);
+                let decompressed = from_lzw_blocks(&data).expect("corrupt BITS data");
                 let hash = hash_data(&decompressed);
                 tags.push((
                     "BITS (decompressed)".to_string(),

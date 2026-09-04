@@ -2,6 +2,7 @@ use super::biff::{self, BiffReader, BiffWriter};
 use log::warn;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::io;
 
 // TODO comment here a vpx file that contains font data
 
@@ -55,7 +56,11 @@ impl FontData {
     }
 }
 
-pub fn read(input: &[u8]) -> FontData {
+/// Read a font from the bytes of a `FontN` stream.
+///
+/// Fails with [`io::ErrorKind::InvalidData`] when the stream is truncated or
+/// structurally invalid instead of panicking.
+pub fn read(input: &[u8]) -> io::Result<FontData> {
     let mut reader = BiffReader::new(input);
     let mut name: String = "".to_string();
     let mut path: String = "".to_string();
@@ -80,12 +85,10 @@ pub fn read(input: &[u8]) -> FontData {
             }
             "DATA" => match size_opt {
                 Some(size) => {
-                    let d = reader.get_data(size.try_into().unwrap());
+                    let d = reader.get_data(size as usize);
                     d.clone_into(&mut data);
                 }
-                None => {
-                    panic!("DATA tag without SIZE tag");
-                }
+                None => reader.fail("DATA tag without SIZE tag"),
             },
             _ => {
                 warn!("Skipping font tag: {tag_str}");
@@ -93,7 +96,8 @@ pub fn read(input: &[u8]) -> FontData {
             }
         }
     }
-    FontData { name, path, data }
+    reader.check()?;
+    Ok(FontData { name, path, data })
 }
 
 pub fn write(font_data: &FontData) -> Vec<u8> {
@@ -116,7 +120,36 @@ fn read_write() {
         data: vec![1, 2, 3, 4],
     };
     let bytes = write(&font);
-    let font_read = read(&bytes);
+    let font_read = read(&bytes).unwrap();
 
     assert_eq!(font, font_read);
+}
+
+#[cfg(test)]
+mod corrupt_input_tests {
+    use super::*;
+    use crate::vpx::biff::BiffWriter;
+
+    #[test]
+    fn truncated_font_fails_without_panicking() {
+        let font = FontData {
+            name: "font".to_string(),
+            path: "font.ttf".to_string(),
+            data: vec![1, 2, 3, 4, 5, 6],
+        };
+        let bytes = write(&font);
+        assert!(read(&bytes).is_ok());
+        for len in 0..bytes.len() {
+            assert!(read(&bytes[..len]).is_err(), "truncated to {len}");
+        }
+    }
+
+    #[test]
+    fn data_without_size_fails() {
+        let mut writer = BiffWriter::new();
+        writer.write_tagged_data("DATA", &[1, 2, 3]);
+        writer.close(true);
+        let err = read(writer.get_data()).unwrap_err();
+        assert!(err.to_string().contains("SIZE"), "{err}");
+    }
 }

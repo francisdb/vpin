@@ -5,6 +5,7 @@ use log::warn;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::io;
 
 #[derive(PartialEq, Clone)]
 pub struct ImageDataJpeg {
@@ -412,6 +413,7 @@ fn read(reader: &mut BiffReader) -> ImageData {
                 let jpeg_data = read_jpeg(&mut sub_reader);
                 image_data.jpeg = Some(jpeg_data);
                 let pos = sub_reader.pos();
+                reader.absorb(&sub_reader);
                 reader.skip_end_tag(pos);
             }
             "LINK" => {
@@ -422,9 +424,11 @@ fn read(reader: &mut BiffReader) -> ImageData {
             }
             "MD5H" => {
                 let data = reader.get_data(16);
-                let mut hash = [0u8; 16];
-                hash.copy_from_slice(data);
-                image_data.md5_hash = Some(hash);
+                if data.len() == 16 {
+                    let mut hash = [0u8; 16];
+                    hash.copy_from_slice(data);
+                    image_data.md5_hash = Some(hash);
+                }
             }
             _ => {
                 warn!("Skipping image tag: {tag}");
@@ -486,10 +490,8 @@ fn read_jpeg(reader: &mut BiffReader) -> ImageDataJpeg {
                 size_opt = Some(reader.get_u32());
             }
             "DATA" => match size_opt {
-                Some(size) => data = reader.get_data(size.try_into().unwrap()).to_vec(),
-                None => {
-                    panic!("DATA tag without SIZE tag");
-                }
+                Some(size) => data = reader.get_data(size as usize).to_vec(),
+                None => reader.fail("DATA tag without SIZE tag"),
             },
             "NAME" => name = reader.get_string(),
             "PATH" => path = reader.get_string(),
@@ -526,16 +528,28 @@ fn write_jpg(img: &ImageDataJpeg) -> Vec<u8> {
     writer.get_data().to_vec()
 }
 
+/// Decode the LZW compressed BGRA bitmap of a `BITS` record.
+///
+/// Fails with [`io::ErrorKind::InvalidData`] when the data is corrupt or
+/// does not match the given dimensions.
 pub(crate) fn vpx_image_to_dynamic_image(
     lzw_compressed_data: &[u8],
     width: u32,
     height: u32,
-) -> DynamicImage {
-    let decompressed_bgra = from_lzw_blocks(lzw_compressed_data);
+) -> io::Result<DynamicImage> {
+    let decompressed_bgra = from_lzw_blocks(lzw_compressed_data)?;
     let decompressed_rgba: Vec<u8> = swap_red_and_blue(&decompressed_bgra);
 
-    let rgba_image = image::RgbaImage::from_raw(width, height, decompressed_rgba)
-        .expect("Decompressed image data does not match dimensions");
+    let rgba_image =
+        image::RgbaImage::from_raw(width, height, decompressed_rgba).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "Decompressed image data ({} bytes) does not match {width}x{height} RGBA",
+                    decompressed_bgra.len()
+                ),
+            )
+        })?;
     let dynamic_image = DynamicImage::ImageRgba8(rgba_image);
 
     let uses_alpha = decompressed_bgra
@@ -544,10 +558,10 @@ pub(crate) fn vpx_image_to_dynamic_image(
         .iter()
         .any(|bgra| bgra[3] != 255);
     if uses_alpha {
-        dynamic_image
+        Ok(dynamic_image)
     } else {
         let rgb_image = dynamic_image.to_rgb8();
-        DynamicImage::ImageRgb8(rgb_image)
+        Ok(DynamicImage::ImageRgb8(rgb_image))
     }
 }
 
@@ -586,7 +600,9 @@ pub fn image_has_transparency(image: &ImageData) -> bool {
     // Check bitmap data - scan for any non-opaque pixels
     if let Some(ref bits) = image.bits {
         // Decompress and check raw BGRA data directly (alpha is at index 3)
-        let decompressed_bgra = from_lzw_blocks(&bits.lzw_compressed_data);
+        let Ok(decompressed_bgra) = from_lzw_blocks(&bits.lzw_compressed_data) else {
+            return false;
+        };
         return decompressed_bgra
             .as_chunks::<4>()
             .0
@@ -729,5 +745,77 @@ mod test {
         image_read.width = 1;
         image_read.height = 2;
         assert_eq!(image, image_read);
+    }
+}
+
+#[cfg(test)]
+mod corrupt_input_tests {
+    use super::*;
+
+    fn image_with_jpeg() -> ImageData {
+        ImageData {
+            name: "name_value".to_string(),
+            internal_name: None,
+            path: "path_value.png".to_string(),
+            width: 1,
+            height: 2,
+            link: None,
+            alpha_test_value: 1.0,
+            is_opaque: Some(true),
+            is_signed: Some(false),
+            jpeg: Some(ImageDataJpeg {
+                path: "path_value.png".to_string(),
+                name: "name_value".to_string(),
+                internal_name: None,
+                data: vec![1, 2, 3, 4, 5, 6, 7, 8],
+            }),
+            bits: None,
+            md5_hash: Some([7; 16]),
+        }
+    }
+
+    #[test]
+    fn truncated_image_fails_without_panicking() {
+        let mut writer = BiffWriter::new();
+        image_with_jpeg().biff_write(&mut writer);
+        let bytes = writer.get_data().to_vec();
+        for len in 0..bytes.len() {
+            let mut reader = BiffReader::new(&bytes[..len]);
+            let _ = ImageData::biff_read(&mut reader);
+            assert!(
+                reader.check().is_err(),
+                "truncated to {len}/{} bytes",
+                bytes.len()
+            );
+        }
+    }
+
+    #[test]
+    fn bits_without_altv_fails() {
+        let mut image = image_with_jpeg();
+        image.jpeg = None;
+        image.bits = Some(ImageDataBits {
+            lzw_compressed_data: vec![1, 2, 3],
+        });
+        let mut writer = BiffWriter::new();
+        image.biff_write(&mut writer);
+        let bytes = writer.get_data().to_vec();
+        // cut right after the BITS payload so the ALTV tag is gone
+        let cut = bytes.len() - 8 - 4 - 8 - 8 - 8 - 20;
+        let mut reader = BiffReader::new(&bytes[..cut]);
+        let _ = ImageData::biff_read(&mut reader);
+        assert!(reader.check().is_err());
+    }
+
+    #[test]
+    fn corrupt_bits_data_fails() {
+        // block claims 200 bytes but only 3 follow
+        let err = vpx_image_to_dynamic_image(&[200, 1, 2, 3], 2, 2).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        // valid lzw data that does not match the dimensions
+        let compressed = crate::vpx::lzw::to_lzw_blocks(&[0u8; 16]);
+        let err = vpx_image_to_dynamic_image(&compressed, 3, 3).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("does not match"), "{err}");
     }
 }

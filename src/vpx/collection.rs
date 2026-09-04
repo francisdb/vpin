@@ -1,5 +1,6 @@
 use super::biff::{self, BiffReader, BiffWriter};
 use log::warn;
+use std::io;
 // TODO comment here a vpx file that contains font data
 
 #[derive(PartialEq, Debug)]
@@ -12,7 +13,11 @@ pub struct Collection {
     pub group_elements: bool,
 }
 
-pub fn read(input: &[u8]) -> Collection {
+/// Read a collection from the bytes of a `CollectionN` stream.
+///
+/// Fails with [`io::ErrorKind::InvalidData`] when the stream is truncated or
+/// structurally invalid instead of panicking.
+pub fn read(input: &[u8]) -> io::Result<Collection> {
     let mut reader = BiffReader::new(input);
     let mut name: String = "".to_string();
     let mut items: Vec<String> = vec![];
@@ -49,13 +54,14 @@ pub fn read(input: &[u8]) -> Collection {
             }
         }
     }
-    Collection {
+    reader.check()?;
+    Ok(Collection {
         name,
         items,
         fire_events,
         stop_single_events,
         group_elements,
-    }
+    })
 }
 
 pub fn write(collection: &Collection) -> Vec<u8> {
@@ -86,7 +92,28 @@ mod test {
             group_elements: true,
         };
         let data = write(&collection);
-        let collection2 = read(&data);
+        let collection2 = read(&data).unwrap();
         assert_eq!(collection, collection2);
+    }
+}
+
+#[cfg(test)]
+mod corrupt_input_tests {
+    use super::*;
+
+    #[test]
+    fn truncated_collection_fails_without_panicking() {
+        let collection = Collection {
+            name: "collection".to_string(),
+            items: vec!["a".to_string(), "b".to_string()],
+            fire_events: true,
+            stop_single_events: false,
+            group_elements: true,
+        };
+        let bytes = write(&collection);
+        assert!(read(&bytes).is_ok());
+        for len in 0..bytes.len() {
+            assert!(read(&bytes[..len]).is_err(), "truncated to {len}");
+        }
     }
 }

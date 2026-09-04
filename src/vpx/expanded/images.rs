@@ -208,7 +208,7 @@ fn write_image_bmp(
     height: u32,
     fs: &dyn FileSystem,
 ) -> io::Result<()> {
-    let image_to_save = vpx_image_to_dynamic_image(lzw_compressed_data, width, height);
+    let image_to_save = vpx_image_to_dynamic_image(lzw_compressed_data, width, height)?;
     if image_to_save.color().has_alpha() {
         // One example is the table "Guns N Roses (Data East 1994).vpx"
         // that contains vp9 images with non-255 alpha values.
