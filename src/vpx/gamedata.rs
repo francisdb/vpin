@@ -27,8 +27,6 @@
 //! - **Window**: Viewer position relative to screen bottom center, oblique projection for
 //!   "magic window" effect on cabinet glass
 
-#![allow(dead_code)]
-
 use super::{
     biff::{self, BiffReader, BiffWriter},
     model::StringWithEncoding,
