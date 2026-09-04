@@ -7,7 +7,7 @@ use std::{
     path::{MAIN_SEPARATOR_STR, Path},
 };
 
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use crate::vpx::le::{ReadLe, WriteLe};
 use cfb::{CompoundFile, Stream};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -84,7 +84,7 @@ pub(crate) fn write_version<F: Read + Write + Seek>(
 }
 
 fn read_version_data<F: Read + Seek>(stream: &mut Stream<F>) -> io::Result<Version> {
-    let version = stream.read_u32::<LittleEndian>()?;
+    let version = stream.read_u32_le()?;
     Ok(Version(version))
 }
 
@@ -92,7 +92,7 @@ fn write_version_data<F: Read + Write + Seek>(
     version: &Version,
     stream: &mut Stream<F>,
 ) -> io::Result<()> {
-    stream.write_u32::<LittleEndian>(version.0)?;
+    stream.write_u32_le(version.0)?;
     Ok(())
 }
 

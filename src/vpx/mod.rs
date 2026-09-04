@@ -55,6 +55,7 @@ pub mod gamedata;
 pub mod gameitem;
 pub mod image;
 pub mod jsonmodel;
+pub(crate) mod le;
 pub mod math;
 pub mod model;
 pub mod sound;
