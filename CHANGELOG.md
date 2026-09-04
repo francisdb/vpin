@@ -6,6 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.0](https://github.com/francisdb/vpin/compare/v0.28.2...v0.29.0) - 2026-09-04
+
+### Added
+
+- expose GLB export to wasm, whole table and single mesh ([#367](https://github.com/francisdb/vpin/pull/367))
+- [**breaking**] replace convert_to_left_handed with a MeshIoOptions object in wasm mesh I/O ([#366](https://github.com/francisdb/vpin/pull/366))
+- make the obj export axis convention selectable ([#363](https://github.com/francisdb/vpin/pull/363))
+- add AxisConvention and use it in the gltf export ([#358](https://github.com/francisdb/vpin/pull/358))
+
+### Fixed
+
+- make the gltf export output deterministic ([#359](https://github.com/francisdb/vpin/pull/359))
+
+### Other
+
+- *(deps)* bump taiki-e/install-action from 2.86.5 to 2.87.0 ([#364](https://github.com/francisdb/vpin/pull/364))
+- exporter groundwork for the obj axis convention work ([#361](https://github.com/francisdb/vpin/pull/361))
+
 ## [0.28.2](https://github.com/francisdb/vpin/compare/v0.28.1...v0.28.2) - 2026-08-27
 
 ### Fixed
