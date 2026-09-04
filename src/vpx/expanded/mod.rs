@@ -201,7 +201,8 @@ pub fn write_fs<P: AsRef<Path>>(
     info!("✓ {} Collections written", vpx.collections.len());
 
     info!("Writing game items...");
-    gameitems::write_gameitems(&vpx.gameitems, expanded_dir, options, fs)?;
+    let table_dims = crate::vpx::TableDimensions::from_gamedata(&vpx.gamedata);
+    gameitems::write_gameitems(&vpx.gameitems, expanded_dir, options, &table_dims, fs)?;
     info!("✓ {} Game items written", vpx.gameitems.len());
 
     info!("Writing images...");
@@ -463,6 +464,59 @@ mod tests {
     // See lzw_writer tests on what colors these are.
     const LZW_COMPRESSED_DATA: [u8; 14] =
         [13, 0, 255, 169, 82, 37, 176, 224, 192, 127, 8, 19, 6, 4];
+
+    #[test]
+    fn derived_meshes_use_the_table_dimensions() {
+        // Flasher UVs are world-aligned to the table bounds, so the
+        // derived mesh must change when the table size does; the bounds
+        // used to be hardcoded to 952x2162.
+        use crate::vpx::gameitem::dragpoint::DragPoint;
+        use crate::vpx::gameitem::flasher::Flasher;
+
+        fn write(right: f32, bottom: f32) -> Vec<u8> {
+            let drag_point = |x: f32, y: f32| DragPoint {
+                x,
+                y,
+                ..Default::default()
+            };
+            let flasher = Flasher {
+                name: "Flasher1".to_string(),
+                height: 50.0,
+                // World alignment maps UVs to table coordinates - the
+                // mode that actually consumes the table bounds.
+                image_alignment:
+                    crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment::World,
+                drag_points: vec![
+                    drag_point(100.0, 100.0),
+                    drag_point(100.0, 400.0),
+                    drag_point(400.0, 400.0),
+                    drag_point(400.0, 100.0),
+                ],
+                ..Default::default()
+            };
+            let mut vpx = VPX::default();
+            vpx.gamedata.right = right;
+            vpx.gamedata.bottom = bottom;
+            vpx.gameitems = vec![GameItemEnum::Flasher(flasher)];
+
+            let fs = MemoryFileSystem::new();
+            let options = ExpandOptions::new().generate_derived_meshes(true);
+            write_fs(&vpx, &"/vpx".to_string(), &options, &fs).unwrap();
+            let path = fs
+                .list_files()
+                .into_iter()
+                .find(|f| f.ends_with("-generated.obj"))
+                .expect("derived flasher mesh should be written");
+            fs.get_file(&path).unwrap()
+        }
+
+        let default_size = write(952.0, 2162.0);
+        let double_size = write(1904.0, 4324.0);
+        assert_ne!(
+            default_size, double_size,
+            "derived mesh should depend on the table dimensions"
+        );
+    }
 
     #[test]
     fn test_read_write() -> TestResult {

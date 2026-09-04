@@ -67,6 +67,7 @@ pub(super) fn write_gameitems<P: AsRef<Path>>(
     gameitems: &[GameItemEnum],
     expanded_dir: &P,
     options: &ExpandOptions,
+    table_dims: &crate::vpx::TableDimensions,
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
     let gameitems_dir = expanded_dir.as_ref().join("gameitems");
@@ -114,7 +115,14 @@ pub(super) fn write_gameitems<P: AsRef<Path>>(
         let json_bytes = serde_json::to_vec_pretty(gameitem).map_err(WriteError::Json)?;
         fs.write_file(&path, &json_bytes)?;
 
-        write_gameitem_binaries(&gameitems_dir_clone, gameitem, file_name, options, fs)?;
+        write_gameitem_binaries(
+            &gameitems_dir_clone,
+            gameitem,
+            file_name,
+            options,
+            table_dims,
+            fs,
+        )?;
 
         Ok(())
     };
