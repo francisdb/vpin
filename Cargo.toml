@@ -40,7 +40,6 @@ bytes = "1.11.0"
 cfb = "0.14.0"
 encoding_rs = { version = "0.8.35" }
 md2 = "0.11.0"
-nom = "8.0.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.145", features = ["preserve_order"] }
 hex = "0.4.3"

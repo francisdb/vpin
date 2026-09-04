@@ -310,13 +310,12 @@ impl ReadBytesExt for BytesMut {
 #[cfg(test)]
 mod test {
     use super::*;
-    use nom::AsBytes;
     use pretty_assertions::assert_eq;
 
     #[test]
     fn test_read_write_wav_header() {
         let data = include_bytes!("../../testdata/fx_coin_converted.wav");
-        let mut bytes_mut_in = BytesMut::from(data.as_bytes());
+        let mut bytes_mut_in = BytesMut::from(&data[..]);
         let header_read = read_wav_header(&mut bytes_mut_in).unwrap();
         let mut bytes_mut_out = BytesMut::new();
         write_wav_header(&header_read, &mut bytes_mut_out);
