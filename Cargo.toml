@@ -1,6 +1,6 @@
 [package]
 name = "vpin"
-version = "0.28.2"
+version = "0.29.0"
 edition = "2024"
 rust-version = "1.98"
 description = "Rust library for working with Visual Pinball VPX files"
