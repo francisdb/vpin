@@ -72,7 +72,7 @@ pub(crate) mod json;
 
 // we have to make this public for the integration tests
 pub mod export;
-mod gltf;
+pub(crate) mod gltf;
 pub mod lzw;
 pub mod mesh;
 pub(crate) mod obj;

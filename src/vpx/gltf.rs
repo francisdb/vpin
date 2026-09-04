@@ -50,9 +50,9 @@ pub(crate) enum GltfContainer {
     Gltf,
 }
 
-struct GltfPayload {
-    json: serde_json::Value,
-    bin_data: Vec<u8>,
+pub(crate) struct GltfPayload {
+    pub(crate) json: serde_json::Value,
+    pub(crate) bin_data: Vec<u8>,
 }
 
 /// Writes a GLTF/GLB file from the vertices and indices as they are stored in the
@@ -70,7 +70,13 @@ pub(crate) fn write_gltf(
 ) -> Result<(), Box<dyn Error>> {
     match container {
         GltfContainer::Glb => {
-            let payload = build_gltf_payload(name, vertices, indices, None)?;
+            let payload = build_gltf_payload(
+                name,
+                vertices,
+                indices,
+                None,
+                &SingleMeshConversion::SIDECAR,
+            )?;
             let mut buffer = Vec::new();
             write_glb_payload(&payload, &mut buffer)?;
 
@@ -88,7 +94,13 @@ pub(crate) fn write_gltf(
                 .unwrap_or_else(|| Path::new(""))
                 .join(&bin_file_name);
 
-            let payload = build_gltf_payload(name, vertices, indices, Some(&bin_file_name))?;
+            let payload = build_gltf_payload(
+                name,
+                vertices,
+                indices,
+                Some(&bin_file_name),
+                &SingleMeshConversion::SIDECAR,
+            )?;
             let json_string = serde_json::to_string(&payload.json)?;
 
             let _span = info_span!("fs_write", bytes = json_string.len()).entered();
@@ -103,47 +115,100 @@ pub(crate) fn write_gltf(
     Ok(())
 }
 
-fn build_gltf_payload(
+/// How [`build_gltf_payload`] converts the vpx-internal mesh data.
+///
+/// The extract/assemble sidecar path uses [`Self::SIDECAR`]: vertices
+/// are stored verbatim (identity axis map) with the vpx normal bytes
+/// preserved in the primitive extras, so a round trip is lossless. The
+/// wasm `mesh_to_glb` interchange path converts to glTF's mandated
+/// Y-up right-handed frame and skips the extras.
+///
+/// Winding is derived, not configured: the per-triangle corner order is
+/// reversed exactly when `axes` flips handedness relative to
+/// vpx-internal, matching the OBJ and whole-table glTF exporters.
+pub(crate) struct SingleMeshConversion {
+    /// Axis map applied to positions and normals.
+    pub(crate) axes: crate::vpx::units::AxisConvention,
+    /// Multiplier applied to positions only (never normals).
+    pub(crate) position_scale: f32,
+    /// Store the vpx-encoded normal bytes in the primitive extras
+    /// (the lossless sidecar path).
+    pub(crate) vpx_normal_extras: bool,
+}
+
+impl SingleMeshConversion {
+    /// The lossless extract/assemble sidecar representation: vertices
+    /// verbatim, vpx normal bytes in extras.
+    pub(crate) const SIDECAR: SingleMeshConversion = SingleMeshConversion {
+        axes: crate::vpx::units::AxisConvention::ZUpLeftHanded,
+        position_scale: 1.0,
+        vpx_normal_extras: true,
+    };
+}
+
+pub(crate) fn build_gltf_payload(
     name: &str,
     vertices: &[VertexWrapper],
     indices: &[VpxFace],
     buffer_uri: Option<&str>,
+    conversion: &SingleMeshConversion,
 ) -> Result<GltfPayload, Box<dyn Error>> {
+    use crate::vpx::units::AxisConvention;
+
+    let axes = conversion.axes;
+    let scale = conversion.position_scale;
+    let reverse_winding = axes.flips_handedness(AxisConvention::ZUpLeftHanded);
+
     // Build binary buffer with all vertex data
     let mut bin_data = Vec::new();
 
-    // Write positions (VEC3 float)
+    // Write positions (VEC3 float), scaled and mapped to the target
+    // axes. The scale multiplication is skipped entirely at 1.0 so the
+    // identity conversion stays bit-exact for every input, and the
+    // mapped values are kept for the min/max accessor bounds below.
     let positions_offset = 0;
+    let mut mapped_positions = Vec::with_capacity(vertices.len());
     for VertexWrapper { vertex, .. } in vertices {
-        bin_data.write_f32::<LittleEndian>(vertex.x)?;
-        bin_data.write_f32::<LittleEndian>(vertex.y)?;
-        bin_data.write_f32::<LittleEndian>(vertex.z)?;
+        let (x, y, z) = if scale == 1.0 {
+            (vertex.x, vertex.y, vertex.z)
+        } else {
+            (vertex.x * scale, vertex.y * scale, vertex.z * scale)
+        };
+        let mapped = axes.from_vpx(x, y, z);
+        bin_data.write_f32::<LittleEndian>(mapped[0])?;
+        bin_data.write_f32::<LittleEndian>(mapped[1])?;
+        bin_data.write_f32::<LittleEndian>(mapped[2])?;
+        mapped_positions.push(mapped);
     }
     let positions_length = bin_data.len();
 
-    // Write normals (VEC3 float)
+    // Write normals (VEC3 float) - same axis mapping, never scaled,
+    // NaN -> 0
     let normals_offset = bin_data.len();
-    let mut vpx_normals = Vec::new(); // Store VPX normal bytes for extras
-    for VertexWrapper {
-        vpx_encoded_vertex,
-        vertex,
-    } in vertices
-    {
+    for VertexWrapper { vertex, .. } in vertices {
         let nx = if vertex.nx.is_nan() { 0.0 } else { vertex.nx };
         let ny = if vertex.ny.is_nan() { 0.0 } else { vertex.ny };
         let nz = if vertex.nz.is_nan() { 0.0 } else { vertex.nz };
+        let [nx, ny, nz] = axes.from_vpx(nx, ny, nz);
 
         bin_data.write_f32::<LittleEndian>(nx)?;
         bin_data.write_f32::<LittleEndian>(ny)?;
         bin_data.write_f32::<LittleEndian>(nz)?;
-
-        // Always store VPX normal bytes to preserve exact binary representation
-        // This is critical for bit-perfect round-trips
-        let mut normal_bytes = [0u8; 12];
-        normal_bytes.copy_from_slice(&vpx_encoded_vertex[12..24]);
-        vpx_normals.push(hex::encode(normal_bytes));
     }
     let normals_length = bin_data.len() - normals_offset;
+
+    // Store VPX normal bytes to preserve the exact binary
+    // representation - critical for bit-perfect sidecar round-trips.
+    let vpx_normals: Option<Vec<String>> = conversion.vpx_normal_extras.then(|| {
+        vertices
+            .iter()
+            .map(
+                |VertexWrapper {
+                     vpx_encoded_vertex, ..
+                 }| hex::encode(&vpx_encoded_vertex[12..24]),
+            )
+            .collect()
+    });
 
     // Write texcoords (VEC2 float)
     let texcoords_offset = bin_data.len();
@@ -157,14 +222,21 @@ fn build_gltf_payload(
     let indices_offset = bin_data.len();
     let use_u32 = vertices.len() > 65535;
     for face in indices {
+        // Reverse the corner order (swap i1/i2) when the axis map flips
+        // handedness, so front faces stay front.
+        let (i1, i2) = if reverse_winding {
+            (face.i2, face.i1)
+        } else {
+            (face.i1, face.i2)
+        };
         if use_u32 {
             bin_data.write_u32::<LittleEndian>(face.i0 as u32)?;
-            bin_data.write_u32::<LittleEndian>(face.i1 as u32)?;
-            bin_data.write_u32::<LittleEndian>(face.i2 as u32)?;
+            bin_data.write_u32::<LittleEndian>(i1 as u32)?;
+            bin_data.write_u32::<LittleEndian>(i2 as u32)?;
         } else {
             bin_data.write_u16::<LittleEndian>(face.i0 as u16)?;
-            bin_data.write_u16::<LittleEndian>(face.i1 as u16)?;
-            bin_data.write_u16::<LittleEndian>(face.i2 as u16)?;
+            bin_data.write_u16::<LittleEndian>(i1 as u16)?;
+            bin_data.write_u16::<LittleEndian>(i2 as u16)?;
         }
     }
     let indices_length = bin_data.len() - indices_offset;
@@ -185,8 +257,9 @@ fn build_gltf_payload(
         }])
     };
 
-    // Create GLTF JSON structure
-    let (min_x, max_x, min_y, max_y, min_z, max_z) = vertices.iter().fold(
+    // Create GLTF JSON structure; POSITION bounds are computed over the
+    // mapped values actually written to the buffer.
+    let (min_x, max_x, min_y, max_y, min_z, max_z) = mapped_positions.iter().fold(
         (
             f32::INFINITY,
             f32::NEG_INFINITY,
@@ -195,19 +268,19 @@ fn build_gltf_payload(
             f32::INFINITY,
             f32::NEG_INFINITY,
         ),
-        |(min_x, max_x, min_y, max_y, min_z, max_z), v| {
+        |(min_x, max_x, min_y, max_y, min_z, max_z), [x, y, z]| {
             (
-                min_x.min(v.vertex.x),
-                max_x.max(v.vertex.x),
-                min_y.min(v.vertex.y),
-                max_y.max(v.vertex.y),
-                min_z.min(v.vertex.z),
-                max_z.max(v.vertex.z),
+                min_x.min(*x),
+                max_x.max(*x),
+                min_y.min(*y),
+                max_y.max(*y),
+                min_z.min(*z),
+                max_z.max(*z),
             )
         },
     );
 
-    let gltf_json = json!({
+    let mut gltf_json = json!({
         "asset": {
             "version": "2.0",
             "generator": "vpin",
@@ -225,9 +298,6 @@ fn build_gltf_payload(
                 },
                 "indices": 3,
                 "mode": GLTF_PRIMITIVE_MODE_TRIANGLES,
-                "extras": {
-                    "vpx_normals": vpx_normals,
-                }
             }]
         }],
         "accessors": [
@@ -275,13 +345,21 @@ fn build_gltf_payload(
         "buffers": buffers,
     });
 
+    // Appended after construction so it stays the primitive's last key,
+    // as it always was; the interchange path omits it entirely.
+    if let Some(vpx_normals) = vpx_normals {
+        gltf_json["meshes"][0]["primitives"][0]["extras"] = json!({
+            "vpx_normals": vpx_normals,
+        });
+    }
+
     Ok(GltfPayload {
         json: gltf_json,
         bin_data,
     })
 }
 
-fn write_glb_payload<W: io::Write>(
+pub(crate) fn write_glb_payload<W: io::Write>(
     payload: &GltfPayload,
     writer: &mut W,
 ) -> Result<(), Box<dyn Error>> {

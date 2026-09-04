@@ -274,7 +274,7 @@ use super::camera::GltfCamera;
 
 /// The glTF specification mandates Y-up right-handed coordinates, so unlike
 /// OBJ export the axis convention here is fixed rather than an option.
-pub(super) const GLTF_AXES: AxisConvention = AxisConvention::YUpRightHanded;
+pub(crate) const GLTF_AXES: AxisConvention = AxisConvention::YUpRightHanded;
 
 /// Convert a point in VPX axes (VPU) to glTF axes, scaled to `units`.
 #[inline]

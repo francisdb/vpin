@@ -31,8 +31,27 @@ pub fn init() {
     console_error_panic_hook::set_once();
 }
 
+#[wasm_bindgen(typescript_custom_section)]
+const VPX_FILE_MAP_TS: &'static str = r#"
+/**
+ * An extracted table as a file map: absolute path under `/vpx` to file
+ * contents, e.g. `{ "/vpx/images/ball.png": Uint8Array, ... }`.
+ * Produced by `extract`, consumed by `assemble` and `export_glb`.
+ */
+export type VpxFileMap = Record<string, Uint8Array>;
+"#;
+
 #[wasm_bindgen]
-pub fn extract(data: &[u8], callback: Option<js_sys::Function>) -> Result<js_sys::Object, JsError> {
+extern "C" {
+    /// The `{ "/vpx/...": Uint8Array }` file map produced by [`extract`]
+    /// and consumed by [`assemble`] / [`export_glb`]; typed on the
+    /// TypeScript side as the `VpxFileMap` alias above.
+    #[wasm_bindgen(typescript_type = "VpxFileMap", extends = js_sys::Object)]
+    pub type VpxFileMap;
+}
+
+#[wasm_bindgen]
+pub fn extract(data: &[u8], callback: Option<js_sys::Function>) -> Result<VpxFileMap, JsError> {
     set_progress_callback(callback);
 
     emit_progress("Parsing VPX file...");
@@ -75,39 +94,56 @@ pub fn extract(data: &[u8], callback: Option<js_sys::Function>) -> Result<js_sys
     emit_progress("Extraction complete");
     set_progress_callback(None);
 
-    Ok(result)
+    Ok(result.unchecked_into())
 }
 
-#[wasm_bindgen]
-pub fn assemble(
-    files: js_sys::Object,
-    callback: Option<js_sys::Function>,
-) -> Result<Vec<u8>, JsError> {
-    set_progress_callback(callback);
+/// Read a `{ "/vpx/...": Uint8Array }` file map into an in-memory
+/// filesystem. Callers are responsible for resetting the progress
+/// callback when this errors.
+fn file_map_to_fs(files: &VpxFileMap) -> Result<MemoryFileSystem, JsError> {
+    file_map_to_fs_filtered(files, |_| true)
+}
 
-    emit_progress("Reading files...");
+/// Like [`file_map_to_fs`], but only copies entries whose path
+/// satisfies the predicate (true keeps, like `Iterator::filter`) -
+/// skipped entries never cross the JS boundary, so their bytes are not
+/// duplicated into wasm memory.
+fn file_map_to_fs_filtered(
+    files: &VpxFileMap,
+    predicate: impl Fn(&str) -> bool,
+) -> Result<MemoryFileSystem, JsError> {
     let fs = MemoryFileSystem::new();
-    let keys = js_sys::Object::keys(&files);
+    let keys = js_sys::Object::keys(files);
 
     for i in 0..keys.length() {
         let key = keys.get(i);
         let path = key
             .as_string()
             .ok_or_else(|| JsError::new("Invalid file path"))?;
+        if !predicate(&path) {
+            continue;
+        }
 
-        let value = js_sys::Reflect::get(&files, &key).map_err(|e| {
-            set_progress_callback(None);
-            JsError::new(&format!("Failed to get file: {:?}", e))
-        })?;
+        let value = js_sys::Reflect::get(files, &key)
+            .map_err(|e| JsError::new(&format!("Failed to get file: {:?}", e)))?;
 
-        let array = js_sys::Uint8Array::from(value);
-        let data = array.to_vec();
+        let data = js_sys::Uint8Array::from(value).to_vec();
 
-        fs.write_file(Path::new(&path), &data).map_err(|e| {
-            set_progress_callback(None);
-            JsError::new(&format!("Failed to write file to memory: {}", e))
-        })?;
+        fs.write_file(Path::new(&path), &data)
+            .map_err(|e| JsError::new(&format!("Failed to write file to memory: {}", e)))?;
     }
+
+    Ok(fs)
+}
+
+#[wasm_bindgen]
+pub fn assemble(files: VpxFileMap, callback: Option<js_sys::Function>) -> Result<Vec<u8>, JsError> {
+    set_progress_callback(callback);
+
+    emit_progress("Reading files...");
+    let fs = file_map_to_fs(&files).inspect_err(|_| {
+        set_progress_callback(None);
+    })?;
 
     emit_progress("Assembling VPX...");
     let root_dir = "/vpx".to_string();
@@ -130,6 +166,114 @@ pub fn assemble(
     })?;
 
     emit_progress("Assembly complete");
+    set_progress_callback(None);
+
+    Ok(bytes)
+}
+
+#[wasm_bindgen(typescript_custom_section)]
+const GLB_EXPORT_OPTIONS_TS: &'static str = r#"
+/**
+ * Options for `export_glb`. Pass a plain object literal; every field
+ * is optional.
+ */
+export interface GlbExportOptions {
+    /**
+     * When `true`, items marked invisible in the table are exported
+     * with the `KHR_node_visibility` extension set to `visible: false`
+     * instead of being skipped. Preserves the full table structure but
+     * requires viewer support for the extension (e.g. some game
+     * engines); leave off for Blender. Default: `false`.
+     */
+    exportInvisibleItems?: boolean;
+}
+"#;
+
+#[wasm_bindgen]
+extern "C" {
+    /// Duck-typed options object for [`export_glb`]; the shape is
+    /// declared by the `GlbExportOptions` TypeScript interface above.
+    #[wasm_bindgen(typescript_type = "GlbExportOptions")]
+    pub type GlbExportOptions;
+}
+
+/// The `GlbExportOptions` TypeScript interface as seen by serde.
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct GlbExportOptionsData {
+    export_invisible_items: Option<bool>,
+}
+
+/// Export a whole table to a GLB (binary glTF 2.0) file.
+///
+/// Takes the same extracted-file map `assemble` takes
+/// (`{ "/vpx/...": Uint8Array }`), so consumers holding a table as an
+/// extracted tree skip a full assemble/parse round trip; consumers with
+/// only `.vpx` bytes can call `extract` first.
+///
+/// The output follows the glTF conventions: Y-up right-handed axes and
+/// meters, so it opens correctly in Blender and other glTF viewers with
+/// default settings. It contains the generated meshes for every part
+/// type, PBR materials from the VPX material list, embedded textures,
+/// and the three VPX view cameras (desktop / fullscreen / FSS).
+///
+/// Sound entries (`/vpx/sounds.json` and `/vpx/sounds/*`) are ignored -
+/// the exporter never reads them, and skipping them keeps peak wasm
+/// memory down on sound-heavy tables. Passing a map without them works
+/// too.
+#[wasm_bindgen]
+pub fn export_glb(
+    files: VpxFileMap,
+    options: Option<GlbExportOptions>,
+    callback: Option<js_sys::Function>,
+) -> Result<Vec<u8>, JsError> {
+    use crate::vpx::export::gltf_export::{GltfExportOptions, GltfFormat, export_gltf};
+
+    // Parse options before installing the callback: no progress has
+    // been emitted yet, so there is nothing to reset on error.
+    let js: Option<&JsValue> = options.as_ref().map(|o| o.as_ref());
+    let data: GlbExportOptionsData = parse_js_options(js)?;
+
+    set_progress_callback(callback);
+
+    emit_progress("Reading files...");
+    // The exporter never reads sounds, so skip them to keep peak wasm
+    // memory down on sound-heavy tables. sounds.json must be skipped
+    // together with the sound files: read_fs errors on an indexed but
+    // missing sound file.
+    let fs = file_map_to_fs_filtered(&files, |path| {
+        path != "/vpx/sounds.json" && !path.starts_with("/vpx/sounds/")
+    })
+    .inspect_err(|_| {
+        set_progress_callback(None);
+    })?;
+
+    emit_progress("Reading VPX data...");
+    let vpx_data = read_fs(&"/vpx".to_string(), &fs).map_err(|e| {
+        set_progress_callback(None);
+        JsError::new(&format!("Failed to read VPX: {}", e))
+    })?;
+
+    emit_progress("Exporting GLB...");
+    let out_fs = MemoryFileSystem::new();
+    let out_path = Path::new("/export/table.glb");
+    let export_options = GltfExportOptions {
+        format: GltfFormat::Glb,
+        export_invisible_items: data.export_invisible_items.unwrap_or(false),
+        // ExportUnits::M - the canonical glTF unit
+        ..Default::default()
+    };
+    export_gltf(&vpx_data, out_path, &out_fs, &export_options).map_err(|e| {
+        set_progress_callback(None);
+        JsError::new(&format!("Failed to export GLB: {}", e))
+    })?;
+
+    let bytes = out_fs.get_file("/export/table.glb").ok_or_else(|| {
+        set_progress_callback(None);
+        JsError::new("GLB export produced no output")
+    })?;
+
+    emit_progress("GLB export complete");
     set_progress_callback(None);
 
     Ok(bytes)
@@ -205,19 +349,25 @@ struct ResolvedMeshIoOptions {
     unit_scale: f32,
 }
 
-fn parse_mesh_io_options(options: Option<MeshIoOptions>) -> Result<ResolvedMeshIoOptions, JsError> {
-    let data = match &options {
-        Some(options) => {
-            let js: &JsValue = options.as_ref();
-            if js.is_undefined() || js.is_null() {
-                MeshIoOptionsData::default()
-            } else {
-                serde_wasm_bindgen::from_value(js.clone())
-                    .map_err(|e| JsError::new(&format!("Invalid options: {}", e)))?
-            }
+/// Deserialize an optional JS options object into its serde
+/// representation; a missing, `undefined` or `null` object means all
+/// defaults.
+fn parse_js_options<T>(options: Option<&JsValue>) -> Result<T, JsError>
+where
+    T: Default + serde::de::DeserializeOwned,
+{
+    match options {
+        Some(js) if !js.is_undefined() && !js.is_null() => {
+            serde_wasm_bindgen::from_value(js.clone())
+                .map_err(|e| JsError::new(&format!("Invalid options: {}", e)))
         }
-        None => MeshIoOptionsData::default(),
-    };
+        _ => Ok(T::default()),
+    }
+}
+
+fn parse_mesh_io_options(options: Option<MeshIoOptions>) -> Result<ResolvedMeshIoOptions, JsError> {
+    let js: Option<&JsValue> = options.as_ref().map(|o| o.as_ref());
+    let data: MeshIoOptionsData = parse_js_options(js)?;
     let unit_scale = data.unit_scale.unwrap_or(1.0);
     if !unit_scale.is_finite() {
         return Err(JsError::new("options.unitScale must be a finite number"));
@@ -226,6 +376,43 @@ fn parse_mesh_io_options(options: Option<MeshIoOptions>) -> Result<ResolvedMeshI
         axes: data.axes.unwrap_or(AxisConvention::ZDownRightHanded),
         unit_scale,
     })
+}
+
+/// Validate the flat mesh arrays shared by [`mesh_to_obj`] and
+/// [`mesh_to_glb`]: aligned lengths and in-range triangle indices.
+/// Returns the vertex count.
+fn validate_mesh_arrays(
+    positions: &[f32],
+    tex_coords: &[f32],
+    normals: &[f32],
+    indices: &[u32],
+) -> Result<usize, JsError> {
+    if !positions.len().is_multiple_of(3) {
+        return Err(JsError::new("positions length must be a multiple of 3"));
+    }
+    if !tex_coords.len().is_multiple_of(2) {
+        return Err(JsError::new("tex_coords length must be a multiple of 2"));
+    }
+    if !normals.len().is_multiple_of(3) {
+        return Err(JsError::new("normals length must be a multiple of 3"));
+    }
+    if !indices.len().is_multiple_of(3) {
+        return Err(JsError::new("indices length must be a multiple of 3"));
+    }
+    let vert_count = positions.len() / 3;
+    if tex_coords.len() / 2 != vert_count || normals.len() / 3 != vert_count {
+        return Err(JsError::new(
+            "positions / tex_coords / normals must describe the same vertex count",
+        ));
+    }
+    for &idx in indices {
+        if idx as usize >= vert_count {
+            return Err(JsError::new(&format!(
+                "triangle index {idx} out of range (have {vert_count} vertices)"
+            )));
+        }
+    }
+    Ok(vert_count)
 }
 
 /// Mesh data for a single primitive: positions, texture coordinates,
@@ -452,25 +639,7 @@ pub fn mesh_to_obj(
     use wavefront_obj_io::{IoObjWriter, ObjWriter};
 
     let ResolvedMeshIoOptions { axes, unit_scale } = parse_mesh_io_options(options)?;
-
-    if !positions.len().is_multiple_of(3) {
-        return Err(JsError::new("positions length must be a multiple of 3"));
-    }
-    if !tex_coords.len().is_multiple_of(2) {
-        return Err(JsError::new("tex_coords length must be a multiple of 2"));
-    }
-    if !normals.len().is_multiple_of(3) {
-        return Err(JsError::new("normals length must be a multiple of 3"));
-    }
-    if !indices.len().is_multiple_of(3) {
-        return Err(JsError::new("indices length must be a multiple of 3"));
-    }
-    let vert_count = positions.len() / 3;
-    if tex_coords.len() / 2 != vert_count || normals.len() / 3 != vert_count {
-        return Err(JsError::new(
-            "positions / tex_coords / normals must describe the same vertex count",
-        ));
-    }
+    let vert_count = validate_mesh_arrays(positions, tex_coords, normals, indices)?;
 
     let mut buffer = Vec::with_capacity(positions.len() * 4);
     {
@@ -536,13 +705,6 @@ pub fn mesh_to_obj(
         // ZUpLeftHanded we keep source winding so round-trips preserve
         // indices.
         for tri in indices.as_chunks::<3>().0 {
-            for &idx in tri {
-                if idx as usize >= vert_count {
-                    return Err(JsError::new(&format!(
-                        "triangle index {idx} out of range (have {vert_count} vertices)"
-                    )));
-                }
-            }
             let (a, b, c) = if reverse_winding {
                 (
                     (tri[2] + 1) as usize,
@@ -566,6 +728,117 @@ pub fn mesh_to_obj(
         }
     }
 
+    Ok(buffer)
+}
+
+#[wasm_bindgen(typescript_custom_section)]
+const MESH_GLB_OPTIONS_TS: &'static str = r#"
+/**
+ * Options for `mesh_to_glb`. Pass a plain object literal; every field
+ * is optional.
+ */
+export interface MeshGlbOptions {
+    /**
+     * Multiplier applied to positions before the axis mapping. Normals
+     * and texture coordinates are never scaled. Default: `1.0`.
+     */
+    unitScale?: number;
+}
+"#;
+
+#[wasm_bindgen]
+extern "C" {
+    /// Duck-typed options object for [`mesh_to_glb`]; the shape is
+    /// declared by the `MeshGlbOptions` TypeScript interface above.
+    #[wasm_bindgen(typescript_type = "MeshGlbOptions")]
+    pub type MeshGlbOptions;
+}
+
+/// The `MeshGlbOptions` TypeScript interface as seen by serde.
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct MeshGlbOptionsData {
+    unit_scale: Option<f32>,
+}
+
+/// Serialize a single mesh as a GLB (binary glTF 2.0) file.
+///
+/// The GLB sibling of [`mesh_to_obj`], for exporting one primitive's
+/// mesh to DCC tools. There is no axis option: glTF mandates Y-up
+/// right-handed, so the vpx-internal input is always converted the same
+/// way the whole-table exporter converts it (Y-Z swap, winding
+/// reversed; texture coordinates pass through - glTF's UV origin
+/// matches vpx's, unlike OBJ's).
+///
+/// `name` becomes the mesh/node name; pass an empty string to use
+/// `"object"`. Array requirements are the same as [`mesh_to_obj`].
+///
+/// `options.unitScale` (default `1.0`) multiplies positions. A
+/// primitive's local mesh coordinates are arbitrary units (the table
+/// scales them by the primitive's Size at render), so no unit
+/// conversion is applied by default.
+#[wasm_bindgen]
+pub fn mesh_to_glb(
+    name: &str,
+    positions: &[f32],
+    tex_coords: &[f32],
+    normals: &[f32],
+    indices: &[u32],
+    options: Option<MeshGlbOptions>,
+) -> Result<Vec<u8>, JsError> {
+    use crate::vpx::export::gltf_export::GLTF_AXES;
+    use crate::vpx::gameitem::primitive::VertexWrapper;
+    use crate::vpx::gltf::{SingleMeshConversion, build_gltf_payload, write_glb_payload};
+    use crate::vpx::model::Vertex3dNoTex2;
+    use crate::vpx::obj::VpxFace;
+
+    let js: Option<&JsValue> = options.as_ref().map(|o| o.as_ref());
+    let data: MeshGlbOptionsData = parse_js_options(js)?;
+    let unit_scale = data.unit_scale.unwrap_or(1.0);
+    if !unit_scale.is_finite() {
+        return Err(JsError::new("options.unitScale must be a finite number"));
+    }
+    let vert_count = validate_mesh_arrays(positions, tex_coords, normals, indices)?;
+    if vert_count == 0 {
+        // glTF accessors require count >= 1 and finite POSITION bounds.
+        return Err(JsError::new("mesh has no vertices"));
+    }
+
+    let vertices: Vec<VertexWrapper> = (0..vert_count)
+        .map(|i| {
+            let vertex = Vertex3dNoTex2 {
+                x: positions[3 * i],
+                y: positions[3 * i + 1],
+                z: positions[3 * i + 2],
+                nx: normals[3 * i],
+                ny: normals[3 * i + 1],
+                nz: normals[3 * i + 2],
+                tu: tex_coords[2 * i],
+                tv: tex_coords[2 * i + 1],
+            };
+            // The encoded bytes only feed the sidecar extras, which the
+            // interchange conversion below does not emit.
+            VertexWrapper::new([0u8; 32], vertex)
+        })
+        .collect();
+    let faces: Vec<VpxFace> = indices
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .map(|tri| VpxFace::new(tri[0] as i64, tri[1] as i64, tri[2] as i64))
+        .collect();
+
+    let object_name = if name.is_empty() { "object" } else { name };
+    let conversion = SingleMeshConversion {
+        axes: GLTF_AXES,
+        position_scale: unit_scale,
+        vpx_normal_extras: false,
+    };
+    let payload = build_gltf_payload(object_name, &vertices, &faces, None, &conversion)
+        .map_err(|e| JsError::new(&format!("GLB build failed: {e}")))?;
+    let mut buffer = Vec::new();
+    write_glb_payload(&payload, &mut buffer)
+        .map_err(|e| JsError::new(&format!("GLB write failed: {e}")))?;
     Ok(buffer)
 }
 
@@ -664,8 +937,53 @@ mod tests {
 
     #[wasm_bindgen_test]
     fn test_assemble_with_empty_files() {
-        let files = js_sys::Object::new();
+        let files: VpxFileMap = js_sys::Object::new().unchecked_into();
         let result = assemble(files, None);
+        assert!(result.is_err());
+    }
+
+    #[wasm_bindgen_test]
+    fn test_export_glb() {
+        let original_data = include_bytes!("../testdata/completely_blank_table_10_7_4.vpx");
+        let files = extract(original_data, None).expect("Extraction failed");
+
+        let glb = export_glb(files, None, None).expect("GLB export failed");
+
+        // A valid GLB starts with the glTF magic and version 2.
+        assert_eq!(&glb[0..4], b"glTF");
+        assert_eq!(u32::from_le_bytes(glb[4..8].try_into().unwrap()), 2);
+        // Even a blank table exports a playfield, so the file should
+        // not be trivially small.
+        assert!(
+            glb.len() > 1000,
+            "GLB suspiciously small: {} bytes",
+            glb.len()
+        );
+    }
+
+    #[wasm_bindgen_test]
+    fn test_export_glb_ignores_sounds() {
+        // The export path must never read the sound entries: corrupt
+        // sounds.json in the map and the export still succeeds. (If it
+        // were read, the invalid JSON - or an indexed-but-missing sound
+        // file - would fail the read_fs step.)
+        let original_data = include_bytes!("../testdata/completely_blank_table_10_7_4.vpx");
+        let files = extract(original_data, None).expect("Extraction failed");
+        js_sys::Reflect::set(
+            &files,
+            &JsValue::from_str("/vpx/sounds.json"),
+            &js_sys::Uint8Array::from(b"this is not json".as_slice()),
+        )
+        .unwrap();
+
+        let glb = export_glb(files, None, None).expect("GLB export should ignore sounds");
+        assert_eq!(&glb[0..4], b"glTF");
+    }
+
+    #[wasm_bindgen_test]
+    fn test_export_glb_with_empty_files() {
+        let files: VpxFileMap = js_sys::Object::new().unchecked_into();
+        let result = export_glb(files, None, None);
         assert!(result.is_err());
     }
 
@@ -826,6 +1144,73 @@ mod tests {
     }
 
     #[wasm_bindgen_test]
+    fn test_mesh_to_glb() {
+        let positions: Vec<f32> = vec![0.0, 0.0, 0.5, 1.0, 0.0, 0.5, 0.0, 1.0, 0.5];
+        let tex_coords: Vec<f32> = vec![0.0, 0.25, 1.0, 0.25, 0.0, 0.75];
+        let normals: Vec<f32> = vec![0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0];
+        let indices: Vec<u32> = vec![0, 1, 2];
+
+        let glb = mesh_to_glb("tri", &positions, &tex_coords, &normals, &indices, None)
+            .expect("GLB write should succeed");
+        assert_eq!(&glb[0..4], b"glTF");
+
+        // Parse back with the crate's GLB reader (same accessor layout)
+        // and check the conversion: vpx (0, 1, 0.5) -> glTF (0, 0.5, 1),
+        // winding reversed to (i0, i2, i1), UVs unchanged (no V flip).
+        let mut cursor = std::io::Cursor::new(&glb[..]);
+        let (name, vertices, faces) =
+            crate::vpx::gltf::read_glb_from_reader(&mut cursor).expect("GLB should parse");
+        assert_eq!(name, "tri");
+        assert_eq!(vertices.len(), 3);
+        let v2 = &vertices[2].vertex;
+        assert_eq!((v2.x, v2.y, v2.z), (0.0, 0.5, 1.0));
+        assert_eq!((v2.tu, v2.tv), (0.0, 0.75));
+        // vpx normal (0, 0, 1) -> glTF (0, 1, 0)
+        assert_eq!((v2.nx, v2.ny, v2.nz), (0.0, 1.0, 0.0));
+        let f = &faces[0];
+        assert_eq!((f.i0, f.i1, f.i2), (0, 2, 1));
+    }
+
+    #[wasm_bindgen_test]
+    fn test_mesh_to_glb_unit_scale() {
+        let positions: Vec<f32> = vec![0.0, 0.0, 0.5, 1.0, 0.0, 0.5, 0.0, 1.0, 0.5];
+        let tex_coords: Vec<f32> = vec![0.0, 0.25, 1.0, 0.25, 0.0, 0.75];
+        let normals: Vec<f32> = vec![0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0];
+        let indices: Vec<u32> = vec![0, 1, 2];
+
+        let scaled = js_sys::Object::new();
+        js_sys::Reflect::set(
+            &scaled,
+            &JsValue::from_str("unitScale"),
+            &JsValue::from_f64(4.0),
+        )
+        .unwrap();
+        let glb = mesh_to_glb(
+            "tri",
+            &positions,
+            &tex_coords,
+            &normals,
+            &indices,
+            Some(scaled.unchecked_into()),
+        )
+        .expect("GLB write should succeed");
+
+        let mut cursor = std::io::Cursor::new(&glb[..]);
+        let (_, vertices, _) =
+            crate::vpx::gltf::read_glb_from_reader(&mut cursor).expect("GLB should parse");
+        // vpx (0, 1, 0.5) * 4 -> glTF (0, 2, 4); normals stay unit length.
+        let v2 = &vertices[2].vertex;
+        assert_eq!((v2.x, v2.y, v2.z), (0.0, 2.0, 4.0));
+        assert_eq!((v2.nx, v2.ny, v2.nz), (0.0, 1.0, 0.0));
+    }
+
+    #[wasm_bindgen_test]
+    fn test_mesh_to_glb_rejects_empty_mesh() {
+        let result = mesh_to_glb("empty", &[], &[], &[], &[], None);
+        assert!(result.is_err());
+    }
+
+    #[wasm_bindgen_test]
     fn test_mesh_to_obj_validates_aligned_arrays() {
         // 3 positions but only 2 tex coords - should error.
         let result = mesh_to_obj(
@@ -930,7 +1315,8 @@ mod tests {
         let original_data = include_bytes!("../testdata/completely_blank_table_10_7_4.vpx");
         let extract_result = extract(original_data, None).expect("Extraction failed");
 
-        let assemble_result = assemble(extract_result.clone(), None).expect("Assembly failed");
+        let assemble_result =
+            assemble(extract_result.clone().unchecked_into(), None).expect("Assembly failed");
 
         let extract_result2 = extract(&assemble_result, None).expect("Re-extraction failed");
         // compare key count

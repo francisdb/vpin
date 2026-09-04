@@ -35,7 +35,7 @@ const files = extract(vpxBytes, (message) => {
 - `data: Uint8Array` - VPX file bytes
 - `callback?: (message: string) => void` - Optional progress callback
 
-**Returns:** `Record<string, Uint8Array>` - Object mapping file paths to contents
+**Returns:** `VpxFileMap` (`Record<string, Uint8Array>`) - file paths to contents
 
 ### assemble(files, callback?)
 
@@ -57,10 +57,45 @@ const vpxBytes = assemble(files, (message) => {
 
 **Parameters:**
 
-- `files: Record<string, Uint8Array>` - Object mapping file paths to contents
+- `files: VpxFileMap` (`Record<string, Uint8Array>`) - file paths to contents
 - `callback?: (message: string) => void` - Optional progress callback
 
 **Returns:** `Uint8Array` - VPX file bytes
+
+### export_glb(files, options?, callback?)
+
+Exports a whole table to a GLB (binary glTF 2.0) file. Takes the same
+extracted-file map `assemble` takes; call `extract` first if you only
+have `.vpx` bytes.
+
+```typescript
+const files = extract(vpxBytes);
+const glb = export_glb(files, { exportInvisibleItems: false }, (message) => {
+  console.log(message);
+});
+// glb is a Uint8Array with model/gltf-binary content
+```
+
+The output follows the glTF conventions - Y-up right-handed axes and
+meters - so it opens correctly in Blender and other viewers with
+default import settings. It contains generated meshes for every part
+type, PBR materials from the table's material list, embedded textures,
+and the three VPX view cameras.
+
+Sound entries (`/vpx/sounds.json`, `/vpx/sounds/*`) are ignored - the
+exporter never reads them, and skipping them keeps peak wasm memory
+down on sound-heavy tables. A map without them works too.
+
+**Parameters:**
+
+- `files: VpxFileMap` (`Record<string, Uint8Array>`) - file paths to contents
+- `options?: GlbExportOptions` - `{ exportInvisibleItems?: boolean }`;
+  when `true`, invisible items are exported with the
+  `KHR_node_visibility` extension instead of skipped (needs viewer
+  support; leave off for Blender). Default `false`.
+- `callback?: (message: string) => void` - Optional progress callback
+
+**Returns:** `Uint8Array` - GLB file bytes
 
 ### obj_to_mesh(data, options?) / mesh_to_obj(name, positions, texCoords, normals, indices, options?)
 
@@ -96,6 +131,25 @@ bytes you can save into the file map and feed to `assemble`.
 const obj = mesh_to_obj(mesh.name, mesh.positions, mesh.texCoords, mesh.normals, mesh.indices);
 files['/vpx/gameitems/Primitive.MyMesh.obj'] = obj;
 ```
+
+### mesh_to_glb(name, positions, texCoords, normals, indices, options?)
+
+The GLB sibling of `mesh_to_obj` - serializes a single mesh as a
+binary glTF 2.0 file, for handing one primitive's mesh to a DCC tool.
+There is no axis option: glTF mandates Y-up right-handed, so the
+vpx-internal input is always converted the same way `export_glb`
+converts the whole table (texture coordinates pass through unchanged -
+glTF's UV origin matches vpx's, unlike OBJ's).
+
+```typescript
+const glb = mesh_to_glb(mesh.name, mesh.positions, mesh.texCoords, mesh.normals, mesh.indices);
+// glb is a Uint8Array with model/gltf-binary content
+```
+
+`options.unitScale` (default `1.0`) multiplies positions. A
+primitive's local mesh coordinates are arbitrary units (the table
+scales them by the primitive's Size at render), so no unit conversion
+is applied by default.
 
 The published wasm bundle is built with `wasm-bindgen --weak-refs`, so
 the Rust-owned memory backing each `mesh` is reclaimed automatically
