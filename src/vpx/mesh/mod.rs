@@ -27,24 +27,27 @@ pub(crate) mod walls;
 #[allow(dead_code)]
 pub const HIT_SHAPE_DETAIL_LEVEL: f32 = 7.0;
 
+/// The f32 just above 1.3, written as `1.30000007152557373046875f` in
+/// VPinball, so that `(int)(10.f * RING_FACTOR)` is 13 in every compile
+/// mode. Before vpinball commit a5143386 (fixes vpinball#3382) the MSVC build
+/// folded the static-rendering literal to 12.
+const RING_FACTOR: f32 = 1.300_000_1;
+
 /// Cross-section segment count for rubbers and wire ramps, mirroring
-/// VPinball's `Rubber::GenerateMesh` (rubber.cpp:1235) and
-/// `Ramp::CreateWire` (ramp.cpp:1070).
+/// VPinball's `Rubber::GenerateMesh` (rubber.cpp:1240) and
+/// `Ramp::CreateWire` (ramp.cpp:1080).
 pub fn vpinball_ring_segments(detail_level: u32, static_rendering: bool) -> u32 {
-    let mut accuracy = if detail_level < 5 {
+    if static_rendering {
+        // Static ramps and rubbers always use maximum precision.
+        return (10.0_f32 * RING_FACTOR) as u32;
+    }
+    if detail_level < 5 {
         6
     } else if detail_level < 8 {
         8
     } else {
-        (detail_level as f32 * 1.3_f32) as u32
-    };
-    if static_rendering {
-        // VPinball: `accuracy = (int)(10.f * 1.3f);`. MSVC's `/fp:fast`
-        // constant folder yields 12; a native f32 multiply yields 13.
-        // Upstream: https://github.com/vpinball/vpinball/issues/3382
-        accuracy = 12;
+        (detail_level as f32 * RING_FACTOR) as u32
     }
-    accuracy
 }
 
 /// Convert a detail level (0-10) to an accuracy value for spline subdivision.
@@ -996,31 +999,34 @@ mod tests {
     }
 
     #[test]
+    fn ring_factor_is_next_float_above_1_3() {
+        assert_eq!(RING_FACTOR.to_bits(), 1.3_f32.to_bits() + 1);
+        assert_eq!((10.0_f32 * RING_FACTOR) as u32, 13);
+    }
+
+    #[test]
     fn ring_segments_non_static_at_default_detail() {
-        // Variable form `(int)((float)10 * 1.3f)` evaluates to 13.0
-        // exactly in IEEE 754 single-precision, casts to 13. Matches
-        // both Rust's native f32 mult and what we observed for the
+        // `(int)((float)10 * 1.30000007152557373046875f)` is 13; matches the
         // single non-static rubber in the JP's Captain Fantastic ref OBJ.
         assert_eq!(vpinball_ring_segments(10, false), 13);
     }
 
     #[test]
     fn ring_segments_static_at_default_detail() {
-        // Literal form `(int)(10.f * 1.3f)` empirically yields 12 in
-        // vpinball's MSVC build. The f64-widening trick reproduces that
-        // (1.3_f32 -> 1.299999952..._f64 -> 12.999... -> 12).
-        assert_eq!(vpinball_ring_segments(10, true), 12);
+        // Since vpinball a5143386 the static literal also yields 13 in the
+        // MSVC build; earlier builds constant-folded it to 12.
+        assert_eq!(vpinball_ring_segments(10, true), 13);
     }
 
     #[test]
     fn ring_segments_static_overrides_low_detail() {
-        // The static branch always hits the literal `(int)(10.f * 1.3f)`
-        // expression, regardless of the detail level passed in.
+        // The static branch always uses the maximum-precision literal,
+        // regardless of the detail level passed in.
         for d in 0..=10 {
             assert_eq!(
                 vpinball_ring_segments(d, true),
-                12,
-                "static d={d} should be overridden to 12"
+                13,
+                "static d={d} should be overridden to 13"
             );
         }
     }
