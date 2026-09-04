@@ -79,117 +79,28 @@ mod visibility_mask_tests {
     }
 }
 
-/// Coordinate space a part group is positioned in, mirroring vpinball's
-/// `PartGroup::SpaceReference`.
-///
-/// Values this library does not know are kept in [`SpaceReference::Other`] so the
-/// table round-trips unchanged; reading one logs a warning.
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
-pub enum SpaceReference {
-    /// Relative to cabinet with playfield inclination and local coordinate system applied (usual local playfield coordinate system tailored for table design)
-    Playfield,
-    /// Relative to cabinet feet, with height adjustment (with height adjustment for lockbar to match cabinet lockbar height after scaling)
-    Cabinet,
-    /// Relative to room, scaled to fit cabinet size (without any height adjustment, for cabinet feet to touch ground)
-    CabinetFeet,
-    /// Base space, aligned to (offsetted) real world, without any scaling (to match real world room in AR/VR)
-    Room,
-    /// Inherit space reference from parent (note that root defaults to Playfield reference space)
-    Inherit,
-    /// A value not known to this library, kept as is.
+crate::vpx::open_enum::open_enum! {
+    /// Coordinate space a part group is positioned in, mirroring vpinball's
+    /// `PartGroup::SpaceReference`.
     ///
-    /// Must not be constructed with a value that maps to a named variant:
-    /// it would write the same bytes as the named variant and read back as
-    /// it, breaking round-trip equality. The library itself never does
-    /// (`From` normalizes known values to their named variants).
-    Other(u32),
-}
-impl From<u32> for SpaceReference {
-    fn from(value: u32) -> Self {
-        match value {
-            0 => SpaceReference::Playfield,
-            1 => SpaceReference::Cabinet,
-            2 => SpaceReference::CabinetFeet,
-            3 => SpaceReference::Room,
-            4 => SpaceReference::Inherit,
-            other => {
-                warn!("Unknown SpaceReference value {other}, keeping it as is");
-                SpaceReference::Other(other)
-            }
-        }
-    }
-}
-impl From<&SpaceReference> for u32 {
-    fn from(value: &SpaceReference) -> Self {
-        match value {
-            SpaceReference::Playfield => 0,
-            SpaceReference::Cabinet => 1,
-            SpaceReference::CabinetFeet => 2,
-            SpaceReference::Room => 3,
-            SpaceReference::Inherit => 4,
-            SpaceReference::Other(value) => *value,
-        }
-    }
-}
-/// Serialize to lowercase string, or the raw number for [`SpaceReference::Other`]
-impl Serialize for SpaceReference {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            SpaceReference::Playfield => serializer.serialize_str("playfield"),
-            SpaceReference::Cabinet => serializer.serialize_str("cabinet"),
-            SpaceReference::CabinetFeet => serializer.serialize_str("cabinet_feet"),
-            SpaceReference::Room => serializer.serialize_str("room"),
-            SpaceReference::Inherit => serializer.serialize_str("inherit"),
-            SpaceReference::Other(value) => serializer.serialize_u32(*value),
-        }
-    }
-}
-/// Deserialize from lowercase string, or from the raw number
-impl<'de> Deserialize<'de> for SpaceReference {
-    fn deserialize<D>(deserializer: D) -> Result<SpaceReference, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct SpaceReferenceVisitor;
-        impl serde::de::Visitor<'_> for SpaceReferenceVisitor {
-            type Value = SpaceReference;
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a SpaceReference as lowercase string or number")
-            }
-            fn visit_u64<E>(self, value: u64) -> Result<SpaceReference, E>
-            where
-                E: serde::de::Error,
-            {
-                let value = u32::try_from(value).map_err(|_| {
-                    serde::de::Error::invalid_value(
-                        serde::de::Unexpected::Unsigned(value),
-                        &"a number that fits in u32",
-                    )
-                })?;
-                Ok(SpaceReference::from(value))
-            }
-            fn visit_str<E>(self, value: &str) -> Result<SpaceReference, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    "playfield" => Ok(SpaceReference::Playfield),
-                    "cabinet" => Ok(SpaceReference::Cabinet),
-                    "cabinet_feet" => Ok(SpaceReference::CabinetFeet),
-                    "room" => Ok(SpaceReference::Room),
-                    "inherit" => Ok(SpaceReference::Inherit),
-                    _ => Err(serde::de::Error::unknown_variant(
-                        value,
-                        &["playfield", "cabinet", "cabinet_feet", "room", "inherit"],
-                    )),
-                }
-            }
-        }
-        deserializer.deserialize_any(SpaceReferenceVisitor)
+    /// Values this library does not know are kept in [`SpaceReference::Other`] so the
+    /// table round-trips unchanged; reading one logs a warning.
+    #[derive(Debug, Clone, PartialEq)]
+    #[cfg_attr(test, derive(fake::Dummy))]
+    pub enum SpaceReference(u32) {
+        /// Relative to cabinet with playfield inclination and local coordinate system applied (usual local playfield coordinate system tailored for table design)
+        Playfield = 0 => "playfield",
+        /// Relative to cabinet feet, with height adjustment (with height adjustment for lockbar to match cabinet lockbar height after scaling)
+        Cabinet = 1 => "cabinet",
+        /// Relative to room, scaled to fit cabinet size (without any height adjustment, for cabinet feet to touch ground)
+        CabinetFeet = 2 => "cabinet_feet",
+        /// Base space, aligned to (offsetted) real world, without any scaling (to match real world room in AR/VR)
+        Room = 3 => "room",
+        /// Inherit space reference from parent (note that root defaults to Playfield reference space)
+        Inherit = 4 => "inherit",
+        ;
+        /// A value not known to this library, kept as is.
+        Other,
     }
 }
 #[cfg(test)]

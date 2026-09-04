@@ -8,95 +8,21 @@ use crate::vpx::{
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// What a decal shows, mirroring vpinball's `DecalType`.
-///
-/// Values this library does not know are kept in [`DecalType::Other`] so the
-/// table round-trips unchanged; reading one logs a warning.
-#[derive(Debug, PartialEq, Clone)]
-#[cfg_attr(test, derive(fake::Dummy))]
-pub enum DecalType {
-    /// `DecalText`: renders the decal text with its font.
-    Text,
-    /// `DecalImage`: renders the decal image.
-    Image,
-    /// A value not known to this library, kept as is.
+crate::vpx::open_enum::open_enum! {
+    /// What a decal shows, mirroring vpinball's `DecalType`.
     ///
-    /// Must not be constructed with a value that maps to a named variant:
-    /// it would write the same bytes as the named variant and read back as
-    /// it, breaking round-trip equality. The library itself never does
-    /// (`From` normalizes known values to their named variants).
-    Other(u32),
-}
-impl From<u32> for DecalType {
-    fn from(value: u32) -> Self {
-        match value {
-            0 => DecalType::Text,
-            1 => DecalType::Image,
-            other => {
-                warn!("Unknown DecalType value {other}, keeping it as is");
-                DecalType::Other(other)
-            }
-        }
-    }
-}
-impl From<&DecalType> for u32 {
-    fn from(value: &DecalType) -> Self {
-        match value {
-            DecalType::Text => 0,
-            DecalType::Image => 1,
-            DecalType::Other(value) => *value,
-        }
-    }
-}
-/// Serialize to lowercase string, or the raw number for [`DecalType::Other`]
-impl Serialize for DecalType {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            DecalType::Text => serializer.serialize_str("text"),
-            DecalType::Image => serializer.serialize_str("image"),
-            DecalType::Other(value) => serializer.serialize_u32(*value),
-        }
-    }
-}
-/// Deserialize from lowercase string, or from the raw number
-impl<'de> Deserialize<'de> for DecalType {
-    fn deserialize<D>(deserializer: D) -> Result<DecalType, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct DecalTypeVisitor;
-        impl serde::de::Visitor<'_> for DecalTypeVisitor {
-            type Value = DecalType;
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a DecalType as lowercase string or number")
-            }
-            fn visit_u64<E>(self, value: u64) -> Result<DecalType, E>
-            where
-                E: serde::de::Error,
-            {
-                let value = u32::try_from(value).map_err(|_| {
-                    serde::de::Error::invalid_value(
-                        serde::de::Unexpected::Unsigned(value),
-                        &"a number that fits in u32",
-                    )
-                })?;
-                Ok(DecalType::from(value))
-            }
-            fn visit_str<E>(self, value: &str) -> Result<DecalType, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    "text" => Ok(DecalType::Text),
-                    "image" => Ok(DecalType::Image),
-                    _ => Err(serde::de::Error::unknown_variant(value, &["text", "image"])),
-                }
-            }
-        }
-        deserializer.deserialize_any(DecalTypeVisitor)
+    /// Values this library does not know are kept in [`DecalType::Other`] so the
+    /// table round-trips unchanged; reading one logs a warning.
+    #[derive(Debug, PartialEq, Clone)]
+    #[cfg_attr(test, derive(fake::Dummy))]
+    pub enum DecalType(u32) {
+        /// `DecalText`: renders the decal text with its font.
+        Text = 0 => "text",
+        /// `DecalImage`: renders the decal image.
+        Image = 1 => "image",
+        ;
+        /// A value not known to this library, kept as is.
+        Other,
     }
 }
 #[cfg(test)]
@@ -116,104 +42,23 @@ mod decal_type_open_enum_tests {
     }
 }
 
-/// How a decal is sized, mirroring vpinball's `SizingType`.
-///
-/// Values this library does not know are kept in [`SizingType::Other`] so the
-/// table round-trips unchanged; reading one logs a warning.
-#[derive(Debug, PartialEq, Clone)]
-#[cfg_attr(test, derive(fake::Dummy))]
-pub enum SizingType {
-    /// `AutoSize`: width and height follow the content.
-    AutoSize,
-    /// `AutoWidth`: the width follows the content, the height is set manually.
-    AutoWidth,
-    /// `ManualSize`: width and height are set manually.
-    ManualSize,
-    /// A value not known to this library, kept as is.
+crate::vpx::open_enum::open_enum! {
+    /// How a decal is sized, mirroring vpinball's `SizingType`.
     ///
-    /// Must not be constructed with a value that maps to a named variant:
-    /// it would write the same bytes as the named variant and read back as
-    /// it, breaking round-trip equality. The library itself never does
-    /// (`From` normalizes known values to their named variants).
-    Other(u32),
-}
-impl From<u32> for SizingType {
-    fn from(value: u32) -> Self {
-        match value {
-            0 => SizingType::AutoSize,
-            1 => SizingType::AutoWidth,
-            2 => SizingType::ManualSize,
-            other => {
-                warn!("Unknown SizingType value {other}, keeping it as is");
-                SizingType::Other(other)
-            }
-        }
-    }
-}
-impl From<&SizingType> for u32 {
-    fn from(value: &SizingType) -> Self {
-        match value {
-            SizingType::AutoSize => 0,
-            SizingType::AutoWidth => 1,
-            SizingType::ManualSize => 2,
-            SizingType::Other(value) => *value,
-        }
-    }
-}
-/// Serialize to lowercase string, or the raw number for [`SizingType::Other`]
-impl Serialize for SizingType {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            SizingType::AutoSize => serializer.serialize_str("auto_size"),
-            SizingType::AutoWidth => serializer.serialize_str("auto_width"),
-            SizingType::ManualSize => serializer.serialize_str("manual_size"),
-            SizingType::Other(value) => serializer.serialize_u32(*value),
-        }
-    }
-}
-/// Deserialize from lowercase string, or from the raw number
-impl<'de> Deserialize<'de> for SizingType {
-    fn deserialize<D>(deserializer: D) -> Result<SizingType, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct SizingTypeVisitor;
-        impl serde::de::Visitor<'_> for SizingTypeVisitor {
-            type Value = SizingType;
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a SizingType as lowercase string or number")
-            }
-            fn visit_u64<E>(self, value: u64) -> Result<SizingType, E>
-            where
-                E: serde::de::Error,
-            {
-                let value = u32::try_from(value).map_err(|_| {
-                    serde::de::Error::invalid_value(
-                        serde::de::Unexpected::Unsigned(value),
-                        &"a number that fits in u32",
-                    )
-                })?;
-                Ok(SizingType::from(value))
-            }
-            fn visit_str<E>(self, value: &str) -> Result<SizingType, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    "auto_size" => Ok(SizingType::AutoSize),
-                    "auto_width" => Ok(SizingType::AutoWidth),
-                    "manual_size" => Ok(SizingType::ManualSize),
-                    _ => Err(serde::de::Error::unknown_variant(
-                        value,
-                        &["auto_size", "auto_width", "manual_size"],
-                    )),
-                }
-            }
-        }
-        deserializer.deserialize_any(SizingTypeVisitor)
+    /// Values this library does not know are kept in [`SizingType::Other`] so the
+    /// table round-trips unchanged; reading one logs a warning.
+    #[derive(Debug, PartialEq, Clone)]
+    #[cfg_attr(test, derive(fake::Dummy))]
+    pub enum SizingType(u32) {
+        /// `AutoSize`: width and height follow the content.
+        AutoSize = 0 => "auto_size",
+        /// `AutoWidth`: the width follows the content, the height is set manually.
+        AutoWidth = 1 => "auto_width",
+        /// `ManualSize`: width and height are set manually.
+        ManualSize = 2 => "manual_size",
+        ;
+        /// A value not known to this library, kept as is.
+        Other,
     }
 }
 #[cfg(test)]

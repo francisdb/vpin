@@ -5,111 +5,26 @@ use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// Visual style of a plunger, mirroring vpinball's `PlungerType`.
-///
-/// Values this library does not know are kept in [`PlungerType::Other`] so the
-/// table round-trips unchanged; reading one logs a warning.
-#[derive(Debug, PartialEq, Clone)]
-#[cfg_attr(test, derive(fake::Dummy))]
-pub enum PlungerType {
-    /// Value 0, outside vpinball's enum, found in "Star Wars (Data East 1992) VPW v1.2.2.vpx".
-    /// Kept as a named variant for compatibility with existing expanded tables.
-    Unknown,
-    /// `PlungerTypeModern`: rendered 3D plunger with rod and spring.
-    Modern,
-    /// `PlungerTypeFlat`: flat textured plunger.
-    Flat,
-    /// `PlungerTypeCustom`: plunger built from the custom rod, ring, spring and tip parameters.
-    Custom,
-    /// A value not known to this library, kept as is.
+crate::vpx::open_enum::open_enum! {
+    /// Visual style of a plunger, mirroring vpinball's `PlungerType`.
     ///
-    /// Must not be constructed with a value that maps to a named variant:
-    /// it would write the same bytes as the named variant and read back as
-    /// it, breaking round-trip equality. The library itself never does
-    /// (`From` normalizes known values to their named variants).
-    Other(u32),
-}
-impl From<u32> for PlungerType {
-    fn from(value: u32) -> Self {
-        match value {
-            0 => PlungerType::Unknown,
-            1 => PlungerType::Modern,
-            2 => PlungerType::Flat,
-            3 => PlungerType::Custom,
-            other => {
-                warn!("Unknown PlungerType value {other}, keeping it as is");
-                PlungerType::Other(other)
-            }
-        }
-    }
-}
-impl From<&PlungerType> for u32 {
-    fn from(value: &PlungerType) -> Self {
-        match value {
-            PlungerType::Unknown => 0,
-            PlungerType::Modern => 1,
-            PlungerType::Flat => 2,
-            PlungerType::Custom => 3,
-            PlungerType::Other(value) => *value,
-        }
-    }
-}
-/// Serialize to lowercase string, or the raw number for [`PlungerType::Other`]
-impl Serialize for PlungerType {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            PlungerType::Unknown => serializer.serialize_str("unknown"),
-            PlungerType::Modern => serializer.serialize_str("modern"),
-            PlungerType::Flat => serializer.serialize_str("flat"),
-            PlungerType::Custom => serializer.serialize_str("custom"),
-            PlungerType::Other(value) => serializer.serialize_u32(*value),
-        }
-    }
-}
-/// Deserialize from lowercase string, or from the raw number
-impl<'de> Deserialize<'de> for PlungerType {
-    fn deserialize<D>(deserializer: D) -> Result<PlungerType, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct PlungerTypeVisitor;
-        impl serde::de::Visitor<'_> for PlungerTypeVisitor {
-            type Value = PlungerType;
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a PlungerType as lowercase string or number")
-            }
-            fn visit_u64<E>(self, value: u64) -> Result<PlungerType, E>
-            where
-                E: serde::de::Error,
-            {
-                let value = u32::try_from(value).map_err(|_| {
-                    serde::de::Error::invalid_value(
-                        serde::de::Unexpected::Unsigned(value),
-                        &"a number that fits in u32",
-                    )
-                })?;
-                Ok(PlungerType::from(value))
-            }
-            fn visit_str<E>(self, value: &str) -> Result<PlungerType, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    "unknown" => Ok(PlungerType::Unknown),
-                    "modern" => Ok(PlungerType::Modern),
-                    "flat" => Ok(PlungerType::Flat),
-                    "custom" => Ok(PlungerType::Custom),
-                    _ => Err(serde::de::Error::unknown_variant(
-                        value,
-                        &["unknown", "modern", "flat", "custom"],
-                    )),
-                }
-            }
-        }
-        deserializer.deserialize_any(PlungerTypeVisitor)
+    /// Values this library does not know are kept in [`PlungerType::Other`] so the
+    /// table round-trips unchanged; reading one logs a warning.
+    #[derive(Debug, PartialEq, Clone)]
+    #[cfg_attr(test, derive(fake::Dummy))]
+    pub enum PlungerType(u32) {
+        /// Value 0, outside vpinball's enum, found in "Star Wars (Data East 1992) VPW v1.2.2.vpx".
+        /// Kept as a named variant for compatibility with existing expanded tables.
+        Unknown = 0 => "unknown",
+        /// `PlungerTypeModern`: rendered 3D plunger with rod and spring.
+        Modern = 1 => "modern",
+        /// `PlungerTypeFlat`: flat textured plunger.
+        Flat = 2 => "flat",
+        /// `PlungerTypeCustom`: plunger built from the custom rod, ring, spring and tip parameters.
+        Custom = 3 => "custom",
+        ;
+        /// A value not known to this library, kept as is.
+        Other,
     }
 }
 #[cfg(test)]

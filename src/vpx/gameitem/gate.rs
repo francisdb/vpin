@@ -5,13 +5,19 @@ use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Debug, PartialEq, Clone)]
-#[cfg_attr(test, derive(fake::Dummy))]
-pub enum GateType {
-    WireW,
-    WireRectangle,
-    Plate,
-    LongPlate,
+crate::vpx::open_enum::open_enum! {
+    /// The visual and collision shape of a gate, mirroring vpinball's `GateType`.
+    ///
+    /// Values this library does not know are kept in [`GateType::Other`] so the
+    /// table round-trips unchanged; reading one logs a warning.
+    #[derive(Debug, PartialEq, Clone)]
+    #[cfg_attr(test, derive(fake::Dummy))]
+    pub enum GateType(u32) {
+        WireW = 1 => "wire_w",
+        WireRectangle = 2 => "wire_rectangle",
+        Plate = 3 => "plate",
+        LongPlate = 4 => "long_plate",
+        ;
     /// Any value outside the known range 1-4, seen as 0 in the wild, for example in
     /// "Algar (1980)", "Asteroid Annie (1980)", "Fireball II (1981)", "Tri Zone (1979)".
     ///
@@ -24,7 +30,8 @@ pub enum GateType {
     /// out-of-range value at load time, but never rewrites the file.
     ///
     /// The raw value is kept here so that files round-trip unchanged.
-    Other(u32),
+        Other,
+    }
 }
 
 impl GateType {
@@ -35,98 +42,6 @@ impl GateType {
     /// time (since svn r3583 / git 8cc5a7a1a) and also uses it as the default
     /// for tables predating the `GATY` tag.
     pub const UNKNOWN_FALLBACK: GateType = GateType::WireW;
-}
-
-impl From<u32> for GateType {
-    fn from(value: u32) -> Self {
-        match value {
-            1 => GateType::WireW,
-            2 => GateType::WireRectangle,
-            3 => GateType::Plate,
-            4 => GateType::LongPlate,
-            other => {
-                warn!("Unknown GateType value {other}, keeping it as is");
-                GateType::Other(other)
-            }
-        }
-    }
-}
-
-impl From<GateType> for u32 {
-    fn from(gate_type: GateType) -> Self {
-        match gate_type {
-            GateType::WireW => 1,
-            GateType::WireRectangle => 2,
-            GateType::Plate => 3,
-            GateType::LongPlate => 4,
-            GateType::Other(value) => value,
-        }
-    }
-}
-
-/// Serialize to lowercase string, or the raw number for unknown values
-impl Serialize for GateType {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match self {
-            GateType::WireW => serializer.serialize_str("wire_w"),
-            GateType::WireRectangle => serializer.serialize_str("wire_rectangle"),
-            GateType::Plate => serializer.serialize_str("plate"),
-            GateType::LongPlate => serializer.serialize_str("long_plate"),
-            GateType::Other(value) => serializer.serialize_u32(*value),
-        }
-    }
-}
-
-/// Deserialize from lowercase string or number
-impl<'de> Deserialize<'de> for GateType {
-    fn deserialize<D>(deserializer: D) -> Result<GateType, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct GateTypeVisitor;
-
-        impl serde::de::Visitor<'_> for GateTypeVisitor {
-            type Value = GateType;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a string or number representing a GateType")
-            }
-
-            fn visit_u64<E>(self, value: u64) -> Result<GateType, E>
-            where
-                E: serde::de::Error,
-            {
-                let value = u32::try_from(value).map_err(|_| {
-                    serde::de::Error::invalid_value(
-                        serde::de::Unexpected::Unsigned(value),
-                        &"a number that fits in a u32",
-                    )
-                })?;
-                Ok(GateType::from(value))
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<GateType, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    "wire_w" => Ok(GateType::WireW),
-                    "wire_rectangle" => Ok(GateType::WireRectangle),
-                    "plate" => Ok(GateType::Plate),
-                    "long_plate" => Ok(GateType::LongPlate),
-                    _ => Err(serde::de::Error::unknown_variant(
-                        value,
-                        &["wire_w", "wire_rectangle", "plate", "long_plate"],
-                    )),
-                }
-            }
-        }
-
-        deserializer.deserialize_any(GateTypeVisitor)
-    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -475,7 +390,7 @@ impl BiffWrite for Gate {
             writer.write_tagged_bool("REEN", is_reflection_enabled);
         };
         if let Some(gate_type) = &self.gate_type {
-            writer.write_tagged_u32("GATY", gate_type.clone().into());
+            writer.write_tagged_u32("GATY", gate_type.into());
         };
 
         self.write_shared_attributes(writer);
@@ -547,9 +462,9 @@ mod tests {
         // gate type 0 exists in old tables re-saved with 2015-2018 VPX builds,
         // see https://github.com/francisdb/vpin/issues/334
         assert_eq!(GateType::from(0u32), GateType::Other(0));
-        assert_eq!(u32::from(GateType::Other(0)), 0u32);
+        assert_eq!(u32::from(&GateType::Other(0)), 0u32);
         assert_eq!(GateType::from(7u32), GateType::Other(7));
-        assert_eq!(u32::from(GateType::Other(7)), 7u32);
+        assert_eq!(u32::from(&GateType::Other(7)), 7u32);
     }
 
     #[test]

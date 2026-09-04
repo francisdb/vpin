@@ -5,136 +5,31 @@ use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// Visual style of a kicker, mirroring vpinball's `KickerType`.
-///
-/// Values this library does not know are kept in [`KickerType::Other`] so the
-/// table round-trips unchanged; reading one logs a warning.
-#[derive(Debug, PartialEq, Clone)]
-#[cfg_attr(test, derive(fake::Dummy))]
-pub enum KickerType {
-    /// `KickerInvisible`: no mesh, only the hit area.
-    Invisible,
-    /// `KickerHole`: hole with a rim.
-    Hole,
-    /// `KickerCup`: cup shaped kicker.
-    Cup,
-    /// `KickerHoleSimple`: plain hole.
-    HoleSimple,
-    /// `KickerWilliams`: Williams style kicker.
-    Williams,
-    /// `KickerGottlieb`: Gottlieb style kicker.
-    Gottlieb,
-    /// `KickerCup2`: second cup shape.
-    Cup2,
-    /// A value not known to this library, kept as is.
+crate::vpx::open_enum::open_enum! {
+    /// Visual style of a kicker, mirroring vpinball's `KickerType`.
     ///
-    /// Must not be constructed with a value that maps to a named variant:
-    /// it would write the same bytes as the named variant and read back as
-    /// it, breaking round-trip equality. The library itself never does
-    /// (`From` normalizes known values to their named variants).
-    Other(u32),
-}
-impl From<u32> for KickerType {
-    fn from(value: u32) -> Self {
-        match value {
-            0 => KickerType::Invisible,
-            1 => KickerType::Hole,
-            2 => KickerType::Cup,
-            3 => KickerType::HoleSimple,
-            4 => KickerType::Williams,
-            5 => KickerType::Gottlieb,
-            6 => KickerType::Cup2,
-            other => {
-                warn!("Unknown KickerType value {other}, keeping it as is");
-                KickerType::Other(other)
-            }
-        }
-    }
-}
-impl From<&KickerType> for u32 {
-    fn from(value: &KickerType) -> Self {
-        match value {
-            KickerType::Invisible => 0,
-            KickerType::Hole => 1,
-            KickerType::Cup => 2,
-            KickerType::HoleSimple => 3,
-            KickerType::Williams => 4,
-            KickerType::Gottlieb => 5,
-            KickerType::Cup2 => 6,
-            KickerType::Other(value) => *value,
-        }
-    }
-}
-/// Serialize to lowercase string, or the raw number for [`KickerType::Other`]
-impl Serialize for KickerType {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            KickerType::Invisible => serializer.serialize_str("invisible"),
-            KickerType::Hole => serializer.serialize_str("hole"),
-            KickerType::Cup => serializer.serialize_str("cup"),
-            KickerType::HoleSimple => serializer.serialize_str("hole_simple"),
-            KickerType::Williams => serializer.serialize_str("williams"),
-            KickerType::Gottlieb => serializer.serialize_str("gottlieb"),
-            KickerType::Cup2 => serializer.serialize_str("cup2"),
-            KickerType::Other(value) => serializer.serialize_u32(*value),
-        }
-    }
-}
-/// Deserialize from lowercase string, or from the raw number
-impl<'de> Deserialize<'de> for KickerType {
-    fn deserialize<D>(deserializer: D) -> Result<KickerType, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct KickerTypeVisitor;
-        impl serde::de::Visitor<'_> for KickerTypeVisitor {
-            type Value = KickerType;
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a KickerType as lowercase string or number")
-            }
-            fn visit_u64<E>(self, value: u64) -> Result<KickerType, E>
-            where
-                E: serde::de::Error,
-            {
-                let value = u32::try_from(value).map_err(|_| {
-                    serde::de::Error::invalid_value(
-                        serde::de::Unexpected::Unsigned(value),
-                        &"a number that fits in u32",
-                    )
-                })?;
-                Ok(KickerType::from(value))
-            }
-            fn visit_str<E>(self, value: &str) -> Result<KickerType, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    "invisible" => Ok(KickerType::Invisible),
-                    "hole" => Ok(KickerType::Hole),
-                    "cup" => Ok(KickerType::Cup),
-                    "hole_simple" => Ok(KickerType::HoleSimple),
-                    "williams" => Ok(KickerType::Williams),
-                    "gottlieb" => Ok(KickerType::Gottlieb),
-                    "cup2" => Ok(KickerType::Cup2),
-                    _ => Err(serde::de::Error::unknown_variant(
-                        value,
-                        &[
-                            "invisible",
-                            "hole",
-                            "cup",
-                            "hole_simple",
-                            "williams",
-                            "gottlieb",
-                            "cup2",
-                        ],
-                    )),
-                }
-            }
-        }
-        deserializer.deserialize_any(KickerTypeVisitor)
+    /// Values this library does not know are kept in [`KickerType::Other`] so the
+    /// table round-trips unchanged; reading one logs a warning.
+    #[derive(Debug, PartialEq, Clone)]
+    #[cfg_attr(test, derive(fake::Dummy))]
+    pub enum KickerType(u32) {
+        /// `KickerInvisible`: no mesh, only the hit area.
+        Invisible = 0 => "invisible",
+        /// `KickerHole`: hole with a rim.
+        Hole = 1 => "hole",
+        /// `KickerCup`: cup shaped kicker.
+        Cup = 2 => "cup",
+        /// `KickerHoleSimple`: plain hole.
+        HoleSimple = 3 => "hole_simple",
+        /// `KickerWilliams`: Williams style kicker.
+        Williams = 4 => "williams",
+        /// `KickerGottlieb`: Gottlieb style kicker.
+        Gottlieb = 5 => "gottlieb",
+        /// `KickerCup2`: second cup shape.
+        Cup2 = 6 => "cup2",
+        ;
+        /// A value not known to this library, kept as is.
+        Other,
     }
 }
 #[cfg(test)]

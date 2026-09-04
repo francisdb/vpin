@@ -9,119 +9,30 @@ use crate::vpx::{
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// When a flasher has both `image_a` and `image_b` set, this filter determines
-/// how the two textures are blended together. The blend intensity is controlled
-/// by `filter_amount` (0-100). Mirrors vpinball's `Filters`.
-///
-/// Values this library does not know are kept in [`Filter::Other`] so the
-/// table round-trips unchanged; reading one logs a warning.
-#[derive(Debug, PartialEq, Clone, Default)]
-#[cfg_attr(test, derive(fake::Dummy))]
-pub enum Filter {
-    /// No filtering/blending applied
-    None,
-    /// Additive blending - adds the color values together, creating a brightening effect
-    Additive,
-    /// Overlay blending - combines Multiply and Screen modes based on the base color
-    #[default]
-    Overlay,
-    /// Multiply blending - multiplies the color values, creating a darkening effect
-    Multiply,
-    /// Screen blending - inverts, multiplies, and inverts again, creating a brightening effect
-    Screen,
-    /// A value not known to this library, kept as is.
+crate::vpx::open_enum::open_enum! {
+    /// When a flasher has both `image_a` and `image_b` set, this filter determines
+    /// how the two textures are blended together. The blend intensity is controlled
+    /// by `filter_amount` (0-100). Mirrors vpinball's `Filters`.
     ///
-    /// Must not be constructed with a value that maps to a named variant:
-    /// it would write the same bytes as the named variant and read back as
-    /// it, breaking round-trip equality. The library itself never does
-    /// (`From` normalizes known values to their named variants).
-    Other(u32),
-}
-impl From<u32> for Filter {
-    fn from(value: u32) -> Self {
-        match value {
-            0 => Filter::None,
-            1 => Filter::Additive,
-            2 => Filter::Overlay,
-            3 => Filter::Multiply,
-            4 => Filter::Screen,
-            other => {
-                warn!("Unknown Filter value {other}, keeping it as is");
-                Filter::Other(other)
-            }
-        }
-    }
-}
-impl From<&Filter> for u32 {
-    fn from(value: &Filter) -> Self {
-        match value {
-            Filter::None => 0,
-            Filter::Additive => 1,
-            Filter::Overlay => 2,
-            Filter::Multiply => 3,
-            Filter::Screen => 4,
-            Filter::Other(value) => *value,
-        }
-    }
-}
-/// Serialize to lowercase string, or the raw number for [`Filter::Other`]
-impl Serialize for Filter {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            Filter::None => serializer.serialize_str("none"),
-            Filter::Additive => serializer.serialize_str("additive"),
-            Filter::Overlay => serializer.serialize_str("overlay"),
-            Filter::Multiply => serializer.serialize_str("multiply"),
-            Filter::Screen => serializer.serialize_str("screen"),
-            Filter::Other(value) => serializer.serialize_u32(*value),
-        }
-    }
-}
-/// Deserialize from lowercase string, or from the raw number
-impl<'de> Deserialize<'de> for Filter {
-    fn deserialize<D>(deserializer: D) -> Result<Filter, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct FilterVisitor;
-        impl serde::de::Visitor<'_> for FilterVisitor {
-            type Value = Filter;
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a Filter as lowercase string or number")
-            }
-            fn visit_u64<E>(self, value: u64) -> Result<Filter, E>
-            where
-                E: serde::de::Error,
-            {
-                let value = u32::try_from(value).map_err(|_| {
-                    serde::de::Error::invalid_value(
-                        serde::de::Unexpected::Unsigned(value),
-                        &"a number that fits in u32",
-                    )
-                })?;
-                Ok(Filter::from(value))
-            }
-            fn visit_str<E>(self, value: &str) -> Result<Filter, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    "none" => Ok(Filter::None),
-                    "additive" => Ok(Filter::Additive),
-                    "overlay" => Ok(Filter::Overlay),
-                    "multiply" => Ok(Filter::Multiply),
-                    "screen" => Ok(Filter::Screen),
-                    _ => Err(serde::de::Error::unknown_variant(
-                        value,
-                        &["none", "additive", "overlay", "multiply", "screen"],
-                    )),
-                }
-            }
-        }
-        deserializer.deserialize_any(FilterVisitor)
+    /// Values this library does not know are kept in [`Filter::Other`] so the
+    /// table round-trips unchanged; reading one logs a warning.
+    #[derive(Debug, PartialEq, Clone, Default)]
+    #[cfg_attr(test, derive(fake::Dummy))]
+    pub enum Filter(u32) {
+        /// No filtering/blending applied
+        None = 0 => "none",
+        /// Additive blending - adds the color values together, creating a brightening effect
+        Additive = 1 => "additive",
+        /// Overlay blending - combines Multiply and Screen modes based on the base color
+        #[default]
+        Overlay = 2 => "overlay",
+        /// Multiply blending - multiplies the color values, creating a darkening effect
+        Multiply = 3 => "multiply",
+        /// Screen blending - inverts, multiplies, and inverts again, creating a brightening effect
+        Screen = 4 => "screen",
+        ;
+        /// A value not known to this library, kept as is.
+        Other,
     }
 }
 #[cfg(test)]
@@ -141,125 +52,36 @@ mod filter_open_enum_tests {
     }
 }
 
-/// Render mode for flashers, determining how the flasher is rendered and which
-/// properties are used. Mirrors vpinball's `Flasher::RenderMode`.
-///
-/// Default in use by vpinball is [`RenderMode::Flasher`].
-///
-/// Introduced in VPX 10.8.1 (BIFF tag `RDMD`), replacing the older boolean `is_dmd` field.
-///
-/// See also [`render_style`](Flasher::render_style) which is interpreted differently
-/// depending on this mode.
-///
-/// Values this library does not know are kept in [`RenderMode::Other`] so the
-/// table round-trips unchanged; reading one logs a warning.
-#[derive(Debug, PartialEq, Clone, Default)]
-#[cfg_attr(test, derive(fake::Dummy))]
-pub enum RenderMode {
-    /// Custom blended images
-    #[default]
-    Flasher,
-    /// Dot matrix display (Plasma, LED, ...)
-    DMD,
-    /// Screen (CRT, LCD, ...)
-    Display,
-    /// Alphanumeric segment display (VFD, Plasma, LED, ...)
-    AlphaSeg,
-    /// Render of one of the ancillary windows (backglass, topper, scoreview)
-    ExtRender,
-    /// A value not known to this library, kept as is.
+crate::vpx::open_enum::open_enum! {
+    /// Render mode for flashers, determining how the flasher is rendered and which
+    /// properties are used. Mirrors vpinball's `Flasher::RenderMode`.
     ///
-    /// Must not be constructed with a value that maps to a named variant:
-    /// it would write the same bytes as the named variant and read back as
-    /// it, breaking round-trip equality. The library itself never does
-    /// (`From` normalizes known values to their named variants).
-    Other(u32),
-}
-impl From<u32> for RenderMode {
-    fn from(value: u32) -> Self {
-        match value {
-            0 => RenderMode::Flasher,
-            1 => RenderMode::DMD,
-            2 => RenderMode::Display,
-            3 => RenderMode::AlphaSeg,
-            4 => RenderMode::ExtRender,
-            other => {
-                warn!("Unknown RenderMode value {other}, keeping it as is");
-                RenderMode::Other(other)
-            }
-        }
-    }
-}
-impl From<&RenderMode> for u32 {
-    fn from(value: &RenderMode) -> Self {
-        match value {
-            RenderMode::Flasher => 0,
-            RenderMode::DMD => 1,
-            RenderMode::Display => 2,
-            RenderMode::AlphaSeg => 3,
-            RenderMode::ExtRender => 4,
-            RenderMode::Other(value) => *value,
-        }
-    }
-}
-/// Serialize to lowercase string, or the raw number for [`RenderMode::Other`]
-impl Serialize for RenderMode {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            RenderMode::Flasher => serializer.serialize_str("flasher"),
-            RenderMode::DMD => serializer.serialize_str("dmd"),
-            RenderMode::Display => serializer.serialize_str("display"),
-            RenderMode::AlphaSeg => serializer.serialize_str("alpha_seg"),
-            RenderMode::ExtRender => serializer.serialize_str("ext_render"),
-            RenderMode::Other(value) => serializer.serialize_u32(*value),
-        }
-    }
-}
-/// Deserialize from lowercase string, or from the raw number
-impl<'de> Deserialize<'de> for RenderMode {
-    fn deserialize<D>(deserializer: D) -> Result<RenderMode, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct RenderModeVisitor;
-        impl serde::de::Visitor<'_> for RenderModeVisitor {
-            type Value = RenderMode;
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a RenderMode as lowercase string or number")
-            }
-            fn visit_u64<E>(self, value: u64) -> Result<RenderMode, E>
-            where
-                E: serde::de::Error,
-            {
-                let value = u32::try_from(value).map_err(|_| {
-                    serde::de::Error::invalid_value(
-                        serde::de::Unexpected::Unsigned(value),
-                        &"a number that fits in u32",
-                    )
-                })?;
-                Ok(RenderMode::from(value))
-            }
-            fn visit_str<E>(self, value: &str) -> Result<RenderMode, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    "flasher" => Ok(RenderMode::Flasher),
-                    "dmd" => Ok(RenderMode::DMD),
-                    "display" => Ok(RenderMode::Display),
-                    "alpha_seg" => Ok(RenderMode::AlphaSeg),
-                    "ext_render" => Ok(RenderMode::ExtRender),
-                    _ => Err(serde::de::Error::unknown_variant(
-                        value,
-                        &["flasher", "dmd", "display", "alpha_seg", "ext_render"],
-                    )),
-                }
-            }
-        }
-        deserializer.deserialize_any(RenderModeVisitor)
+    /// Default in use by vpinball is [`RenderMode::Flasher`].
+    ///
+    /// Introduced in VPX 10.8.1 (BIFF tag `RDMD`), replacing the older boolean `is_dmd` field.
+    ///
+    /// See also [`render_style`](Flasher::render_style) which is interpreted differently
+    /// depending on this mode.
+    ///
+    /// Values this library does not know are kept in [`RenderMode::Other`] so the
+    /// table round-trips unchanged; reading one logs a warning.
+    #[derive(Debug, PartialEq, Clone, Default)]
+    #[cfg_attr(test, derive(fake::Dummy))]
+    pub enum RenderMode(u32) {
+        /// Custom blended images
+        #[default]
+        Flasher = 0 => "flasher",
+        /// Dot matrix display (Plasma, LED, ...)
+        DMD = 1 => "dmd",
+        /// Screen (CRT, LCD, ...)
+        Display = 2 => "display",
+        /// Alphanumeric segment display (VFD, Plasma, LED, ...)
+        AlphaSeg = 3 => "alpha_seg",
+        /// Render of one of the ancillary windows (backglass, topper, scoreview)
+        ExtRender = 4 => "ext_render",
+        ;
+        /// A value not known to this library, kept as is.
+        Other,
     }
 }
 #[cfg(test)]

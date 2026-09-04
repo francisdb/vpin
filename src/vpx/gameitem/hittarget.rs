@@ -6,152 +6,35 @@ use crate::vpx::math::{dequantize_unsigned, quantize_unsigned};
 use log::warn;
 use serde::{Deserialize, Serialize};
 
-/// Shape of a hit or drop target, mirroring vpinball's `TargetType`.
-///
-/// Values this library does not know are kept in [`TargetType::Other`] so the
-/// table round-trips unchanged; reading one logs a warning.
-#[derive(Debug, PartialEq, Clone)]
-#[cfg_attr(test, derive(fake::Dummy))]
-pub enum TargetType {
-    /// `DropTargetBeveled`: drop target with beveled edges.
-    DropTargetBeveled,
-    /// `DropTargetSimple`: plain drop target.
-    DropTargetSimple,
-    /// `HitTargetRound`: round stand-up target.
-    HitTargetRound,
-    /// `HitTargetRectangle`: rectangular stand-up target.
-    HitTargetRectangle,
-    /// `HitFatTargetRectangle`: thick rectangular stand-up target.
-    HitFatTargetRectangle,
-    /// `HitFatTargetSquare`: thick square stand-up target.
-    HitFatTargetSquare,
-    /// `DropTargetFlatSimple`: flat drop target.
-    DropTargetFlatSimple,
-    /// `HitFatTargetSlim`: thick narrow stand-up target.
-    HitFatTargetSlim,
-    /// `HitTargetSlim`: narrow stand-up target.
-    HitTargetSlim,
-    /// A value not known to this library, kept as is.
+crate::vpx::open_enum::open_enum! {
+    /// Shape of a hit or drop target, mirroring vpinball's `TargetType`.
     ///
-    /// Must not be constructed with a value that maps to a named variant:
-    /// it would write the same bytes as the named variant and read back as
-    /// it, breaking round-trip equality. The library itself never does
-    /// (`From` normalizes known values to their named variants).
-    Other(u32),
-}
-impl From<u32> for TargetType {
-    fn from(value: u32) -> Self {
-        match value {
-            1 => TargetType::DropTargetBeveled,
-            2 => TargetType::DropTargetSimple,
-            3 => TargetType::HitTargetRound,
-            4 => TargetType::HitTargetRectangle,
-            5 => TargetType::HitFatTargetRectangle,
-            6 => TargetType::HitFatTargetSquare,
-            7 => TargetType::DropTargetFlatSimple,
-            8 => TargetType::HitFatTargetSlim,
-            9 => TargetType::HitTargetSlim,
-            other => {
-                warn!("Unknown TargetType value {other}, keeping it as is");
-                TargetType::Other(other)
-            }
-        }
-    }
-}
-impl From<&TargetType> for u32 {
-    fn from(value: &TargetType) -> Self {
-        match value {
-            TargetType::DropTargetBeveled => 1,
-            TargetType::DropTargetSimple => 2,
-            TargetType::HitTargetRound => 3,
-            TargetType::HitTargetRectangle => 4,
-            TargetType::HitFatTargetRectangle => 5,
-            TargetType::HitFatTargetSquare => 6,
-            TargetType::DropTargetFlatSimple => 7,
-            TargetType::HitFatTargetSlim => 8,
-            TargetType::HitTargetSlim => 9,
-            TargetType::Other(value) => *value,
-        }
-    }
-}
-/// Serialize to lowercase string, or the raw number for [`TargetType::Other`]
-impl Serialize for TargetType {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            TargetType::DropTargetBeveled => serializer.serialize_str("drop_target_beveled"),
-            TargetType::DropTargetSimple => serializer.serialize_str("drop_target_simple"),
-            TargetType::HitTargetRound => serializer.serialize_str("hit_target_round"),
-            TargetType::HitTargetRectangle => serializer.serialize_str("hit_target_rectangle"),
-            TargetType::HitFatTargetRectangle => {
-                serializer.serialize_str("hit_fat_target_rectangle")
-            }
-            TargetType::HitFatTargetSquare => serializer.serialize_str("hit_fat_target_square"),
-            TargetType::DropTargetFlatSimple => serializer.serialize_str("drop_target_flat_simple"),
-            TargetType::HitFatTargetSlim => serializer.serialize_str("hit_fat_target_slim"),
-            TargetType::HitTargetSlim => serializer.serialize_str("hit_target_slim"),
-            TargetType::Other(value) => serializer.serialize_u32(*value),
-        }
-    }
-}
-/// Deserialize from lowercase string, or from the raw number
-impl<'de> Deserialize<'de> for TargetType {
-    fn deserialize<D>(deserializer: D) -> Result<TargetType, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct TargetTypeVisitor;
-        impl serde::de::Visitor<'_> for TargetTypeVisitor {
-            type Value = TargetType;
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a TargetType as lowercase string or number")
-            }
-            fn visit_u64<E>(self, value: u64) -> Result<TargetType, E>
-            where
-                E: serde::de::Error,
-            {
-                let value = u32::try_from(value).map_err(|_| {
-                    serde::de::Error::invalid_value(
-                        serde::de::Unexpected::Unsigned(value),
-                        &"a number that fits in u32",
-                    )
-                })?;
-                Ok(TargetType::from(value))
-            }
-            fn visit_str<E>(self, value: &str) -> Result<TargetType, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    "drop_target_beveled" => Ok(TargetType::DropTargetBeveled),
-                    "drop_target_simple" => Ok(TargetType::DropTargetSimple),
-                    "hit_target_round" => Ok(TargetType::HitTargetRound),
-                    "hit_target_rectangle" => Ok(TargetType::HitTargetRectangle),
-                    "hit_fat_target_rectangle" => Ok(TargetType::HitFatTargetRectangle),
-                    "hit_fat_target_square" => Ok(TargetType::HitFatTargetSquare),
-                    "drop_target_flat_simple" => Ok(TargetType::DropTargetFlatSimple),
-                    "hit_fat_target_slim" => Ok(TargetType::HitFatTargetSlim),
-                    "hit_target_slim" => Ok(TargetType::HitTargetSlim),
-                    _ => Err(serde::de::Error::unknown_variant(
-                        value,
-                        &[
-                            "drop_target_beveled",
-                            "drop_target_simple",
-                            "hit_target_round",
-                            "hit_target_rectangle",
-                            "hit_fat_target_rectangle",
-                            "hit_fat_target_square",
-                            "drop_target_flat_simple",
-                            "hit_fat_target_slim",
-                            "hit_target_slim",
-                        ],
-                    )),
-                }
-            }
-        }
-        deserializer.deserialize_any(TargetTypeVisitor)
+    /// Values this library does not know are kept in [`TargetType::Other`] so the
+    /// table round-trips unchanged; reading one logs a warning.
+    #[derive(Debug, PartialEq, Clone)]
+    #[cfg_attr(test, derive(fake::Dummy))]
+    pub enum TargetType(u32) {
+        /// `DropTargetBeveled`: drop target with beveled edges.
+        DropTargetBeveled = 1 => "drop_target_beveled",
+        /// `DropTargetSimple`: plain drop target.
+        DropTargetSimple = 2 => "drop_target_simple",
+        /// `HitTargetRound`: round stand-up target.
+        HitTargetRound = 3 => "hit_target_round",
+        /// `HitTargetRectangle`: rectangular stand-up target.
+        HitTargetRectangle = 4 => "hit_target_rectangle",
+        /// `HitFatTargetRectangle`: thick rectangular stand-up target.
+        HitFatTargetRectangle = 5 => "hit_fat_target_rectangle",
+        /// `HitFatTargetSquare`: thick square stand-up target.
+        HitFatTargetSquare = 6 => "hit_fat_target_square",
+        /// `DropTargetFlatSimple`: flat drop target.
+        DropTargetFlatSimple = 7 => "drop_target_flat_simple",
+        /// `HitFatTargetSlim`: thick narrow stand-up target.
+        HitFatTargetSlim = 8 => "hit_fat_target_slim",
+        /// `HitTargetSlim`: narrow stand-up target.
+        HitTargetSlim = 9 => "hit_target_slim",
+        ;
+        /// A value not known to this library, kept as is.
+        Other,
     }
 }
 #[cfg(test)]
