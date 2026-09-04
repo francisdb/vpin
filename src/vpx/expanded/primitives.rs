@@ -60,6 +60,7 @@ pub(super) fn write_gameitem_binaries(
     gameitem: &GameItemEnum,
     json_file_name: &str,
     options: &ExpandOptions,
+    table_dims: &TableDimensions,
     fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
     let mesh_format = options.get_mesh_format();
@@ -115,10 +116,6 @@ pub(super) fn write_gameitem_binaries(
     }
     // Generate derived meshes for walls, ramps, rubbers, and flashers (optional)
     if options.should_generate_derived_meshes() {
-        // TODO: Pass actual table dimensions for correct world-aligned textures
-        // For now, use a default that works for most tables (standard playfield size)
-        let default_table_dims = TableDimensions::new(0.0, 0.0, 952.0, 2162.0);
-
         match gameitem {
             GameItemEnum::Wall(wall) => {
                 write_wall_meshes(gameitems_dir, wall, json_file_name, mesh_format, fs)?;
@@ -129,7 +126,7 @@ pub(super) fn write_gameitem_binaries(
                     ramp,
                     json_file_name,
                     mesh_format,
-                    &default_table_dims,
+                    table_dims,
                     fs,
                 )?;
             }
@@ -142,7 +139,7 @@ pub(super) fn write_gameitem_binaries(
                     flasher,
                     json_file_name,
                     mesh_format,
-                    &default_table_dims,
+                    table_dims,
                     fs,
                 )?;
             }

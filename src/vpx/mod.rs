@@ -1209,6 +1209,16 @@ impl TableDimensions {
             bottom,
         }
     }
+
+    /// The playfield bounds stored in the table's game data, in VPU.
+    pub fn from_gamedata(gamedata: &gamedata::GameData) -> Self {
+        Self {
+            left: gamedata.left,
+            top: gamedata.top,
+            right: gamedata.right,
+            bottom: gamedata.bottom,
+        }
+    }
 }
 
 #[cfg(test)]

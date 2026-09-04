@@ -802,12 +802,7 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
     };
 
     // Table dimensions for UV calculation (wall tops use table-space UVs)
-    let table_dims = TableDimensions::new(
-        vpx.gamedata.left,
-        vpx.gamedata.top,
-        vpx.gamedata.right,
-        vpx.gamedata.bottom,
-    );
+    let table_dims = TableDimensions::from_gamedata(&vpx.gamedata);
     let detail_level = vpx.gamedata.effective_detail_level();
 
     for gameitem in &vpx.gameitems {
