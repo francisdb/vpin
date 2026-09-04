@@ -10,7 +10,7 @@
 use super::gltf_export::GLTF_AXES;
 use crate::vpx::VPX;
 use crate::vpx::gamedata::ViewLayoutMode;
-use crate::vpx::units::vpu_to_m;
+use crate::vpx::units::{ExportUnits, vpu_to_units};
 use serde_json::json;
 
 /// TODO: This scaling factor compensates for using simplified table bounds (8 corner vertices)
@@ -332,9 +332,9 @@ impl TableBounds {
 pub(crate) struct GltfCamera {
     /// The view mode this camera represents
     pub mode: ViewMode,
-    /// Position in glTF coordinates (meters)
-    // TODO cameras are hardcoded to meters while the meshes follow the
-    //   units option, so a non-metre export misplaces the cameras
+    /// Position in glTF scene units: the `units` passed to
+    /// [`GltfCamera::from_view_settings`] (meters by default), matching
+    /// the unit the meshes are written in.
     pub position: [f32; 3],
     /// Rotation as quaternion [x, y, z, w]
     pub rotation: [f32; 4],
@@ -360,8 +360,15 @@ impl GltfCamera {
     /// ## Camera/Window mode
     /// In camera mode, the offset values are absolute positions relative to the table bottom center.
     /// The inclination is a look-at percentage (0-1) of table height.
-    pub fn from_view_settings(settings: &ViewSettings, bounds: &TableBounds) -> Self {
+    pub fn from_view_settings(
+        settings: &ViewSettings,
+        bounds: &TableBounds,
+        units: ExportUnits,
+    ) -> Self {
         let fov_rad = settings.fov.to_radians();
+        // Scale factor from meters to the target unit; exactly 1.0 for
+        // ExportUnits::M so the default output stays bit-identical.
+        let units_per_meter = units.scale() / ExportUnits::M.scale();
 
         let (camera_position, rotation) = match settings.layout_mode {
             ViewLayoutMode::Legacy => {
@@ -463,15 +470,18 @@ impl GltfCamera {
                     );
                     println!("  final vpx: ({}, {}, {})", vpx_x, vpx_y, vpx_z);
                     println!(
-                        "  final meters: x={:.3}, y(height)={:.3}, z(depth)={:.3}",
-                        vpu_to_m(vpx_x),
-                        vpu_to_m(vpx_z),
-                        vpu_to_m(vpx_y)
+                        "  final ({units:?}): x={:.3}, y(height)={:.3}, z(depth)={:.3}",
+                        vpu_to_units(vpx_x, units),
+                        vpu_to_units(vpx_z, units),
+                        vpu_to_units(vpx_y, units)
                     );
                 }
 
-                let position =
-                    GLTF_AXES.from_vpx(vpu_to_m(vpx_x), vpu_to_m(vpx_y), vpu_to_m(vpx_z));
+                let position = GLTF_AXES.from_vpx(
+                    vpu_to_units(vpx_x, units),
+                    vpu_to_units(vpx_y, units),
+                    vpu_to_units(vpx_z, units),
+                );
 
                 // Camera rotation: pitch down from horizontal
                 // In glTF, cameras look down -Z axis by default. To look at the table (which is below),
@@ -598,8 +608,11 @@ impl GltfCamera {
                     println!("  final vpx: ({}, {}, {})", vpx_x, vpx_y, vpx_z);
                 }
 
-                let position =
-                    GLTF_AXES.from_vpx(vpu_to_m(vpx_x), vpu_to_m(vpx_y), vpu_to_m(vpx_z));
+                let position = GLTF_AXES.from_vpx(
+                    vpu_to_units(vpx_x, units),
+                    vpu_to_units(vpx_y, units),
+                    vpu_to_units(vpx_z, units),
+                );
 
                 // Camera rotation: pitch down from horizontal
                 // In glTF, cameras look down -Z axis by default. To look at the table (which is below),
@@ -615,25 +628,29 @@ impl GltfCamera {
             position: camera_position,
             rotation,
             yfov: fov_rad,
-            znear: 0.01,
-            zfar: 100.0,
+            znear: 0.01 * units_per_meter,
+            zfar: 100.0 * units_per_meter,
         }
     }
 
     /// Create a camera from FSS view settings (backward compatibility)
     #[allow(dead_code)]
-    pub fn from_fss_settings(settings: &FssViewSettings, bounds: &TableBounds) -> Self {
-        Self::from_view_settings(settings, bounds)
+    pub fn from_fss_settings(
+        settings: &FssViewSettings,
+        bounds: &TableBounds,
+        units: ExportUnits,
+    ) -> Self {
+        Self::from_view_settings(settings, bounds, units)
     }
 
     /// Create all three cameras from VPX data
-    pub fn all_from_vpx(vpx: &VPX) -> [Self; 3] {
+    pub fn all_from_vpx(vpx: &VPX, units: ExportUnits) -> [Self; 3] {
         let bounds = TableBounds::from_vpx(vpx);
         let settings = ViewSettings::all_from_vpx(vpx);
         [
-            Self::from_view_settings(&settings[0], &bounds),
-            Self::from_view_settings(&settings[1], &bounds),
-            Self::from_view_settings(&settings[2], &bounds),
+            Self::from_view_settings(&settings[0], &bounds, units),
+            Self::from_view_settings(&settings[1], &bounds, units),
+            Self::from_view_settings(&settings[2], &bounds, units),
         ]
     }
 
@@ -749,16 +766,18 @@ mod tests {
         let bounds = create_default_bounds();
 
         // Just verify that camera creation doesn't panic for all view modes
-        let _desktop = GltfCamera::from_view_settings(&create_desktop_settings(), &bounds);
-        let _fullscreen = GltfCamera::from_view_settings(&create_fullscreen_settings(), &bounds);
-        let _fss = GltfCamera::from_view_settings(&create_fss_settings(), &bounds);
+        let _desktop =
+            GltfCamera::from_view_settings(&create_desktop_settings(), &bounds, ExportUnits::M);
+        let _fullscreen =
+            GltfCamera::from_view_settings(&create_fullscreen_settings(), &bounds, ExportUnits::M);
+        let _fss = GltfCamera::from_view_settings(&create_fss_settings(), &bounds, ExportUnits::M);
     }
 
     #[test]
     fn test_camera_quaternion_is_normalized() {
         let bounds = create_default_bounds();
         let settings = create_fss_settings();
-        let camera = GltfCamera::from_view_settings(&settings, &bounds);
+        let camera = GltfCamera::from_view_settings(&settings, &bounds, ExportUnits::M);
 
         let qx = camera.rotation[0];
         let qy = camera.rotation[1];
@@ -777,9 +796,11 @@ mod tests {
     fn test_three_cameras_have_different_modes() {
         let bounds = create_default_bounds();
 
-        let desktop = GltfCamera::from_view_settings(&create_desktop_settings(), &bounds);
-        let fullscreen = GltfCamera::from_view_settings(&create_fullscreen_settings(), &bounds);
-        let fss = GltfCamera::from_view_settings(&create_fss_settings(), &bounds);
+        let desktop =
+            GltfCamera::from_view_settings(&create_desktop_settings(), &bounds, ExportUnits::M);
+        let fullscreen =
+            GltfCamera::from_view_settings(&create_fullscreen_settings(), &bounds, ExportUnits::M);
+        let fss = GltfCamera::from_view_settings(&create_fss_settings(), &bounds, ExportUnits::M);
 
         assert_eq!(desktop.mode, ViewMode::Desktop);
         assert_eq!(fullscreen.mode, ViewMode::Fullscreen);
@@ -962,6 +983,35 @@ mod tests {
     }
 
     #[test]
+    fn camera_position_and_clip_planes_follow_units() {
+        // The whole scene must share one unit: exporting at VPU has to
+        // scale the camera exactly like the meshes (position / VPU_TO_M),
+        // and the clip planes must stay equivalent to 0.01 m / 100 m.
+        use crate::vpx::units::vpu_to_m;
+
+        let bounds = create_default_bounds();
+        let settings = create_desktop_settings();
+
+        let m = GltfCamera::from_view_settings(&settings, &bounds, ExportUnits::M);
+        let vpu = GltfCamera::from_view_settings(&settings, &bounds, ExportUnits::Vpu);
+
+        for axis in 0..3 {
+            let expected = m.position[axis];
+            let scaled = vpu_to_m(vpu.position[axis]);
+            assert!(
+                (scaled - expected).abs() < 1e-5,
+                "axis {axis}: vpu position {} scales to {scaled}, expected {expected}",
+                vpu.position[axis]
+            );
+        }
+        assert!((vpu_to_m(vpu.znear) - m.znear).abs() < 1e-6);
+        assert!((vpu_to_m(vpu.zfar) - m.zfar).abs() < 1e-2);
+        // The default unit is bit-identical to the historical meters output.
+        assert_eq!(m.znear, 0.01);
+        assert_eq!(m.zfar, 100.0);
+    }
+
+    #[test]
     fn test_desktop_camera_position_matches_vpinball() {
         // Test case based on actual VPinball desktop view observation
         // Table: 952x2162 VPU
@@ -1000,7 +1050,7 @@ mod tests {
             scale_z: 1.0,
         };
 
-        let camera = GltfCamera::from_view_settings(&settings, &bounds);
+        let camera = GltfCamera::from_view_settings(&settings, &bounds, ExportUnits::M);
 
         println!(
             "Camera position: x={}, y={}, z={}",
