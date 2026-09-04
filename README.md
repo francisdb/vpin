@@ -5,7 +5,8 @@
 [![npm](https://img.shields.io/npm/v/@francisdb/vpin-wasm.svg)](https://www.npmjs.com/package/@francisdb/vpin-wasm)
 
 Rust library for working with Visual Pinball VPX files. Also available on npm as a WASM package: [
-`@francisdb/vpin-wasm`](https://www.npmjs.com/package/@francisdb/vpin-wasm).
+`@francisdb/vpin-wasm`](https://www.npmjs.com/package/@francisdb/vpin-wasm) - see
+[wasm-readme.md](wasm-readme.md) for the JavaScript/TypeScript API.
 
 Join [#vpxtool on "Virtual Pinball Chat" discord](https://discord.gg/eYsvyMu8) for support and questions.
 
@@ -24,14 +25,14 @@ To use only VPX functionality without parallel support:
 
 ```toml
 [dependencies]
-vpin = { version = "0.20", default-features = false }
+vpin = { version = "0.29", default-features = false }
 ```
 
 To enable specific features:
 
 ```toml
 [dependencies]
-vpin = { version = "0.20", default-features = false, features = ["wasm"] }
+vpin = { version = "0.29", default-features = false, features = ["wasm"] }
 ```
 
 ## Example code
@@ -42,13 +43,14 @@ Check the [examples folder](/examples)
 
 The library supports extracting VPX files to an expanded directory format for easier editing and version control.
 
-For primitive mesh data, you can choose between two formats:
+For primitive mesh data, you can choose between three formats:
 
 - **OBJ format** (default) - Text-based Wavefront OBJ, human-readable and widely supported
-- **GLB format** (optional) - Binary GLTF, significantly faster I/O for large meshes and animation frames
+- **GLB format** - Binary GLTF, significantly faster I/O for large meshes and animation frames
+- **GLTF format** - JSON + external BIN buffer, for tooling-friendly workflows
 
-Use `write_with_format()` to specify the format. Both formats are supported for reading, with OBJ checked first for
-backward compatibility.
+Use `expanded::write()` with `ExpandOptions` to specify the format (see the example below). All formats are supported
+for reading, with OBJ checked first for backward compatibility.
 
 ### Derived Mesh Generation
 
@@ -62,6 +64,36 @@ let options = ExpandOptions::new()
 .mesh_format(PrimitiveMeshFormat::Glb)
 .generate_derived_meshes(true);
 ```
+
+## Whole-Table Export (OBJ / glTF)
+
+The library can export a complete table - generated meshes for every part type, materials, and textures - for use in
+Blender and other 3D tools:
+
+- **glTF/GLB** (`export::gltf_export::export_gltf`) - PBR materials, embedded textures, the three VPinball view
+  cameras, and `KHR_lights_punctual` lights. Output follows the glTF conventions (Y-up right-handed, meters) so it
+  opens correctly with default import settings.
+- **OBJ + MTL** (`export::obj_export::export_obj`) - with texture extraction, MTL dedup, and configurable output.
+
+Both exporters take options for the output **units** (`ExportUnits`: VPU, mm, cm, m) and the OBJ exporter also for the
+**axis convention** (`AxisConvention`):
+
+```rust
+use vpin::vpx::export::obj_export::{export_obj, AxisConvention, ExportUnits, ObjExportOptions};
+
+let options = ObjExportOptions {
+    units: ExportUnits::M,
+    // Y-up right-handed opens upright in Blender with default import
+    // settings; the default (ZDownRightHanded) matches vpinball's own
+    // OBJ export convention.
+    axes: AxisConvention::YUpRightHanded,
+    ..ObjExportOptions::default()
+};
+```
+
+Note that the glTF specification defines meters and Y-up as the only conforming conventions - the unit option exists
+for pipelines that expect a different scale. See the [examples folder](/examples) for complete export examples, and
+[wasm-readme.md](wasm-readme.md) for the same functionality from JavaScript (`export_glb`, `export_obj`).
 
 ## VPinball Coordinate System
 
@@ -145,4 +177,4 @@ cargo test --target wasm32-unknown-unknown
 
 ## Making a release
 
-We use https://github.com/MarcoIeni/release-plz which creates a release pr on every commit to master
+We use https://github.com/release-plz/release-plz which creates a release pr on every commit to main
