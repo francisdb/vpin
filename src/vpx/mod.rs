@@ -162,6 +162,13 @@ pub enum VerifyResult {
 
 /// Handle to an underlying VPX file
 ///
+/// [`VpxFile::open`] only needs a `Read + Seek` source, so a byte slice
+/// works. The mutating methods such as [`VpxFile::lock`] and
+/// [`VpxFile::write_gamedata`] are only available when the source also
+/// implements `Write`. Like [`std::fs::File`], a file opened read-only still
+/// satisfies `Write` at the type level; use [`open_rw`] to get a handle whose
+/// file was opened with write access.
+///
 /// # Example
 ///
 /// ```no_run
@@ -184,34 +191,16 @@ pub struct VpxFile<F> {
     compound_file: CompoundFile<F>,
 }
 
+impl<F: Read + Seek> VpxFile<F> {
+    /// Opens an existing VPX file, using the underlying reader. If the reader
+    /// also implements `Write` the mutating methods become available.
+    pub fn open(inner: F) -> io::Result<Self> {
+        let compound_file = CompoundFile::open_strict(inner)?;
+        Ok(VpxFile { compound_file })
+    }
+}
+
 impl<F: Read + Seek + Write> VpxFile<F> {
-    /// Opens an existing compound file, using the underlying reader.  If the
-    /// underlying reader also supports the `Write` trait, then the
-    /// `CompoundFile` object will be writable as well.
-    pub fn open(inner: F) -> io::Result<VpxFile<F>> {
-        // TODO the fact that this is read only should be reflected in the VpxFile type
-        let compound_file = CompoundFile::open_strict(inner)?;
-        Ok(VpxFile { compound_file })
-    }
-
-    pub fn open_rw(inner: F) -> io::Result<VpxFile<F>> {
-        let compound_file = CompoundFile::open_strict(inner)?;
-        Ok(VpxFile { compound_file })
-    }
-
-    pub fn read_version(&mut self) -> io::Result<Version> {
-        read_version(&mut self.compound_file)
-    }
-
-    pub fn read_tableinfo(&mut self) -> io::Result<TableInfo> {
-        read_tableinfo(&mut self.compound_file)
-    }
-
-    pub fn read_gamedata(&mut self) -> io::Result<GameData> {
-        let version = self.read_version()?;
-        read_gamedata(&mut self.compound_file, &version)
-    }
-
     /// Overwrite the GameData stream and refresh the file's MAC signature.
     ///
     /// All other streams (gameitems, images, sounds, fonts, collections,
@@ -226,17 +215,12 @@ impl<F: Read + Seek + Write> VpxFile<F> {
         self.compound_file.flush()
     }
 
-    /// Whether the table is currently locked.
-    ///
-    /// vpinball stores `TLCK` as a monotonic counter; the lock bit is the
-    /// counter's parity (odd = locked, even or absent = unlocked).
-    pub fn is_locked(&mut self) -> io::Result<bool> {
-        Ok(self.read_gamedata()?.locked.unwrap_or(0) & 1 != 0)
-    }
-
     /// Lock the table if it isn't already, mirroring vpinball's
     /// `ToggleLock()` (single increment of the `TLCK` counter, preserving
     /// the audit trail).
+    ///
+    /// This is vpinball's editor lock stored in the table, unrelated to
+    /// the read/write mode of this handle.
     ///
     /// Returns `true` if the call actually modified the file, `false` if
     /// the table was already locked and nothing was written.
@@ -268,6 +252,43 @@ impl<F: Read + Seek + Write> VpxFile<F> {
         Ok(true)
     }
 
+    /// Convert all PNG and BMP images to WebP format and write them back to the VPX file.
+    /// This will overwrite the existing images.
+    /// The images will be converted to lossless WebP.
+    ///
+    /// Note: this will not shrink the vpx file, that requires compacting the file.
+    ///
+    /// Returns a list of conversions that were made.
+    pub fn images_to_webp(&mut self) -> io::Result<Vec<ImageToWebpConversion>> {
+        let gamedata = self.read_gamedata()?;
+        let results = images_to_webp(&mut self.compound_file, &gamedata)?;
+        self.compound_file.flush()?;
+        Ok(results)
+    }
+}
+
+impl<F: Read + Seek> VpxFile<F> {
+    pub fn read_version(&mut self) -> io::Result<Version> {
+        read_version(&mut self.compound_file)
+    }
+
+    pub fn read_tableinfo(&mut self) -> io::Result<TableInfo> {
+        read_tableinfo(&mut self.compound_file)
+    }
+
+    pub fn read_gamedata(&mut self) -> io::Result<GameData> {
+        let version = self.read_version()?;
+        read_gamedata(&mut self.compound_file, &version)
+    }
+
+    /// Whether the table is currently locked.
+    ///
+    /// vpinball stores `TLCK` as a monotonic counter; the lock bit is the
+    /// counter's parity (odd = locked, even or absent = unlocked).
+    pub fn is_locked(&mut self) -> io::Result<bool> {
+        Ok(self.read_gamedata()?.locked.unwrap_or(0) & 1 != 0)
+    }
+
     pub fn read_gameitems(&mut self) -> io::Result<Vec<GameItemEnum>> {
         let gamedata = self.read_gamedata()?;
         read_gameitems(&mut self.compound_file, &gamedata)
@@ -296,21 +317,6 @@ impl<F: Read + Seek + Write> VpxFile<F> {
 
     pub fn read_custominfotags(&mut self) -> io::Result<CustomInfoTags> {
         read_custominfotags(&mut self.compound_file)
-    }
-
-    /// Convert all PNG and BMP images to WebP format and write them back to the VPX file.
-    /// This will overwrite the existing images.
-    /// The images will be converted to lossless WebP.
-    ///
-    /// Note: this will not shrink the vpx file, that requires compacting the file.
-    ///
-    /// Returns a list of conversions that were made.
-    pub fn images_to_webp(&mut self) -> io::Result<Vec<ImageToWebpConversion>> {
-        // We need to make sure we have read access, or we will get a: Bad file descriptor (os error 9)
-        let gamedata = self.read_gamedata()?;
-        let results = images_to_webp(&mut self.compound_file, &gamedata)?;
-        self.compound_file.flush()?;
-        Ok(results)
     }
 }
 
@@ -355,14 +361,21 @@ fn compact_cfb<P: AsRef<Path>>(in_path: P) -> io::Result<()> {
     std::fs::rename(&out_path, &in_path)
 }
 
-/// Opens a handle to an existing VPX file
+/// Opens a handle to an existing VPX file with read access only.
+///
+/// The mutating methods compile against it, because [`File`] always
+/// implements `Write`, but fail at runtime. Use [`open_rw()`] to modify a
+/// table.
 pub fn open<P: AsRef<Path>>(path: P) -> io::Result<VpxFile<File>> {
     VpxFile::open(File::open(path)?)
 }
 
+/// Opens a handle to an existing VPX file with read and write access
+///
+/// see also [`open()`]
 pub fn open_rw<P: AsRef<Path>>(path: P) -> io::Result<VpxFile<File>> {
     let file = OpenOptions::new().read(true).write(true).open(path)?;
-    VpxFile::open_rw(file)
+    VpxFile::open(file)
 }
 
 /// Reads a VPX file from disk to memory
@@ -1247,6 +1260,20 @@ mod tests {
     const TEST_TABLE_BYTES: &[u8] =
         include_bytes!("../../testdata/completely_blank_table_10_7_4.vpx");
 
+    /// A read-only handle only needs `Read + Seek`, a borrowed byte slice
+    /// does not implement `Write`.
+    #[test]
+    fn test_open_read_only_from_slice() -> io::Result<()> {
+        let mut vpx = VpxFile::open(Cursor::new(TEST_TABLE_BYTES))?;
+        assert_eq!(vpx.read_version()?, Version::new(1072));
+        assert!(!vpx.is_locked()?);
+        assert_eq!(
+            vpx.read_gameitems()?.len(),
+            vpx.read_gamedata()?.gameitems_size as usize
+        );
+        Ok(())
+    }
+
     /// Truncate every BIFF stream of the blank table in turn and check that
     /// reading reports an error naming the stream instead of panicking.
     #[test]
@@ -1344,7 +1371,7 @@ mod tests {
         // round-trip and the MAC must remain valid for the (mostly unchanged)
         // compound document.
         let cursor = Cursor::new(TEST_TABLE_BYTES.to_vec());
-        let mut vpx = VpxFile::open_rw(cursor)?;
+        let mut vpx = VpxFile::open(cursor)?;
 
         let original_locked = vpx.read_gamedata()?.locked.unwrap_or(0);
 
@@ -1369,7 +1396,7 @@ mod tests {
         // return reporting whether a write actually happened, and monotonic
         // counter preservation.
         let cursor = Cursor::new(TEST_TABLE_BYTES.to_vec());
-        let mut vpx = VpxFile::open_rw(cursor)?;
+        let mut vpx = VpxFile::open(cursor)?;
 
         // Normalise to a known unlocked state without losing test independence.
         if vpx.is_locked()? {
