@@ -1876,6 +1876,7 @@ mod tests {
                 .split_whitespace()
                 .filter_map(|s| s.parse().ok())
                 .collect();
+            assert_eq!(coords.len(), 3, "unexpected vertex line: {line:?}");
             [coords[0], coords[1], coords[2]]
         };
         let mm = pick_at(&mm_obj);
