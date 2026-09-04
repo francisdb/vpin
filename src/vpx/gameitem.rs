@@ -31,6 +31,7 @@ pub mod wall;
 use super::biff::{BiffReader, BiffWrite, BiffWriter};
 use crate::vpx::biff::BiffRead;
 use crate::vpx::gameitem::select::HasSharedAttributes;
+use log::warn;
 use serde::{Deserialize, Serialize};
 use std::io;
 
@@ -897,6 +898,10 @@ pub fn read(input: &[u8]) -> io::Result<GameItemEnum> {
             GameItemEnum::PartGroup(partgroup::PartGroup::biff_read(&mut reader))
         }
         other_item_type => {
+            warn!(
+                "Unknown game item type {other_item_type}, reading it as a generic item. \
+                 Its records are kept as raw bytes."
+            );
             GameItemEnum::Generic(other_item_type, generic::Generic::biff_read(&mut reader))
         }
     };
@@ -983,7 +988,7 @@ mod tests {
         writer.close(true);
         let bytes = writer.get_data().to_vec();
 
-        let item = read(&bytes);
+        let item = read(&bytes).unwrap();
         match &item {
             GameItemEnum::Generic(item_type, generic) => {
                 assert_eq!(*item_type, UNKNOWN_TYPE);
