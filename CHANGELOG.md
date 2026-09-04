@@ -6,6 +6,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0](https://github.com/francisdb/vpin/compare/v0.29.0...v0.30.0) - 2026-09-04
+
+### Added
+
+- [**breaking**] keep unknown enum values instead of panicking ([#380](https://github.com/francisdb/vpin/pull/380))
+- [**breaking**] rename the table lock methods ([#378](https://github.com/francisdb/vpin/pull/378))
+- *(wasm)* add export_obj for whole-table OBJ export ([#377](https://github.com/francisdb/vpin/pull/377))
+
+### Fixed
+
+- flasher world-aligned UVs must not subtract the table origin ([#384](https://github.com/francisdb/vpin/pull/384))
+- derived meshes use the actual table dimensions ([#383](https://github.com/francisdb/vpin/pull/383))
+- glTF cameras follow the units option ([#382](https://github.com/francisdb/vpin/pull/382))
+- open VpxFile from any Read + Seek source ([#374](https://github.com/francisdb/vpin/pull/374))
+- hand-edited expanded files fail with errors instead of panics ([#376](https://github.com/francisdb/vpin/pull/376))
+- *(gameitem)* warn when reading an unknown game item type
+- *(gameitem)* write unknown game item types instead of panicking
+- *(mesh)* static ramps and rubbers use 13 ring segments ([#368](https://github.com/francisdb/vpin/pull/368))
+- [**breaking**] report corrupt vpx streams as errors instead of panicking ([#371](https://github.com/francisdb/vpin/pull/371))
+
+### Other
+
+- fix the README and expanded module doc ([#390](https://github.com/francisdb/vpin/pull/390))
+- drop a stale allow(unused) on calculate_light_range ([#389](https://github.com/francisdb/vpin/pull/389))
+- guard the pick_at obj parsing helper like pick_extreme_vertex ([#388](https://github.com/francisdb/vpin/pull/388))
+- drop the obsolete module-wide dead_code allow in gamedata ([#387](https://github.com/francisdb/vpin/pull/387))
+- box the Primitive variant of GameItemEnum ([#386](https://github.com/francisdb/vpin/pull/386))
+- drop the stale DirectB2S / POV claim from the crate doc ([#379](https://github.com/francisdb/vpin/pull/379))
+- drop the byteorder dependency ([#373](https://github.com/francisdb/vpin/pull/373))
+- compare written vpx against the original ([#369](https://github.com/francisdb/vpin/pull/369))
+
 ## [0.29.0](https://github.com/francisdb/vpin/compare/v0.28.2...v0.29.0) - 2026-09-04
 
 ### Added
