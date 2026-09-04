@@ -74,7 +74,11 @@ impl<'de> Deserialize<'de> for DecalType {
                 ))),
             },
             Ok(Value::Number(value)) => {
-                let value = value.as_u64().unwrap();
+                let Some(value) = value.as_u64() else {
+                    return Err(serde::de::Error::custom(format!(
+                        "Invalid value {value}, we expect a non-negative integer"
+                    )));
+                };
                 match value {
                     0 => Ok(DecalType::Text),
                     1 => Ok(DecalType::Image),
@@ -144,7 +148,11 @@ impl<'de> Deserialize<'de> for SizingType {
                 ))),
             },
             Ok(Value::Number(value)) => {
-                let value = value.as_u64().unwrap();
+                let Some(value) = value.as_u64() else {
+                    return Err(serde::de::Error::custom(format!(
+                        "Invalid value {value}, we expect a non-negative integer"
+                    )));
+                };
                 match value {
                     0 => Ok(SizingType::AutoSize),
                     1 => Ok(SizingType::AutoWidth),
@@ -514,5 +522,25 @@ mod tests {
     fn test_sizing_type_json_fail() {
         let json: Value = serde_json::Value::from("foo");
         let _: SizingType = serde_json::from_value(json).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod json_error_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn invalid_json_numbers_are_errors_not_panics() {
+        for value in [json!(1.5), json!(-1), json!(99), json!(true), json!(null)] {
+            assert!(
+                serde_json::from_value::<DecalType>(value.clone()).is_err(),
+                "{value}"
+            );
+            assert!(
+                serde_json::from_value::<SizingType>(value.clone()).is_err(),
+                "{value}"
+            );
+        }
     }
 }

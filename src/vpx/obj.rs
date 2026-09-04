@@ -68,27 +68,38 @@ fn obj_vpx_comment(bytes: &[u8]) -> String {
     format!("vpx {hex}")
 }
 
-fn obj_parse_vpx_comment(comment: &str) -> Option<VpxCommentBytes> {
-    if let Some(hex) = comment.strip_prefix("vpx ") {
-        let bytes = hex
-            .split_whitespace()
-            .map(|s| u8::from_str_radix(s, 16).unwrap())
-            .collect::<Vec<u8>>();
-        match bytes.len() {
-            12 => {
-                let mut result = [0; 12];
-                result.copy_from_slice(&bytes);
-                Some(VpxCommentBytes::Normal(result))
-            }
-            32 => {
-                let mut result = [0; 32];
-                result.copy_from_slice(&bytes);
-                Some(VpxCommentBytes::Vertex(result))
-            }
-            _ => None,
+/// Parse a `# vpx <hex bytes>` comment written by [`obj_vpx_comment`].
+///
+/// Returns `Ok(None)` for comments that are not vpx comments and an
+/// `InvalidData` error for a vpx comment that does not hold 12 or 32 valid
+/// hex bytes.
+fn obj_parse_vpx_comment(comment: &str) -> io::Result<Option<VpxCommentBytes>> {
+    let Some(hex) = comment.strip_prefix("vpx ") else {
+        return Ok(None);
+    };
+    let invalid = || {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Invalid vpx comment, expected 12 or 32 hex bytes: {comment:?}"),
+        )
+    };
+    let bytes = hex
+        .split_whitespace()
+        .map(|s| u8::from_str_radix(s, 16).ok())
+        .collect::<Option<Vec<u8>>>()
+        .ok_or_else(invalid)?;
+    match bytes.len() {
+        12 => {
+            let mut result = [0; 12];
+            result.copy_from_slice(&bytes);
+            Ok(Some(VpxCommentBytes::Normal(result)))
         }
-    } else {
-        None
+        32 => {
+            let mut result = [0; 32];
+            result.copy_from_slice(&bytes);
+            Ok(Some(VpxCommentBytes::Vertex(result)))
+        }
+        _ => Err(invalid()),
     }
 }
 
@@ -497,6 +508,8 @@ struct VpxObjReader {
     /// keeps the previous comment to be associated with the next normal
     previous_comment: Option<String>,
     name: String,
+    /// first problem found in a callback, reported once parsing is done
+    error: Option<io::Error>,
 }
 
 impl VpxObjReader {
@@ -510,6 +523,7 @@ impl VpxObjReader {
             object_count: 0,
             previous_comment: None,
             name: String::new(),
+            error: None,
         }
     }
 
@@ -528,6 +542,9 @@ impl VpxObjReader {
     /// aligned (same length, one entry per combined corner).
     fn read<R: io::Read>(mut self, reader: &mut R, reverse_corners: bool) -> io::Result<ObjData> {
         wavefront_obj_io::read_obj_file(reader, &mut self)?;
+        if let Some(error) = self.error.take() {
+            return Err(error);
+        }
         if self.object_count != 1 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -651,18 +668,17 @@ impl ObjReader<f64> for VpxObjReader {
         let (nx, ny, nz) = (nx as f32, ny as f32, nz as f32);
         // If on the write side there was a NaN value that will be stored in a comment
         // This way we stay symmetric
-        if let Some(comment) = &self.previous_comment {
-            // parse the comment as hex string
-            if let Some(bytes) = obj_parse_vpx_comment(comment) {
-                // use the bytes as the normal
-                self.normals
-                    .push(VpxObjNormal::new(nx, ny, nz, Some(bytes)));
-            } else {
-                self.normals.push(VpxObjNormal::new(nx, ny, nz, None));
+        let bytes = match self.previous_comment.as_deref().map(obj_parse_vpx_comment) {
+            Some(Ok(bytes)) => bytes,
+            Some(Err(e)) => {
+                if self.error.is_none() {
+                    self.error = Some(e);
+                }
+                None
             }
-        } else {
-            self.normals.push(VpxObjNormal::new(nx, ny, nz, None));
-        }
+            None => None,
+        };
+        self.normals.push(VpxObjNormal::new(nx, ny, nz, bytes));
         self.previous_comment = None;
     }
 
@@ -1003,7 +1019,6 @@ f 1/1/1 1/1/1 1/1/1
     }
 
     #[test]
-    #[should_panic(expected = "InvalidDigit")]
     fn test_read_obj_with_nan_invalid() {
         let obj_contents = r#"o with_nan
 v 1.0 2.0 3.0
@@ -1013,7 +1028,9 @@ vn NaN 1.0 0.0
 f 1/1/1 1/1/1 1/1/1
         "#;
         let mut reader = BufReader::new(obj_contents.as_bytes());
-        read_obj(&mut reader).unwrap();
+        let err = read_obj(&mut reader).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("vpx comment"), "{err}");
     }
 
     /// Vertices with values the obj text cannot represent (NaN payload bits
@@ -1304,7 +1321,7 @@ f 1/1/1 1/1/1 1/1/1
     fn test_write_read_vpx_comment() {
         let bytes: [u8; 12] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
         let comment = obj_vpx_comment(&bytes);
-        let parsed = obj_parse_vpx_comment(&comment).unwrap();
+        let parsed = obj_parse_vpx_comment(&comment).unwrap().unwrap();
         assert_eq!(VpxCommentBytes::Normal(bytes), parsed);
     }
 
@@ -1312,7 +1329,7 @@ f 1/1/1 1/1/1 1/1/1
     fn test_write_read_vpx_comment_full_vertex() {
         let bytes: [u8; 32] = std::array::from_fn(|i| i as u8);
         let comment = obj_vpx_comment(&bytes);
-        let parsed = obj_parse_vpx_comment(&comment).unwrap();
+        let parsed = obj_parse_vpx_comment(&comment).unwrap().unwrap();
         assert_eq!(VpxCommentBytes::Vertex(bytes), parsed);
     }
 
@@ -1404,5 +1421,22 @@ f 1/1/1 1/1/1 1/1/1
         }
         assert_eq!(triangle_set(&lenient), triangle_set(&strict));
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod comment_error_tests {
+    use super::*;
+
+    #[test]
+    fn garbage_vpx_comment_is_ignored() {
+        assert!(obj_parse_vpx_comment("vpx zz 00 11").is_err());
+        assert!(obj_parse_vpx_comment("vpx 00 11").is_err());
+        assert!(obj_parse_vpx_comment("something else").unwrap().is_none());
+        let twelve = "00 ".repeat(12);
+        assert!(matches!(
+            obj_parse_vpx_comment(&format!("vpx {twelve}")).unwrap(),
+            Some(VpxCommentBytes::Normal(_))
+        ));
     }
 }

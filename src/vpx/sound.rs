@@ -69,7 +69,11 @@ impl<'de> Deserialize<'de> for OutputTarget {
                 ))),
             },
             Ok(Value::Number(value)) => {
-                let value = value.as_u64().unwrap();
+                let Some(value) = value.as_u64() else {
+                    return Err(serde::de::Error::custom(format!(
+                        "Invalid value {value}, we expect a non-negative integer"
+                    )));
+                };
                 match value {
                     0 => Ok(OutputTarget::Table),
                     1 => Ok(OutputTarget::Backglass),
@@ -682,5 +686,21 @@ mod test {
         assert_eq!(str_path_ext(".test"), None);
         assert_eq!(str_path_ext(r"c:\foo.bar\test.wav"), Some("wav"));
         assert_eq!(str_path_ext("/foo.bar/.test"), None);
+    }
+}
+
+#[cfg(test)]
+mod json_error_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn invalid_json_numbers_are_errors_not_panics() {
+        for value in [json!(1.5), json!(-1), json!(99), json!(true), json!(null)] {
+            assert!(
+                serde_json::from_value::<OutputTarget>(value.clone()).is_err(),
+                "{value}"
+            );
+        }
     }
 }
