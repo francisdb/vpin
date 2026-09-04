@@ -619,7 +619,7 @@ mod tests {
                 GameItemEnum::Light(light),
                 GameItemEnum::LightSequencer(light_sequencer),
                 GameItemEnum::Plunger(plunger),
-                GameItemEnum::Primitive(primitive),
+                GameItemEnum::Primitive(Box::new(primitive)),
                 GameItemEnum::Ramp(ramp),
                 GameItemEnum::Reel(reel),
                 GameItemEnum::Rubber(rubber),
@@ -800,7 +800,7 @@ mod tests {
                 fonts_size: 1,
                 ..Default::default()
             },
-            gameitems: vec![GameItemEnum::Primitive(unicode_named_primitive())],
+            gameitems: vec![GameItemEnum::Primitive(Box::new(unicode_named_primitive()))],
             images: vec![ImageData {
                 name: "L\u{00F6}cher image".to_string(),
                 internal_name: None,

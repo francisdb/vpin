@@ -42,7 +42,6 @@ trait GameItem: BiffRead {
     fn name(&self) -> &str;
 }
 
-#[allow(clippy::large_enum_variant)]
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
 // #[serde(tag = "type")]
 pub enum GameItemEnum {
@@ -61,7 +60,7 @@ pub enum GameItemEnum {
     Ramp(ramp::Ramp),
     Reel(reel::Reel),
     LightSequencer(lightsequencer::LightSequencer),
-    Primitive(primitive::Primitive),
+    Primitive(Box<primitive::Primitive>),
     Flasher(flasher::Flasher),
     Rubber(rubber::Rubber),
     HitTarget(hittarget::HitTarget),
@@ -886,7 +885,7 @@ pub fn read(input: &[u8]) -> io::Result<GameItemEnum> {
             GameItemEnum::LightSequencer(lightsequencer::LightSequencer::biff_read(&mut reader))
         }
         ITEM_TYPE_PRIMITIVE => {
-            GameItemEnum::Primitive(primitive::Primitive::biff_read(&mut reader))
+            GameItemEnum::Primitive(Box::new(primitive::Primitive::biff_read(&mut reader)))
         }
         ITEM_TYPE_FLASHER => GameItemEnum::Flasher(flasher::Flasher::biff_read(&mut reader)),
         ITEM_TYPE_RUBBER => GameItemEnum::Rubber(rubber::Rubber::biff_read(&mut reader)),
@@ -928,7 +927,7 @@ pub(crate) fn write(gameitem: &GameItemEnum) -> Vec<u8> {
         GameItemEnum::LightSequencer(lightsequencer) => {
             write_with_type(ITEM_TYPE_LIGHT_SEQUENCER, lightsequencer)
         }
-        GameItemEnum::Primitive(primitive) => write_with_type(ITEM_TYPE_PRIMITIVE, primitive),
+        GameItemEnum::Primitive(primitive) => write_with_type(ITEM_TYPE_PRIMITIVE, &**primitive),
         GameItemEnum::Flasher(flasher) => write_with_type(ITEM_TYPE_FLASHER, flasher),
         GameItemEnum::Rubber(rubber) => write_with_type(ITEM_TYPE_RUBBER, rubber),
         GameItemEnum::HitTarget(hittarget) => write_with_type(ITEM_TYPE_HIT_TARGET, hittarget),
@@ -1014,7 +1013,7 @@ mod tests {
             name: "TestPrimitive".to_string(),
             ..Default::default()
         };
-        let gameitems = vec![GameItemEnum::Primitive(primitive)];
+        let gameitems = vec![GameItemEnum::Primitive(Box::new(primitive))];
         let warnings = validate_part_group_order(&gameitems);
         let expected: Vec<String> = vec![];
         assert_eq!(warnings, expected);
@@ -1036,7 +1035,7 @@ mod tests {
 
         let gameitems = vec![
             GameItemEnum::PartGroup(part_group),
-            GameItemEnum::Primitive(primitive),
+            GameItemEnum::Primitive(Box::new(primitive)),
         ];
         let warnings = validate_part_group_order(&gameitems);
         let expected: Vec<String> = vec![];
@@ -1058,7 +1057,7 @@ mod tests {
         };
 
         let gameitems = vec![
-            GameItemEnum::Primitive(primitive),
+            GameItemEnum::Primitive(Box::new(primitive)),
             GameItemEnum::PartGroup(part_group),
         ];
         let warnings = validate_part_group_order(&gameitems);
@@ -1078,7 +1077,7 @@ mod tests {
             ..Default::default()
         };
 
-        let gameitems = vec![GameItemEnum::Primitive(primitive)];
+        let gameitems = vec![GameItemEnum::Primitive(Box::new(primitive))];
         let warnings = validate_part_group_order(&gameitems);
         let expected = vec![
             "GameItem[0] 'TestPrimitive' (Primitive) references part_group 'TestGroup' which has not been defined yet",
@@ -1156,7 +1155,7 @@ mod tests {
             physics_material: Some("phys".to_string()),
             ..Default::default()
         };
-        let item = GameItemEnum::Primitive(primitive);
+        let item = GameItemEnum::Primitive(Box::new(primitive));
         assert_eq!(item.physics_material(), Some("phys"));
     }
 

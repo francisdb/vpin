@@ -823,7 +823,7 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                         has_explicit_playfield = true;
                     }
 
-                    let group_info = item_group_info_for(primitive);
+                    let group_info = item_group_info_for(&**primitive);
                     let prim_layer_name = group_info.layer_name.clone();
                     item_groups.push(group_info);
 
@@ -3262,7 +3262,8 @@ mod tests {
             num_indices: Some(num_indices),
             ..Default::default()
         };
-        vpx.gameitems.push(GameItemEnum::Primitive(primitive));
+        vpx.gameitems
+            .push(GameItemEnum::Primitive(Box::new(primitive)));
 
         let (meshes, _item_groups) = collect_meshes(&vpx, &GltfExportOptions::default());
         // Should only have the playfield, invisible primitive is skipped
@@ -3287,7 +3288,8 @@ mod tests {
             num_indices: Some(num_indices),
             ..Default::default()
         };
-        vpx.gameitems.push(GameItemEnum::Primitive(primitive));
+        vpx.gameitems
+            .push(GameItemEnum::Primitive(Box::new(primitive)));
 
         let options = GltfExportOptions::default().with_export_invisible_items(true);
         let (meshes, _item_groups) = collect_meshes(&vpx, &options);
@@ -3418,7 +3420,8 @@ mod tests {
             ..Default::default()
         };
 
-        vpx.gameitems.push(GameItemEnum::Primitive(primitive));
+        vpx.gameitems
+            .push(GameItemEnum::Primitive(Box::new(primitive)));
 
         // Collect meshes - this calls the actual code we fixed
         let (meshes, _item_groups) = collect_meshes(&vpx, &GltfExportOptions::default());
