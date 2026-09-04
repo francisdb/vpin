@@ -3,7 +3,9 @@
 //!
 //! It provides a set of tools to work with the various file formats used by the different applications.
 //!
-//! The main focus is on the Visual Pinball X (VPX) file format, but it also provides tools for backglass DirectB2S and Point of View POV files.
+//! The main focus is on the Visual Pinball X (VPX) file format: reading and
+//! writing tables, extracting them to and assembling them from a directory
+//! tree, and exporting whole tables to OBJ or glTF/GLB.
 
 pub mod filesystem;
 pub(crate) mod gltf;
