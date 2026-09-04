@@ -5,13 +5,14 @@
 //!
 //! # Primitive Mesh Formats
 //!
-//! Primitive mesh data can be exported in two formats:
+//! Primitive mesh data can be exported in three formats:
 //! - **OBJ** (default): Text-based Wavefront OBJ format, human-readable
 //! - **GLB**: Binary GLTF format, significantly faster for large meshes
 //! - **GLTF**: JSON + external BIN buffer for tooling-friendly workflows
 //!
-//! Use [`write_with_options`] to specify the format and other options.
-//! Both formats are supported for reading, with OBJ checked first for backward compatibility.
+//! Use [`write()`] with [`ExpandOptions`] to specify the format and other
+//! options. All formats are supported for reading, with OBJ checked first
+//! for backward compatibility.
 
 mod fonts;
 mod gameitems;
