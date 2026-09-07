@@ -427,7 +427,7 @@ pub(crate) fn read(
                 volume = reader.get_u32_no_remaining_update()?;
             }
             unexpected => {
-                panic!("unexpected value {unexpected}");
+                return Err(reader.err(format!("unexpected sound field {unexpected}")));
             }
         }
     }

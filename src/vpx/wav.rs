@@ -301,9 +301,12 @@ impl ReadBytesExt for BytesMut {
         if self.remaining() < 6 {
             return false;
         }
-        let head: [u8; 4] = self[0..4].try_into().unwrap();
-        let shifted: [u8; 4] = self[2..6].try_into().unwrap();
-        !is_chunk_id(&head) && is_chunk_id(&shifted)
+        match (self[0..4].try_into(), self[2..6].try_into()) {
+            (Ok::<[u8; 4], _>(head), Ok::<[u8; 4], _>(shifted)) => {
+                !is_chunk_id(&head) && is_chunk_id(&shifted)
+            }
+            _ => false,
+        }
     }
 }
 

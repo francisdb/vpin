@@ -32,6 +32,15 @@ wasm = [
     "serde_repr",
 ]
 
+[lints.clippy]
+# Parsing user supplied files must never panic; CI turns these into errors.
+# Tests are exempt via clippy.toml.
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+todo = "warn"
+unimplemented = "warn"
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 
@@ -44,7 +53,6 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.145", features = ["preserve_order"] }
 hex = "0.4.3"
 weezl = "0.2.1"
-regex = "1.12.2"
 sanitize-filename = "0.6"
 unicode-normalization = "0.1"
 log = "0.4"

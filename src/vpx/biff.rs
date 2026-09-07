@@ -415,6 +415,14 @@ impl<'a> BiffReader<'a> {
     }
 }
 
+/// # Panics
+///
+/// A single BIFF record cannot hold more than `u32::MAX` bytes
+#[allow(clippy::unwrap_used)]
+pub(crate) fn record_len(len: usize) -> u32 {
+    len.try_into().unwrap()
+}
+
 pub struct BiffWriter {
     data: Vec<u8>,
     tag_start: usize,
@@ -444,9 +452,7 @@ impl BiffWriter {
 
     pub fn end_tag(&mut self) {
         if !self.tag.is_empty() {
-            //let length = self.data.len();
-            let length: &u32 = &self.record_size.try_into().unwrap();
-            let length_bytes = length.to_le_bytes();
+            let length_bytes = record_len(self.record_size).to_le_bytes();
             self.data[self.tag_start..self.tag_start + 4].copy_from_slice(&length_bytes);
             self.tag = "".to_string();
         }
@@ -501,13 +507,19 @@ impl BiffWriter {
 
     pub fn write_short_string(&mut self, value: &str) {
         let d = encode_latin1_lossy(value);
-        self.write_u8(d.len().try_into().unwrap());
-        self.write_data(&d);
+        // the format stores the length in one byte, longer strings are
+        // truncated like the lossy encoding above already is
+        let len = d.len().min(u8::MAX as usize);
+        if len < d.len() {
+            warn!("Truncating {} byte string to {len} bytes", d.len());
+        }
+        self.write_u8(len as u8);
+        self.write_data(&d[..len]);
     }
 
     pub fn write_string(&mut self, value: &str) {
         let d = encode_latin1_lossy(value);
-        self.write_u32(d.len().try_into().unwrap());
+        self.write_u32(record_len(d.len()));
         self.write_data(&d);
     }
 
@@ -516,7 +528,7 @@ impl BiffWriter {
             StringEncoding::Latin1 => encode_latin1_lossy(&value.string).to_vec(),
             StringEncoding::Utf8 => value.string.clone().into_bytes(),
         };
-        self.write_u32(d.len().try_into().unwrap());
+        self.write_u32(record_len(d.len()));
         self.write_data(&d);
     }
 
@@ -532,7 +544,7 @@ impl BiffWriter {
 
     pub fn write_wide_string(&mut self, value: &str) {
         let d = encode_utf16le(value);
-        self.write_u32(d.len().try_into().unwrap());
+        self.write_u32(record_len(d.len()));
         self.write_data(&d);
     }
 
@@ -545,7 +557,7 @@ impl BiffWriter {
     }
 
     pub fn write_length_prefixed_data(&mut self, value: &[u8]) {
-        self.write_u32(value.len().try_into().unwrap());
+        self.write_u32(record_len(value.len()));
         self.write_data(value);
     }
 

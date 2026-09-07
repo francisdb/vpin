@@ -60,6 +60,8 @@ fn to_blocks(compressed: &[u8], max_block_len: u8) -> Vec<u8> {
 }
 
 fn to_lzw(data: &[u8]) -> Vec<u8> {
+    // encoding into memory cannot fail
+    #[allow(clippy::unwrap_used)]
     weezl::encode::Encoder::new(BitOrder::Lsb, 8)
         .encode(data)
         .unwrap()

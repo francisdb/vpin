@@ -37,6 +37,12 @@ struct TableInfoJson {
     properties_order: Vec<String>,
 }
 
+/// Serializing the plain json model structs cannot fail
+#[allow(clippy::unwrap_used)]
+fn infallible_to_value<T: serde::Serialize>(value: T) -> serde_json::Value {
+    to_value(value).unwrap()
+}
+
 pub fn info_to_json(
     table_info: &TableInfo,
     custom_info_tags: &CustomInfoTags,
@@ -57,7 +63,7 @@ pub fn info_to_json(
         properties: table_info.properties.clone(),
         properties_order: custom_info_tags.clone(),
     };
-    to_value(info_json).unwrap()
+    infallible_to_value(info_json)
 }
 
 pub fn json_to_info(
@@ -96,7 +102,7 @@ pub fn collections_json(collections: &[Collection]) -> serde_json::Value {
         };
         collections_json.push(collection_json);
     }
-    to_value(collections_json).unwrap()
+    infallible_to_value(collections_json)
 }
 
 pub fn json_to_collections(json: serde_json::Value) -> Result<Vec<Collection>, serde_json::Error> {
@@ -117,7 +123,7 @@ pub fn json_to_collections(json: serde_json::Value) -> Result<Vec<Collection>, s
 
 pub fn game_data_to_json(game_data: &GameData) -> serde_json::Value {
     let game_data_json = GameDataJson::from_game_data(game_data);
-    to_value(game_data_json).unwrap()
+    infallible_to_value(game_data_json)
 }
 
 #[cfg(test)]

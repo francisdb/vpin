@@ -250,6 +250,8 @@ impl GltfMaterialBuilder {
     /// Serializes the material builder to a `serde_json::Value` that can be
     /// included in a glTF materials array.
     pub fn build(self) -> Value {
+        // serializing a plain struct cannot fail
+        #[allow(clippy::expect_used)]
         serde_json::to_value(self).expect("GltfMaterialBuilder serialization should never fail")
     }
 }

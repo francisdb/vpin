@@ -74,7 +74,10 @@ impl MemoryFileSystem {
     pub(crate) fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
         let from_str = from.to_string_lossy().to_string();
         let to_str = to.to_string_lossy().to_string();
-        let mut files = self.files.write().unwrap();
+        let mut files = self
+            .files
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         // Clone the data instead of removing it first
         if let Some(data) = files.get(&from_str).cloned() {
@@ -97,7 +100,10 @@ impl MemoryFileSystem {
     #[cfg(test)]
     pub(crate) fn read_to_string(&self, path: &Path) -> io::Result<String> {
         let path_str = path.to_string_lossy().to_string();
-        let files = self.files.read().unwrap();
+        let files = self
+            .files
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         match files.get(&path_str) {
             Some(data) => String::from_utf8(data.clone()).map_err(|e| {
                 io::Error::new(
@@ -121,22 +127,34 @@ impl MemoryFileSystem {
     }
 
     pub fn get_file(&self, path: &str) -> Option<Vec<u8>> {
-        let files = self.files.read().unwrap();
+        let files = self
+            .files
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         files.get(path).cloned()
     }
 
     pub fn list_files(&self) -> Vec<String> {
-        let files = self.files.read().unwrap();
+        let files = self
+            .files
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         files.keys().cloned().collect()
     }
 
     pub fn clear(&self) {
-        let mut files = self.files.write().unwrap();
+        let mut files = self
+            .files
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         files.clear();
     }
 
     pub fn delete_file(&self, path: &str) {
-        let mut files = self.files.write().unwrap();
+        let mut files = self
+            .files
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         files.remove(path);
     }
 }
@@ -154,7 +172,10 @@ impl Write for MemoryFileWriter {
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        let mut files = self.files.write().unwrap();
+        let mut files = self
+            .files
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         files.insert(self.path.clone(), self.buffer.clone());
         Ok(())
     }
@@ -162,7 +183,10 @@ impl Write for MemoryFileWriter {
 
 impl Drop for MemoryFileWriter {
     fn drop(&mut self) {
-        let mut files = self.files.write().unwrap();
+        let mut files = self
+            .files
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         files.insert(self.path.clone(), std::mem::take(&mut self.buffer));
     }
 }
@@ -179,7 +203,10 @@ impl FileSystem for MemoryFileSystem {
 
     fn open_file(&self, path: &Path) -> io::Result<Box<dyn Read>> {
         let path_str = path.to_string_lossy().to_string();
-        let files = self.files.read().unwrap();
+        let files = self
+            .files
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         match files.get(&path_str) {
             Some(data) => Ok(Box::new(Cursor::new(data.clone()))),
             None => Err(io::Error::new(
@@ -191,7 +218,10 @@ impl FileSystem for MemoryFileSystem {
 
     fn read_file(&self, path: &Path) -> io::Result<Vec<u8>> {
         let path_str = path.to_string_lossy().to_string();
-        let files = self.files.read().unwrap();
+        let files = self
+            .files
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         files.get(&path_str).cloned().ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::NotFound,
@@ -202,7 +232,10 @@ impl FileSystem for MemoryFileSystem {
 
     fn write_file(&self, path: &Path, data: &[u8]) -> io::Result<()> {
         let path_str = path.to_string_lossy().to_string();
-        let mut files = self.files.write().unwrap();
+        let mut files = self
+            .files
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         files.insert(path_str, data.to_vec());
         Ok(())
     }
@@ -213,7 +246,10 @@ impl FileSystem for MemoryFileSystem {
 
     fn exists(&self, path: &Path) -> bool {
         let path_str = path.to_string_lossy().to_string();
-        let files = self.files.read().unwrap();
+        let files = self
+            .files
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         files.contains_key(&path_str)
     }
 

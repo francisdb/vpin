@@ -98,7 +98,7 @@ pub fn write(font_data: &FontData) -> Vec<u8> {
     let mut writer = BiffWriter::new();
     writer.write_tagged_string("NAME", &font_data.name);
     writer.write_tagged_string("PATH", &font_data.path);
-    writer.write_tagged_u32("SIZE", font_data.data.len().try_into().unwrap());
+    writer.write_tagged_u32("SIZE", crate::vpx::biff::record_len(font_data.data.len()));
     writer.write_tagged_data("DATA", &font_data.data);
     writer.close(true);
     writer.get_data().to_owned()

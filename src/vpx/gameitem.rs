@@ -495,8 +495,8 @@ impl GameItemEnum {
     }
 
     // from type name to type id
-    pub fn type_id(type_name: &str) -> u32 {
-        match type_name {
+    pub fn type_id(type_name: &str) -> Option<u32> {
+        let id = match type_name {
             "Wall" => ITEM_TYPE_WALL,
             "Flipper" => ITEM_TYPE_FLIPPER,
             "Timer" => ITEM_TYPE_TIMER,
@@ -523,8 +523,9 @@ impl GameItemEnum {
             "Ball" => ITEM_TYPE_BALL,
             "PartGroup" => ITEM_TYPE_PART_GROUP,
             "TypeCount" => ITEM_TYPE_TYPE_COUNT,
-            _ => unimplemented!("type_id for {}", type_name),
-        }
+            _ => return None,
+        };
+        Some(id)
     }
 
     /// Human readable name for a raw item type id, used by [`crate::vpx::diff`]
