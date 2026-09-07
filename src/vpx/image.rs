@@ -2,7 +2,6 @@ use super::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite, BiffWriter};
 use crate::vpx::lzw::from_lzw_blocks;
 use image::DynamicImage;
 use log::warn;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::io;
@@ -151,20 +150,24 @@ pub struct ImageData {
     pub md5_hash: Option<[u8; 16]>,
 }
 
+/// Replaces a trailing file extension, appends when there is none
+fn replace_extension(path: &str, ext: &str) -> String {
+    let stem = match path.rfind('.') {
+        Some(dot) if path[dot + 1..].chars().all(|c| c.is_ascii_alphanumeric()) => &path[..dot],
+        _ => path,
+    };
+    format!("{stem}.{ext}")
+}
+
 impl ImageData {
     const ALPHA_TEST_VALUE_DEFAULT: f32 = -1.0;
 
     pub(crate) fn change_extension(&mut self, ext: &str) {
-        let mut path = self.path.clone();
-        let re = Regex::new(r"\.[a-zA-Z0-9]+$").unwrap();
-        path = re.replace(&path, format!(".{ext}")).to_string();
-        self.path = path;
+        self.path = replace_extension(&self.path, ext);
 
-        // to the same for the jpeg path
+        // do the same for the jpeg path
         if let Some(jpeg) = &mut self.jpeg {
-            let mut path = jpeg.path.clone();
-            path = re.replace(&path, format!(".{ext}")).to_string();
-            jpeg.path = path;
+            jpeg.path = replace_extension(&jpeg.path, ext);
         }
     }
 
@@ -510,7 +513,7 @@ fn write_jpg(img: &ImageDataJpeg) -> Vec<u8> {
         writer.write_tagged_string("INME", inme);
     }
     writer.write_tagged_string("PATH", &img.path);
-    writer.write_tagged_u32("SIZE", img.data.len().try_into().unwrap());
+    writer.write_tagged_u32("SIZE", crate::vpx::biff::record_len(img.data.len()));
     writer.write_tagged_data("DATA", &img.data);
     // writer.write_tagged_f32("ALTV", img.alpha_test_value);
     writer.close(true);

@@ -433,7 +433,7 @@ pub fn write(path: &Path, vpx: &VPX) -> io::Result<()> {
         .open(path)?;
     let mut comp = CompoundFile::create(file)?;
     let result = write_vpx(&mut comp, vpx);
-    info!("Wrote {}", path.file_name().unwrap().to_string_lossy());
+    info!("Wrote {}", path.display());
     result
 }
 
@@ -667,11 +667,8 @@ fn generate_mac<F: Read + Seek>(comp: &mut CompoundFile<F>) -> io::Result<Vec<u8
     //  ordering of writes is important co come up with the correct hash
 
     fn item_path(path: &Path, index: i32) -> PathBuf {
-        path.with_file_name(format!(
-            "{}{}",
-            path.file_name().unwrap().to_string_lossy(),
-            index
-        ))
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        path.with_file_name(format!("{name}{index}"))
     }
 
     fn append_structure<F: Seek + Read>(

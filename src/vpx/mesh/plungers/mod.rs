@@ -428,11 +428,7 @@ fn generate_rod_mesh(plunger: &Plunger) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
 
     // Parse tip shape to find where the rod ends (where tip begins)
     let tip_points = parse_tip_shape(&plunger.tip_shape);
-    let tip_length = if !tip_points.is_empty() {
-        tip_points.last().unwrap().y
-    } else {
-        0.0
-    };
+    let tip_length = tip_points.last().map(|point| point.y).unwrap_or(0.0);
 
     // Centered at origin:
     // Y=0 is the plunger's nominal position. Tip (fully extended) sits at -stroke,
@@ -531,11 +527,7 @@ fn generate_spring_mesh(plunger: &Plunger) -> (Vec<VertexWrapper>, Vec<VpxFace>)
 
     // Parse tip shape to find tip length
     let tip_points = parse_tip_shape(&plunger.tip_shape);
-    let tip_length = if !tip_points.is_empty() {
-        tip_points.last().unwrap().y
-    } else {
-        0.0
-    };
+    let tip_length = tip_points.last().map(|point| point.y).unwrap_or(0.0);
 
     // Centered at origin: tip extends to Y=-stroke, rod base sits at Y=+height.
     // Matches vpinball Plunger::RenderSetup (endy = beginy - stroke, rody = beginy + height).
@@ -760,11 +752,7 @@ fn generate_ring_mesh(plunger: &Plunger) -> (Vec<VertexWrapper>, Vec<VpxFace>) {
 
     // Parse tip shape to find tip length
     let tip_points = parse_tip_shape(&plunger.tip_shape);
-    let tip_length = if !tip_points.is_empty() {
-        tip_points.last().unwrap().y
-    } else {
-        0.0
-    };
+    let tip_length = tip_points.last().map(|point| point.y).unwrap_or(0.0);
 
     // Centered at origin: Y=0 is at base, tip extends to Y=-stroke
     let y_tip_end = -plunger.stroke; // Playfield end (lower Y)

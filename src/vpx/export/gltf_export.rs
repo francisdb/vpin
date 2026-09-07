@@ -665,7 +665,7 @@ fn calculate_playfield_roughness(reflection_strength: f32, fallback_roughness: f
 /// - Adding the image and texture to the glTF arrays
 /// - Creating the playfield material with appropriate roughness based on reflection strength
 ///
-/// Returns `true` if the playfield material was added, `false` if no image was available.
+/// Returns the material, or `None` when the image cannot be decoded.
 #[allow(clippy::too_many_arguments)]
 fn playfield_material(
     vpx: &VPX,
@@ -677,8 +677,8 @@ fn playfield_material(
     gltf_textures: &mut Vec<serde_json::Value>,
     buffer_views: &mut Vec<serde_json::Value>,
     bin_data: &mut Vec<u8>,
-) -> Value {
-    let image_bytes = get_image_bytes(playfield_image).unwrap();
+) -> Option<Value> {
+    let image_bytes = get_image_bytes(playfield_image)?;
 
     // Add sampler
     let sampler_idx = gltf_samplers.len();
@@ -752,9 +752,10 @@ fn playfield_material(
     }
 
     // Note: No alphaMode - playfield should be opaque (default is OPAQUE)
-    GltfMaterialBuilder::new(playfield_material_name, 0.0, playfield_roughness)
+    let material = GltfMaterialBuilder::new(playfield_material_name, 0.0, playfield_roughness)
         .texture(texture_idx)
-        .build()
+        .build();
+    Some(material)
 }
 
 /// Calculate the effective range for a light in meters.
@@ -1926,7 +1927,7 @@ fn build_combined_gltf_payload(
 
     // Add playfield material with texture if available
     if let Some(image) = playfield_image {
-        let pf_material = playfield_material(
+        if let Some(pf_material) = playfield_material(
             vpx,
             image,
             playfield_material_name,
@@ -1936,9 +1937,12 @@ fn build_combined_gltf_payload(
             &mut gltf_textures,
             &mut buffer_views,
             &mut bin_data,
-        );
-        material_index_map.insert(playfield_material_name.to_string(), gltf_materials.len());
-        gltf_materials.push(pf_material);
+        ) {
+            material_index_map.insert(playfield_material_name.to_string(), gltf_materials.len());
+            gltf_materials.push(pf_material);
+        } else {
+            warn!("Playfield image {} could not be decoded", image.name);
+        }
     }
 
     for (name, mat) in materials {
@@ -2216,21 +2220,21 @@ fn build_combined_gltf_payload(
             let texture_key = texture_name.to_lowercase();
 
             // Check if mesh has a material that provides a base color tint
-            let mat_info = mesh
-                .material_name
-                .as_ref()
-                .and_then(|mat_name| materials.get(mat_name))
-                .map(|mat| {
+            let mat_info = mesh.material_name.as_ref().and_then(|mat_name| {
+                materials.get(mat_name).map(|mat| {
                     (
+                        mat_name,
                         mat.base_color,
                         mat.opacity_active,
                         mat.metallic,
                         mat.roughness,
                     )
-                });
+                })
+            });
 
             // Check if mesh needs a unique material (non-white color)
-            if let Some((color, opacity_active, metallic, roughness)) = mat_info {
+            if let Some((mesh_material_name, color, opacity_active, metallic, roughness)) = mat_info
+            {
                 let is_non_white = color[0] < 0.99 || color[1] < 0.99 || color[2] < 0.99;
 
                 if is_non_white {
@@ -2244,8 +2248,7 @@ fn build_combined_gltf_payload(
 
                         let material_has_alpha = opacity_active && color[3] < 0.999;
 
-                        let material_name =
-                            format!("{}_{}", mesh.material_name.as_ref().unwrap(), texture_name);
+                        let material_name = format!("{mesh_material_name}_{texture_name}");
                         // VPinball does BOTH alpha testing AND alpha blending
                         // Use BLEND for any transparency for visual fidelity
                         let mut builder =
@@ -2267,21 +2270,21 @@ fn build_combined_gltf_payload(
             // If so, create a unique material; otherwise share based on texture only
 
             // Get metallic/roughness from material if available
-            let mat_properties = mesh
-                .material_name
-                .as_ref()
-                .and_then(|mat_name| materials.get(mat_name))
-                .map(|mat| {
+            let mat_properties = mesh.material_name.as_ref().and_then(|mat_name| {
+                materials.get(mat_name).map(|mat| {
                     (
+                        mat_name,
                         mat.metallic,
                         mat.roughness,
                         mat.opacity_active,
                         mat.base_color[3],
                     )
-                });
+                })
+            });
 
             // If material has non-default metallic (> 0), create unique material
-            if let Some((metallic, roughness, opacity_active, opacity)) = mat_properties
+            if let Some((mesh_material_name, metallic, roughness, opacity_active, opacity)) =
+                mat_properties
                 && metallic > 0.0
             {
                 // Create unique material for this texture + metallic combination
@@ -2294,8 +2297,7 @@ fn build_combined_gltf_payload(
 
                     let material_has_alpha = opacity_active && opacity < 0.999;
 
-                    let material_name =
-                        format!("{}_{}", mesh.material_name.as_ref().unwrap(), texture_name);
+                    let material_name = format!("{mesh_material_name}_{texture_name}");
 
                     // VPinball does BOTH alpha testing AND alpha blending
                     // Use BLEND for any transparency for visual fidelity

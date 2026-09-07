@@ -381,8 +381,8 @@ pub fn read_fs<P: AsRef<Path>>(expanded_dir: &P, fs: &dyn FileSystem) -> io::Res
     Ok(vpx)
 }
 
-pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
-    let vpx = crate::vpx::read(vpx_file_path).unwrap();
+pub fn extract_directory_list(vpx_file_path: &Path) -> io::Result<Vec<String>> {
+    let vpx = crate::vpx::read(vpx_file_path)?;
     let fs = MemoryFileSystem::default();
 
     // take the file name without extension as the directory name
@@ -396,11 +396,11 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> Vec<String> {
     let options = ExpandOptions::new()
         .generate_derived_meshes(false)
         .mesh_format(PrimitiveMeshFormat::Obj);
-    write_fs(&vpx, &expanded_dir, &options, &fs).unwrap();
+    write_fs(&vpx, &expanded_dir, &options, &fs).map_err(io::Error::other)?;
 
     let mut files = fs.list_files();
     files.sort();
-    files
+    Ok(files)
 }
 
 /// Generate the file name for a generated mesh file
@@ -908,7 +908,7 @@ mod tests {
     fn test_extract_directory_list() {
         let vpx_path = Path::new("testdata/completely_blank_table_10_7_4.vpx");
 
-        let files = extract_directory_list(vpx_path);
+        let files = extract_directory_list(vpx_path).unwrap();
 
         let base = Path::new("completely_blank_table_10_7_4");
 
