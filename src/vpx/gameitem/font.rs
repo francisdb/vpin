@@ -110,10 +110,18 @@ pub const CHARSET_TRADITIONAL_CHINESE: u16 = 136;
 pub const CHARSET_EXTENDED: u16 = 255;
 
 /// This is a font reference some primitives use.
-/// In vpinball represented as serialized win32 FONTDESC struct
+///
+/// The serialization format is not vpinball's own: it is Microsoft's OLE
+/// `StdFont` persistence format, inherited because old Windows vpinball
+/// saved fonts through `OleSaveToStream` on a COM font object.
 #[derive(PartialEq, Debug)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Font {
+    /// Version byte of the OLE `StdFont` stream. Microsoft defined it as
+    /// always 1 and never revised the format, so 1 is the only value in
+    /// the wild. vpinball keeps whatever value it reads and writes it
+    /// back, so we do the same to round-trip tables unchanged.
+    version: u8,
     /// from <https://learn.microsoft.com/en-us/windows/win32/lwef/fontcharset-property>
     /// An integer value that specifies the character set used by the font. The following are some
     /// common settings for value:
@@ -136,6 +144,8 @@ pub struct Font {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct FontJson {
     #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     charset: Option<u16>,
     style: HashSet<FontStyle>,
     weight: u16,
@@ -144,11 +154,16 @@ pub(crate) struct FontJson {
 }
 impl FontJson {
     pub fn from_font(font: &Font) -> Self {
+        let version = match font.version {
+            EXPECTED_FONTDESC_VERSION => None,
+            _ => Some(font.version),
+        };
         let charset = match font.charset {
             CHARSET_ANSI => None,
             _ => Some(font.charset),
         };
         Self {
+            version,
             charset,
             style: font.style.clone(),
             weight: font.weight,
@@ -158,6 +173,7 @@ impl FontJson {
     }
     pub fn to_font(&self) -> Font {
         Font {
+            version: self.version.unwrap_or(EXPECTED_FONTDESC_VERSION),
             charset: self.charset.unwrap_or(CHARSET_ANSI),
             style: self.style.clone(),
             weight: self.weight,
@@ -176,6 +192,7 @@ impl Font {
         name: String,
     ) -> Self {
         Self {
+            version: EXPECTED_FONTDESC_VERSION,
             charset,
             style,
             weight,
@@ -189,6 +206,7 @@ impl Default for Font {
     fn default() -> Self {
         // TODO get proper defaults
         Self {
+            version: EXPECTED_FONTDESC_VERSION,
             charset: CHARSET_ANSI,
             style: HashSet::new(),
             weight: 0,
@@ -201,7 +219,13 @@ impl Default for Font {
 impl BiffRead for Font {
     fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let version = reader.get_u8_no_remaining_update()?;
-        assert_eq!(version, EXPECTED_FONTDESC_VERSION, "Font version is not 1");
+        if version != EXPECTED_FONTDESC_VERSION {
+            // vpinball reads this byte and continues regardless of its value,
+            // keeping it for the next save
+            log::warn!(
+                "Unexpected font descriptor version {version}, expected {EXPECTED_FONTDESC_VERSION}"
+            );
+        }
         let charset = reader.get_u16_no_remaining_update()?;
         let style = reader.get_u8_no_remaining_update()?;
         let weight = reader.get_u16_no_remaining_update()?;
@@ -209,6 +233,7 @@ impl BiffRead for Font {
         let name_len = reader.get_u8_no_remaining_update()?;
         let name = reader.get_str_no_remaining_update(name_len as usize)?;
         Ok(Font {
+            version,
             charset,
             style: FontStyle::flags_to_styles(style),
             weight,
@@ -220,8 +245,7 @@ impl BiffRead for Font {
 
 impl BiffWrite for Font {
     fn biff_write(&self, writer: &mut BiffWriter) {
-        // version?
-        writer.write_u8(EXPECTED_FONTDESC_VERSION);
+        writer.write_u8(self.version);
         writer.write_u16(self.charset);
         writer.write_u8(FontStyle::styles_to_flags(&self.style));
         writer.write_u16(self.weight);
@@ -241,6 +265,7 @@ mod test {
     #[test]
     fn write_read_font() {
         let font: Font = Font {
+            version: EXPECTED_FONTDESC_VERSION,
             charset: CHARSET_SYMBOL,
             style: HashSet::from([FontStyle::Bold, FontStyle::Italic, FontStyle::Underline]),
             weight: 100,
@@ -252,5 +277,40 @@ mod test {
         let mut reader = BiffReader::new(writer.get_data());
         let font2 = Font::biff_read(&mut reader).unwrap();
         assert_eq!(font, font2);
+    }
+
+    #[test]
+    fn read_font_with_unexpected_version() {
+        // vpinball reads the version byte and continues regardless of its
+        // value, keeping it for the next save, so an unexpected version
+        // should not fail the parse and should round-trip unchanged
+        let font = Font::default();
+        let mut writer = BiffWriter::new();
+        Font::biff_write(&font, &mut writer);
+        let mut data = writer.get_data().to_vec();
+        data[0] = 76;
+        let mut reader = BiffReader::new(&data);
+        let font2 = Font::biff_read(&mut reader).unwrap();
+        assert_eq!(font2.version, 76);
+        let mut writer2 = BiffWriter::new();
+        Font::biff_write(&font2, &mut writer2);
+        assert_eq!(writer2.get_data(), data.as_slice());
+    }
+
+    #[test]
+    fn json_omits_the_standard_version() {
+        let json = serde_json::to_value(FontJson::from_font(&Font::default())).unwrap();
+        assert!(json.get("version").is_none());
+        // json from before the field existed reads as the standard version
+        let back: FontJson = serde_json::from_value(json).unwrap();
+        assert_eq!(back.to_font().version, EXPECTED_FONTDESC_VERSION);
+        let font = Font {
+            version: 76,
+            ..Font::default()
+        };
+        let json = serde_json::to_value(FontJson::from_font(&font)).unwrap();
+        assert_eq!(json.get("version").unwrap(), 76);
+        let back: FontJson = serde_json::from_value(json).unwrap();
+        assert_eq!(back.to_font(), font);
     }
 }
