@@ -1,0 +1,40 @@
+[package]
+name = "vpin-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.vpin]
+path = ".."
+default-features = false
+
+# The fuzz crate is its own workspace, not part of the vpin package
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "vpx_from_bytes"
+path = "fuzz_targets/vpx_from_bytes.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "gamedata"
+path = "fuzz_targets/gamedata.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "gameitem"
+path = "fuzz_targets/gameitem.rs"
+test = false
+doc = false
+bench = false

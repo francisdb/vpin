@@ -64,6 +64,27 @@ jobs:
       - name: Check with MSRV
         run: cargo check --all-features
 
+  # Keep the fuzz targets compiling, no other job builds them.
+  # Fuzzing needs nightly because cargo-fuzz relies on unstable compiler flags.
+  fuzz-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install nightly Rust
+        uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          workspaces: fuzz
+      - name: Install cargo-fuzz
+        uses: taiki-e/install-action@v2.87.0
+        with:
+          tool: cargo-fuzz
+      - name: Build fuzz targets
+        # The prebuilt cargo-fuzz is a musl binary and would default the
+        # build target to its own triple, which the sanitizer cannot link
+        run: cargo fuzz build --target x86_64-unknown-linux-gnu
+
   wasm32-wasip1:
     runs-on: ubuntu-latest
 
