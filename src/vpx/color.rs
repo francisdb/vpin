@@ -1,4 +1,4 @@
-use crate::vpx::biff::BiffReader;
+use crate::vpx::biff::{BiffError, BiffReader};
 use serde::{Deserialize, Serialize};
 
 use super::biff::BiffWriter;
@@ -137,16 +137,16 @@ impl Color {
         Self { r, g, b, unused: 0 }
     }
 
-    pub fn biff_read(reader: &mut BiffReader<'_>) -> Color {
+    pub fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         // since we read in little endian, we need to read the color in BGR0 format
-        let r = reader.get_u8();
-        let g = reader.get_u8();
-        let b = reader.get_u8();
-        let unused = reader.get_u8();
+        let r = reader.get_u8()?;
+        let g = reader.get_u8()?;
+        let b = reader.get_u8()?;
+        let unused = reader.get_u8()?;
         // if unused != 0 {
         //     eprintln!("Random data found in color: {unused} {r} {g} {b}");
         // }
-        Color { r, g, b, unused }
+        Ok(Color { r, g, b, unused })
     }
 
     pub fn biff_write(&self, writer: &mut BiffWriter) {
@@ -184,7 +184,7 @@ mod tests {
         color.biff_write(&mut writer);
         let data = writer.get_data();
         let mut reader = BiffReader::with_remaining(data, 4);
-        let color2 = Color::biff_read(&mut reader);
+        let color2 = Color::biff_read(&mut reader).unwrap();
         assert_eq!(color, color2);
     }
 
@@ -192,7 +192,7 @@ mod tests {
     fn test_color_biff_with_random_data() {
         let data: Vec<u8> = vec![0xFF, 0xFF, 0xFF, 0x12];
         let mut reader = BiffReader::with_remaining(&data, 4);
-        let color = Color::biff_read(&mut reader);
+        let color = Color::biff_read(&mut reader).unwrap();
         assert_eq!(color.r, 0xFF);
         assert_eq!(color.g, 0xFF);
         assert_eq!(color.b, 0xFF);

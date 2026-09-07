@@ -1,5 +1,5 @@
 use super::vertex2d::Vertex2D;
-use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::TimerData;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -123,67 +123,62 @@ impl Default for LightSequencer {
 }
 
 impl BiffRead for LightSequencer {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let mut light_sequencer = LightSequencer::default();
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
+        while let Some(tag) = reader.next(biff::WARN)? {
             let tag_str = tag.as_str();
             match tag_str {
                 "VCEN" => {
-                    light_sequencer.center = Vertex2D::biff_read(reader);
+                    light_sequencer.center = Vertex2D::biff_read(reader)?;
                 }
                 "COLC" => {
-                    light_sequencer.collection = reader.get_wide_string();
+                    light_sequencer.collection = reader.get_wide_string()?;
                 }
                 "CTRX" => {
-                    light_sequencer.pos_x = reader.get_f32();
+                    light_sequencer.pos_x = reader.get_f32()?;
                 }
                 "CTRY" => {
-                    light_sequencer.pos_y = reader.get_f32();
+                    light_sequencer.pos_y = reader.get_f32()?;
                 }
                 "UPTM" => {
-                    light_sequencer.update_interval = reader.get_u32();
+                    light_sequencer.update_interval = reader.get_u32()?;
                 }
                 "NAME" => {
-                    light_sequencer.name = reader.get_wide_string();
+                    light_sequencer.name = reader.get_wide_string()?;
                 }
                 "BGLS" => {
-                    light_sequencer.backglass = reader.get_bool();
+                    light_sequencer.backglass = reader.get_bool()?;
                 }
 
                 // shared
                 "LOCK" => {
-                    light_sequencer.is_locked = Some(reader.get_bool());
+                    light_sequencer.is_locked = Some(reader.get_bool()?);
                 }
                 "LAYR" => {
-                    light_sequencer.editor_layer = Some(reader.get_u32());
+                    light_sequencer.editor_layer = Some(reader.get_u32()?);
                 }
                 "LANR" => {
-                    light_sequencer.editor_layer_name = Some(reader.get_string());
+                    light_sequencer.editor_layer_name = Some(reader.get_string()?);
                 }
                 "LVIS" => {
-                    light_sequencer.editor_layer_visibility = Some(reader.get_bool());
+                    light_sequencer.editor_layer_visibility = Some(reader.get_bool()?);
                 }
                 "GRUP" => {
-                    light_sequencer.part_group_name = Some(reader.get_string());
+                    light_sequencer.part_group_name = Some(reader.get_string()?);
                 }
                 _ => {
-                    if !light_sequencer.timer.biff_read_tag(tag_str, reader) {
+                    if !light_sequencer.timer.biff_read_tag(tag_str, reader)? {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
                             std::any::type_name::<Self>()
                         );
-                        reader.skip_tag();
+                        reader.skip_tag()?;
                     }
                 }
             }
         }
-        light_sequencer
+        Ok(light_sequencer)
     }
 }
 
@@ -253,7 +248,8 @@ mod tests {
         };
         let mut writer = BiffWriter::new();
         LightSequencer::biff_write(&spinner, &mut writer);
-        let spinner_read = LightSequencer::biff_read(&mut BiffReader::new(writer.get_data()));
+        let spinner_read =
+            LightSequencer::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(spinner, spinner_read);
     }
 }

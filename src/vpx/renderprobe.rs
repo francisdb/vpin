@@ -1,4 +1,4 @@
-use crate::vpx::biff::{BiffRead, BiffWrite, BiffWriter};
+use crate::vpx::biff::{BiffError, BiffRead, BiffWrite, BiffWriter};
 use crate::vpx::gameitem::vertex4d::Vertex4D;
 use log::warn;
 use serde::{Deserialize, Serialize};
@@ -376,34 +376,29 @@ impl Default for RenderProbe {
 }
 
 impl BiffRead for RenderProbe {
-    fn biff_read(reader: &mut crate::vpx::biff::BiffReader<'_>) -> Self {
+    fn biff_read(reader: &mut crate::vpx::biff::BiffReader<'_>) -> Result<Self, BiffError> {
         let mut render_probe = RenderProbe::default();
-        loop {
-            reader.next(crate::vpx::biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
+        while let Some(tag) = reader.next(crate::vpx::biff::WARN)? {
             let tag_str = tag.as_str();
             match tag_str {
-                "TYPE" => render_probe.type_ = reader.get_u32().into(),
-                "NAME" => render_probe.name = reader.get_string(),
-                "RBAS" => render_probe.roughness = reader.get_u32(),
-                "RCLE" => render_probe.roughness_clear = Some(reader.get_u32()),
-                "RPLA" => render_probe.reflection_plane = Vertex4D::biff_read(reader),
-                "RMOD" => render_probe.reflection_mode = reader.get_u32().into(),
-                "RLMP" => render_probe.disable_light_reflection = Some(reader.get_bool()),
+                "TYPE" => render_probe.type_ = reader.get_u32()?.into(),
+                "NAME" => render_probe.name = reader.get_string()?,
+                "RBAS" => render_probe.roughness = reader.get_u32()?,
+                "RCLE" => render_probe.roughness_clear = Some(reader.get_u32()?),
+                "RPLA" => render_probe.reflection_plane = Vertex4D::biff_read(reader)?,
+                "RMOD" => render_probe.reflection_mode = reader.get_u32()?.into(),
+                "RLMP" => render_probe.disable_light_reflection = Some(reader.get_bool()?),
                 _ => {
                     warn!(
                         "Unknown tag {} for {}",
                         tag_str,
                         std::any::type_name::<Self>()
                     );
-                    reader.skip_tag();
+                    reader.skip_tag()?;
                 }
             }
         }
-        render_probe
+        Ok(render_probe)
     }
 }
 
@@ -425,15 +420,15 @@ impl BiffWrite for RenderProbe {
 }
 
 impl BiffRead for RenderProbeWithGarbage {
-    fn biff_read(reader: &mut crate::vpx::biff::BiffReader<'_>) -> Self {
+    fn biff_read(reader: &mut crate::vpx::biff::BiffReader<'_>) -> Result<Self, BiffError> {
         // since this is not a proper record we disable the warning
         reader.disable_warn_remaining();
-        let render_probe = RenderProbe::biff_read(reader);
+        let render_probe = RenderProbe::biff_read(reader)?;
         let trailing_data = reader.get_remaining().to_vec();
-        RenderProbeWithGarbage {
+        Ok(RenderProbeWithGarbage {
             render_probe,
             trailing_data,
-        }
+        })
     }
 }
 
@@ -466,7 +461,7 @@ mod tests {
         let mut writer = BiffWriter::new();
         RenderProbe::biff_write(&render_probe, &mut writer);
         let mut reader = BiffReader::new(writer.get_data());
-        let render_probe_read = RenderProbe::biff_read(&mut reader);
+        let render_probe_read = RenderProbe::biff_read(&mut reader).unwrap();
         assert_eq!(render_probe, render_probe_read);
     }
 
@@ -488,7 +483,8 @@ mod tests {
         let mut writer = BiffWriter::new();
         RenderProbeWithGarbage::biff_write(&render_probe_with_garbage, &mut writer);
         let mut reader = BiffReader::new(writer.get_data());
-        let render_probe_with_garbage_read = RenderProbeWithGarbage::biff_read(&mut reader);
+        let render_probe_with_garbage_read =
+            RenderProbeWithGarbage::biff_read(&mut reader).unwrap();
         assert_eq!(render_probe_with_garbage, render_probe_with_garbage_read);
     }
 

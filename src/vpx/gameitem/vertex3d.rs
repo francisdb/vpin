@@ -1,4 +1,4 @@
-use crate::vpx::biff::{BiffRead, BiffReader, BiffWrite, BiffWriter};
+use crate::vpx::biff::{BiffError, BiffRead, BiffReader, BiffWrite, BiffWriter};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Copy)]
@@ -20,11 +20,11 @@ impl Vertex3D {
         writer.write_f32(self.z);
     }
 
-    pub fn read_unpadded(reader: &mut BiffReader<'_>) -> Self {
-        let x = reader.get_f32();
-        let y = reader.get_f32();
-        let z = reader.get_f32();
-        Vertex3D { x, y, z }
+    pub fn read_unpadded(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
+        let x = reader.get_f32()?;
+        let y = reader.get_f32()?;
+        let z = reader.get_f32()?;
+        Ok(Vertex3D { x, y, z })
     }
 
     pub fn write_padded(&self, writer: &mut BiffWriter) {
@@ -34,12 +34,12 @@ impl Vertex3D {
         writer.write_f32(0.0); // padding
     }
 
-    pub fn read_padded(reader: &mut BiffReader<'_>) -> Self {
-        let x = reader.get_f32();
-        let y = reader.get_f32();
-        let z = reader.get_f32();
-        let _padding = reader.get_f32(); // read and ignore padding
-        Vertex3D { x, y, z }
+    pub fn read_padded(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
+        let x = reader.get_f32()?;
+        let y = reader.get_f32()?;
+        let z = reader.get_f32()?;
+        let _padding = reader.get_f32()?; // read and ignore padding
+        Ok(Vertex3D { x, y, z })
     }
 }
 
@@ -61,7 +61,7 @@ impl Default for Vertex3D {
 
 /// For we default to 16 bytes with padding
 impl BiffRead for Vertex3D {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         Vertex3D::read_padded(reader)
     }
 }
@@ -91,7 +91,7 @@ mod tests {
         let mut writer = BiffWriter::new();
         Vertex3D::biff_write(&vertex, &mut writer);
         let mut reader = BiffReader::with_remaining(writer.get_data(), 16);
-        let vertex_read = Vertex3D::biff_read(&mut reader);
+        let vertex_read = Vertex3D::biff_read(&mut reader).unwrap();
         assert_eq!(vertex, vertex_read);
     }
 }

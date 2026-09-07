@@ -1,11 +1,15 @@
-use crate::vpx::biff;
+use crate::vpx::biff::{self, BiffError};
 use serde::{Deserialize, Serialize};
 
 // TODO create the read side of this trait
 
 pub trait WriteSharedAttributes {
     fn write_shared_attributes(&self, writer: &mut biff::BiffWriter);
-    fn read_shared_attribute(&mut self, tag_str: &str, reader: &mut biff::BiffReader) -> bool;
+    fn read_shared_attribute(
+        &mut self,
+        tag_str: &str,
+        reader: &mut biff::BiffReader,
+    ) -> Result<bool, BiffError>;
 }
 
 /// Required trait for any type that has shared attributes
@@ -78,17 +82,21 @@ impl fake::Dummy<fake::Faker> for TimerData {
 impl TimerData {
     /// Try to read a BIFF tag into this timer data.
     /// Returns `true` if the tag was consumed.
-    pub fn biff_read_tag(&mut self, tag: &str, reader: &mut biff::BiffReader) -> bool {
+    pub fn biff_read_tag(
+        &mut self,
+        tag: &str,
+        reader: &mut biff::BiffReader,
+    ) -> Result<bool, BiffError> {
         match tag {
             "TMON" => {
-                self.is_enabled = reader.get_bool();
-                true
+                self.is_enabled = reader.get_bool()?;
+                Ok(true)
             }
             "TMIN" => {
-                self.interval = reader.get_i32();
-                true
+                self.interval = reader.get_i32()?;
+                Ok(true)
             }
-            _ => false,
+            _ => Ok(false),
         }
     }
 
@@ -129,29 +137,33 @@ where
         }
     }
 
-    fn read_shared_attribute(&mut self, tag: &str, reader: &mut biff::BiffReader) -> bool {
+    fn read_shared_attribute(
+        &mut self,
+        tag: &str,
+        reader: &mut biff::BiffReader,
+    ) -> Result<bool, BiffError> {
         match tag {
             "LOCK" => {
-                self.set_is_locked(reader.get_bool());
-                true
+                self.set_is_locked(reader.get_bool()?);
+                Ok(true)
             }
             "LAYR" => {
-                self.set_editor_layer(Some(reader.get_u32()));
-                true
+                self.set_editor_layer(Some(reader.get_u32()?));
+                Ok(true)
             }
             "LANR" => {
-                self.set_editor_layer_name(Some(reader.get_string()));
-                true
+                self.set_editor_layer_name(Some(reader.get_string()?));
+                Ok(true)
             }
             "LVIS" => {
-                self.set_editor_layer_visibility(Some(reader.get_bool()));
-                true
+                self.set_editor_layer_visibility(Some(reader.get_bool()?));
+                Ok(true)
             }
             "GRUP" => {
-                self.set_part_group_name(Some(reader.get_string()));
-                true
+                self.set_part_group_name(Some(reader.get_string()?));
+                Ok(true)
             }
-            _ => false,
+            _ => Ok(false),
         }
     }
 }

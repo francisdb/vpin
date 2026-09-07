@@ -231,22 +231,22 @@ fn tags_and_hashes<F: Seek + Read>(
 
 fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, usize, u64)> {
     let mut tags: Vec<(String, usize, usize, u64)> = Vec::new();
-    while let Some(tag) = &reader.next(true) {
+    while let Ok(Some(tag)) = &reader.next(true) {
         // Some tags have a size 0, where the data needs to be read in a specific way
         // these are mostly also the special cases you see below
         let read_tag_size = reader.remaining_in_record();
         let tag_str = tag.as_str();
         match tag_str {
             "FONT" => {
-                let data = reader.data_until("ENDB".as_bytes());
+                let data = reader.data_until("ENDB".as_bytes()).unwrap();
                 let hash = hash_data(&data);
                 tags.push(("FONT".to_string(), read_tag_size, data.len(), hash));
-                // let header = reader.get_data(3).to_owned(); // always? 0x01, 0x0, 0x0
-                // let style = reader.get_u8_no_remaining_update();
-                // let weight = reader.get_u16_no_remaining_update();
+                // let header = reader.get_data(3).unwrap().to_owned(); // always? 0x01, 0x0, 0x0
+                // let style = reader.get_u8_no_remaining_update().unwrap();
+                // let weight = reader.get_u16_no_remaining_update().unwrap();
                 // let size = reader.get_f32_no_remaining_update();
-                // let name_len = reader.get_u8_no_remaining_update();
-                // let name = reader.get_str_no_remaining_update(name_len as usize);
+                // let name_len = reader.get_u8_no_remaining_update().unwrap();
+                // let name = reader.get_str_no_remaining_update(name_len as usize).unwrap();
                 // // reconstruct the bytes that were read
                 // let mut data = Vec::new();
                 // data.extend_from_slice(&header);
@@ -272,8 +272,8 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, usize, u
                     0,
                 ));
                 let mut sub_reader = reader.child_reader();
-                while let Some(tag) = &sub_reader.next(true) {
-                    let data = sub_reader.get_record_data(false);
+                while let Ok(Some(tag)) = &sub_reader.next(true) {
+                    let data = sub_reader.get_record_data(false).unwrap();
                     let mut hasher = DefaultHasher::new();
                     Hash::hash_slice(&data, &mut hasher);
                     let hash = hasher.finish();
@@ -281,10 +281,10 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, usize, u
                 }
                 tags.push(("--JPEG--SUB--END--".to_string(), read_tag_size, 0, 0));
                 let pos = sub_reader.pos();
-                reader.skip_end_tag(pos);
+                reader.skip_end_tag(pos).unwrap();
             }
             "BITS" => {
-                let data = reader.data_until("ALTV".as_bytes());
+                let data = reader.data_until("ALTV".as_bytes()).unwrap();
                 // Looks like vpinball encodes de lzw stream in a slightly different way. Ending
                 // up with the same compressed size but different compressed data.
                 // However, vpinball can also read the standard lzw stream we write.
@@ -299,14 +299,16 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, usize, u
                 ));
             }
             "CODE" => {
-                let len = reader.get_u32_no_remaining_update();
+                let len = reader.get_u32_no_remaining_update().unwrap();
                 // at least at the time of 1060, some code was still encoded in latin1
-                let data = reader.get_str_with_encoding_no_remaining_update(len as usize);
+                let data = reader
+                    .get_str_with_encoding_no_remaining_update(len as usize)
+                    .unwrap();
                 let hash = hash_data(data.string.as_bytes());
                 tags.push(("CODE".to_string(), read_tag_size, len as usize, hash));
             }
             "MATE" => {
-                let data = reader.get_record_data(false);
+                let data = reader.get_record_data(false).unwrap();
                 // This field in gamedata has padding applied that has random data
                 // TODO one solution could be overwriting padding areas with 0's
                 // For now we ignore the contents of this field
@@ -319,7 +321,7 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, usize, u
                 ));
             }
             "PHMA" => {
-                let data = reader.get_record_data(false);
+                let data = reader.get_record_data(false).unwrap();
                 // This field in gamedata has a cstring with fixed length,
                 // but again padding is applied that has random data
                 // TODO one solution could be overwriting padding areas with 0's
@@ -335,7 +337,7 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, usize, u
             "M3CY" => {
                 // Since the compressed indices size is depending on the selected compression
                 // algorithm we can't expect the same size. So we just read the data and ignore it.
-                let data = reader.get_record_data(false);
+                let data = reader.get_record_data(false).unwrap();
                 tags.push(("M3CY (ignored)".to_string(), read_tag_size, data.len(), 0));
             }
             "M3CX" => {
@@ -351,7 +353,7 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, usize, u
             "M3CJ" => {
                 // Since the compressed indices size is depending on the selected compression
                 // algorithm we can't expect the same size. So we just read the data and ignore it.
-                let data = reader.get_record_data(false);
+                let data = reader.get_record_data(false).unwrap();
                 tags.push(("M3CJ (ignored)".to_string(), read_tag_size, data.len(), 0));
             }
             "M3CI" => {
@@ -367,7 +369,7 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, usize, u
             "M3AY" => {
                 // Since the compressed indices size is depending on the selected compression
                 // algorithm we can't expect the same size. So we just read the data and ignore it.
-                let data = reader.get_record_data(false);
+                let data = reader.get_record_data(false).unwrap();
                 tags.push(("M3AY (ignored)".to_string(), read_tag_size, data.len(), 0));
             }
             "M3AX" => {
@@ -381,7 +383,7 @@ fn biff_tags_and_hashes(reader: &mut BiffReader) -> Vec<(String, usize, usize, u
                 ));
             }
             other => {
-                let data = reader.get_record_data(false);
+                let data = reader.get_record_data(false).unwrap();
                 let hash = hash_data(&data);
                 tags.push((other.to_string(), read_tag_size, data.len(), hash));
             }
@@ -397,7 +399,7 @@ fn hash_data(data: &[u8]) -> u64 {
 }
 
 fn read_to_end_decompress(reader: &mut BiffReader) -> Vec<u8> {
-    let compressed_data = reader.get_record_data(false);
+    let compressed_data = reader.get_record_data(false).unwrap();
     // decompress the data as best compression might be different
     let mut decoder: ZlibDecoder<&[u8]> = ZlibDecoder::new(compressed_data.as_ref());
     let mut data = Vec::new();

@@ -1,6 +1,6 @@
 use super::dragpoint::DragPoint;
 use crate::impl_shared_attributes;
-use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite, BiffWriter};
+use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite, BiffWriter};
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use crate::vpx::math::{dequantize_unsigned, quantize_unsigned};
 use log::warn;
@@ -283,164 +283,159 @@ impl Default for Wall {
 }
 
 impl BiffRead for Wall {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let mut wall = Wall::default();
 
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
+        while let Some(tag) = reader.next(biff::WARN)? {
             let tag_str = tag.as_str();
             match tag_str {
                 "HTEV" => {
-                    wall.hit_event = reader.get_bool();
+                    wall.hit_event = reader.get_bool()?;
                 }
                 "DROP" => {
-                    wall.is_droppable = reader.get_bool();
+                    wall.is_droppable = reader.get_bool()?;
                 }
                 "FLIP" => {
-                    wall.is_flipbook = reader.get_bool();
+                    wall.is_flipbook = reader.get_bool()?;
                 }
                 "BOTS" => {
-                    wall.is_bottom_solid = reader.get_bool();
+                    wall.is_bottom_solid = reader.get_bool()?;
                 }
                 "COLL" => {
-                    wall.is_collidable = reader.get_bool();
+                    wall.is_collidable = reader.get_bool()?;
                 }
                 "THRS" => {
-                    wall.threshold = reader.get_f32();
+                    wall.threshold = reader.get_f32()?;
                 }
                 "IMGF" => {
-                    wall.image = reader.get_string();
+                    wall.image = reader.get_string()?;
                 }
                 "IMGS" => {
-                    wall.side_image = reader.get_string();
+                    wall.side_image = reader.get_string()?;
                 }
                 "MATR" => {
-                    wall.side_material = reader.get_string();
+                    wall.side_material = reader.get_string()?;
                 }
                 "MATP" => {
-                    wall.top_material = reader.get_string();
+                    wall.top_material = reader.get_string()?;
                 }
                 "MATL" => {
-                    wall.slingshot_material = reader.get_string();
+                    wall.slingshot_material = reader.get_string()?;
                 }
                 "HTBT" => {
-                    wall.height_bottom = reader.get_f32();
+                    wall.height_bottom = reader.get_f32()?;
                 }
                 "NAME" => {
-                    wall.name = reader.get_wide_string();
+                    wall.name = reader.get_wide_string()?;
                 }
                 "DTEX" => {
-                    wall.display_texture = reader.get_bool();
+                    wall.display_texture = reader.get_bool()?;
                 }
                 "SLFO" => {
-                    wall.slingshot_force = reader.get_f32();
+                    wall.slingshot_force = reader.get_f32()?;
                 }
                 "SLTH" => {
-                    wall.slingshot_threshold = reader.get_f32();
+                    wall.slingshot_threshold = reader.get_f32()?;
                 }
                 "SLAN" => {
-                    wall.slingshot_animation = reader.get_bool();
+                    wall.slingshot_animation = reader.get_bool()?;
                 }
                 "ELAS" => {
-                    wall.elasticity = reader.get_f32();
+                    wall.elasticity = reader.get_f32()?;
                 }
                 "ELFO" => {
-                    wall.elasticity_falloff = Some(reader.get_f32());
+                    wall.elasticity_falloff = Some(reader.get_f32()?);
                 }
                 "FRIC" => {
-                    wall.friction = reader.get_f32();
+                    wall.friction = reader.get_f32()?;
                 }
                 "SCAT" => {
-                    wall.scatter = reader.get_f32();
+                    wall.scatter = reader.get_f32()?;
                 }
                 "TBVI" => {
-                    wall.is_top_bottom_visible = reader.get_bool();
+                    wall.is_top_bottom_visible = reader.get_bool()?;
                 }
                 "OVPH" => {
-                    wall.overwrite_physics = Some(reader.get_bool());
+                    wall.overwrite_physics = Some(reader.get_bool()?);
                 }
                 "DLTO" => {
-                    wall.disable_lighting_top = Some(reader.get_f32());
+                    wall.disable_lighting_top = Some(reader.get_f32()?);
                 }
                 "DLBE" => {
-                    wall.disable_lighting_below = Some(reader.get_f32());
+                    wall.disable_lighting_below = Some(reader.get_f32()?);
                 }
                 "SIVI" => {
-                    wall.is_side_visible = reader.get_bool();
+                    wall.is_side_visible = reader.get_bool()?;
                 }
                 "REFL" => {
-                    wall.is_reflection_enabled = Some(reader.get_bool());
+                    wall.is_reflection_enabled = Some(reader.get_bool()?);
                 }
                 "TMRN" => {
-                    wall.timer.is_enabled = reader.get_bool();
+                    wall.timer.is_enabled = reader.get_bool()?;
                 }
                 "PMAT" => {
-                    wall.physics_material = Some(reader.get_string());
+                    wall.physics_material = Some(reader.get_string()?);
                 }
                 "ISBS" => {
-                    wall.is_bottom_solid = reader.get_bool();
+                    wall.is_bottom_solid = reader.get_bool()?;
                 }
                 "CLDW" => {
-                    wall.is_collidable = reader.get_bool();
+                    wall.is_collidable = reader.get_bool()?;
                 }
                 "VSBL" => {
-                    wall.is_top_bottom_visible = reader.get_bool();
+                    wall.is_top_bottom_visible = reader.get_bool()?;
                 }
                 "SLGA" => {
-                    wall.slingshot_animation = reader.get_bool();
+                    wall.slingshot_animation = reader.get_bool()?;
                 }
                 "SVBL" => {
-                    wall.is_side_visible = reader.get_bool();
+                    wall.is_side_visible = reader.get_bool()?;
                 }
                 "DILI" => {
                     wall.disable_lighting_top_old =
-                        Some(dequantize_unsigned::<8>(reader.get_u32()));
+                        Some(dequantize_unsigned::<8>(reader.get_u32()?));
                 }
                 "DILT" => {
-                    wall.disable_lighting_top = Some(reader.get_f32());
+                    wall.disable_lighting_top = Some(reader.get_f32()?);
                 }
                 "DILB" => {
-                    wall.disable_lighting_below = Some(reader.get_f32());
+                    wall.disable_lighting_below = Some(reader.get_f32()?);
                 }
                 "MAPH" => {
-                    wall.physics_material = Some(reader.get_string());
+                    wall.physics_material = Some(reader.get_string()?);
                 }
                 "REEN" => {
-                    wall.is_reflection_enabled = Some(reader.get_bool());
+                    wall.is_reflection_enabled = Some(reader.get_bool()?);
                 }
                 "IMAG" => {
-                    wall.image = reader.get_string();
+                    wall.image = reader.get_string()?;
                 }
                 "SIMG" => {
-                    wall.side_image = reader.get_string();
+                    wall.side_image = reader.get_string()?;
                 }
                 "SIMA" => {
-                    wall.side_material = reader.get_string();
+                    wall.side_material = reader.get_string()?;
                 }
                 "TOMA" => {
-                    wall.top_material = reader.get_string();
+                    wall.top_material = reader.get_string()?;
                 }
                 "SLMA" => {
-                    wall.slingshot_material = reader.get_string();
+                    wall.slingshot_material = reader.get_string()?;
                 }
                 "HTTP" => {
-                    wall.height_top = reader.get_f32();
+                    wall.height_top = reader.get_f32()?;
                 }
                 "DSPT" => {
-                    wall.display_texture = reader.get_bool();
+                    wall.display_texture = reader.get_bool()?;
                 }
                 "SLGF" => {
-                    wall.slingshot_force = reader.get_f32();
+                    wall.slingshot_force = reader.get_f32()?;
                 }
                 "WFCT" => {
-                    wall.friction = reader.get_f32();
+                    wall.friction = reader.get_f32()?;
                 }
                 "WSCT" => {
-                    wall.scatter = reader.get_f32();
+                    wall.scatter = reader.get_f32()?;
                 }
                 "PNTS" => {
                     // this is just a tag with no data
@@ -448,23 +443,23 @@ impl BiffRead for Wall {
                 "DPNT" => {
                     // many of these
                     let point = DragPoint::biff_read(reader);
-                    wall.drag_points.push(point);
+                    wall.drag_points.push(point?);
                 }
                 _ => {
-                    if !wall.timer.biff_read_tag(tag_str, reader)
-                        && !wall.read_shared_attribute(tag_str, reader)
+                    if !wall.timer.biff_read_tag(tag_str, reader)?
+                        && !wall.read_shared_attribute(tag_str, reader)?
                     {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
                             std::any::type_name::<Self>()
                         );
-                        reader.skip_tag();
+                        reader.skip_tag()?;
                     }
                 }
             }
         }
-        wall
+        Ok(wall)
     }
 }
 
@@ -582,7 +577,7 @@ mod tests {
         };
         let mut writer = BiffWriter::new();
         Wall::biff_write(&wall, &mut writer);
-        let wall_read = Wall::biff_read(&mut BiffReader::new(writer.get_data()));
+        let wall_read = Wall::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(wall, wall_read);
     }
 }

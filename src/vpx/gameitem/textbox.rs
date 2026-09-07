@@ -3,7 +3,7 @@ use crate::impl_shared_attributes;
 use crate::vpx::gameitem::font::FontJson;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use crate::vpx::{
-    biff::{self, BiffRead, BiffReader, BiffWrite},
+    biff::{self, BiffError, BiffRead, BiffReader, BiffWrite},
     color::Color,
     gameitem::font::Font,
 };
@@ -271,66 +271,61 @@ impl Default for TextBox {
 }
 
 impl BiffRead for TextBox {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let mut textbox = TextBox::default();
 
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
+        while let Some(tag) = reader.next(biff::WARN)? {
             let tag_str = tag.as_str();
             match tag_str {
                 "VER1" => {
-                    textbox.ver1 = Vertex2D::biff_read(reader);
+                    textbox.ver1 = Vertex2D::biff_read(reader)?;
                 }
                 "VER2" => {
-                    textbox.ver2 = Vertex2D::biff_read(reader);
+                    textbox.ver2 = Vertex2D::biff_read(reader)?;
                 }
                 "CLRB" => {
-                    textbox.back_color = Color::biff_read(reader);
+                    textbox.back_color = Color::biff_read(reader)?;
                 }
                 "CLRF" => {
-                    textbox.font_color = Color::biff_read(reader);
+                    textbox.font_color = Color::biff_read(reader)?;
                 }
                 "INSC" => {
-                    textbox.intensity_scale = reader.get_f32();
+                    textbox.intensity_scale = reader.get_f32()?;
                 }
                 "TEXT" => {
-                    textbox.text = reader.get_string();
+                    textbox.text = reader.get_string()?;
                 }
                 "NAME" => {
-                    textbox.name = reader.get_wide_string();
+                    textbox.name = reader.get_wide_string()?;
                 }
                 "ALGN" => {
-                    textbox.align = reader.get_u32().into();
+                    textbox.align = reader.get_u32()?.into();
                 }
                 "TRNS" => {
-                    textbox.is_transparent = reader.get_bool();
+                    textbox.is_transparent = reader.get_bool()?;
                 }
                 "IDMD" => {
-                    textbox.is_dmd = Some(reader.get_bool());
+                    textbox.is_dmd = Some(reader.get_bool()?);
                 }
 
                 "FONT" => {
-                    textbox.font = Font::biff_read(reader);
+                    textbox.font = Font::biff_read(reader)?;
                 }
                 _ => {
-                    if !textbox.timer.biff_read_tag(tag_str, reader)
-                        && !textbox.read_shared_attribute(tag_str, reader)
+                    if !textbox.timer.biff_read_tag(tag_str, reader)?
+                        && !textbox.read_shared_attribute(tag_str, reader)?
                     {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
                             std::any::type_name::<Self>()
                         );
-                        reader.skip_tag();
+                        reader.skip_tag()?;
                     }
                 }
             }
         }
-        textbox
+        Ok(textbox)
     }
 }
 
@@ -400,7 +395,7 @@ mod tests {
         };
         let mut writer = BiffWriter::new();
         TextBox::biff_write(&textbox, &mut writer);
-        let textbox_read = TextBox::biff_read(&mut BiffReader::new(writer.get_data()));
+        let textbox_read = TextBox::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(textbox, textbox_read);
     }
 

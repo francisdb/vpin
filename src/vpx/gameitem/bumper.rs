@@ -1,6 +1,6 @@
 use super::{GameItem, vertex2d::Vertex2D};
 use crate::impl_shared_attributes;
-use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use crate::vpx::json::F32WithNanInf;
 use log::warn;
@@ -223,98 +223,93 @@ impl GameItem for Bumper {
 }
 
 impl BiffRead for Bumper {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let mut bumper = Bumper::default();
 
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
+        while let Some(tag) = reader.next(biff::WARN)? {
             let tag_str = tag.as_str();
             match tag_str {
                 "VCEN" => {
-                    bumper.center = Vertex2D::biff_read(reader);
+                    bumper.center = Vertex2D::biff_read(reader)?;
                 }
                 "RADI" => {
-                    bumper.radius = reader.get_f32();
+                    bumper.radius = reader.get_f32()?;
                 }
                 "THRS" => {
-                    bumper.threshold = reader.get_f32();
+                    bumper.threshold = reader.get_f32()?;
                 }
                 "FORC" => {
-                    bumper.force = reader.get_f32();
+                    bumper.force = reader.get_f32()?;
                 }
                 "BSCT" => {
-                    bumper.scatter = Some(reader.get_f32());
+                    bumper.scatter = Some(reader.get_f32()?);
                 }
                 "HISC" => {
-                    bumper.height_scale = reader.get_f32();
+                    bumper.height_scale = reader.get_f32()?;
                 }
                 "RISP" => {
-                    bumper.ring_speed = reader.get_f32();
+                    bumper.ring_speed = reader.get_f32()?;
                 }
                 "ORIN" => {
-                    bumper.orientation = reader.get_f32();
+                    bumper.orientation = reader.get_f32()?;
                 }
                 "RDLI" => {
-                    bumper.ring_drop_offset = Some(reader.get_f32());
+                    bumper.ring_drop_offset = Some(reader.get_f32()?);
                 }
                 "MATR" => {
-                    bumper.cap_material = reader.get_string();
+                    bumper.cap_material = reader.get_string()?;
                 }
                 "BAMA" => {
-                    bumper.base_material = reader.get_string();
+                    bumper.base_material = reader.get_string()?;
                 }
                 "SKMA" => {
-                    bumper.socket_material = reader.get_string();
+                    bumper.socket_material = reader.get_string()?;
                 }
                 "RIMA" => {
-                    bumper.ring_material = Some(reader.get_string());
+                    bumper.ring_material = Some(reader.get_string()?);
                 }
                 "SURF" => {
-                    bumper.surface = reader.get_string();
+                    bumper.surface = reader.get_string()?;
                 }
                 "NAME" => {
-                    bumper.name = reader.get_wide_string();
+                    bumper.name = reader.get_wide_string()?;
                 }
                 "CAVI" => {
-                    bumper.is_cap_visible = reader.get_bool();
+                    bumper.is_cap_visible = reader.get_bool()?;
                 }
                 "BSVS" => {
-                    bumper.is_base_visible = reader.get_bool();
+                    bumper.is_base_visible = reader.get_bool()?;
                 }
                 "RIVS" => {
-                    bumper.is_ring_visible = Some(reader.get_bool());
+                    bumper.is_ring_visible = Some(reader.get_bool()?);
                 }
                 "SKVS" => {
-                    bumper.is_socket_visible = Some(reader.get_bool());
+                    bumper.is_socket_visible = Some(reader.get_bool()?);
                 }
                 "HAHE" => {
-                    bumper.hit_event = Some(reader.get_bool());
+                    bumper.hit_event = Some(reader.get_bool()?);
                 }
                 "COLI" => {
-                    bumper.is_collidable = Some(reader.get_bool());
+                    bumper.is_collidable = Some(reader.get_bool()?);
                 }
                 "REEN" => {
-                    bumper.is_reflection_enabled = Some(reader.get_bool());
+                    bumper.is_reflection_enabled = Some(reader.get_bool()?);
                 }
                 _ => {
-                    if !bumper.timer.biff_read_tag(tag_str, reader)
-                        && !bumper.read_shared_attribute(tag_str, reader)
+                    if !bumper.timer.biff_read_tag(tag_str, reader)?
+                        && !bumper.read_shared_attribute(tag_str, reader)?
                     {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
                             std::any::type_name::<Self>()
                         );
-                        reader.skip_tag();
+                        reader.skip_tag()?;
                     }
                 }
             }
         }
-        bumper
+        Ok(bumper)
     }
 }
 
@@ -411,7 +406,7 @@ mod tests {
         };
         let mut writer = BiffWriter::new();
         Bumper::biff_write(&bumper, &mut writer);
-        let bumper_read = Bumper::biff_read(&mut BiffReader::new(writer.get_data()));
+        let bumper_read = Bumper::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(bumper, bumper_read);
     }
 }

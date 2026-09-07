@@ -24,37 +24,31 @@ pub fn read(input: &[u8]) -> io::Result<Collection> {
     let mut fire_events: bool = false;
     let mut stop_single_events: bool = false;
     let mut group_elements: bool = false;
-    loop {
-        reader.next(biff::WARN);
-        if reader.is_eof() {
-            break;
-        }
-        let tag = reader.tag();
+    while let Some(tag) = reader.next(biff::WARN)? {
         let tag_str = tag.as_str();
         match tag_str {
             "NAME" => {
-                name = reader.get_wide_string();
+                name = reader.get_wide_string()?;
             }
             "ITEM" => {
-                let item = reader.get_wide_string();
+                let item = reader.get_wide_string()?;
                 items.push(item);
             }
             "EVNT" => {
-                fire_events = reader.get_bool();
+                fire_events = reader.get_bool()?;
             }
             "SSNG" => {
-                stop_single_events = reader.get_bool();
+                stop_single_events = reader.get_bool()?;
             }
             "GREL" => {
-                group_elements = reader.get_bool();
+                group_elements = reader.get_bool()?;
             }
             other => {
                 warn!("Unknown tag: {other}");
-                reader.skip_tag();
+                reader.skip_tag()?;
             }
         }
     }
-    reader.check()?;
     Ok(Collection {
         name,
         items,

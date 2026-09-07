@@ -1,4 +1,4 @@
-use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite, BiffWriter};
+use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite, BiffWriter};
 use serde::{Deserialize, Serialize};
 
 use super::GameItem;
@@ -53,28 +53,23 @@ impl GameItem for Generic {
 }
 
 impl BiffRead for Generic {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let mut name = Default::default();
         let mut fields: Vec<(String, Vec<u8>)> = Vec::new();
 
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
+        while let Some(tag) = reader.next(biff::WARN)? {
             let tag_str = tag.as_str();
             match tag_str {
                 "NAME" => {
-                    name = reader.get_wide_string();
+                    name = reader.get_wide_string()?;
                     fields.push((tag_str.to_string(), Vec::new()));
                 }
                 _ => {
-                    fields.push((tag_str.to_string(), reader.get_record_data(false).to_vec()));
+                    fields.push((tag_str.to_string(), reader.get_record_data(false)?.to_vec()));
                 }
             }
         }
-        Self { name, fields }
+        Ok(Self { name, fields })
     }
 }
 
@@ -109,7 +104,7 @@ mod tests {
         writer.close(true);
         let bytes = writer.get_data().to_vec();
 
-        let generic = Generic::biff_read(&mut BiffReader::new(&bytes));
+        let generic = Generic::biff_read(&mut BiffReader::new(&bytes)).unwrap();
         assert_eq!(generic.name, "unknown item");
         assert_eq!(
             generic.fields,
@@ -133,7 +128,7 @@ mod tests {
         };
         let mut writer = BiffWriter::new();
         generic.biff_write(&mut writer);
-        let read = Generic::biff_read(&mut BiffReader::new(writer.get_data()));
+        let read = Generic::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(read.name, "renamed");
         assert_eq!(
             read.fields,

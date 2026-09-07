@@ -860,51 +860,49 @@ fn not_standalone(name: &str) -> io::Error {
 /// structurally invalid instead of panicking.
 pub fn read(input: &[u8]) -> io::Result<GameItemEnum> {
     let mut reader = BiffReader::new(input);
-    let item_type = reader.get_u32_no_remaining_update();
-    reader.check()?;
+    let item_type = reader.get_u32_no_remaining_update()?;
     let item = match item_type {
-        ITEM_TYPE_WALL => GameItemEnum::Wall(wall::Wall::biff_read(&mut reader)),
-        ITEM_TYPE_FLIPPER => GameItemEnum::Flipper(flipper::Flipper::biff_read(&mut reader)),
-        ITEM_TYPE_TIMER => GameItemEnum::Timer(timer::Timer::biff_read(&mut reader)),
-        ITEM_TYPE_PLUNGER => GameItemEnum::Plunger(plunger::Plunger::biff_read(&mut reader)),
-        ITEM_TYPE_TEXT_BOX => GameItemEnum::TextBox(textbox::TextBox::biff_read(&mut reader)),
-        ITEM_TYPE_BUMPER => GameItemEnum::Bumper(bumper::Bumper::biff_read(&mut reader)),
-        ITEM_TYPE_TRIGGER => GameItemEnum::Trigger(trigger::Trigger::biff_read(&mut reader)),
-        ITEM_TYPE_LIGHT => GameItemEnum::Light(light::Light::biff_read(&mut reader)),
-        ITEM_TYPE_KICKER => GameItemEnum::Kicker(kicker::Kicker::biff_read(&mut reader)),
-        ITEM_TYPE_DECAL => GameItemEnum::Decal(decal::Decal::biff_read(&mut reader)),
-        ITEM_TYPE_GATE => GameItemEnum::Gate(gate::Gate::biff_read(&mut reader)),
-        ITEM_TYPE_SPINNER => GameItemEnum::Spinner(spinner::Spinner::biff_read(&mut reader)),
-        ITEM_TYPE_RAMP => GameItemEnum::Ramp(ramp::Ramp::biff_read(&mut reader)),
+        ITEM_TYPE_WALL => GameItemEnum::Wall(wall::Wall::biff_read(&mut reader)?),
+        ITEM_TYPE_FLIPPER => GameItemEnum::Flipper(flipper::Flipper::biff_read(&mut reader)?),
+        ITEM_TYPE_TIMER => GameItemEnum::Timer(timer::Timer::biff_read(&mut reader)?),
+        ITEM_TYPE_PLUNGER => GameItemEnum::Plunger(plunger::Plunger::biff_read(&mut reader)?),
+        ITEM_TYPE_TEXT_BOX => GameItemEnum::TextBox(textbox::TextBox::biff_read(&mut reader)?),
+        ITEM_TYPE_BUMPER => GameItemEnum::Bumper(bumper::Bumper::biff_read(&mut reader)?),
+        ITEM_TYPE_TRIGGER => GameItemEnum::Trigger(trigger::Trigger::biff_read(&mut reader)?),
+        ITEM_TYPE_LIGHT => GameItemEnum::Light(light::Light::biff_read(&mut reader)?),
+        ITEM_TYPE_KICKER => GameItemEnum::Kicker(kicker::Kicker::biff_read(&mut reader)?),
+        ITEM_TYPE_DECAL => GameItemEnum::Decal(decal::Decal::biff_read(&mut reader)?),
+        ITEM_TYPE_GATE => GameItemEnum::Gate(gate::Gate::biff_read(&mut reader)?),
+        ITEM_TYPE_SPINNER => GameItemEnum::Spinner(spinner::Spinner::biff_read(&mut reader)?),
+        ITEM_TYPE_RAMP => GameItemEnum::Ramp(ramp::Ramp::biff_read(&mut reader)?),
         ITEM_TYPE_TABLE => return Err(not_standalone("Table")),
         ITEM_TYPE_LIGHT_CENTER => return Err(not_standalone("LightCenter")),
         ITEM_TYPE_DRAG_POINT => return Err(not_standalone("DragPoint")),
         ITEM_TYPE_COLLECTION => return Err(not_standalone("Collection")),
-        ITEM_TYPE_REEL => GameItemEnum::Reel(reel::Reel::biff_read(&mut reader)),
+        ITEM_TYPE_REEL => GameItemEnum::Reel(reel::Reel::biff_read(&mut reader)?),
         ITEM_TYPE_LIGHT_SEQUENCER => {
-            GameItemEnum::LightSequencer(lightsequencer::LightSequencer::biff_read(&mut reader))
+            GameItemEnum::LightSequencer(lightsequencer::LightSequencer::biff_read(&mut reader)?)
         }
         ITEM_TYPE_PRIMITIVE => {
-            GameItemEnum::Primitive(Box::new(primitive::Primitive::biff_read(&mut reader)))
+            GameItemEnum::Primitive(Box::new(primitive::Primitive::biff_read(&mut reader)?))
         }
-        ITEM_TYPE_FLASHER => GameItemEnum::Flasher(flasher::Flasher::biff_read(&mut reader)),
-        ITEM_TYPE_RUBBER => GameItemEnum::Rubber(rubber::Rubber::biff_read(&mut reader)),
+        ITEM_TYPE_FLASHER => GameItemEnum::Flasher(flasher::Flasher::biff_read(&mut reader)?),
+        ITEM_TYPE_RUBBER => GameItemEnum::Rubber(rubber::Rubber::biff_read(&mut reader)?),
         ITEM_TYPE_HIT_TARGET => {
-            GameItemEnum::HitTarget(hittarget::HitTarget::biff_read(&mut reader))
+            GameItemEnum::HitTarget(hittarget::HitTarget::biff_read(&mut reader)?)
         }
-        ITEM_TYPE_BALL => GameItemEnum::Ball(ball::Ball::biff_read(&mut reader)),
+        ITEM_TYPE_BALL => GameItemEnum::Ball(ball::Ball::biff_read(&mut reader)?),
         ITEM_TYPE_PART_GROUP => {
-            GameItemEnum::PartGroup(partgroup::PartGroup::biff_read(&mut reader))
+            GameItemEnum::PartGroup(partgroup::PartGroup::biff_read(&mut reader)?)
         }
         other_item_type => {
             warn!(
                 "Unknown game item type {other_item_type}, reading it as a generic item. \
                  Its records are kept as raw bytes."
             );
-            GameItemEnum::Generic(other_item_type, generic::Generic::biff_read(&mut reader))
+            GameItemEnum::Generic(other_item_type, generic::Generic::biff_read(&mut reader)?)
         }
     };
-    reader.check()?;
     Ok(item)
 }
 

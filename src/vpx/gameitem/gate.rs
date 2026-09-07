@@ -1,6 +1,6 @@
 use super::vertex2d::Vertex2D;
 use crate::impl_shared_attributes;
-use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -348,95 +348,90 @@ impl<'de> Deserialize<'de> for Gate {
 }
 
 impl BiffRead for Gate {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let mut gate = Gate::default();
 
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
+        while let Some(tag) = reader.next(biff::WARN)? {
             let tag_str = tag.as_str();
             match tag_str {
                 "VCEN" => {
-                    gate.center = Vertex2D::biff_read(reader);
+                    gate.center = Vertex2D::biff_read(reader)?;
                 }
                 "LGTH" => {
-                    gate.length = reader.get_f32();
+                    gate.length = reader.get_f32()?;
                 }
                 "HGTH" => {
-                    gate.height = reader.get_f32();
+                    gate.height = reader.get_f32()?;
                 }
                 "ROTA" => {
-                    gate.rotation = reader.get_f32();
+                    gate.rotation = reader.get_f32()?;
                 }
                 "MATR" => {
-                    gate.material = reader.get_string();
+                    gate.material = reader.get_string()?;
                 }
                 "GSUP" => {
-                    gate.show_bracket = reader.get_bool();
+                    gate.show_bracket = reader.get_bool()?;
                 }
                 "GCOL" => {
-                    gate.is_collidable = reader.get_bool();
+                    gate.is_collidable = reader.get_bool()?;
                 }
                 "IMGF" => {
-                    gate.imgf = Some(reader.get_string());
+                    gate.imgf = Some(reader.get_string()?);
                 }
                 "IMGB" => {
-                    gate.imgb = Some(reader.get_string());
+                    gate.imgb = Some(reader.get_string()?);
                 }
                 "SURF" => {
-                    gate.surface = reader.get_string();
+                    gate.surface = reader.get_string()?;
                 }
                 "ELAS" => {
-                    gate.elasticity = reader.get_f32();
+                    gate.elasticity = reader.get_f32()?;
                 }
                 "GAMA" => {
-                    gate.angle_max = reader.get_f32();
+                    gate.angle_max = reader.get_f32()?;
                 }
                 "GAMI" => {
-                    gate.angle_min = reader.get_f32();
+                    gate.angle_min = reader.get_f32()?;
                 }
                 "GFRC" => {
-                    gate.friction = reader.get_f32();
+                    gate.friction = reader.get_f32()?;
                 }
                 "AFRC" => {
-                    gate.damping = Some(reader.get_f32());
+                    gate.damping = Some(reader.get_f32()?);
                 }
                 "GGFC" => {
-                    gate.gravity_factor = Some(reader.get_f32());
+                    gate.gravity_factor = Some(reader.get_f32()?);
                 }
                 "GVSB" => {
-                    gate.is_visible = reader.get_bool();
+                    gate.is_visible = reader.get_bool()?;
                 }
                 "NAME" => {
-                    gate.name = reader.get_wide_string();
+                    gate.name = reader.get_wide_string()?;
                 }
                 "TWWA" => {
-                    gate.two_way = reader.get_bool();
+                    gate.two_way = reader.get_bool()?;
                 }
                 "REEN" => {
-                    gate.is_reflection_enabled = Some(reader.get_bool());
+                    gate.is_reflection_enabled = Some(reader.get_bool()?);
                 }
                 "GATY" => {
-                    gate.gate_type = Some(reader.get_u32().into());
+                    gate.gate_type = Some(reader.get_u32()?.into());
                 }
                 _ => {
-                    if !gate.timer.biff_read_tag(tag_str, reader)
-                        && !gate.read_shared_attribute(tag_str, reader)
+                    if !gate.timer.biff_read_tag(tag_str, reader)?
+                        && !gate.read_shared_attribute(tag_str, reader)?
                     {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
                             std::any::type_name::<Self>()
                         );
-                        reader.skip_tag();
+                        reader.skip_tag()?;
                     }
                 }
             }
         }
-        gate
+        Ok(gate)
     }
 }
 
@@ -529,7 +524,7 @@ mod tests {
         };
         let mut writer = BiffWriter::new();
         Gate::biff_write(&gate, &mut writer);
-        let gate_read = Gate::biff_read(&mut BiffReader::new(writer.get_data()));
+        let gate_read = Gate::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(gate, gate_read);
     }
 
@@ -569,7 +564,7 @@ mod tests {
         };
         let mut writer = BiffWriter::new();
         Gate::biff_write(&gate, &mut writer);
-        let gate_read = Gate::biff_read(&mut BiffReader::new(writer.get_data()));
+        let gate_read = Gate::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(gate, gate_read);
     }
 

@@ -8,7 +8,7 @@ use crate::vpx::model::Vertex3dNoTex2;
 use crate::impl_shared_attributes;
 use crate::vpx::obj::VpxFace;
 use crate::vpx::{
-    biff::{self, BiffRead, BiffReader, BiffWrite},
+    biff::{self, BiffError, BiffRead, BiffReader, BiffWrite},
     color::Color,
 };
 use bytes::{Buf, BufMut, BytesMut};
@@ -752,17 +752,12 @@ impl<'de> Deserialize<'de> for Primitive {
 }
 
 impl BiffRead for Primitive {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Primitive {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let mut compressed_animation_vertices: Option<Vec<u32>> = None;
         let mut m3ax: Option<Vec<Vec<u8>>> = None;
         let mut primitive = Primitive::default();
 
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
+        while let Some(tag) = reader.next(biff::WARN)? {
             let tag_str = tag.as_str();
             //println!("tag: {}", tag_str);
             match tag_str {
@@ -772,141 +767,141 @@ impl BiffRead for Primitive {
                 // Unknown tag M3AY for vpxtool::vpx::gameitem::primitive::Primitive
                 // Unknown tag M3AY for vpxtool::vpx::gameitem::primitive::Primitive
                 "VPOS" => {
-                    primitive.position = Vertex3D::biff_read(reader);
+                    primitive.position = Vertex3D::biff_read(reader)?;
                 }
                 "VSIZ" => {
-                    primitive.size = Vertex3D::biff_read(reader);
+                    primitive.size = Vertex3D::biff_read(reader)?;
                 }
                 "RTV0" => {
-                    primitive.rot_and_tra[0] = reader.get_f32();
+                    primitive.rot_and_tra[0] = reader.get_f32()?;
                 }
                 "RTV1" => {
-                    primitive.rot_and_tra[1] = reader.get_f32();
+                    primitive.rot_and_tra[1] = reader.get_f32()?;
                 }
                 "RTV2" => {
-                    primitive.rot_and_tra[2] = reader.get_f32();
+                    primitive.rot_and_tra[2] = reader.get_f32()?;
                 }
                 "RTV3" => {
-                    primitive.rot_and_tra[3] = reader.get_f32();
+                    primitive.rot_and_tra[3] = reader.get_f32()?;
                 }
                 "RTV4" => {
-                    primitive.rot_and_tra[4] = reader.get_f32();
+                    primitive.rot_and_tra[4] = reader.get_f32()?;
                 }
                 "RTV5" => {
-                    primitive.rot_and_tra[5] = reader.get_f32();
+                    primitive.rot_and_tra[5] = reader.get_f32()?;
                 }
                 "RTV6" => {
-                    primitive.rot_and_tra[6] = reader.get_f32();
+                    primitive.rot_and_tra[6] = reader.get_f32()?;
                 }
                 "RTV7" => {
-                    primitive.rot_and_tra[7] = reader.get_f32();
+                    primitive.rot_and_tra[7] = reader.get_f32()?;
                 }
                 "RTV8" => {
-                    primitive.rot_and_tra[8] = reader.get_f32();
+                    primitive.rot_and_tra[8] = reader.get_f32()?;
                 }
                 "IMAG" => {
-                    primitive.image = reader.get_string();
+                    primitive.image = reader.get_string()?;
                 }
                 "NRMA" => {
-                    primitive.normal_map = Some(reader.get_string());
+                    primitive.normal_map = Some(reader.get_string()?);
                 }
                 "SIDS" => {
-                    primitive.sides = reader.get_u32();
+                    primitive.sides = reader.get_u32()?;
                 }
                 "NAME" => {
-                    primitive.name = reader.get_wide_string();
+                    primitive.name = reader.get_wide_string()?;
                 }
                 "MATR" => {
-                    primitive.material = reader.get_string();
+                    primitive.material = reader.get_string()?;
                 }
                 "SCOL" => {
-                    primitive.side_color = Color::biff_read(reader);
+                    primitive.side_color = Color::biff_read(reader)?;
                 }
                 "TVIS" => {
-                    primitive.is_visible = reader.get_bool();
+                    primitive.is_visible = reader.get_bool()?;
                 }
                 "DTXI" => {
-                    primitive.draw_textures_inside = reader.get_bool();
+                    primitive.draw_textures_inside = reader.get_bool()?;
                 }
                 "HTEV" => {
-                    primitive.hit_event = reader.get_bool();
+                    primitive.hit_event = reader.get_bool()?;
                 }
                 "THRS" => {
-                    primitive.threshold = reader.get_f32();
+                    primitive.threshold = reader.get_f32()?;
                 }
                 "ELAS" => {
-                    primitive.elasticity = reader.get_f32();
+                    primitive.elasticity = reader.get_f32()?;
                 }
                 "ELFO" => {
-                    primitive.elasticity_falloff = reader.get_f32();
+                    primitive.elasticity_falloff = reader.get_f32()?;
                 }
                 "RFCT" => {
-                    primitive.friction = reader.get_f32();
+                    primitive.friction = reader.get_f32()?;
                 }
                 "RSCT" => {
-                    primitive.scatter = reader.get_f32();
+                    primitive.scatter = reader.get_f32()?;
                 }
                 "EFUI" => {
-                    primitive.edge_factor_ui = reader.get_f32();
+                    primitive.edge_factor_ui = reader.get_f32()?;
                 }
                 "CORF" => {
-                    primitive.collision_reduction_factor = Some(reader.get_f32());
+                    primitive.collision_reduction_factor = Some(reader.get_f32()?);
                 }
                 "CLDR" => {
-                    primitive.is_collidable = reader.get_bool();
+                    primitive.is_collidable = reader.get_bool()?;
                 }
                 "ISTO" => {
-                    primitive.is_toy = reader.get_bool();
+                    primitive.is_toy = reader.get_bool()?;
                 }
                 "U3DM" => {
-                    primitive.use_3d_mesh = reader.get_bool();
+                    primitive.use_3d_mesh = reader.get_bool()?;
                 }
                 "STRE" => {
-                    primitive.static_rendering = reader.get_bool();
+                    primitive.static_rendering = reader.get_bool()?;
                 }
                 "DILI" => {
                     // vpinball reads this to DILT, but we keep it as we stick to pure IO
                     primitive.disable_lighting_top_old =
-                        Some(dequantize_unsigned::<8>(reader.get_u32()));
+                        Some(dequantize_unsigned::<8>(reader.get_u32()?));
                 }
                 "DILT" => {
-                    primitive.disable_lighting_top = Some(reader.get_f32());
+                    primitive.disable_lighting_top = Some(reader.get_f32()?);
                 }
                 "DILB" => {
-                    primitive.disable_lighting_below = Some(reader.get_f32());
+                    primitive.disable_lighting_below = Some(reader.get_f32()?);
                 }
                 "REEN" => {
-                    primitive.is_reflection_enabled = Some(reader.get_bool());
+                    primitive.is_reflection_enabled = Some(reader.get_bool()?);
                 }
                 "EBFC" => {
-                    primitive.backfaces_enabled = Some(reader.get_bool());
+                    primitive.backfaces_enabled = Some(reader.get_bool()?);
                 }
                 "MAPH" => {
-                    primitive.physics_material = Some(reader.get_string());
+                    primitive.physics_material = Some(reader.get_string()?);
                 }
                 "OVPH" => {
-                    primitive.overwrite_physics = Some(reader.get_bool());
+                    primitive.overwrite_physics = Some(reader.get_bool()?);
                 }
                 "DIPT" => {
-                    primitive.display_texture = Some(reader.get_bool());
+                    primitive.display_texture = Some(reader.get_bool()?);
                 }
                 "OSNM" => {
-                    primitive.object_space_normal_map = Some(reader.get_bool());
+                    primitive.object_space_normal_map = Some(reader.get_bool()?);
                 }
                 "BMIN" => {
-                    primitive.min_aa_bound = Some(Vertex3D::read_unpadded(reader));
+                    primitive.min_aa_bound = Some(Vertex3D::read_unpadded(reader)?);
                 }
                 "BMAX" => {
-                    primitive.max_aa_bound = Some(Vertex3D::read_unpadded(reader));
+                    primitive.max_aa_bound = Some(Vertex3D::read_unpadded(reader)?);
                 }
                 "M3DN" => {
-                    primitive.mesh_file_name = Some(reader.get_string());
+                    primitive.mesh_file_name = Some(reader.get_string()?);
                 }
                 "M3VN" => {
-                    primitive.num_vertices = Some(reader.get_u32());
+                    primitive.num_vertices = Some(reader.get_u32()?);
                 }
                 "M3CY" => {
-                    primitive.compressed_vertices_len = Some(reader.get_u32());
+                    primitive.compressed_vertices_len = Some(reader.get_u32()?);
                 }
 
                 // [BiffVertices("M3DX", SkipWrite = true)]
@@ -916,73 +911,73 @@ impl BiffRead for Primitive {
                 // [BiffAnimation("M3AX", IsCompressed = true, Pos = 47 )]
                 // public Mesh Mesh = new Mesh();
                 "M3CX" => {
-                    primitive.compressed_vertices_data = Some(reader.get_record_data(false));
+                    primitive.compressed_vertices_data = Some(reader.get_record_data(false)?);
                 }
                 "M3FN" => {
-                    primitive.num_indices = Some(reader.get_u32());
+                    primitive.num_indices = Some(reader.get_u32()?);
                 }
                 "M3CJ" => {
-                    primitive.compressed_indices_len = Some(reader.get_u32());
+                    primitive.compressed_indices_len = Some(reader.get_u32()?);
                 }
                 "M3CI" => {
-                    primitive.compressed_indices_data = Some(reader.get_record_data(false));
+                    primitive.compressed_indices_data = Some(reader.get_record_data(false)?);
                 }
                 "M3AY" => {
                     match compressed_animation_vertices {
                         Some(ref mut m3ay) => {
-                            m3ay.push(reader.get_u32());
+                            m3ay.push(reader.get_u32()?);
                         }
-                        None => compressed_animation_vertices = Some(vec![reader.get_u32()]),
+                        None => compressed_animation_vertices = Some(vec![reader.get_u32()?]),
                     };
                 }
                 "M3AX" => {
                     match m3ax {
                         Some(ref mut m3ax) => {
-                            m3ax.push(reader.get_record_data(false));
+                            m3ax.push(reader.get_record_data(false)?);
                         }
                         None => {
-                            m3ax = Some(vec![reader.get_record_data(false)]);
+                            m3ax = Some(vec![reader.get_record_data(false)?]);
                         }
                     };
                 }
                 "PIDB" => {
-                    primitive.depth_bias = reader.get_f32();
+                    primitive.depth_bias = reader.get_f32()?;
                 }
                 "ADDB" => {
-                    primitive.add_blend = Some(reader.get_bool());
+                    primitive.add_blend = Some(reader.get_bool()?);
                 }
                 "ZMSK" => {
-                    primitive.use_depth_mask = Some(reader.get_bool());
+                    primitive.use_depth_mask = Some(reader.get_bool()?);
                 }
                 "FALP" => {
-                    primitive.alpha = Some(reader.get_f32());
+                    primitive.alpha = Some(reader.get_f32()?);
                 }
                 "COLR" => {
-                    primitive.color = Some(Color::biff_read(reader));
+                    primitive.color = Some(Color::biff_read(reader)?);
                 }
                 "LMAP" => {
-                    primitive.light_map = Some(reader.get_string());
+                    primitive.light_map = Some(reader.get_string()?);
                 }
                 "REFL" => {
-                    primitive.reflection_probe = Some(reader.get_string());
+                    primitive.reflection_probe = Some(reader.get_string()?);
                 }
                 "RSTR" => {
-                    primitive.reflection_strength = Some(reader.get_f32());
+                    primitive.reflection_strength = Some(reader.get_f32()?);
                 }
                 "REFR" => {
-                    primitive.refraction_probe = Some(reader.get_string());
+                    primitive.refraction_probe = Some(reader.get_string()?);
                 }
                 "RTHI" => {
-                    primitive.refraction_thickness = Some(reader.get_f32());
+                    primitive.refraction_thickness = Some(reader.get_f32()?);
                 }
                 _ => {
-                    if !primitive.read_shared_attribute(tag_str, reader) {
+                    if !primitive.read_shared_attribute(tag_str, reader)? {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
                             std::any::type_name::<Self>()
                         );
-                        reader.skip_tag();
+                        reader.skip_tag()?;
                     }
                 }
             }
@@ -990,7 +985,7 @@ impl BiffRead for Primitive {
 
         primitive.compressed_animation_vertices_len = compressed_animation_vertices;
         primitive.compressed_animation_vertices_data = m3ax;
-        primitive
+        Ok(primitive)
     }
 }
 
@@ -1387,7 +1382,7 @@ mod tests {
         };
         let mut writer = BiffWriter::new();
         Primitive::biff_write(&primitive, &mut writer);
-        let primitive_read = Primitive::biff_read(&mut BiffReader::new(writer.get_data()));
+        let primitive_read = Primitive::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(primitive, primitive_read);
     }
 

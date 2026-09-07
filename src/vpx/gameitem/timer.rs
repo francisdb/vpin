@@ -1,6 +1,6 @@
 use super::vertex2d::Vertex2D;
 use crate::impl_shared_attributes;
-use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -103,40 +103,35 @@ impl Default for Timer {
 }
 
 impl BiffRead for Timer {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let mut timer = Timer::default();
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
+        while let Some(tag) = reader.next(biff::WARN)? {
             let tag_str = tag.as_str();
             match tag_str {
                 "VCEN" => {
-                    timer.center = Vertex2D::biff_read(reader);
+                    timer.center = Vertex2D::biff_read(reader)?;
                 }
                 "NAME" => {
-                    timer.name = reader.get_wide_string();
+                    timer.name = reader.get_wide_string()?;
                 }
                 "BGLS" => {
-                    timer.backglass = reader.get_bool();
+                    timer.backglass = reader.get_bool()?;
                 }
                 _ => {
-                    if !timer.timer.biff_read_tag(tag_str, reader)
-                        && !timer.read_shared_attribute(tag_str, reader)
+                    if !timer.timer.biff_read_tag(tag_str, reader)?
+                        && !timer.read_shared_attribute(tag_str, reader)?
                     {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
                             std::any::type_name::<Self>()
                         );
-                        reader.skip_tag();
+                        reader.skip_tag()?;
                     }
                 }
             }
         }
-        timer
+        Ok(timer)
     }
 }
 
@@ -179,7 +174,7 @@ mod tests {
         };
         let mut writer = BiffWriter::new();
         Timer::biff_write(&timer, &mut writer);
-        let timer_read = Timer::biff_read(&mut BiffReader::new(writer.get_data()));
+        let timer_read = Timer::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(timer, timer_read);
     }
 }

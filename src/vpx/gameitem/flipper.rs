@@ -1,6 +1,6 @@
 use super::{GameItem, vertex2d::Vertex2D};
 use crate::impl_shared_attributes;
-use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -535,131 +535,126 @@ impl Default for Flipper {
 }
 
 impl BiffRead for Flipper {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let mut flipper = Flipper::default();
 
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
+        while let Some(tag) = reader.next(biff::WARN)? {
             let tag_str = tag.as_str();
             match tag_str {
                 "VCEN" => {
-                    flipper.center = Vertex2D::biff_read(reader);
+                    flipper.center = Vertex2D::biff_read(reader)?;
                 }
                 "BASR" => {
-                    flipper.base_radius = reader.get_f32();
+                    flipper.base_radius = reader.get_f32()?;
                 }
                 "ENDR" => {
-                    flipper.end_radius = reader.get_f32();
+                    flipper.end_radius = reader.get_f32()?;
                 }
                 "FLPR" => {
-                    flipper.flipper_radius_max = reader.get_f32();
+                    flipper.flipper_radius_max = reader.get_f32()?;
                 }
                 "FRTN" => {
-                    flipper.return_ = reader.get_f32();
+                    flipper.return_ = reader.get_f32()?;
                 }
                 "ANGS" => {
-                    flipper.start_angle = reader.get_f32();
+                    flipper.start_angle = reader.get_f32()?;
                 }
                 "ANGE" => {
-                    flipper.end_angle = reader.get_f32();
+                    flipper.end_angle = reader.get_f32()?;
                 }
                 "OVRP" => {
-                    flipper.override_physics = reader.get_u32();
+                    flipper.override_physics = reader.get_u32()?;
                 }
                 "FORC" => {
-                    flipper.mass = reader.get_f32();
+                    flipper.mass = reader.get_f32()?;
                 }
                 "SURF" => {
-                    flipper.surface = reader.get_string();
+                    flipper.surface = reader.get_string()?;
                 }
                 "MATR" => {
-                    flipper.material = reader.get_string();
+                    flipper.material = reader.get_string()?;
                 }
                 "NAME" => {
-                    flipper.name = reader.get_wide_string();
+                    flipper.name = reader.get_wide_string()?;
                 }
                 "RUMA" => {
-                    flipper.rubber_material = reader.get_string();
+                    flipper.rubber_material = reader.get_string()?;
                 }
                 "RTHK" => {
-                    flipper.rubber_thickness_int = reader.get_u32();
+                    flipper.rubber_thickness_int = reader.get_u32()?;
                 }
                 "RTHF" => {
-                    flipper.rubber_thickness = Some(reader.get_f32());
+                    flipper.rubber_thickness = Some(reader.get_f32()?);
                 }
                 "RHGT" => {
-                    flipper.rubber_height_int = reader.get_u32();
+                    flipper.rubber_height_int = reader.get_u32()?;
                 }
                 "RHGF" => {
-                    flipper.rubber_height = Some(reader.get_f32());
+                    flipper.rubber_height = Some(reader.get_f32()?);
                 }
                 "RWDT" => {
-                    flipper.rubber_width_int = reader.get_u32();
+                    flipper.rubber_width_int = reader.get_u32()?;
                 }
                 "RWDF" => {
-                    flipper.rubber_width = Some(reader.get_f32());
+                    flipper.rubber_width = Some(reader.get_f32()?);
                 }
                 "STRG" => {
-                    flipper.strength = reader.get_f32();
+                    flipper.strength = reader.get_f32()?;
                 }
                 "ELAS" => {
-                    flipper.elasticity = reader.get_f32();
+                    flipper.elasticity = reader.get_f32()?;
                 }
                 "ELFO" => {
-                    flipper.elasticity_falloff = reader.get_f32();
+                    flipper.elasticity_falloff = reader.get_f32()?;
                 }
                 "FRIC" => {
-                    flipper.friction = reader.get_f32();
+                    flipper.friction = reader.get_f32()?;
                 }
                 "RPUP" => {
-                    flipper.ramp_up = reader.get_f32();
+                    flipper.ramp_up = reader.get_f32()?;
                 }
                 "SCTR" => {
-                    flipper.scatter = Some(reader.get_f32());
+                    flipper.scatter = Some(reader.get_f32()?);
                 }
                 "TODA" => {
-                    flipper.torque_damping = Some(reader.get_f32());
+                    flipper.torque_damping = Some(reader.get_f32()?);
                 }
                 "TDAA" => {
-                    flipper.torque_damping_angle = Some(reader.get_f32());
+                    flipper.torque_damping_angle = Some(reader.get_f32()?);
                 }
                 "VSBL" => {
-                    flipper.is_visible = reader.get_bool();
+                    flipper.is_visible = reader.get_bool()?;
                 }
                 "ENBL" => {
-                    flipper.is_enabled = reader.get_bool();
+                    flipper.is_enabled = reader.get_bool()?;
                 }
                 "FRMN" => {
-                    flipper.flipper_radius_min = reader.get_f32();
+                    flipper.flipper_radius_min = reader.get_f32()?;
                 }
                 "FHGT" => {
-                    flipper.height = reader.get_f32();
+                    flipper.height = reader.get_f32()?;
                 }
                 "IMAG" => {
-                    flipper.image = Some(reader.get_string());
+                    flipper.image = Some(reader.get_string()?);
                 }
                 "REEN" => {
-                    flipper.is_reflection_enabled = Some(reader.get_bool());
+                    flipper.is_reflection_enabled = Some(reader.get_bool()?);
                 }
                 _ => {
-                    if !flipper.timer.biff_read_tag(tag_str, reader)
-                        && !flipper.read_shared_attribute(tag_str, reader)
+                    if !flipper.timer.biff_read_tag(tag_str, reader)?
+                        && !flipper.read_shared_attribute(tag_str, reader)?
                     {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
                             std::any::type_name::<Self>()
                         );
-                        reader.skip_tag();
+                        reader.skip_tag()?;
                     }
                 }
             }
         }
-        flipper
+        Ok(flipper)
     }
 }
 
@@ -777,7 +772,7 @@ mod tests {
         };
         let mut writer = BiffWriter::new();
         Flipper::biff_write(&flipper, &mut writer);
-        let flipper_read = Flipper::biff_read(&mut BiffReader::new(writer.get_data()));
+        let flipper_read = Flipper::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(flipper, flipper_read);
     }
 }
