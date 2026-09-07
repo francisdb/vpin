@@ -1,6 +1,6 @@
 use super::vertex2d::Vertex2D;
 use crate::impl_shared_attributes;
-use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -384,126 +384,121 @@ impl<'de> Deserialize<'de> for Plunger {
 }
 
 impl BiffRead for Plunger {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         // for reading to be backwards compatible some fields need to be None by default
         let mut plunger = Plunger {
             is_reflection_enabled: None,
             ..Default::default()
         };
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
+        while let Some(tag) = reader.next(biff::WARN)? {
             let tag_str = tag.as_str();
             match tag_str {
                 "VCEN" => {
-                    plunger.center = Vertex2D::biff_read(reader);
+                    plunger.center = Vertex2D::biff_read(reader)?;
                 }
                 "WDTH" => {
-                    plunger.width = reader.get_f32();
+                    plunger.width = reader.get_f32()?;
                 }
                 "HIGH" => {
-                    plunger.height = reader.get_f32();
+                    plunger.height = reader.get_f32()?;
                 }
                 "ZADJ" => {
-                    plunger.z_adjust = reader.get_f32();
+                    plunger.z_adjust = reader.get_f32()?;
                 }
                 "HPSL" => {
-                    plunger.stroke = reader.get_f32();
+                    plunger.stroke = reader.get_f32()?;
                 }
                 "SPDP" => {
-                    plunger.speed_pull = reader.get_f32();
+                    plunger.speed_pull = reader.get_f32()?;
                 }
                 "SPDF" => {
-                    plunger.speed_fire = reader.get_f32();
+                    plunger.speed_fire = reader.get_f32()?;
                 }
                 "TYPE" => {
-                    plunger.plunger_type = reader.get_u32().into();
+                    plunger.plunger_type = reader.get_u32()?.into();
                 }
                 "ANFR" => {
-                    plunger.anim_frames = reader.get_u32();
+                    plunger.anim_frames = reader.get_u32()?;
                 }
                 "MATR" => {
-                    plunger.material = reader.get_string();
+                    plunger.material = reader.get_string()?;
                 }
                 "IMAG" => {
-                    plunger.image = reader.get_string();
+                    plunger.image = reader.get_string()?;
                 }
                 "MEST" => {
-                    plunger.mech_strength = reader.get_f32();
+                    plunger.mech_strength = reader.get_f32()?;
                 }
                 "MECH" => {
-                    plunger.is_mech_plunger = reader.get_bool();
+                    plunger.is_mech_plunger = reader.get_bool()?;
                 }
                 "APLG" => {
-                    plunger.auto_plunger = reader.get_bool();
+                    plunger.auto_plunger = reader.get_bool()?;
                 }
                 "MPRK" => {
-                    plunger.park_position = reader.get_f32();
+                    plunger.park_position = reader.get_f32()?;
                 }
                 "PSCV" => {
-                    plunger.scatter_velocity = reader.get_f32();
+                    plunger.scatter_velocity = reader.get_f32()?;
                 }
                 "MOMX" => {
-                    plunger.momentum_xfer = reader.get_f32();
+                    plunger.momentum_xfer = reader.get_f32()?;
                 }
                 "VSBL" => {
-                    plunger.is_visible = reader.get_bool();
+                    plunger.is_visible = reader.get_bool()?;
                 }
                 "REEN" => {
-                    plunger.is_reflection_enabled = Some(reader.get_bool());
+                    plunger.is_reflection_enabled = Some(reader.get_bool()?);
                 }
                 "SURF" => {
-                    plunger.surface = reader.get_string();
+                    plunger.surface = reader.get_string()?;
                 }
                 "NAME" => {
-                    plunger.name = reader.get_wide_string();
+                    plunger.name = reader.get_wide_string()?;
                 }
                 "TIPS" => {
-                    plunger.tip_shape = reader.get_string();
+                    plunger.tip_shape = reader.get_string()?;
                 }
                 "RODD" => {
-                    plunger.rod_diam = reader.get_f32();
+                    plunger.rod_diam = reader.get_f32()?;
                 }
                 "RNGG" => {
-                    plunger.ring_gap = reader.get_f32();
+                    plunger.ring_gap = reader.get_f32()?;
                 }
                 "RNGD" => {
-                    plunger.ring_diam = reader.get_f32();
+                    plunger.ring_diam = reader.get_f32()?;
                 }
                 "RNGW" => {
-                    plunger.ring_width = reader.get_f32();
+                    plunger.ring_width = reader.get_f32()?;
                 }
                 "SPRD" => {
-                    plunger.spring_diam = reader.get_f32();
+                    plunger.spring_diam = reader.get_f32()?;
                 }
                 "SPRG" => {
-                    plunger.spring_gauge = reader.get_f32();
+                    plunger.spring_gauge = reader.get_f32()?;
                 }
                 "SPRL" => {
-                    plunger.spring_loops = reader.get_f32();
+                    plunger.spring_loops = reader.get_f32()?;
                 }
                 "SPRE" => {
-                    plunger.spring_end_loops = reader.get_f32();
+                    plunger.spring_end_loops = reader.get_f32()?;
                 }
 
                 _ => {
-                    if !plunger.timer.biff_read_tag(tag_str, reader)
-                        && !plunger.read_shared_attribute(tag_str, reader)
+                    if !plunger.timer.biff_read_tag(tag_str, reader)?
+                        && !plunger.read_shared_attribute(tag_str, reader)?
                     {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
                             std::any::type_name::<Self>()
                         );
-                        reader.skip_tag();
+                        reader.skip_tag()?;
                     }
                 }
             }
         }
-        plunger
+        Ok(plunger)
     }
 }
 
@@ -600,7 +595,7 @@ mod tests {
         };
         let mut writer = BiffWriter::new();
         Plunger::biff_write(&plunger, &mut writer);
-        let plunger_read = Plunger::biff_read(&mut BiffReader::new(writer.get_data()));
+        let plunger_read = Plunger::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(plunger, plunger_read);
     }
 

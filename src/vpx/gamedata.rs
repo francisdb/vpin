@@ -2116,175 +2116,169 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> io::Result<
     let mut reader = BiffReader::new(input);
     let mut gamedata = GameData::default();
     let mut previous_tag = String::new();
-    loop {
-        reader.next(biff::WARN);
-        if reader.is_eof() {
-            break;
-        }
-        let tag = reader.tag();
-
+    while let Some(tag) = reader.next(biff::WARN)? {
         let reader: &mut BiffReader<'_> = &mut reader;
 
         match tag.as_str() {
-            "LEFT" => gamedata.left = reader.get_f32(),
-            "TOPX" => gamedata.top = reader.get_f32(),
-            "RGHT" => gamedata.right = reader.get_f32(),
-            "BOTM" => gamedata.bottom = reader.get_f32(),
-            "CLMO" => gamedata.camera_layout_mode = Some(reader.get_u32()),
-            "VSM0" => gamedata.bg_view_mode_desktop = Some(reader.get_u32().into()),
-            "ROTA" => gamedata.bg_rotation_desktop = reader.get_f32(),
-            "INCL" => gamedata.bg_inclination_desktop = reader.get_f32(),
-            "LAYB" => gamedata.bg_layback_desktop = reader.get_f32(),
-            "FOVX" => gamedata.bg_fov_desktop = reader.get_f32(),
-            "XLTX" => gamedata.bg_offset_x_desktop = reader.get_f32(),
-            "XLTY" => gamedata.bg_offset_y_desktop = reader.get_f32(),
-            "XLTZ" => gamedata.bg_offset_z_desktop = reader.get_f32(),
-            "SCLX" => gamedata.bg_scale_x_desktop = reader.get_f32(),
-            "SCLY" => gamedata.bg_scale_y_desktop = reader.get_f32(),
-            "SCLZ" => gamedata.bg_scale_z_desktop = reader.get_f32(),
+            "LEFT" => gamedata.left = reader.get_f32()?,
+            "TOPX" => gamedata.top = reader.get_f32()?,
+            "RGHT" => gamedata.right = reader.get_f32()?,
+            "BOTM" => gamedata.bottom = reader.get_f32()?,
+            "CLMO" => gamedata.camera_layout_mode = Some(reader.get_u32()?),
+            "VSM0" => gamedata.bg_view_mode_desktop = Some(reader.get_u32()?.into()),
+            "ROTA" => gamedata.bg_rotation_desktop = reader.get_f32()?,
+            "INCL" => gamedata.bg_inclination_desktop = reader.get_f32()?,
+            "LAYB" => gamedata.bg_layback_desktop = reader.get_f32()?,
+            "FOVX" => gamedata.bg_fov_desktop = reader.get_f32()?,
+            "XLTX" => gamedata.bg_offset_x_desktop = reader.get_f32()?,
+            "XLTY" => gamedata.bg_offset_y_desktop = reader.get_f32()?,
+            "XLTZ" => gamedata.bg_offset_z_desktop = reader.get_f32()?,
+            "SCLX" => gamedata.bg_scale_x_desktop = reader.get_f32()?,
+            "SCLY" => gamedata.bg_scale_y_desktop = reader.get_f32()?,
+            "SCLZ" => gamedata.bg_scale_z_desktop = reader.get_f32()?,
             "EFSS" => {
                 if version.u32() == 1080 && previous_tag != "BOTM" {
                     gamedata.is_10_8_0_beta1_to_beta4 = true;
                 }
-                gamedata.bg_enable_fss = Some(reader.get_bool())
+                gamedata.bg_enable_fss = Some(reader.get_bool()?)
             }
-            "HOF0" => gamedata.bg_view_horizontal_offset_desktop = Some(reader.get_f32()),
-            "VOF0" => gamedata.bg_view_vertical_offset_desktop = Some(reader.get_f32()),
-            "WTX0" => gamedata.bg_window_top_x_offset_desktop = Some(reader.get_f32()),
-            "WTY0" => gamedata.bg_window_top_y_offset_desktop = Some(reader.get_f32()),
-            "WTZ0" => gamedata.bg_window_top_z_offset_desktop = Some(reader.get_f32()),
-            "WBX0" => gamedata.bg_window_bottom_x_offset_desktop = Some(reader.get_f32()),
-            "WBY0" => gamedata.bg_window_bottom_y_offset_desktop = Some(reader.get_f32()),
-            "WBZ0" => gamedata.bg_window_bottom_z_offset_desktop = Some(reader.get_f32()),
-            "VSM1" => gamedata.bg_view_mode_fullscreen = Some(reader.get_u32().into()),
-            "ROTF" => gamedata.bg_rotation_fullscreen = reader.get_f32(),
-            "INCF" => gamedata.bg_inclination_fullscreen = reader.get_f32(),
-            "LAYF" => gamedata.bg_layback_fullscreen = reader.get_f32(),
-            "FOVF" => gamedata.bg_fov_fullscreen = reader.get_f32(),
-            "XLFX" => gamedata.bg_offset_x_fullscreen = reader.get_f32(),
-            "XLFY" => gamedata.bg_offset_y_fullscreen = reader.get_f32(),
-            "XLFZ" => gamedata.bg_offset_z_fullscreen = reader.get_f32(),
-            "SCFX" => gamedata.bg_scale_x_fullscreen = reader.get_f32(),
-            "SCFY" => gamedata.bg_scale_y_fullscreen = reader.get_f32(),
-            "SCFZ" => gamedata.bg_scale_z_fullscreen = reader.get_f32(),
-            "HOF1" => gamedata.bg_view_horizontal_offset_fullscreen = Some(reader.get_f32()),
-            "VOF1" => gamedata.bg_view_vertical_offset_fullscreen = Some(reader.get_f32()),
-            "WTX1" => gamedata.bg_window_top_x_offset_fullscreen = Some(reader.get_f32()),
-            "WTY1" => gamedata.bg_window_top_y_offset_fullscreen = Some(reader.get_f32()),
-            "WTZ1" => gamedata.bg_window_top_z_offset_fullscreen = Some(reader.get_f32()),
-            "WBX1" => gamedata.bg_window_bottom_x_offset_fullscreen = Some(reader.get_f32()),
-            "WBY1" => gamedata.bg_window_bottom_y_offset_fullscreen = Some(reader.get_f32()),
-            "WBZ1" => gamedata.bg_window_bottom_z_offset_fullscreen = Some(reader.get_f32()),
-            "VSM2" => gamedata.bg_view_mode_full_single_screen = Some(reader.get_u32().into()),
-            "ROFS" => gamedata.bg_rotation_full_single_screen = Some(reader.get_f32()),
-            "INFS" => gamedata.bg_inclination_full_single_screen = Some(reader.get_f32()),
-            "LAFS" => gamedata.bg_layback_full_single_screen = Some(reader.get_f32()),
-            "FOFS" => gamedata.bg_fov_full_single_screen = Some(reader.get_f32()),
-            "XLXS" => gamedata.bg_offset_x_full_single_screen = Some(reader.get_f32()),
-            "XLYS" => gamedata.bg_offset_y_full_single_screen = Some(reader.get_f32()),
-            "XLZS" => gamedata.bg_offset_z_full_single_screen = Some(reader.get_f32()),
-            "SCXS" => gamedata.bg_scale_x_full_single_screen = Some(reader.get_f32()),
-            "SCYS" => gamedata.bg_scale_y_full_single_screen = Some(reader.get_f32()),
-            "SCZS" => gamedata.bg_scale_z_full_single_screen = Some(reader.get_f32()),
+            "HOF0" => gamedata.bg_view_horizontal_offset_desktop = Some(reader.get_f32()?),
+            "VOF0" => gamedata.bg_view_vertical_offset_desktop = Some(reader.get_f32()?),
+            "WTX0" => gamedata.bg_window_top_x_offset_desktop = Some(reader.get_f32()?),
+            "WTY0" => gamedata.bg_window_top_y_offset_desktop = Some(reader.get_f32()?),
+            "WTZ0" => gamedata.bg_window_top_z_offset_desktop = Some(reader.get_f32()?),
+            "WBX0" => gamedata.bg_window_bottom_x_offset_desktop = Some(reader.get_f32()?),
+            "WBY0" => gamedata.bg_window_bottom_y_offset_desktop = Some(reader.get_f32()?),
+            "WBZ0" => gamedata.bg_window_bottom_z_offset_desktop = Some(reader.get_f32()?),
+            "VSM1" => gamedata.bg_view_mode_fullscreen = Some(reader.get_u32()?.into()),
+            "ROTF" => gamedata.bg_rotation_fullscreen = reader.get_f32()?,
+            "INCF" => gamedata.bg_inclination_fullscreen = reader.get_f32()?,
+            "LAYF" => gamedata.bg_layback_fullscreen = reader.get_f32()?,
+            "FOVF" => gamedata.bg_fov_fullscreen = reader.get_f32()?,
+            "XLFX" => gamedata.bg_offset_x_fullscreen = reader.get_f32()?,
+            "XLFY" => gamedata.bg_offset_y_fullscreen = reader.get_f32()?,
+            "XLFZ" => gamedata.bg_offset_z_fullscreen = reader.get_f32()?,
+            "SCFX" => gamedata.bg_scale_x_fullscreen = reader.get_f32()?,
+            "SCFY" => gamedata.bg_scale_y_fullscreen = reader.get_f32()?,
+            "SCFZ" => gamedata.bg_scale_z_fullscreen = reader.get_f32()?,
+            "HOF1" => gamedata.bg_view_horizontal_offset_fullscreen = Some(reader.get_f32()?),
+            "VOF1" => gamedata.bg_view_vertical_offset_fullscreen = Some(reader.get_f32()?),
+            "WTX1" => gamedata.bg_window_top_x_offset_fullscreen = Some(reader.get_f32()?),
+            "WTY1" => gamedata.bg_window_top_y_offset_fullscreen = Some(reader.get_f32()?),
+            "WTZ1" => gamedata.bg_window_top_z_offset_fullscreen = Some(reader.get_f32()?),
+            "WBX1" => gamedata.bg_window_bottom_x_offset_fullscreen = Some(reader.get_f32()?),
+            "WBY1" => gamedata.bg_window_bottom_y_offset_fullscreen = Some(reader.get_f32()?),
+            "WBZ1" => gamedata.bg_window_bottom_z_offset_fullscreen = Some(reader.get_f32()?),
+            "VSM2" => gamedata.bg_view_mode_full_single_screen = Some(reader.get_u32()?.into()),
+            "ROFS" => gamedata.bg_rotation_full_single_screen = Some(reader.get_f32()?),
+            "INFS" => gamedata.bg_inclination_full_single_screen = Some(reader.get_f32()?),
+            "LAFS" => gamedata.bg_layback_full_single_screen = Some(reader.get_f32()?),
+            "FOFS" => gamedata.bg_fov_full_single_screen = Some(reader.get_f32()?),
+            "XLXS" => gamedata.bg_offset_x_full_single_screen = Some(reader.get_f32()?),
+            "XLYS" => gamedata.bg_offset_y_full_single_screen = Some(reader.get_f32()?),
+            "XLZS" => gamedata.bg_offset_z_full_single_screen = Some(reader.get_f32()?),
+            "SCXS" => gamedata.bg_scale_x_full_single_screen = Some(reader.get_f32()?),
+            "SCYS" => gamedata.bg_scale_y_full_single_screen = Some(reader.get_f32()?),
+            "SCZS" => gamedata.bg_scale_z_full_single_screen = Some(reader.get_f32()?),
             "HOF2" => {
-                gamedata.bg_view_horizontal_offset_full_single_screen = Some(reader.get_f32())
+                gamedata.bg_view_horizontal_offset_full_single_screen = Some(reader.get_f32()?)
             }
-            "VOF2" => gamedata.bg_view_vertical_offset_full_single_screen = Some(reader.get_f32()),
-            "WTX2" => gamedata.bg_window_top_x_offset_full_single_screen = Some(reader.get_f32()),
-            "WTY2" => gamedata.bg_window_top_y_offset_full_single_screen = Some(reader.get_f32()),
-            "WTZ2" => gamedata.bg_window_top_z_offset_full_single_screen = Some(reader.get_f32()),
+            "VOF2" => gamedata.bg_view_vertical_offset_full_single_screen = Some(reader.get_f32()?),
+            "WTX2" => gamedata.bg_window_top_x_offset_full_single_screen = Some(reader.get_f32()?),
+            "WTY2" => gamedata.bg_window_top_y_offset_full_single_screen = Some(reader.get_f32()?),
+            "WTZ2" => gamedata.bg_window_top_z_offset_full_single_screen = Some(reader.get_f32()?),
             "WBX2" => {
-                gamedata.bg_window_bottom_x_offset_full_single_screen = Some(reader.get_f32())
+                gamedata.bg_window_bottom_x_offset_full_single_screen = Some(reader.get_f32()?)
             }
             "WBY2" => {
-                gamedata.bg_window_bottom_y_offset_full_single_screen = Some(reader.get_f32())
+                gamedata.bg_window_bottom_y_offset_full_single_screen = Some(reader.get_f32()?)
             }
             "WBZ2" => {
-                gamedata.bg_window_bottom_z_offset_full_single_screen = Some(reader.get_f32())
+                gamedata.bg_window_bottom_z_offset_full_single_screen = Some(reader.get_f32()?)
             }
-            "ORRP" => gamedata.override_physics = reader.get_u32(),
-            "ORPF" => gamedata.override_physics_flipper = Some(reader.get_bool()),
-            "GAVT" => gamedata.gravity = reader.get_f32(),
-            "FRCT" => gamedata.friction = reader.get_f32(),
-            "ELAS" => gamedata.elasticity = reader.get_f32(),
-            "ELFA" => gamedata.elastic_falloff = reader.get_f32(),
-            "PFSC" => gamedata.scatter = reader.get_f32(),
-            "SCAT" => gamedata.default_scatter = reader.get_f32(),
-            "NDGT" => gamedata.nudge_time = reader.get_f32(),
-            "MPGC" => gamedata.plunger_normalize = Some(reader.get_u32()),
-            "MPDF" => gamedata.plunger_filter = Some(reader.get_bool()),
-            "PHML" => gamedata.physics_max_loops = reader.get_u32(),
-            "REEL" => gamedata.render_em_reels = reader.get_bool(),
-            "DECL" => gamedata.render_decals = reader.get_bool(),
-            "OFFX" => gamedata.offset_x = reader.get_f32(),
-            "OFFY" => gamedata.offset_y = reader.get_f32(),
-            "ZOOM" => gamedata.zoom = reader.get_f32(),
-            "SLPX" => gamedata.angle_tilt_max = reader.get_f32(),
-            "SLOP" => gamedata.angle_tilt_min = reader.get_f32(),
-            "MAXS" => gamedata.stereo_max_separation = Some(reader.get_f32()),
-            "ZPD" => gamedata.stereo_zero_parallax_displacement = Some(reader.get_f32()),
-            "STO" => gamedata.stereo_offset = Some(reader.get_f32()),
-            "OGST" => gamedata.overwrite_global_stereo3d = Some(reader.get_bool()),
-            "IMAG" => gamedata.image = reader.get_string(),
-            "BIMG" => gamedata.backglass_image_full_desktop = reader.get_string(),
-            "BIMF" => gamedata.backglass_image_full_fullscreen = reader.get_string(),
-            "BIMS" => gamedata.backglass_image_full_single_screen = Some(reader.get_string()),
-            "BIMN" => gamedata.image_backdrop_night_day = reader.get_bool(),
-            "IMCG" => gamedata.image_color_grade = reader.get_string(),
-            "BLIM" => gamedata.ball_image = reader.get_string(),
-            "BLSM" => gamedata.ball_spherical_mapping = Some(reader.get_bool()),
-            "BLIF" => gamedata.ball_image_front = reader.get_string(),
-            "EIMG" => gamedata.env_image = Some(reader.get_string()),
-            "NOTX" => gamedata.notes = Some(reader.get_string()),
-            "SSHT" => gamedata.screen_shot = reader.get_string(),
-            "FBCK" => gamedata.display_backdrop = reader.get_bool(),
-            "GLAS" => gamedata.glass_top_height = reader.get_f32(),
-            "GLAB" => gamedata.glass_bottom_height = Some(reader.get_f32()),
-            "TBLH" => gamedata.table_height = Some(reader.get_f32()),
-            "PLMA" => gamedata.playfield_material = reader.get_string(),
-            "BCLR" => gamedata.backdrop_color = Color::biff_read(reader),
-            "TDFT" => gamedata.global_difficulty = reader.get_f32(),
-            "LZAM" => gamedata.light_ambient = Color::biff_read(reader),
-            "LZDI" => gamedata.light0_emission = Color::biff_read(reader),
-            "LZHI" => gamedata.light_height = reader.get_f32(),
-            "LZRA" => gamedata.light_range = reader.get_f32(),
-            "LIES" => gamedata.light_emission_scale = reader.get_f32(),
-            "ENES" => gamedata.env_emission_scale = reader.get_f32(),
-            "GLES" => gamedata.global_emission_scale = reader.get_f32(),
-            "AOSC" => gamedata.ao_scale = reader.get_f32(),
-            "SSSC" => gamedata.ssr_scale = Some(reader.get_f32()),
-            "CLBH" => gamedata.ground_to_lockbar_height = Some(reader.get_f32()),
-            "SVOL" => gamedata.table_sound_volume = reader.get_f32(),
-            "MVOL" => gamedata.table_music_volume = reader.get_f32(),
-            "AVSY" => gamedata.table_adaptive_vsync = Some(reader.get_i32()),
-            "BREF" => gamedata.use_reflection_for_balls = Some(reader.get_i32()),
-            "BRST" => gamedata.brst = Some(reader.get_i32()),
+            "ORRP" => gamedata.override_physics = reader.get_u32()?,
+            "ORPF" => gamedata.override_physics_flipper = Some(reader.get_bool()?),
+            "GAVT" => gamedata.gravity = reader.get_f32()?,
+            "FRCT" => gamedata.friction = reader.get_f32()?,
+            "ELAS" => gamedata.elasticity = reader.get_f32()?,
+            "ELFA" => gamedata.elastic_falloff = reader.get_f32()?,
+            "PFSC" => gamedata.scatter = reader.get_f32()?,
+            "SCAT" => gamedata.default_scatter = reader.get_f32()?,
+            "NDGT" => gamedata.nudge_time = reader.get_f32()?,
+            "MPGC" => gamedata.plunger_normalize = Some(reader.get_u32()?),
+            "MPDF" => gamedata.plunger_filter = Some(reader.get_bool()?),
+            "PHML" => gamedata.physics_max_loops = reader.get_u32()?,
+            "REEL" => gamedata.render_em_reels = reader.get_bool()?,
+            "DECL" => gamedata.render_decals = reader.get_bool()?,
+            "OFFX" => gamedata.offset_x = reader.get_f32()?,
+            "OFFY" => gamedata.offset_y = reader.get_f32()?,
+            "ZOOM" => gamedata.zoom = reader.get_f32()?,
+            "SLPX" => gamedata.angle_tilt_max = reader.get_f32()?,
+            "SLOP" => gamedata.angle_tilt_min = reader.get_f32()?,
+            "MAXS" => gamedata.stereo_max_separation = Some(reader.get_f32()?),
+            "ZPD" => gamedata.stereo_zero_parallax_displacement = Some(reader.get_f32()?),
+            "STO" => gamedata.stereo_offset = Some(reader.get_f32()?),
+            "OGST" => gamedata.overwrite_global_stereo3d = Some(reader.get_bool()?),
+            "IMAG" => gamedata.image = reader.get_string()?,
+            "BIMG" => gamedata.backglass_image_full_desktop = reader.get_string()?,
+            "BIMF" => gamedata.backglass_image_full_fullscreen = reader.get_string()?,
+            "BIMS" => gamedata.backglass_image_full_single_screen = Some(reader.get_string()?),
+            "BIMN" => gamedata.image_backdrop_night_day = reader.get_bool()?,
+            "IMCG" => gamedata.image_color_grade = reader.get_string()?,
+            "BLIM" => gamedata.ball_image = reader.get_string()?,
+            "BLSM" => gamedata.ball_spherical_mapping = Some(reader.get_bool()?),
+            "BLIF" => gamedata.ball_image_front = reader.get_string()?,
+            "EIMG" => gamedata.env_image = Some(reader.get_string()?),
+            "NOTX" => gamedata.notes = Some(reader.get_string()?),
+            "SSHT" => gamedata.screen_shot = reader.get_string()?,
+            "FBCK" => gamedata.display_backdrop = reader.get_bool()?,
+            "GLAS" => gamedata.glass_top_height = reader.get_f32()?,
+            "GLAB" => gamedata.glass_bottom_height = Some(reader.get_f32()?),
+            "TBLH" => gamedata.table_height = Some(reader.get_f32()?),
+            "PLMA" => gamedata.playfield_material = reader.get_string()?,
+            "BCLR" => gamedata.backdrop_color = Color::biff_read(reader)?,
+            "TDFT" => gamedata.global_difficulty = reader.get_f32()?,
+            "LZAM" => gamedata.light_ambient = Color::biff_read(reader)?,
+            "LZDI" => gamedata.light0_emission = Color::biff_read(reader)?,
+            "LZHI" => gamedata.light_height = reader.get_f32()?,
+            "LZRA" => gamedata.light_range = reader.get_f32()?,
+            "LIES" => gamedata.light_emission_scale = reader.get_f32()?,
+            "ENES" => gamedata.env_emission_scale = reader.get_f32()?,
+            "GLES" => gamedata.global_emission_scale = reader.get_f32()?,
+            "AOSC" => gamedata.ao_scale = reader.get_f32()?,
+            "SSSC" => gamedata.ssr_scale = Some(reader.get_f32()?),
+            "CLBH" => gamedata.ground_to_lockbar_height = Some(reader.get_f32()?),
+            "SVOL" => gamedata.table_sound_volume = reader.get_f32()?,
+            "MVOL" => gamedata.table_music_volume = reader.get_f32()?,
+            "AVSY" => gamedata.table_adaptive_vsync = Some(reader.get_i32()?),
+            "BREF" => gamedata.use_reflection_for_balls = Some(reader.get_i32()?),
+            "BRST" => gamedata.brst = Some(reader.get_i32()?),
             "PLST" => {
-                gamedata.playfield_reflection_strength = dequantize_unsigned::<8>(reader.get_u32())
+                gamedata.playfield_reflection_strength = dequantize_unsigned::<8>(reader.get_u32()?)
             }
-            "BTRA" => gamedata.use_trail_for_balls = Some(reader.get_i32()),
-            "BDMO" => gamedata.ball_decal_mode = reader.get_bool(),
-            "BPRS" => gamedata.ball_playfield_reflection_strength = Some(reader.get_f32()),
-            "DBIS" => gamedata.default_bulb_intensity_scale_on_ball = Some(reader.get_f32()),
+            "BTRA" => gamedata.use_trail_for_balls = Some(reader.get_i32()?),
+            "BDMO" => gamedata.ball_decal_mode = reader.get_bool()?,
+            "BPRS" => gamedata.ball_playfield_reflection_strength = Some(reader.get_f32()?),
+            "DBIS" => gamedata.default_bulb_intensity_scale_on_ball = Some(reader.get_f32()?),
             "BTST" => {
                 // TODO do we need this QuantizedUnsignedBits for some of the float fields?
-                gamedata.ball_trail_strength = Some(reader.get_u32());
+                gamedata.ball_trail_strength = Some(reader.get_u32()?);
             }
-            "ARAC" => gamedata.user_detail_level = Some(reader.get_u32()),
-            "OGAC" => gamedata.overwrite_global_detail_level = Some(reader.get_bool()),
-            "OGDN" => gamedata.overwrite_global_day_night = Some(reader.get_bool()),
-            "GDAC" => gamedata.show_grid = reader.get_bool(),
-            "REOP" => gamedata.reflect_elements_on_playfield = Some(reader.get_bool()),
-            "UAAL" => gamedata.use_aal = Some(reader.get_i32()),
-            "UFXA" => gamedata.use_fxaa = Some(reader.get_i32()),
-            "UAOC" => gamedata.use_ao = Some(reader.get_i32()),
-            "USSR" => gamedata.use_ssr = Some(reader.get_i32()),
-            "TMAP" => gamedata.tone_mapper = Some(reader.get_u32().into()),
-            "EXPO" => gamedata.exposure = Some(reader.get_f32()),
-            "BLST" => gamedata.bloom_strength = reader.get_f32(),
-            "MASI" => gamedata.materials_size = reader.get_u32(),
+            "ARAC" => gamedata.user_detail_level = Some(reader.get_u32()?),
+            "OGAC" => gamedata.overwrite_global_detail_level = Some(reader.get_bool()?),
+            "OGDN" => gamedata.overwrite_global_day_night = Some(reader.get_bool()?),
+            "GDAC" => gamedata.show_grid = reader.get_bool()?,
+            "REOP" => gamedata.reflect_elements_on_playfield = Some(reader.get_bool()?),
+            "UAAL" => gamedata.use_aal = Some(reader.get_i32()?),
+            "UFXA" => gamedata.use_fxaa = Some(reader.get_i32()?),
+            "UAOC" => gamedata.use_ao = Some(reader.get_i32()?),
+            "USSR" => gamedata.use_ssr = Some(reader.get_i32()?),
+            "TMAP" => gamedata.tone_mapper = Some(reader.get_u32()?.into()),
+            "EXPO" => gamedata.exposure = Some(reader.get_f32()?),
+            "BLST" => gamedata.bloom_strength = reader.get_f32()?,
+            "MASI" => gamedata.materials_size = reader.get_u32()?,
             "MATE" => {
-                let data = reader.get_record_data(false).to_vec();
+                let data = reader.get_record_data(false)?.to_vec();
                 let mut materials: Vec<SaveMaterial> = Vec::new();
                 let mut buff = BytesMut::from(data.as_slice());
                 for _ in 0..gamedata.materials_size {
@@ -2294,7 +2288,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> io::Result<
                 gamedata.materials_old = materials;
             }
             "PHMA" => {
-                let data = reader.get_record_data(false).to_vec();
+                let data = reader.get_record_data(false)?.to_vec();
                 let mut materials: Vec<SavePhysicsMaterial> = Vec::new();
                 let mut buff = BytesMut::from(data.as_slice());
                 for _ in 0..gamedata.materials_size {
@@ -2305,50 +2299,47 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> io::Result<
             }
             // see https://github.com/vpinball/vpinball/blob/1a994086a6092733272fda36a2f449753a1ca21a/pintable.cpp#L4429
             "MATR" => {
-                let data = reader.get_record_data(false).to_vec();
+                let data = reader.get_record_data(false)?.to_vec();
                 let mut material_reader = BiffReader::new(&data);
-                let material = Material::biff_read(&mut material_reader);
-                material_reader.check()?;
+                let material = Material::biff_read(&mut material_reader)?;
                 gamedata
                     .materials
                     .get_or_insert_with(Vec::new)
                     .push(material);
             }
             "RPRB" => {
-                let data = reader.get_record_data(false).to_vec();
+                let data = reader.get_record_data(false)?.to_vec();
                 let mut probe_reader = BiffReader::new(&data);
-                let render_probe = RenderProbeWithGarbage::biff_read(&mut probe_reader);
-                probe_reader.check()?;
+                let render_probe = RenderProbeWithGarbage::biff_read(&mut probe_reader)?;
                 gamedata
                     .render_probes
                     .get_or_insert_with(Vec::new)
                     .push(render_probe);
             }
-            "SEDT" => gamedata.gameitems_size = reader.get_u32(),
-            "SSND" => gamedata.sounds_size = reader.get_u32(),
-            "SIMG" => gamedata.images_size = reader.get_u32(),
-            "SFNT" => gamedata.fonts_size = reader.get_u32(),
-            "SCOL" => gamedata.collections_size = reader.get_u32(),
-            "NAME" => gamedata.name = reader.get_wide_string(),
+            "SEDT" => gamedata.gameitems_size = reader.get_u32()?,
+            "SSND" => gamedata.sounds_size = reader.get_u32()?,
+            "SIMG" => gamedata.images_size = reader.get_u32()?,
+            "SFNT" => gamedata.fonts_size = reader.get_u32()?,
+            "SCOL" => gamedata.collections_size = reader.get_u32()?,
+            "NAME" => gamedata.name = reader.get_wide_string()?,
             "CCUS" => {
-                let data = reader.get_record_data(false);
+                let data = reader.get_record_data(false)?;
                 gamedata.custom_colors = read_colors(&data)?;
             }
-            "SECB" => gamedata.protection_data = Some(reader.get_record_data(false).to_vec()),
+            "SECB" => gamedata.protection_data = Some(reader.get_record_data(false)?.to_vec()),
             "CODE" => {
-                let len = reader.get_u32_no_remaining_update();
+                let len = reader.get_u32_no_remaining_update()?;
                 // at least a the time of 1060, some code was still encoded in latin1
-                gamedata.code = reader.get_str_with_encoding_no_remaining_update(len as usize);
+                gamedata.code = reader.get_str_with_encoding_no_remaining_update(len as usize)?;
             }
-            "TLCK" => gamedata.locked = Some(reader.get_u32()),
+            "TLCK" => gamedata.locked = Some(reader.get_u32()?),
             other => {
-                let data = reader.get_record_data(false);
+                let data = reader.get_record_data(false)?;
                 warn!("unhandled gamedata tag {} {} bytes", other, data.len());
             }
         };
         previous_tag = tag;
     }
-    reader.check()?;
     Ok(gamedata)
 }
 

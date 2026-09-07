@@ -1,6 +1,6 @@
 use super::{dragpoint::DragPoint, vertex2d::Vertex2D};
 use crate::impl_shared_attributes;
-use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -394,83 +394,78 @@ impl Default for Trigger {
 }
 
 impl BiffRead for Trigger {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Trigger {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let mut trigger = Trigger::default();
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
+        while let Some(tag) = reader.next(biff::WARN)? {
             let tag_str = tag.as_str();
             match tag_str {
                 // tag_str: SHAP
                 // tag_str: ANSP
                 // tag_str: REEN
                 "VCEN" => {
-                    trigger.center = Vertex2D::biff_read(reader);
+                    trigger.center = Vertex2D::biff_read(reader)?;
                 }
                 "RADI" => {
-                    trigger.radius = reader.get_f32();
+                    trigger.radius = reader.get_f32()?;
                 }
                 "ROTA" => {
-                    trigger.rotation = reader.get_f32();
+                    trigger.rotation = reader.get_f32()?;
                 }
                 "WITI" => {
-                    trigger.wire_thickness = Some(reader.get_f32());
+                    trigger.wire_thickness = Some(reader.get_f32()?);
                 }
                 "SCAX" => {
-                    trigger.scale_x = reader.get_f32();
+                    trigger.scale_x = reader.get_f32()?;
                 }
                 "SCAY" => {
-                    trigger.scale_y = reader.get_f32();
+                    trigger.scale_y = reader.get_f32()?;
                 }
                 "MATR" => {
-                    trigger.material = reader.get_string();
+                    trigger.material = reader.get_string()?;
                 }
                 "SURF" => {
-                    trigger.surface = reader.get_string();
+                    trigger.surface = reader.get_string()?;
                 }
                 "VSBL" => {
-                    trigger.is_visible = reader.get_bool();
+                    trigger.is_visible = reader.get_bool()?;
                 }
                 "EBLD" => {
-                    trigger.is_enabled = reader.get_bool();
+                    trigger.is_enabled = reader.get_bool()?;
                 }
                 "THOT" => {
-                    trigger.hit_height = reader.get_f32();
+                    trigger.hit_height = reader.get_f32()?;
                 }
                 "NAME" => {
-                    trigger.name = reader.get_wide_string();
+                    trigger.name = reader.get_wide_string()?;
                 }
                 "SHAP" => {
-                    trigger.shape = reader.get_u32().into();
+                    trigger.shape = reader.get_u32()?.into();
                 }
                 "ANSP" => {
-                    trigger.anim_speed = reader.get_f32();
+                    trigger.anim_speed = reader.get_f32()?;
                 }
                 "REEN" => {
-                    trigger.is_reflection_enabled = Some(reader.get_bool());
+                    trigger.is_reflection_enabled = Some(reader.get_bool()?);
                 }
                 "DPNT" => {
                     let point = DragPoint::biff_read(reader);
-                    trigger.drag_points.push(point);
+                    trigger.drag_points.push(point?);
                 }
                 _ => {
-                    if !trigger.timer.biff_read_tag(tag_str, reader)
-                        && !trigger.read_shared_attribute(tag_str, reader)
+                    if !trigger.timer.biff_read_tag(tag_str, reader)?
+                        && !trigger.read_shared_attribute(tag_str, reader)?
                     {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
                             std::any::type_name::<Self>()
                         );
-                        reader.skip_tag();
+                        reader.skip_tag()?;
                     }
                 }
             }
         }
-        trigger
+        Ok(trigger)
     }
 }
 
@@ -548,7 +543,7 @@ mod tests {
         };
         let mut writer = BiffWriter::new();
         Trigger::biff_write(&trigger, &mut writer);
-        let trigger_read = Trigger::biff_read(&mut BiffReader::new(writer.get_data()));
+        let trigger_read = Trigger::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(trigger, trigger_read);
     }
 

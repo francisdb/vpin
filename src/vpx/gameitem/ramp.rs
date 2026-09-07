@@ -1,6 +1,6 @@
 use super::dragpoint::DragPoint;
 use crate::impl_shared_attributes;
-use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
@@ -396,123 +396,118 @@ impl Default for Ramp {
 }
 
 impl BiffRead for Ramp {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let mut ramp = Ramp::default();
 
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
+        while let Some(tag) = reader.next(biff::WARN)? {
             let tag_str = tag.as_str();
             match tag_str {
                 "HTBT" => {
-                    ramp.height_bottom = reader.get_f32();
+                    ramp.height_bottom = reader.get_f32()?;
                 }
                 "HTTP" => {
-                    ramp.height_top = reader.get_f32();
+                    ramp.height_top = reader.get_f32()?;
                 }
                 "WDBT" => {
-                    ramp.width_bottom = reader.get_f32();
+                    ramp.width_bottom = reader.get_f32()?;
                 }
                 "WDTP" => {
-                    ramp.width_top = reader.get_f32();
+                    ramp.width_top = reader.get_f32()?;
                 }
                 "MATR" => {
-                    ramp.material = reader.get_string();
+                    ramp.material = reader.get_string()?;
                 }
                 "TYPE" => {
-                    ramp.ramp_type = reader.get_u32().into();
+                    ramp.ramp_type = reader.get_u32()?.into();
                 }
                 "NAME" => {
-                    ramp.name = reader.get_wide_string();
+                    ramp.name = reader.get_wide_string()?;
                 }
                 "IMAG" => {
-                    ramp.image = reader.get_string();
+                    ramp.image = reader.get_string()?;
                 }
                 "ALGN" => {
-                    ramp.image_alignment = reader.get_u32().into();
+                    ramp.image_alignment = reader.get_u32()?.into();
                 }
                 "IMGW" => {
-                    ramp.image_walls = reader.get_bool();
+                    ramp.image_walls = reader.get_bool()?;
                 }
                 "WLHL" => {
-                    ramp.left_wall_height = reader.get_f32();
+                    ramp.left_wall_height = reader.get_f32()?;
                 }
                 "WLHR" => {
-                    ramp.right_wall_height = reader.get_f32();
+                    ramp.right_wall_height = reader.get_f32()?;
                 }
                 "WVHL" => {
-                    ramp.left_wall_height_visible = reader.get_f32();
+                    ramp.left_wall_height_visible = reader.get_f32()?;
                 }
                 "WVHR" => {
-                    ramp.right_wall_height_visible = reader.get_f32();
+                    ramp.right_wall_height_visible = reader.get_f32()?;
                 }
                 "HTEV" => {
-                    ramp.hit_event = Some(reader.get_bool());
+                    ramp.hit_event = Some(reader.get_bool()?);
                 }
                 "THRS" => {
-                    ramp.threshold = Some(reader.get_f32());
+                    ramp.threshold = Some(reader.get_f32()?);
                 }
                 "ELAS" => {
-                    ramp.elasticity = reader.get_f32();
+                    ramp.elasticity = reader.get_f32()?;
                 }
                 "RFCT" => {
-                    ramp.friction = reader.get_f32();
+                    ramp.friction = reader.get_f32()?;
                 }
                 "RSCT" => {
-                    ramp.scatter = reader.get_f32();
+                    ramp.scatter = reader.get_f32()?;
                 }
                 "CLDR" => {
-                    ramp.is_collidable = reader.get_bool();
+                    ramp.is_collidable = reader.get_bool()?;
                 }
                 "RVIS" => {
-                    ramp.is_visible = reader.get_bool();
+                    ramp.is_visible = reader.get_bool()?;
                 }
                 "RADB" => {
-                    ramp.depth_bias = reader.get_f32();
+                    ramp.depth_bias = reader.get_f32()?;
                 }
                 "RADI" => {
-                    ramp.wire_diameter = reader.get_f32();
+                    ramp.wire_diameter = reader.get_f32()?;
                 }
                 "RADX" => {
-                    ramp.wire_distance_x = reader.get_f32();
+                    ramp.wire_distance_x = reader.get_f32()?;
                 }
                 "RADY" => {
-                    ramp.wire_distance_y = reader.get_f32();
+                    ramp.wire_distance_y = reader.get_f32()?;
                 }
                 "REEN" => {
-                    ramp.is_reflection_enabled = Some(reader.get_bool());
+                    ramp.is_reflection_enabled = Some(reader.get_bool()?);
                 }
                 "MAPH" => {
-                    ramp.physics_material = Some(reader.get_string());
+                    ramp.physics_material = Some(reader.get_string()?);
                 }
                 "OVPH" => {
-                    ramp.overwrite_physics = Some(reader.get_bool());
+                    ramp.overwrite_physics = Some(reader.get_bool()?);
                 }
                 "PNTS" => {
                     // this is just a tag with no data
                 }
                 "DPNT" => {
                     let point = DragPoint::biff_read(reader);
-                    ramp.drag_points.push(point);
+                    ramp.drag_points.push(point?);
                 }
                 _ => {
-                    if !ramp.timer.biff_read_tag(tag_str, reader)
-                        && !ramp.read_shared_attribute(tag_str, reader)
+                    if !ramp.timer.biff_read_tag(tag_str, reader)?
+                        && !ramp.read_shared_attribute(tag_str, reader)?
                     {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
                             std::any::type_name::<Self>()
                         );
-                        reader.skip_tag();
+                        reader.skip_tag()?;
                     }
                 }
             }
         }
-        ramp
+        Ok(ramp)
     }
 }
 
@@ -625,7 +620,7 @@ mod tests {
         };
         let mut writer = BiffWriter::new();
         Ramp::biff_write(&ramp, &mut writer);
-        let ramp_read = Ramp::biff_read(&mut BiffReader::new(writer.get_data()));
+        let ramp_read = Ramp::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(ramp, ramp_read);
     }
 

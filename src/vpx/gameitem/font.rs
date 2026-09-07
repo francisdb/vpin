@@ -1,4 +1,4 @@
-use crate::vpx::biff::{BiffRead, BiffReader, BiffWrite, BiffWriter};
+use crate::vpx::biff::{BiffError, BiffRead, BiffReader, BiffWrite, BiffWriter};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -199,22 +199,22 @@ impl Default for Font {
 }
 
 impl BiffRead for Font {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Font {
-        let version = reader.get_u8_no_remaining_update();
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
+        let version = reader.get_u8_no_remaining_update()?;
         assert_eq!(version, EXPECTED_FONTDESC_VERSION, "Font version is not 1");
-        let charset = reader.get_u16_no_remaining_update();
-        let style = reader.get_u8_no_remaining_update();
-        let weight = reader.get_u16_no_remaining_update();
-        let size = reader.get_u32_no_remaining_update();
-        let name_len = reader.get_u8_no_remaining_update();
-        let name = reader.get_str_no_remaining_update(name_len as usize);
-        Font {
+        let charset = reader.get_u16_no_remaining_update()?;
+        let style = reader.get_u8_no_remaining_update()?;
+        let weight = reader.get_u16_no_remaining_update()?;
+        let size = reader.get_u32_no_remaining_update()?;
+        let name_len = reader.get_u8_no_remaining_update()?;
+        let name = reader.get_str_no_remaining_update(name_len as usize)?;
+        Ok(Font {
             charset,
             style: FontStyle::flags_to_styles(style),
             weight,
             size,
             name,
-        }
+        })
     }
 }
 
@@ -250,7 +250,7 @@ mod test {
         let mut writer = BiffWriter::new();
         Font::biff_write(&font, &mut writer);
         let mut reader = BiffReader::new(writer.get_data());
-        let font2 = Font::biff_read(&mut reader);
+        let font2 = Font::biff_read(&mut reader).unwrap();
         assert_eq!(font, font2);
     }
 }

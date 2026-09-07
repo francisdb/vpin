@@ -2,7 +2,7 @@ use super::{GameItem, font::Font, font::FontJson, vertex2d::Vertex2D};
 use crate::impl_shared_attributes;
 use crate::vpx::gameitem::select::WriteSharedAttributes;
 use crate::vpx::{
-    biff::{self, BiffRead, BiffReader, BiffWrite},
+    biff::{self, BiffError, BiffRead, BiffReader, BiffWrite},
     color::Color,
 };
 use log::warn;
@@ -397,75 +397,70 @@ impl GameItem for Decal {
 }
 
 impl BiffRead for Decal {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let mut decal = Decal::default();
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
+        while let Some(tag) = reader.next(biff::WARN)? {
             let tag_str = tag.as_str();
             match tag_str {
                 "VCEN" => {
-                    decal.center = Vertex2D::biff_read(reader);
+                    decal.center = Vertex2D::biff_read(reader)?;
                 }
                 "WDTH" => {
-                    decal.width = reader.get_f32();
+                    decal.width = reader.get_f32()?;
                 }
                 "HIGH" => {
-                    decal.height = reader.get_f32();
+                    decal.height = reader.get_f32()?;
                 }
                 "ROTA" => {
-                    decal.rotation = reader.get_f32();
+                    decal.rotation = reader.get_f32()?;
                 }
                 "IMAG" => {
-                    decal.image = reader.get_string();
+                    decal.image = reader.get_string()?;
                 }
                 "SURF" => {
-                    decal.surface = reader.get_string();
+                    decal.surface = reader.get_string()?;
                 }
                 "NAME" => {
-                    decal.name = reader.get_wide_string();
+                    decal.name = reader.get_wide_string()?;
                 }
                 "TEXT" => {
-                    decal.text = reader.get_string();
+                    decal.text = reader.get_string()?;
                 }
                 "TYPE" => {
-                    decal.decal_type = reader.get_u32().into();
+                    decal.decal_type = reader.get_u32()?.into();
                 }
                 "MATR" => {
-                    decal.material = reader.get_string();
+                    decal.material = reader.get_string()?;
                 }
                 "COLR" => {
-                    decal.color = Color::biff_read(reader);
+                    decal.color = Color::biff_read(reader)?;
                 }
                 "SIZE" => {
-                    decal.sizing_type = reader.get_u32().into();
+                    decal.sizing_type = reader.get_u32()?.into();
                 }
                 "VERT" => {
-                    decal.vertical_text = reader.get_bool();
+                    decal.vertical_text = reader.get_bool()?;
                 }
                 "BGLS" => {
-                    decal.backglass = reader.get_bool();
+                    decal.backglass = reader.get_bool()?;
                 }
 
                 "FONT" => {
-                    decal.font = Font::biff_read(reader);
+                    decal.font = Font::biff_read(reader)?;
                 }
                 _ => {
-                    if !decal.read_shared_attribute(tag_str, reader) {
+                    if !decal.read_shared_attribute(tag_str, reader)? {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
                             std::any::type_name::<Self>()
                         );
-                        reader.skip_tag();
+                        reader.skip_tag()?;
                     }
                 }
             }
         }
-        decal
+        Ok(decal)
     }
 }
 
@@ -530,7 +525,7 @@ mod tests {
         };
         let mut writer = BiffWriter::new();
         Decal::biff_write(&decal, &mut writer);
-        let decal_read = Decal::biff_read(&mut BiffReader::new(writer.get_data()));
+        let decal_read = Decal::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(decal, decal_read);
     }
 

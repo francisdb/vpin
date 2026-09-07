@@ -3,7 +3,7 @@ use crate::impl_shared_attributes;
 use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use crate::vpx::{
-    biff::{self, BiffRead, BiffReader, BiffWrite},
+    biff::{self, BiffError, BiffRead, BiffReader, BiffWrite},
     color::Color,
 };
 use log::warn;
@@ -914,129 +914,124 @@ impl<'de> Deserialize<'de> for Flasher {
 }
 
 impl BiffRead for Flasher {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let mut flasher = Flasher::default();
 
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
+        while let Some(tag) = reader.next(biff::WARN)? {
             let tag_str = tag.as_str();
             match tag_str {
                 "FHEI" => {
-                    flasher.height = reader.get_f32();
+                    flasher.height = reader.get_f32()?;
                 }
                 "FLAX" => {
-                    flasher.pos_x = reader.get_f32();
+                    flasher.pos_x = reader.get_f32()?;
                 }
                 "FLAY" => {
-                    flasher.pos_y = reader.get_f32();
+                    flasher.pos_y = reader.get_f32()?;
                 }
                 "FROX" => {
-                    flasher.rot_x = reader.get_f32();
+                    flasher.rot_x = reader.get_f32()?;
                 }
                 "FROY" => {
-                    flasher.rot_y = reader.get_f32();
+                    flasher.rot_y = reader.get_f32()?;
                 }
                 "FROZ" => {
-                    flasher.rot_z = reader.get_f32();
+                    flasher.rot_z = reader.get_f32()?;
                 }
                 "COLR" => {
-                    flasher.color = Color::biff_read(reader);
+                    flasher.color = Color::biff_read(reader)?;
                 }
                 "NAME" => {
-                    flasher.name = reader.get_wide_string();
+                    flasher.name = reader.get_wide_string()?;
                 }
                 "IMAG" => {
-                    flasher.image_a = reader.get_string();
+                    flasher.image_a = reader.get_string()?;
                 }
                 "IMAB" => {
-                    flasher.image_b = reader.get_string();
+                    flasher.image_b = reader.get_string()?;
                 }
                 "FALP" => {
-                    flasher.alpha = reader.get_i32();
+                    flasher.alpha = reader.get_i32()?;
                 }
                 "MOVA" => {
-                    flasher.modulate_vs_add = reader.get_f32();
+                    flasher.modulate_vs_add = reader.get_f32()?;
                 }
                 "FVIS" => {
-                    flasher.is_visible = reader.get_bool();
+                    flasher.is_visible = reader.get_bool()?;
                 }
                 "DSPT" => {
-                    flasher.display_texture = reader.get_bool();
+                    flasher.display_texture = reader.get_bool()?;
                 }
                 "ADDB" => {
-                    flasher.add_blend = reader.get_bool();
+                    flasher.add_blend = reader.get_bool()?;
                 }
                 "IDMD" => {
-                    flasher.is_dmd = Some(reader.get_bool());
+                    flasher.is_dmd = Some(reader.get_bool()?);
                 }
                 "RDMD" => {
-                    flasher.render_mode = Some(reader.get_u32().into());
+                    flasher.render_mode = Some(reader.get_u32()?.into());
                 }
                 "RSTL" => {
-                    flasher.render_style = Some(reader.get_u32());
+                    flasher.render_style = Some(reader.get_u32()?);
                 }
                 "GRGH" => {
-                    flasher.glass_roughness = Some(reader.get_f32());
+                    flasher.glass_roughness = Some(reader.get_f32()?);
                 }
                 "GAMB" => {
-                    flasher.glass_ambient = Some(reader.get_u32());
+                    flasher.glass_ambient = Some(reader.get_u32()?);
                 }
                 "GTOP" => {
-                    flasher.glass_pad_top = Some(reader.get_f32());
+                    flasher.glass_pad_top = Some(reader.get_f32()?);
                 }
                 "GBOT" => {
-                    flasher.glass_pad_bottom = Some(reader.get_f32());
+                    flasher.glass_pad_bottom = Some(reader.get_f32()?);
                 }
                 "GLFT" => {
-                    flasher.glass_pad_left = Some(reader.get_f32());
+                    flasher.glass_pad_left = Some(reader.get_f32()?);
                 }
                 "GRHT" => {
-                    flasher.glass_pad_right = Some(reader.get_f32());
+                    flasher.glass_pad_right = Some(reader.get_f32()?);
                 }
                 "LINK" => {
-                    flasher.image_src_link = Some(reader.get_string());
+                    flasher.image_src_link = Some(reader.get_string()?);
                 }
                 "FLDB" => {
-                    flasher.depth_bias = reader.get_f32();
+                    flasher.depth_bias = reader.get_f32()?;
                 }
                 "ALGN" => {
-                    flasher.image_alignment = reader.get_u32().into();
+                    flasher.image_alignment = reader.get_u32()?.into();
                 }
                 "FILT" => {
-                    flasher.filter = reader.get_u32().into();
+                    flasher.filter = reader.get_u32()?.into();
                 }
                 "FIAM" => {
-                    flasher.filter_amount = reader.get_u32();
+                    flasher.filter_amount = reader.get_u32()?;
                 }
                 "LMAP" => {
-                    flasher.light_map = Some(reader.get_string());
+                    flasher.light_map = Some(reader.get_string()?);
                 }
                 "BGLS" => {
-                    flasher.backglass = Some(reader.get_bool());
+                    flasher.backglass = Some(reader.get_bool()?);
                 }
                 "DPNT" => {
                     let point = DragPoint::biff_read(reader);
-                    flasher.drag_points.push(point);
+                    flasher.drag_points.push(point?);
                 }
                 _ => {
-                    if !flasher.timer.biff_read_tag(tag_str, reader)
-                        && !flasher.read_shared_attribute(tag_str, reader)
+                    if !flasher.timer.biff_read_tag(tag_str, reader)?
+                        && !flasher.read_shared_attribute(tag_str, reader)?
                     {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
                             std::any::type_name::<Self>()
                         );
-                        reader.skip_tag();
+                        reader.skip_tag()?;
                     }
                 }
             }
         }
-        flasher
+        Ok(flasher)
     }
 }
 
@@ -1169,7 +1164,7 @@ mod tests {
         };
         let mut writer = BiffWriter::new();
         Flasher::biff_write(&flasher, &mut writer);
-        let flasher_read = Flasher::biff_read(&mut BiffReader::new(writer.get_data()));
+        let flasher_read = Flasher::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(flasher, flasher_read);
     }
 

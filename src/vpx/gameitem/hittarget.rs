@@ -1,6 +1,6 @@
 use super::vertex3d::Vertex3D;
 use crate::impl_shared_attributes;
-use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use crate::vpx::math::{dequantize_unsigned, quantize_unsigned};
 use log::warn;
@@ -458,106 +458,101 @@ impl<'de> Deserialize<'de> for HitTarget {
 }
 
 impl BiffRead for HitTarget {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let mut hit_target = HitTarget::default();
 
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
+        while let Some(tag) = reader.next(biff::WARN)? {
             let tag_str = tag.as_str();
             match tag_str {
                 "VPOS" => {
-                    hit_target.position = Vertex3D::biff_read(reader);
+                    hit_target.position = Vertex3D::biff_read(reader)?;
                 }
                 "VSIZ" => {
-                    hit_target.size = Vertex3D::biff_read(reader);
+                    hit_target.size = Vertex3D::biff_read(reader)?;
                 }
                 "ROTZ" => {
-                    hit_target.rot_z = reader.get_f32();
+                    hit_target.rot_z = reader.get_f32()?;
                 }
                 "IMAG" => {
-                    hit_target.image = reader.get_string();
+                    hit_target.image = reader.get_string()?;
                 }
                 "TRTY" => {
-                    hit_target.target_type = reader.get_u32().into();
+                    hit_target.target_type = reader.get_u32()?.into();
                 }
                 "NAME" => {
-                    hit_target.name = reader.get_wide_string();
+                    hit_target.name = reader.get_wide_string()?;
                 }
                 "MATR" => {
-                    hit_target.material = reader.get_string();
+                    hit_target.material = reader.get_string()?;
                 }
                 "TVIS" => {
-                    hit_target.is_visible = reader.get_bool();
+                    hit_target.is_visible = reader.get_bool()?;
                 }
                 "LEMO" => {
-                    hit_target.is_legacy = reader.get_bool();
+                    hit_target.is_legacy = reader.get_bool()?;
                 }
                 "HTEV" => {
-                    hit_target.use_hit_event = reader.get_bool();
+                    hit_target.use_hit_event = reader.get_bool()?;
                 }
                 "THRS" => {
-                    hit_target.threshold = reader.get_f32();
+                    hit_target.threshold = reader.get_f32()?;
                 }
                 "ELAS" => {
-                    hit_target.elasticity = reader.get_f32();
+                    hit_target.elasticity = reader.get_f32()?;
                 }
                 "ELFO" => {
-                    hit_target.elasticity_falloff = reader.get_f32();
+                    hit_target.elasticity_falloff = reader.get_f32()?;
                 }
                 "RFCT" => {
-                    hit_target.friction = reader.get_f32();
+                    hit_target.friction = reader.get_f32()?;
                 }
                 "RSCT" => {
-                    hit_target.scatter = reader.get_f32();
+                    hit_target.scatter = reader.get_f32()?;
                 }
                 "CLDR" => {
-                    hit_target.is_collidable = reader.get_bool();
+                    hit_target.is_collidable = reader.get_bool()?;
                 }
                 "DILI" => {
                     // vpinball reads this to DILT, but we keep it as we stick to pure IO
                     hit_target.disable_lighting_top_old =
-                        Some(dequantize_unsigned::<8>(reader.get_u32()));
+                        Some(dequantize_unsigned::<8>(reader.get_u32()?));
                 }
                 "DILT" => {
-                    hit_target.disable_lighting_top = Some(reader.get_f32());
+                    hit_target.disable_lighting_top = Some(reader.get_f32()?);
                 }
                 "DILB" => {
-                    hit_target.disable_lighting_below = Some(reader.get_f32());
+                    hit_target.disable_lighting_below = Some(reader.get_f32()?);
                 }
                 "REEN" => {
-                    hit_target.is_reflection_enabled = reader.get_bool();
+                    hit_target.is_reflection_enabled = reader.get_bool()?;
                 }
                 "PIDB" => {
-                    hit_target.depth_bias = reader.get_f32();
+                    hit_target.depth_bias = reader.get_f32()?;
                 }
                 "ISDR" => {
-                    hit_target.is_dropped = reader.get_bool();
+                    hit_target.is_dropped = reader.get_bool()?;
                 }
                 "DRSP" => {
-                    hit_target.drop_speed = reader.get_f32();
+                    hit_target.drop_speed = reader.get_f32()?;
                 }
-                "RADE" => hit_target.raise_delay = Some(reader.get_u32()),
-                "MAPH" => hit_target.physics_material = Some(reader.get_string()),
-                "OVPH" => hit_target.overwrite_physics = Some(reader.get_bool()),
+                "RADE" => hit_target.raise_delay = Some(reader.get_u32()?),
+                "MAPH" => hit_target.physics_material = Some(reader.get_string()?),
+                "OVPH" => hit_target.overwrite_physics = Some(reader.get_bool()?),
                 _ => {
-                    if !hit_target.timer.biff_read_tag(tag_str, reader)
-                        && !hit_target.read_shared_attribute(tag_str, reader)
+                    if !hit_target.timer.biff_read_tag(tag_str, reader)?
+                        && !hit_target.read_shared_attribute(tag_str, reader)?
                     {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
                             std::any::type_name::<Self>()
                         );
-                        reader.skip_tag();
+                        reader.skip_tag()?;
                     }
                 }
             }
         }
-        hit_target
+        Ok(hit_target)
     }
 }
 
@@ -662,7 +657,7 @@ mod tests {
         };
         let mut writer = BiffWriter::new();
         HitTarget::biff_write(&hittarget, &mut writer);
-        let hittarget_read = HitTarget::biff_read(&mut BiffReader::new(writer.get_data()));
+        let hittarget_read = HitTarget::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(hittarget, hittarget_read);
     }
 

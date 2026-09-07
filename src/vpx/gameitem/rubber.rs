@@ -1,6 +1,6 @@
 use super::dragpoint::DragPoint;
 use crate::impl_shared_attributes;
-use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -242,105 +242,100 @@ impl<'de> Deserialize<'de> for Rubber {
 }
 
 impl BiffRead for Rubber {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let mut rubber = Rubber::default();
 
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
+        while let Some(tag) = reader.next(biff::WARN)? {
             let tag_str = tag.as_str();
             match tag_str {
                 "HTTP" => {
-                    rubber.height = reader.get_f32();
+                    rubber.height = reader.get_f32()?;
                 }
                 "HTHI" => {
-                    rubber.hit_height = Some(reader.get_f32());
+                    rubber.hit_height = Some(reader.get_f32()?);
                 }
                 "WDTP" => {
-                    rubber.thickness = reader.get_i32();
+                    rubber.thickness = reader.get_i32()?;
                 }
                 "HTEV" => {
-                    rubber.hit_event = reader.get_bool();
+                    rubber.hit_event = reader.get_bool()?;
                 }
                 "MATR" => {
-                    rubber.material = reader.get_string();
+                    rubber.material = reader.get_string()?;
                 }
                 "NAME" => {
-                    rubber.name = reader.get_wide_string();
+                    rubber.name = reader.get_wide_string()?;
                 }
                 "IMAG" => {
-                    rubber.image = reader.get_string();
+                    rubber.image = reader.get_string()?;
                 }
                 "ELAS" => {
-                    rubber.elasticity = reader.get_f32();
+                    rubber.elasticity = reader.get_f32()?;
                 }
                 "ELFO" => {
-                    rubber.elasticity_falloff = reader.get_f32();
+                    rubber.elasticity_falloff = reader.get_f32()?;
                 }
                 "RFCT" => {
-                    rubber.friction = reader.get_f32();
+                    rubber.friction = reader.get_f32()?;
                 }
                 "RSCT" => {
-                    rubber.scatter = reader.get_f32();
+                    rubber.scatter = reader.get_f32()?;
                 }
                 "CLDR" => {
-                    rubber.is_collidable = reader.get_bool();
+                    rubber.is_collidable = reader.get_bool()?;
                 }
                 "RVIS" => {
-                    rubber.is_visible = reader.get_bool();
+                    rubber.is_visible = reader.get_bool()?;
                 }
                 "RADB" => {
-                    rubber.radb = Some(reader.get_f32());
+                    rubber.radb = Some(reader.get_f32()?);
                 }
                 "ESTR" => {
-                    rubber.static_rendering = reader.get_bool();
+                    rubber.static_rendering = reader.get_bool()?;
                 }
                 "ESIE" => {
-                    rubber.show_in_editor = reader.get_bool();
+                    rubber.show_in_editor = reader.get_bool()?;
                 }
                 "ROTX" => {
-                    rubber.rot_x = reader.get_f32();
+                    rubber.rot_x = reader.get_f32()?;
                 }
                 "ROTY" => {
-                    rubber.rot_y = reader.get_f32();
+                    rubber.rot_y = reader.get_f32()?;
                 }
                 "ROTZ" => {
-                    rubber.rot_z = reader.get_f32();
+                    rubber.rot_z = reader.get_f32()?;
                 }
                 "REEN" => {
-                    rubber.is_reflection_enabled = Some(reader.get_bool());
+                    rubber.is_reflection_enabled = Some(reader.get_bool()?);
                 }
                 "MAPH" => {
-                    rubber.physics_material = Some(reader.get_string());
+                    rubber.physics_material = Some(reader.get_string()?);
                 }
                 "OVPH" => {
-                    rubber.overwrite_physics = Some(reader.get_bool());
+                    rubber.overwrite_physics = Some(reader.get_bool()?);
                 }
                 "PNTS" => {
                     // this is just a tag with no data
                 }
                 "DPNT" => {
                     let point = DragPoint::biff_read(reader);
-                    rubber.drag_points.push(point);
+                    rubber.drag_points.push(point?);
                 }
                 _ => {
-                    if !rubber.timer.biff_read_tag(tag_str, reader)
-                        && !rubber.read_shared_attribute(tag_str, reader)
+                    if !rubber.timer.biff_read_tag(tag_str, reader)?
+                        && !rubber.read_shared_attribute(tag_str, reader)?
                     {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
                             std::any::type_name::<Self>()
                         );
-                        reader.skip_tag();
+                        reader.skip_tag()?;
                     }
                 }
             }
         }
-        rubber
+        Ok(rubber)
     }
 }
 
@@ -441,7 +436,7 @@ mod tests {
         };
         let mut writer = BiffWriter::new();
         Rubber::biff_write(&rubber, &mut writer);
-        let rubber_read = Rubber::biff_read(&mut BiffReader::new(writer.get_data()));
+        let rubber_read = Rubber::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(rubber, rubber_read);
     }
 }

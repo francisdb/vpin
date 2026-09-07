@@ -70,7 +70,7 @@ use crate::impl_shared_attributes;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use crate::vpx::json::F32WithNanInf;
 use crate::vpx::{
-    biff::{self, BiffRead, BiffReader, BiffWrite},
+    biff::{self, BiffError, BiffRead, BiffReader, BiffWrite},
     color::Color,
 };
 use log::warn;
@@ -971,68 +971,63 @@ impl Default for Light {
 }
 
 impl BiffRead for Light {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Light {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let mut light = Light::default();
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
+        while let Some(tag) = reader.next(biff::WARN)? {
             let tag_str = tag.as_str();
             match tag_str {
-                "VCEN" => light.center = Vertex2D::biff_read(reader),
-                "HGHT" => light.height = Some(reader.get_f32()),
-                "RADI" => light.falloff_radius = reader.get_f32(),
-                "FAPO" => light.falloff_power = reader.get_f32(),
-                "STAT" => light.state_u32 = reader.get_u32(),
-                "STTF" => light.state = Some(reader.get_f32()),
-                "COLR" => light.color = Color::biff_read(reader),
-                "COL2" => light.color2 = Color::biff_read(reader),
-                "BPAT" => light.blink_pattern = reader.get_string(),
-                "IMG1" => light.image = reader.get_string(),
-                "BINT" => light.blink_interval = reader.get_u32(),
-                "BWTH" => light.intensity = reader.get_f32(),
-                "TRMS" => light.transmission_scale = reader.get_f32(),
-                "SURF" => light.surface = reader.get_string(),
-                "NAME" => light.name = reader.get_wide_string(),
+                "VCEN" => light.center = Vertex2D::biff_read(reader)?,
+                "HGHT" => light.height = Some(reader.get_f32()?),
+                "RADI" => light.falloff_radius = reader.get_f32()?,
+                "FAPO" => light.falloff_power = reader.get_f32()?,
+                "STAT" => light.state_u32 = reader.get_u32()?,
+                "STTF" => light.state = Some(reader.get_f32()?),
+                "COLR" => light.color = Color::biff_read(reader)?,
+                "COL2" => light.color2 = Color::biff_read(reader)?,
+                "BPAT" => light.blink_pattern = reader.get_string()?,
+                "IMG1" => light.image = reader.get_string()?,
+                "BINT" => light.blink_interval = reader.get_u32()?,
+                "BWTH" => light.intensity = reader.get_f32()?,
+                "TRMS" => light.transmission_scale = reader.get_f32()?,
+                "SURF" => light.surface = reader.get_string()?,
+                "NAME" => light.name = reader.get_wide_string()?,
 
-                "BGLS" => light.is_backglass = reader.get_bool(),
-                "LIDB" => light.depth_bias = reader.get_f32(),
-                "FASP" => light.fade_speed_up = reader.get_f32(),
-                "FASD" => light.fade_speed_down = reader.get_f32(),
-                "BULT" => light.is_bulb_light = reader.get_bool(),
-                "IMMO" => light.is_image_mode = reader.get_bool(),
-                "SHBM" => light.show_bulb_mesh = reader.get_bool(),
-                "STBM" => light.has_static_bulb_mesh = Some(reader.get_bool()),
-                "SHRB" => light.show_reflection_on_ball = reader.get_bool(),
-                "BMSC" => light.mesh_radius = reader.get_f32(),
-                "BMVA" => light.bulb_modulate_vs_add = reader.get_f32(),
-                "BHHI" => light.bulb_halo_height = reader.get_f32(),
-                "SHDW" => light.shadows = Some(reader.get_u32().into()),
-                "FADE" => light.fader = Some(reader.get_u32().into()),
-                "VSBL" => light.visible = Some(reader.get_bool()),
+                "BGLS" => light.is_backglass = reader.get_bool()?,
+                "LIDB" => light.depth_bias = reader.get_f32()?,
+                "FASP" => light.fade_speed_up = reader.get_f32()?,
+                "FASD" => light.fade_speed_down = reader.get_f32()?,
+                "BULT" => light.is_bulb_light = reader.get_bool()?,
+                "IMMO" => light.is_image_mode = reader.get_bool()?,
+                "SHBM" => light.show_bulb_mesh = reader.get_bool()?,
+                "STBM" => light.has_static_bulb_mesh = Some(reader.get_bool()?),
+                "SHRB" => light.show_reflection_on_ball = reader.get_bool()?,
+                "BMSC" => light.mesh_radius = reader.get_f32()?,
+                "BMVA" => light.bulb_modulate_vs_add = reader.get_f32()?,
+                "BHHI" => light.bulb_halo_height = reader.get_f32()?,
+                "SHDW" => light.shadows = Some(reader.get_u32()?.into()),
+                "FADE" => light.fader = Some(reader.get_u32()?.into()),
+                "VSBL" => light.visible = Some(reader.get_bool()?),
 
                 // many of these
                 "DPNT" => {
                     let point = DragPoint::biff_read(reader);
-                    light.drag_points.push(point);
+                    light.drag_points.push(point?);
                 }
                 other => {
-                    if !light.timer.biff_read_tag(other, reader)
-                        && !light.read_shared_attribute(other, reader)
+                    if !light.timer.biff_read_tag(other, reader)?
+                        && !light.read_shared_attribute(other, reader)?
                     {
                         warn!(
                             "Unknown tag {} for {}",
                             other,
                             std::any::type_name::<Self>()
                         );
-                        reader.skip_tag();
+                        reader.skip_tag()?;
                     }
                 }
             }
         }
-        light
+        Ok(light)
     }
 }
 
@@ -1150,7 +1145,7 @@ mod tests {
         };
         let mut writer = BiffWriter::new();
         Light::biff_write(&light, &mut writer);
-        let light_read = Light::biff_read(&mut BiffReader::new(writer.get_data()));
+        let light_read = Light::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(light, light_read);
     }
 

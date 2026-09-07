@@ -34,7 +34,7 @@ use crate::vpx::tableinfo::read_tableinfo;
 use tableinfo::{TableInfo, write_tableinfo};
 use version::Version;
 
-use self::biff::{BiffRead, BiffWrite, BiffWriter};
+use self::biff::{BiffError, BiffRead, BiffWrite, BiffWriter};
 use self::collection::Collection;
 use self::custominfotags::CustomInfoTags;
 use self::font::FontData;
@@ -739,11 +739,12 @@ fn generate_mac<F: Read + Seek>(comp: &mut CompoundFile<F>) -> io::Result<Vec<u8
                 let bytes = read_bytes_at(&item.path, comp)?;
                 let mut biff = BiffReader::new(&bytes);
 
+                let ctx = |e: BiffError| with_context(e.into(), &item.path.display());
                 loop {
                     if biff.is_eof() {
                         break;
                     }
-                    biff.next(biff::WARN);
+                    biff.next(biff::WARN).map_err(ctx)?;
                     // println!("reading biff: {:?} {}", item.path, biff.tag());
                     let tag = biff.tag();
                     let tag_str = tag.as_str();
@@ -753,18 +754,18 @@ fn generate_mac<F: Read + Seek>(comp: &mut CompoundFile<F>) -> io::Result<Vec<u8
                             hasher.update(b"CODE");
                             // code is a special case, it indicates a length of 4 (only the tag)
                             // so already 0 bytes remaining
-                            let code_length = biff.get_u32_no_remaining_update();
-                            let code = biff.get_no_remaining_update(code_length as usize);
+                            let code_length = biff.get_u32_no_remaining_update().map_err(ctx)?;
+                            let code = biff
+                                .get_no_remaining_update(code_length as usize)
+                                .map_err(ctx)?;
                             hasher.update(code);
                         }
                         _other => {
                             // Biff tags and data are hashed but not their size
-                            hasher.update(biff.get_record_data(true));
+                            hasher.update(biff.get_record_data(true).map_err(ctx)?);
                         }
                     }
                 }
-                biff.check()
-                    .map_err(|e| with_context(e.into(), &item.path.display()))?;
             }
         }
 
@@ -772,13 +773,14 @@ fn generate_mac<F: Read + Seek>(comp: &mut CompoundFile<F>) -> io::Result<Vec<u8
             let bytes = read_bytes_at(&item.path, comp)?;
             let mut biff = BiffReader::new(&bytes);
 
+            let ctx = |e: BiffError| with_context(e.into(), &item.path.display());
             loop {
                 if biff.is_eof() {
                     break;
                 }
-                biff.next(biff::WARN);
+                biff.next(biff::WARN).map_err(ctx)?;
                 if biff.tag() == "CUST" {
-                    let cust_name = biff.get_string();
+                    let cust_name = biff.get_string().map_err(ctx)?;
                     //println!("Hashing custom information block {}", cust_name);
                     let path = format!("TableInfo/{cust_name}");
                     if comp.exists(&path) {
@@ -786,11 +788,9 @@ fn generate_mac<F: Read + Seek>(comp: &mut CompoundFile<F>) -> io::Result<Vec<u8
                         hasher.update(&data);
                     }
                 } else {
-                    biff.skip_tag();
+                    biff.skip_tag().map_err(ctx)?;
                 }
             }
-            biff.check()
-                .map_err(|e| with_context(e.into(), &item.path.display()))?;
         }
     }
     let result = hasher.finalize();
@@ -937,9 +937,7 @@ fn read_sound<F: Read + Seek>(
     stream.read_to_end(&mut input)?;
     drop(span);
     let mut reader = BiffReader::new(&input);
-    let sound = sound::read(file_version, &mut reader);
-    reader
-        .check()
+    let sound = sound::read(file_version, &mut reader)
         .map_err(|e| with_context(e.into(), &path.display()))?;
     Ok(Ok(sound))
 }
@@ -1010,8 +1008,7 @@ fn read_image<F: Read + Seek>(comp: &mut CompoundFile<F>, index: u32) -> Result<
     let mut stream = comp.open_stream(&path)?;
     stream.read_to_end(&mut input)?;
     let mut reader = BiffReader::new(&input);
-    let image = ImageData::biff_read(&mut reader);
-    reader.check().map_err(|e| with_context(e.into(), &path))?;
+    let image = ImageData::biff_read(&mut reader).map_err(|e| with_context(e.into(), &path))?;
     Ok(image)
 }
 

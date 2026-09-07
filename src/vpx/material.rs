@@ -1,5 +1,5 @@
 use crate::vpx::biff;
-use crate::vpx::biff::{BiffRead, BiffReader, BiffWrite, BiffWriter};
+use crate::vpx::biff::{BiffError, BiffRead, BiffReader, BiffWrite, BiffWriter};
 use crate::vpx::color::Color;
 use crate::vpx::json::F32WithNanInf;
 use crate::vpx::math::quantize_u8;
@@ -756,45 +756,40 @@ impl<'de> Deserialize<'de> for Material {
 }
 
 impl BiffRead for Material {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let mut material = Material::default();
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
+        while let Some(tag) = reader.next(biff::WARN)? {
             let tag_str = tag.as_str();
             match tag_str {
-                "TYPE" => material.type_ = reader.get_i32().into(),
-                "NAME" => material.name = reader.get_string(),
-                "WLIG" => material.wrap_lighting = reader.get_f32(),
-                "ROUG" => material.roughness = reader.get_f32(),
-                "GIML" => material.glossy_image_lerp = reader.get_f32(),
-                "THCK" => material.thickness = reader.get_f32(),
-                "EDGE" => material.edge = reader.get_f32(),
-                "EALP" => material.edge_alpha = reader.get_f32(),
-                "OPAC" => material.opacity = reader.get_f32(),
-                "BASE" => material.base_color = Color::biff_read(reader),
-                "GLOS" => material.glossy_color = Color::biff_read(reader),
-                "COAT" => material.clearcoat_color = Color::biff_read(reader),
-                "RTNT" => material.refraction_tint = Color::biff_read(reader),
-                "EOPA" => material.opacity_active = reader.get_bool(),
-                "ELAS" => material.elasticity = reader.get_f32(),
-                "ELFO" => material.elasticity_falloff = reader.get_f32(),
-                "FRIC" => material.friction = reader.get_f32(),
-                "SCAT" => material.scatter_angle = reader.get_f32(),
+                "TYPE" => material.type_ = reader.get_i32()?.into(),
+                "NAME" => material.name = reader.get_string()?,
+                "WLIG" => material.wrap_lighting = reader.get_f32()?,
+                "ROUG" => material.roughness = reader.get_f32()?,
+                "GIML" => material.glossy_image_lerp = reader.get_f32()?,
+                "THCK" => material.thickness = reader.get_f32()?,
+                "EDGE" => material.edge = reader.get_f32()?,
+                "EALP" => material.edge_alpha = reader.get_f32()?,
+                "OPAC" => material.opacity = reader.get_f32()?,
+                "BASE" => material.base_color = Color::biff_read(reader)?,
+                "GLOS" => material.glossy_color = Color::biff_read(reader)?,
+                "COAT" => material.clearcoat_color = Color::biff_read(reader)?,
+                "RTNT" => material.refraction_tint = Color::biff_read(reader)?,
+                "EOPA" => material.opacity_active = reader.get_bool()?,
+                "ELAS" => material.elasticity = reader.get_f32()?,
+                "ELFO" => material.elasticity_falloff = reader.get_f32()?,
+                "FRIC" => material.friction = reader.get_f32()?,
+                "SCAT" => material.scatter_angle = reader.get_f32()?,
                 _ => {
                     warn!(
                         "Unknown tag {} for {}",
                         tag_str,
                         std::any::type_name::<Self>()
                     );
-                    reader.skip_tag();
+                    reader.skip_tag()?;
                 }
             }
         }
-        material
+        Ok(material)
     }
 }
 
@@ -857,7 +852,7 @@ mod tests {
         let mut writer = BiffWriter::new();
         material.biff_write(&mut writer);
         let mut reader = BiffReader::new(writer.get_data());
-        let read_material = Material::biff_read(&mut reader);
+        let read_material = Material::biff_read(&mut reader).unwrap();
         assert_eq!(material, read_material);
     }
 

@@ -2,7 +2,7 @@ use super::vertex2d::Vertex2D;
 use crate::impl_shared_attributes;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use crate::vpx::{
-    biff::{self, BiffRead, BiffReader, BiffWrite},
+    biff::{self, BiffError, BiffRead, BiffReader, BiffWrite},
     color::Color,
 };
 use log::warn;
@@ -177,83 +177,78 @@ impl<'de> Deserialize<'de> for Reel {
 }
 
 impl BiffRead for Reel {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let mut reel = Reel::default();
 
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
+        while let Some(tag) = reader.next(biff::WARN)? {
             let tag_str = tag.as_str();
             match tag_str {
                 "VER1" => {
-                    reel.ver1 = Vertex2D::biff_read(reader);
+                    reel.ver1 = Vertex2D::biff_read(reader)?;
                 }
                 "VER2" => {
-                    reel.ver2 = Vertex2D::biff_read(reader);
+                    reel.ver2 = Vertex2D::biff_read(reader)?;
                 }
                 "CLRB" => {
-                    reel.back_color = Color::biff_read(reader);
+                    reel.back_color = Color::biff_read(reader)?;
                 }
                 "TRNS" => {
-                    reel.is_transparent = reader.get_bool();
+                    reel.is_transparent = reader.get_bool()?;
                 }
                 "IMAG" => {
-                    reel.image = reader.get_string();
+                    reel.image = reader.get_string()?;
                 }
                 "SOUN" => {
-                    reel.sound = reader.get_string();
+                    reel.sound = reader.get_string()?;
                 }
                 "NAME" => {
-                    reel.name = reader.get_wide_string();
+                    reel.name = reader.get_wide_string()?;
                 }
                 "WDTH" => {
-                    reel.width = reader.get_f32();
+                    reel.width = reader.get_f32()?;
                 }
                 "HIGH" => {
-                    reel.height = reader.get_f32();
+                    reel.height = reader.get_f32()?;
                 }
                 "RCNT" => {
-                    reel.reel_count = reader.get_f32();
+                    reel.reel_count = reader.get_f32()?;
                 }
                 "RSPC" => {
-                    reel.reel_spacing = reader.get_f32();
+                    reel.reel_spacing = reader.get_f32()?;
                 }
                 "MSTP" => {
-                    reel.motor_steps = reader.get_f32();
+                    reel.motor_steps = reader.get_f32()?;
                 }
                 "RANG" => {
-                    reel.digit_range = reader.get_f32();
+                    reel.digit_range = reader.get_f32()?;
                 }
                 "UPTM" => {
-                    reel.update_interval = reader.get_u32();
+                    reel.update_interval = reader.get_u32()?;
                 }
                 "UGRD" => {
-                    reel.use_image_grid = reader.get_bool();
+                    reel.use_image_grid = reader.get_bool()?;
                 }
                 "VISI" => {
-                    reel.is_visible = reader.get_bool();
+                    reel.is_visible = reader.get_bool()?;
                 }
                 "GIPR" => {
-                    reel.images_per_grid_row = reader.get_u32();
+                    reel.images_per_grid_row = reader.get_u32()?;
                 }
                 _ => {
-                    if !reel.timer.biff_read_tag(tag_str, reader)
-                        && !reel.read_shared_attribute(tag_str, reader)
+                    if !reel.timer.biff_read_tag(tag_str, reader)?
+                        && !reel.read_shared_attribute(tag_str, reader)?
                     {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
                             std::any::type_name::<Self>()
                         );
-                        reader.skip_tag();
+                        reader.skip_tag()?;
                     }
                 }
             }
         }
-        reel
+        Ok(reel)
     }
 }
 
@@ -328,7 +323,7 @@ mod tests {
         };
         let mut writer = BiffWriter::new();
         Reel::biff_write(&reel, &mut writer);
-        let reel_read = Reel::biff_read(&mut BiffReader::new(writer.get_data()));
+        let reel_read = Reel::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(reel, reel_read);
     }
 }

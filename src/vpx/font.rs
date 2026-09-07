@@ -66,37 +66,31 @@ pub fn read(input: &[u8]) -> io::Result<FontData> {
     let mut path: String = "".to_string();
     let mut size_opt: Option<u32> = None;
     let mut data: Vec<u8> = vec![];
-    loop {
-        reader.next(biff::WARN);
-        if reader.is_eof() {
-            break;
-        }
-        let tag = reader.tag();
+    while let Some(tag) = reader.next(biff::WARN)? {
         let tag_str = tag.as_str();
         match tag_str {
             "NAME" => {
-                name = reader.get_string();
+                name = reader.get_string()?;
             }
             "PATH" => {
-                path = reader.get_string();
+                path = reader.get_string()?;
             }
             "SIZE" => {
-                size_opt = Some((reader.get_u32()).to_owned());
+                size_opt = Some((reader.get_u32()?).to_owned());
             }
             "DATA" => match size_opt {
                 Some(size) => {
-                    let d = reader.get_data(size as usize);
+                    let d = reader.get_data(size as usize)?;
                     d.clone_into(&mut data);
                 }
-                None => reader.fail("DATA tag without SIZE tag"),
+                None => return Err(reader.err("DATA tag without SIZE tag").into()),
             },
             _ => {
                 warn!("Skipping font tag: {tag_str}");
-                reader.skip_tag();
+                reader.skip_tag()?;
             }
         }
     }
-    reader.check()?;
     Ok(FontData { name, path, data })
 }
 

@@ -1,6 +1,6 @@
 use super::vertex2d::Vertex2D;
 use crate::impl_shared_attributes;
-use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -309,71 +309,66 @@ impl Default for Kicker {
 }
 
 impl BiffRead for Kicker {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let mut kicker = Kicker::default();
 
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
+        while let Some(tag) = reader.next(biff::WARN)? {
             let tag_str = tag.as_str();
             match tag_str {
                 "VCEN" => {
-                    kicker.center = Vertex2D::biff_read(reader);
+                    kicker.center = Vertex2D::biff_read(reader)?;
                 }
                 "RADI" => {
-                    kicker.radius = reader.get_f32();
+                    kicker.radius = reader.get_f32()?;
                 }
                 "MATR" => {
-                    kicker.material = reader.get_string();
+                    kicker.material = reader.get_string()?;
                 }
                 "SURF" => {
-                    kicker.surface = reader.get_string();
+                    kicker.surface = reader.get_string()?;
                 }
                 "EBLD" => {
-                    kicker.is_enabled = reader.get_bool();
+                    kicker.is_enabled = reader.get_bool()?;
                 }
                 "NAME" => {
-                    kicker.name = reader.get_wide_string();
+                    kicker.name = reader.get_wide_string()?;
                 }
                 "TYPE" => {
-                    kicker.kicker_type = reader.get_u32().into();
+                    kicker.kicker_type = reader.get_u32()?.into();
                 }
                 "KSCT" => {
-                    kicker.scatter = reader.get_f32();
+                    kicker.scatter = reader.get_f32()?;
                 }
                 "KHAC" => {
-                    kicker.hit_accuracy = reader.get_f32();
+                    kicker.hit_accuracy = reader.get_f32()?;
                 }
                 "KHHI" => {
-                    kicker.hit_height = Some(reader.get_f32());
+                    kicker.hit_height = Some(reader.get_f32()?);
                 }
                 "KORI" => {
-                    kicker.orientation = reader.get_f32();
+                    kicker.orientation = reader.get_f32()?;
                 }
                 "FATH" => {
-                    kicker.fall_through = reader.get_bool();
+                    kicker.fall_through = reader.get_bool()?;
                 }
                 "LEMO" => {
-                    kicker.legacy_mode = reader.get_bool();
+                    kicker.legacy_mode = reader.get_bool()?;
                 }
                 _ => {
-                    if !kicker.timer.biff_read_tag(tag_str, reader)
-                        && !kicker.read_shared_attribute(tag_str, reader)
+                    if !kicker.timer.biff_read_tag(tag_str, reader)?
+                        && !kicker.read_shared_attribute(tag_str, reader)?
                     {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
                             std::any::type_name::<Self>()
                         );
-                        reader.skip_tag();
+                        reader.skip_tag()?;
                     }
                 }
             }
         }
-        kicker
+        Ok(kicker)
     }
 }
 
@@ -439,7 +434,7 @@ mod tests {
         };
         let mut writer = BiffWriter::new();
         Kicker::biff_write(&kicker, &mut writer);
-        let kicker_read = Kicker::biff_read(&mut BiffReader::new(writer.get_data()));
+        let kicker_read = Kicker::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(kicker, kicker_read);
     }
 

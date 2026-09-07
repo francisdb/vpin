@@ -1,5 +1,5 @@
 use super::GameItem;
-use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -140,50 +140,45 @@ impl GameItem for DragPoint {
 }
 
 impl BiffRead for DragPoint {
-    fn biff_read(reader: &mut BiffReader<'_>) -> DragPoint {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let mut sub_data = reader.child_reader();
 
         let mut dragpoint = DragPoint::default();
 
-        loop {
-            sub_data.next(biff::WARN);
-            if sub_data.is_eof() {
-                break;
-            }
-            let tag = sub_data.tag();
+        while let Some(tag) = sub_data.next(biff::WARN)? {
             let tag_str = tag.as_str();
             match tag_str {
                 "VCEN" => {
-                    dragpoint.x = sub_data.get_f32();
-                    dragpoint.y = sub_data.get_f32();
+                    dragpoint.x = sub_data.get_f32()?;
+                    dragpoint.y = sub_data.get_f32()?;
                 }
                 "POSZ" => {
-                    dragpoint.z = sub_data.get_f32();
+                    dragpoint.z = sub_data.get_f32()?;
                 }
                 "SMTH" => {
-                    dragpoint.smooth = sub_data.get_bool();
+                    dragpoint.smooth = sub_data.get_bool()?;
                 }
                 "SLNG" => {
-                    dragpoint.is_slingshot = Some(sub_data.get_bool());
+                    dragpoint.is_slingshot = Some(sub_data.get_bool()?);
                 }
                 "ATEX" => {
-                    dragpoint.has_auto_texture = sub_data.get_bool();
+                    dragpoint.has_auto_texture = sub_data.get_bool()?;
                 }
                 "TEXC" => {
-                    dragpoint.tex_coord = sub_data.get_f32();
+                    dragpoint.tex_coord = sub_data.get_f32()?;
                 }
                 // shared
                 "LOCK" => {
-                    dragpoint.is_locked = sub_data.get_bool();
+                    dragpoint.is_locked = sub_data.get_bool()?;
                 }
                 "LAYR" => {
-                    dragpoint.editor_layer = Some(sub_data.get_u32());
+                    dragpoint.editor_layer = Some(sub_data.get_u32()?);
                 }
                 "LANR" => {
-                    dragpoint.editor_layer_name = Some(sub_data.get_string());
+                    dragpoint.editor_layer_name = Some(sub_data.get_string()?);
                 }
                 "LVIS" => {
-                    dragpoint.editor_layer_visibility = Some(sub_data.get_bool());
+                    dragpoint.editor_layer_visibility = Some(sub_data.get_bool()?);
                 }
                 other => {
                     warn!(
@@ -191,14 +186,13 @@ impl BiffRead for DragPoint {
                         other,
                         std::any::type_name::<Self>()
                     );
-                    sub_data.skip_tag();
+                    sub_data.skip_tag()?;
                 }
             }
         }
         let pos = sub_data.pos();
-        reader.absorb(&sub_data);
-        reader.skip_end_tag(pos);
-        dragpoint
+        reader.skip_end_tag(pos)?;
+        Ok(dragpoint)
     }
 }
 
@@ -257,7 +251,7 @@ mod tests {
         };
         let mut writer = BiffWriter::new();
         DragPoint::biff_write(&dragpoint, &mut writer);
-        let dragpoint_read = DragPoint::biff_read(&mut BiffReader::new(writer.get_data()));
+        let dragpoint_read = DragPoint::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(dragpoint, dragpoint_read);
     }
 }

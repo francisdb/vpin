@@ -1,4 +1,4 @@
-use super::biff::{self, BiffRead, BiffReader, BiffWrite, BiffWriter};
+use super::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite, BiffWriter};
 use crate::vpx::lzw::from_lzw_blocks;
 use image::DynamicImage;
 use log::warn;
@@ -336,7 +336,7 @@ impl BiffWrite for ImageData {
 }
 
 impl BiffRead for ImageData {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         read(reader)
     }
 }
@@ -360,48 +360,43 @@ impl Default for ImageData {
     }
 }
 
-fn read(reader: &mut BiffReader) -> ImageData {
+fn read(reader: &mut BiffReader) -> Result<ImageData, BiffError> {
     let mut image_data = ImageData::default();
-    loop {
-        reader.next(biff::WARN);
-        if reader.is_eof() {
-            break;
-        }
-        let tag = reader.tag();
+    while let Some(tag) = reader.next(biff::WARN)? {
         let tag_str = tag.as_str();
         match tag_str {
             "NAME" => {
-                image_data.name = reader.get_string();
+                image_data.name = reader.get_string()?;
             }
             "PATH" => {
-                image_data.path = reader.get_string();
+                image_data.path = reader.get_string()?;
             }
             "INME" => {
-                image_data.internal_name = Some(reader.get_string());
+                image_data.internal_name = Some(reader.get_string()?);
             }
             "WDTH" => {
-                image_data.width = reader.get_u32();
+                image_data.width = reader.get_u32()?;
             }
             "HGHT" => {
-                image_data.height = reader.get_u32();
+                image_data.height = reader.get_u32()?;
             }
             "ALTV" => {
-                image_data.alpha_test_value = reader.get_f32();
+                image_data.alpha_test_value = reader.get_f32()?;
             }
             "OPAQ" => {
-                image_data.is_opaque = Some(reader.get_bool());
+                image_data.is_opaque = Some(reader.get_bool()?);
             }
             "SIGN" => {
-                image_data.is_signed = Some(reader.get_bool());
+                image_data.is_signed = Some(reader.get_bool()?);
             }
             "BITS" => {
                 // these have zero as length
                 // read all the data until the next expected tag
-                let data = reader.data_until("ALTV".as_bytes());
+                let data = reader.data_until("ALTV".as_bytes())?;
                 //let reader = std::io::Cursor::new(data);
 
                 // uncompressed = zlib.decompress(image_data.data[image_data.pos:]) #, wbits=9)
-                // reader.skip_end_tag(len.try_into().unwrap());
+                // reader.skip_end_tag(len.try_into().unwrap())?;
                 image_data.bits = Some(ImageDataBits {
                     lzw_compressed_data: data,
                 });
@@ -410,20 +405,19 @@ fn read(reader: &mut BiffReader) -> ImageData {
                 // these have zero as length
                 // Strangely, raw data are pushed outside the JPEG tag (breaking the BIFF structure of the file)
                 let mut sub_reader = reader.child_reader();
-                let jpeg_data = read_jpeg(&mut sub_reader);
+                let jpeg_data = read_jpeg(&mut sub_reader)?;
                 image_data.jpeg = Some(jpeg_data);
                 let pos = sub_reader.pos();
-                reader.absorb(&sub_reader);
-                reader.skip_end_tag(pos);
+                reader.skip_end_tag(pos)?;
             }
             "LINK" => {
                 // TODO seems to be 1 for some kind of link type img, related to screenshots.
                 // we only see this where a screenshot is set on the table info.
                 // https://github.com/vpinball/vpinball/blob/1a70aa35eb57ec7b5fbbb9727f6735e8ef3183e0/Texture.cpp#L588
-                image_data.link = Some(reader.get_u32());
+                image_data.link = Some(reader.get_u32()?);
             }
             "MD5H" => {
-                let data = reader.get_data(16);
+                let data = reader.get_data(16)?;
                 if data.len() == 16 {
                     let mut hash = [0u8; 16];
                     hash.copy_from_slice(data);
@@ -432,11 +426,11 @@ fn read(reader: &mut BiffReader) -> ImageData {
             }
             _ => {
                 warn!("Skipping image tag: {tag}");
-                reader.skip_tag();
+                reader.skip_tag()?;
             }
         }
     }
-    image_data
+    Ok(image_data)
 }
 
 fn write(data: &ImageData, writer: &mut BiffWriter) {
@@ -470,7 +464,7 @@ fn write(data: &ImageData, writer: &mut BiffWriter) {
     writer.close(true);
 }
 
-fn read_jpeg(reader: &mut BiffReader) -> ImageDataJpeg {
+fn read_jpeg(reader: &mut BiffReader) -> Result<ImageDataJpeg, BiffError> {
     // I do wonder why all the tags are duplicated here
     let mut size_opt: Option<u32> = None;
     let mut path: String = "".to_string();
@@ -478,40 +472,35 @@ fn read_jpeg(reader: &mut BiffReader) -> ImageDataJpeg {
     let mut data: Vec<u8> = vec![];
     // let mut alpha_test_value: f32 = 0.0;
     let mut internal_name: Option<String> = None;
-    loop {
-        reader.next(biff::WARN);
-        if reader.is_eof() {
-            break;
-        }
-        let tag = reader.tag();
+    while let Some(tag) = reader.next(biff::WARN)? {
         let tag_str = tag.as_str();
         match tag_str {
             "SIZE" => {
-                size_opt = Some(reader.get_u32());
+                size_opt = Some(reader.get_u32()?);
             }
             "DATA" => match size_opt {
-                Some(size) => data = reader.get_data(size as usize).to_vec(),
-                None => reader.fail("DATA tag without SIZE tag"),
+                Some(size) => data = reader.get_data(size as usize)?.to_vec(),
+                None => return Err(reader.err("DATA tag without SIZE tag")),
             },
-            "NAME" => name = reader.get_string(),
-            "PATH" => path = reader.get_string(),
-            // "ALTV" => alpha_test_value = reader.get_f32(), // TODO why are these duplicated?
-            "INME" => internal_name = Some(reader.get_string()),
+            "NAME" => name = reader.get_string()?,
+            "PATH" => path = reader.get_string()?,
+            // "ALTV" => alpha_test_value = reader.get_f32()?, // TODO why are these duplicated?
+            "INME" => internal_name = Some(reader.get_string()?),
             _ => {
                 // skip this record
                 warn!("skipping tag inside JPEG {tag}");
-                reader.skip_tag();
+                reader.skip_tag()?;
             }
         }
     }
     let data = data.to_vec();
-    ImageDataJpeg {
+    Ok(ImageDataJpeg {
         path,
         name,
         internal_name,
         // alpha_test_value,
         data,
-    }
+    })
 }
 
 fn write_jpg(img: &ImageDataJpeg) -> Vec<u8> {
@@ -644,7 +633,7 @@ mod test {
 
         let bytes = write_jpg(&img);
 
-        let read = read_jpeg(&mut BiffReader::new(&bytes));
+        let read = read_jpeg(&mut BiffReader::new(&bytes)).unwrap();
 
         assert_eq!(read, img);
     }
@@ -676,12 +665,12 @@ mod test {
         ImageData::biff_write(&image, &mut writer);
         let data = writer.get_data();
         let mut reader = BiffReader::new(data);
-        reader.next(false); // NAME
-        reader.next(false); // INME
-        reader.next(false); // PATH
-        reader.next(false); // WDTH
-        reader.next(false); // HGHT
-        reader.next(false); // LINK
+        reader.next(false).unwrap(); // NAME
+        reader.next(false).unwrap(); // INME
+        reader.next(false).unwrap(); // PATH
+        reader.next(false).unwrap(); // WDTH
+        reader.next(false).unwrap(); // HGHT
+        reader.next(false).unwrap(); // LINK
         assert_eq!(reader.tag().as_str(), "JPEG");
         assert_eq!(reader.remaining_in_record(), 0);
     }
@@ -710,7 +699,7 @@ mod test {
         };
         let mut writer = BiffWriter::new();
         ImageData::biff_write(&image, &mut writer);
-        let image_read = read(&mut BiffReader::new(writer.get_data()));
+        let image_read = read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(image, image_read);
     }
 
@@ -781,9 +770,8 @@ mod corrupt_input_tests {
         let bytes = writer.get_data().to_vec();
         for len in 0..bytes.len() {
             let mut reader = BiffReader::new(&bytes[..len]);
-            let _ = ImageData::biff_read(&mut reader);
             assert!(
-                reader.check().is_err(),
+                ImageData::biff_read(&mut reader).is_err(),
                 "truncated to {len}/{} bytes",
                 bytes.len()
             );
@@ -803,8 +791,7 @@ mod corrupt_input_tests {
         // cut right after the BITS payload so the ALTV tag is gone
         let cut = bytes.len() - 8 - 4 - 8 - 8 - 8 - 20;
         let mut reader = BiffReader::new(&bytes[..cut]);
-        let _ = ImageData::biff_read(&mut reader);
-        assert!(reader.check().is_err());
+        assert!(ImageData::biff_read(&mut reader).is_err());
     }
 
     #[test]

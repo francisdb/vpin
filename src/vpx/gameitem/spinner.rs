@@ -1,6 +1,6 @@
 use super::vertex2d::Vertex2D;
 use crate::impl_shared_attributes;
-use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -261,76 +261,71 @@ impl<'de> Deserialize<'de> for Spinner {
 }
 
 impl BiffRead for Spinner {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let mut spinner = Self::default();
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
+        while let Some(tag) = reader.next(biff::WARN)? {
             let tag_str = tag.as_str();
             match tag_str {
                 "VCEN" => {
-                    spinner.center = Vertex2D::biff_read(reader);
+                    spinner.center = Vertex2D::biff_read(reader)?;
                 }
                 "ROTA" => {
-                    spinner.rotation = reader.get_f32();
+                    spinner.rotation = reader.get_f32()?;
                 }
                 "HIGH" => {
-                    spinner.height = reader.get_f32();
+                    spinner.height = reader.get_f32()?;
                 }
                 "LGTH" => {
-                    spinner.length = reader.get_f32();
+                    spinner.length = reader.get_f32()?;
                 }
                 "AFRC" => {
-                    spinner.damping = reader.get_f32();
+                    spinner.damping = reader.get_f32()?;
                 }
                 "SMAX" => {
-                    spinner.angle_max = reader.get_f32();
+                    spinner.angle_max = reader.get_f32()?;
                 }
                 "SMIN" => {
-                    spinner.angle_min = reader.get_f32();
+                    spinner.angle_min = reader.get_f32()?;
                 }
                 "SELA" => {
-                    spinner.elasticity = reader.get_f32();
+                    spinner.elasticity = reader.get_f32()?;
                 }
                 "SVIS" => {
-                    spinner.is_visible = reader.get_bool();
+                    spinner.is_visible = reader.get_bool()?;
                 }
                 "SSUP" => {
-                    spinner.show_bracket = reader.get_bool();
+                    spinner.show_bracket = reader.get_bool()?;
                 }
                 "MATR" => {
-                    spinner.material = reader.get_string();
+                    spinner.material = reader.get_string()?;
                 }
                 "IMGF" => {
-                    spinner.image = reader.get_string();
+                    spinner.image = reader.get_string()?;
                 }
                 "SURF" => {
-                    spinner.surface = reader.get_string();
+                    spinner.surface = reader.get_string()?;
                 }
                 "NAME" => {
-                    spinner.name = reader.get_wide_string();
+                    spinner.name = reader.get_wide_string()?;
                 }
                 "REEN" => {
-                    spinner.is_reflection_enabled = Some(reader.get_bool());
+                    spinner.is_reflection_enabled = Some(reader.get_bool()?);
                 }
                 _ => {
-                    if !spinner.timer.biff_read_tag(tag_str, reader)
-                        && !spinner.read_shared_attribute(tag_str, reader)
+                    if !spinner.timer.biff_read_tag(tag_str, reader)?
+                        && !spinner.read_shared_attribute(tag_str, reader)?
                     {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
                             std::any::type_name::<Self>()
                         );
-                        reader.skip_tag();
+                        reader.skip_tag()?;
                     }
                 }
             }
         }
-        spinner
+        Ok(spinner)
     }
 }
 
@@ -402,7 +397,7 @@ mod tests {
         };
         let mut writer = BiffWriter::new();
         Spinner::biff_write(&spinner, &mut writer);
-        let spinner_read = Spinner::biff_read(&mut BiffReader::new(writer.get_data()));
+        let spinner_read = Spinner::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(spinner, spinner_read);
     }
 }

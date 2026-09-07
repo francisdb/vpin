@@ -12,28 +12,22 @@ pub fn read_custominfotags(tags_data: &[u8]) -> io::Result<CustomInfoTags> {
     let mut reader = BiffReader::new(tags_data);
     let mut tags = CustomInfoTags::new();
 
-    loop {
-        reader.next(biff::WARN);
-        if reader.is_eof() {
-            break;
-        }
-        let tag = reader.tag();
+    while let Some(tag) = reader.next(biff::WARN)? {
         let tag_str = tag.as_str();
 
         let reader: &mut BiffReader<'_> = &mut reader;
 
         match tag_str {
             "CUST" => {
-                let tag = reader.get_string();
+                let tag = reader.get_string()?;
                 tags.push(tag);
             }
             other => {
-                let data = reader.get_record_data(false);
+                let data = reader.get_record_data(false)?;
                 warn!("unhandled tag {} {} bytes", other, data.len());
             }
         }
     }
-    reader.check()?;
     Ok(tags)
 }
 

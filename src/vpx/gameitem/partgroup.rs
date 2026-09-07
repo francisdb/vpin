@@ -1,5 +1,5 @@
 use crate::vpx::biff;
-use crate::vpx::biff::{BiffRead, BiffReader, BiffWrite};
+use crate::vpx::biff::{BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::TimerData;
 use crate::vpx::gameitem::vertex2d::Vertex2D;
 use log::warn;
@@ -320,59 +320,54 @@ impl<'de> serde::Deserialize<'de> for PartGroup {
 }
 
 impl BiffRead for PartGroup {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let mut part_group = PartGroup::default();
 
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
+        while let Some(tag) = reader.next(biff::WARN)? {
             let tag_str = tag.as_str();
             match tag_str {
-                "NAME" => part_group.name = reader.get_wide_string(),
-                "VCEN" => part_group.center = Vertex2D::biff_read(reader),
+                "NAME" => part_group.name = reader.get_wide_string()?,
+                "VCEN" => part_group.center = Vertex2D::biff_read(reader)?,
                 "BGLS" => {
-                    part_group.backglass = reader.get_bool();
+                    part_group.backglass = reader.get_bool()?;
                 }
                 "VMSK" => {
-                    part_group.visibility_mask = Some(reader.get_u32());
+                    part_group.visibility_mask = Some(reader.get_u32()?);
                 }
                 "SPRF" => {
-                    part_group.space_reference = reader.get_u32().into();
+                    part_group.space_reference = reader.get_u32()?.into();
                 }
                 "PMSK" => {
-                    part_group.player_mode_visibility_mask = Some(reader.get_u32());
+                    part_group.player_mode_visibility_mask = Some(reader.get_u32()?);
                 }
 
                 // shared
                 "LOCK" => {
-                    part_group.is_locked = reader.get_bool();
+                    part_group.is_locked = reader.get_bool()?;
                 }
                 "LANR" => {
-                    part_group.editor_layer_name = Some(reader.get_string());
+                    part_group.editor_layer_name = Some(reader.get_string()?);
                 }
                 "LVIS" => {
-                    part_group.editor_layer_visibility = Some(reader.get_bool());
+                    part_group.editor_layer_visibility = Some(reader.get_bool()?);
                 }
                 // There are some excludes for this field of which PartGroup is one
                 // "GRUP" => {
-                //     part_group.part_group_name = Some(reader.get_string());
+                //     part_group.part_group_name = Some(reader.get_string()?);
                 // }
                 _ => {
-                    if !part_group.timer.biff_read_tag(tag_str, reader) {
+                    if !part_group.timer.biff_read_tag(tag_str, reader)? {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
                             std::any::type_name::<Self>()
                         );
-                        reader.skip_tag();
+                        reader.skip_tag()?;
                     }
                 }
             }
         }
-        part_group
+        Ok(part_group)
     }
 }
 
@@ -431,7 +426,7 @@ mod tests {
 
         let mut writer = BiffWriter::new();
         PartGroup::biff_write(&part_group, &mut writer);
-        let gate_read = PartGroup::biff_read(&mut BiffReader::new(writer.get_data()));
+        let gate_read = PartGroup::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(part_group, gate_read);
     }
 }

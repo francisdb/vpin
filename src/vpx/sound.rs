@@ -1,6 +1,6 @@
 use super::{
     Version,
-    biff::{BiffReader, BiffWriter},
+    biff::{BiffError, BiffReader, BiffWriter},
 };
 use crate::vpx::wav::{WavHeader, read_wav_header, write_wav_header};
 use bytes::{BufMut, BytesMut};
@@ -361,7 +361,10 @@ impl SoundData {
 }
 
 #[instrument(skip(file_version, reader))]
-pub(crate) fn read(file_version: &Version, reader: &mut BiffReader) -> SoundData {
+pub(crate) fn read(
+    file_version: &Version,
+    reader: &mut BiffReader,
+) -> Result<SoundData, BiffError> {
     let mut name: String = "".to_string();
     let mut path: String = "".to_string();
     let mut internal_name: String = "".to_string();
@@ -389,39 +392,39 @@ pub(crate) fn read(file_version: &Version, reader: &mut BiffReader) -> SoundData
     for i in 0..num_values {
         match i {
             0 => {
-                name = reader.get_string_no_remaining_update();
+                name = reader.get_string_no_remaining_update()?;
             }
             1 => {
-                path = reader.get_string_no_remaining_update();
+                path = reader.get_string_no_remaining_update()?;
             }
             2 => {
-                internal_name = reader.get_string_no_remaining_update();
+                internal_name = reader.get_string_no_remaining_update()?;
             }
             3 => {
                 if is_wav(&path.to_owned()) {
-                    wave_form = read_wave_form(reader);
+                    wave_form = read_wave_form(reader)?;
                 } else {
                     // should we be doing something here?
                 }
             }
             4 => {
-                data = reader.get_data_no_remaining_update();
+                data = reader.get_data_no_remaining_update()?;
             }
             5 => {
-                output_target = reader.get_u8_no_remaining_update().into();
+                output_target = reader.get_u8_no_remaining_update()?.into();
             }
             6 => {
-                volume = reader.get_u32_no_remaining_update();
+                volume = reader.get_u32_no_remaining_update()?;
             }
             7 => {
-                balance = reader.get_u32_no_remaining_update();
+                balance = reader.get_u32_no_remaining_update()?;
             }
             8 => {
-                fade = reader.get_u32_no_remaining_update();
+                fade = reader.get_u32_no_remaining_update()?;
             }
             9 => {
                 // TODO why do we have the volume twice?
-                volume = reader.get_u32_no_remaining_update();
+                volume = reader.get_u32_no_remaining_update()?;
             }
             unexpected => {
                 panic!("unexpected value {unexpected}");
@@ -429,7 +432,7 @@ pub(crate) fn read(file_version: &Version, reader: &mut BiffReader) -> SoundData
         }
     }
 
-    SoundData {
+    Ok(SoundData {
         name,
         path,
         data: data.to_vec(),
@@ -439,7 +442,7 @@ pub(crate) fn read(file_version: &Version, reader: &mut BiffReader) -> SoundData
         volume,
         balance,
         output_target,
-    }
+    })
 }
 
 fn str_path_ext(path: &str) -> Option<&str> {
@@ -479,15 +482,15 @@ pub(crate) fn write(file_version: &Version, sound: &SoundData, writer: &mut Biff
     }
 }
 
-fn read_wave_form(reader: &mut BiffReader<'_>) -> WaveForm {
-    let format_tag = reader.get_u16_no_remaining_update();
-    let channels = reader.get_u16_no_remaining_update();
-    let samples_per_sec = reader.get_u32_no_remaining_update();
-    let avg_bytes_per_sec = reader.get_u32_no_remaining_update();
-    let block_align = reader.get_u16_no_remaining_update();
-    let bits_per_sample = reader.get_u16_no_remaining_update();
-    let cb_size = reader.get_u16_no_remaining_update();
-    WaveForm {
+fn read_wave_form(reader: &mut BiffReader<'_>) -> Result<WaveForm, BiffError> {
+    let format_tag = reader.get_u16_no_remaining_update()?;
+    let channels = reader.get_u16_no_remaining_update()?;
+    let samples_per_sec = reader.get_u32_no_remaining_update()?;
+    let avg_bytes_per_sec = reader.get_u32_no_remaining_update()?;
+    let block_align = reader.get_u16_no_remaining_update()?;
+    let bits_per_sample = reader.get_u16_no_remaining_update()?;
+    let cb_size = reader.get_u16_no_remaining_update()?;
+    Ok(WaveForm {
         format_tag,
         channels,
         samples_per_sec,
@@ -495,7 +498,7 @@ fn read_wave_form(reader: &mut BiffReader<'_>) -> WaveForm {
         block_align,
         bits_per_sample,
         cb_size,
-    }
+    })
 }
 
 fn write_wave_form(writer: &mut BiffWriter, wave_form: &WaveForm) {
@@ -539,7 +542,8 @@ mod test {
         };
         let mut writer = BiffWriter::new();
         write(&Version::new(1074), &sound, &mut writer);
-        let sound_read = read(&Version::new(1074), &mut BiffReader::new(writer.get_data()));
+        let sound_read =
+            read(&Version::new(1074), &mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(sound, sound_read);
     }
 
@@ -559,7 +563,8 @@ mod test {
         };
         let mut writer = BiffWriter::new();
         write(&Version::new(1083), &sound, &mut writer);
-        let sound_read = read(&Version::new(1083), &mut BiffReader::new(writer.get_data()));
+        let sound_read =
+            read(&Version::new(1083), &mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(sound, sound_read);
     }
 

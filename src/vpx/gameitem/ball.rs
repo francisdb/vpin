@@ -1,6 +1,6 @@
 use super::vertex3d::Vertex3D;
 use crate::impl_shared_attributes;
-use crate::vpx::biff::{self, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::color::Color;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
@@ -281,71 +281,66 @@ impl<'de> Deserialize<'de> for Ball {
 }
 
 impl BiffRead for Ball {
-    fn biff_read(reader: &mut BiffReader<'_>) -> Self {
+    fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let mut ball = Ball::default();
 
-        loop {
-            reader.next(biff::WARN);
-            if reader.is_eof() {
-                break;
-            }
-            let tag = reader.tag();
+        while let Some(tag) = reader.next(biff::WARN)? {
             let tag_str = tag.as_str();
             match tag_str {
                 "VCEN" => {
-                    ball.pos = Vertex3D::read_unpadded(reader);
+                    ball.pos = Vertex3D::read_unpadded(reader)?;
                 }
                 "RADI" => {
-                    ball.radius = reader.get_f32();
+                    ball.radius = reader.get_f32()?;
                 }
                 "MASS" => {
-                    ball.mass = reader.get_f32();
+                    ball.mass = reader.get_f32()?;
                 }
                 "FREF" => {
-                    ball.force_reflection = reader.get_bool();
+                    ball.force_reflection = reader.get_bool()?;
                 }
                 "DCMD" => {
-                    ball.decal_mode = reader.get_bool();
+                    ball.decal_mode = reader.get_bool()?;
                 }
                 "IMAG" => {
-                    ball.image = reader.get_string();
+                    ball.image = reader.get_string()?;
                 }
                 "DIMG" => {
-                    ball.image_decal = reader.get_string();
+                    ball.image_decal = reader.get_string()?;
                 }
                 "BISC" => {
-                    ball.bulb_intensity_scale = reader.get_f32();
+                    ball.bulb_intensity_scale = reader.get_f32()?;
                 }
                 "PFRF" => {
-                    ball.playfield_reflection_strength = reader.get_f32();
+                    ball.playfield_reflection_strength = reader.get_f32()?;
                 }
                 "COLR" => {
-                    ball.color = Color::biff_read(reader);
+                    ball.color = Color::biff_read(reader)?;
                 }
                 "SPHR" => {
-                    ball.spherical_mapping = reader.get_bool();
+                    ball.spherical_mapping = reader.get_bool()?;
                 }
                 "REEN" => {
-                    ball.is_reflection_enabled = reader.get_bool();
+                    ball.is_reflection_enabled = reader.get_bool()?;
                 }
                 "NAME" => {
-                    ball.name = reader.get_wide_string();
+                    ball.name = reader.get_wide_string()?;
                 }
                 _ => {
-                    if !ball.timer.biff_read_tag(tag_str, reader)
-                        && !ball.read_shared_attribute(tag_str, reader)
+                    if !ball.timer.biff_read_tag(tag_str, reader)?
+                        && !ball.read_shared_attribute(tag_str, reader)?
                     {
                         warn!(
                             "Unknown tag {} for {}",
                             tag_str,
                             std::any::type_name::<Self>()
                         );
-                        reader.skip_tag();
+                        reader.skip_tag()?;
                     }
                 }
             }
         }
-        ball
+        Ok(ball)
     }
 }
 
@@ -407,7 +402,7 @@ mod tests {
         };
         let mut writer = BiffWriter::new();
         Ball::biff_write(&ball, &mut writer);
-        let ball_read = Ball::biff_read(&mut BiffReader::new(writer.get_data()));
+        let ball_read = Ball::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(ball, ball_read);
     }
 }
