@@ -7,15 +7,15 @@ mod test {
     const EXTRACT_IN_MEMORY: bool = true;
     const PRIMITIVE_MESH_FORMAT: PrimitiveMeshFormat = PrimitiveMeshFormat::Obj;
 
-    use pretty_assertions::assert_eq;
-    // TODO once we can capture logs per extract / assemble we can re-enable parallel tests
-    // use rayon::prelude::*;
-    use crate::common::{assert_equal_vpx, find_files, init_logger, tables_dir};
+    use crate::common::{find_files, init_logger, render_differences, report_failures, tables_dir};
     use log::info;
+    use rayon::prelude::*;
     use std::io;
     use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use testdir::testdir;
     use vpin::filesystem::{FileSystem, MemoryFileSystem, RealFileSystem};
+    use vpin::vpx::diff::Difference;
     use vpin::vpx::expanded::{ExpandOptions, PrimitiveMeshFormat};
 
     #[test]
@@ -58,25 +58,55 @@ mod test {
             })
             .collect();
 
-        // TODO why is par_iter() not faster but just consuming all cpu cores?
-        filtered.iter().enumerate().try_for_each(|(n, path)| {
-            info!("testing {}/{}: {:?}", n + 1, filtered.len(), path);
-            let original_vpx_bytes = std::fs::read(path)?;
-            let extract_dir = if EXTRACT_IN_MEMORY {
-                None
-            } else {
-                Some(&dir as &Path)
-            };
-            let ReadAndWriteResult {
-                extracted,
-                test_vpx_bytes,
-            } = read_and_write_vpx(extract_dir, &original_vpx_bytes)?;
-            assert_equal_vpx(&original_vpx_bytes, &test_vpx_bytes, path);
-            if let Some(extracted) = extracted {
-                std::fs::remove_dir_all(extracted)?;
-            }
-            Ok(())
-        })
+        let counter = AtomicUsize::new(0);
+        let total = filtered.len();
+        // Every table is checked and all failures are reported together at
+        // the end. The per-table tracing span ties each log line a parser
+        // emits to the table it came from, since parallel output interleaves.
+        let failures: Vec<(PathBuf, String)> = filtered
+            .par_iter()
+            .filter_map(|vpx_path| {
+                let n = counter.fetch_add(1, Ordering::Relaxed) + 1;
+                let file = vpx_path.file_name().unwrap().to_string_lossy().to_string();
+                // a WARN level span so the table prefix also survives a
+                // warnings-only filter like RUST_LOG=warn
+                let _guard = tracing::span!(tracing::Level::WARN, "table", %file).entered();
+                info!("testing {n}/{total}");
+                // a per table directory so parallel real filesystem
+                // extractions do not collide
+                let extract_dir = if EXTRACT_IN_MEMORY {
+                    None
+                } else {
+                    Some(dir.join(format!("extracted_{n}")))
+                };
+                match table_differences(extract_dir.as_deref(), vpx_path) {
+                    Ok(differences) if differences.is_empty() => None,
+                    Ok(differences) => {
+                        Some(((*vpx_path).clone(), render_differences(&differences)))
+                    }
+                    Err(e) => Some(((*vpx_path).clone(), format!("error: {e}"))),
+                }
+            })
+            .collect();
+
+        report_failures(&failures);
+        Ok(())
+    }
+
+    fn table_differences(
+        extract_dir: Option<&Path>,
+        vpx_path: &PathBuf,
+    ) -> io::Result<Vec<Difference>> {
+        let original_vpx_bytes = std::fs::read(vpx_path)?;
+        let ReadAndWriteResult {
+            extracted,
+            test_vpx_bytes,
+        } = read_and_write_vpx(extract_dir, &original_vpx_bytes)?;
+        let differences = vpin::vpx::diff::diff(&original_vpx_bytes, &test_vpx_bytes)?;
+        if let Some(extracted) = extracted {
+            std::fs::remove_dir_all(extracted)?;
+        }
+        Ok(differences)
     }
 
     struct ReadAndWriteResult {
@@ -86,14 +116,13 @@ mod test {
     }
 
     fn read_and_write_vpx(
-        extractr_dir: Option<&Path>,
+        extract_dir: Option<&Path>,
         original_vpx_bytes: &[u8],
     ) -> io::Result<ReadAndWriteResult> {
         let original = vpin::vpx::from_bytes(original_vpx_bytes)?;
-        let (fs, extract_dir): (Box<dyn FileSystem>, PathBuf) = if let Some(dir) = extractr_dir {
-            let extract_dir = dir.join("extracted");
-            std::fs::create_dir_all(&extract_dir)?;
-            (Box::new(RealFileSystem), extract_dir)
+        let (fs, extract_dir): (Box<dyn FileSystem>, PathBuf) = if let Some(dir) = extract_dir {
+            std::fs::create_dir_all(dir)?;
+            (Box::new(RealFileSystem), dir.to_path_buf())
         } else {
             (Box::new(MemoryFileSystem::new()), PathBuf::from("/vpx"))
         };
@@ -103,8 +132,13 @@ mod test {
             .map_err(io::Error::other)?;
         let expanded_read =
             vpin::vpx::expanded::read_fs(&extract_dir, &*fs).map_err(io::Error::other)?;
-        // special case for comparing code
-        assert_eq!(original.gamedata.code, expanded_read.gamedata.code);
+        // special case for comparing code, the diff of the written file
+        // would also catch this but with a less precise message
+        if original.gamedata.code != expanded_read.gamedata.code {
+            return Err(io::Error::other(
+                "script differs after the expanded round trip",
+            ));
+        }
 
         let test_vpx_bytes = vpin::vpx::to_bytes(&expanded_read)?;
         Ok(ReadAndWriteResult {
