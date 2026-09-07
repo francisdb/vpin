@@ -175,6 +175,38 @@ cargo install wasm-bindgen-cli
 cargo test --target wasm32-unknown-unknown
 ```
 
+## Fuzzing
+
+The `fuzz/` directory contains [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) targets that feed random bytes
+into the parsers to find inputs that crash the library. Parse errors on garbage input are expected; panics are bugs.
+
+There are three targets:
+
+- `vpx_from_bytes` - the full VPX read path, including the compound file container
+- `gamedata` - the BIFF gamedata parser, bypassing the container so the fuzzer spends its time in this library's own
+  code (much higher throughput)
+- `gameitem` - the game item parser, covering all item types
+
+```bash
+# Install the tooling (once). Fuzzing requires the nightly toolchain because
+# cargo-fuzz relies on unstable compiler flags; the library itself stays on stable.
+rustup toolchain install nightly
+cargo install cargo-fuzz
+
+# Run a target (stop with ctrl-c, or bound it with e.g. -- -max_total_time=600)
+cargo +nightly fuzz run gamedata
+
+# The full-file target works best when seeded with a real table
+mkdir -p fuzz/corpus/vpx_from_bytes
+cp testdata/completely_blank_table_10_7_4.vpx fuzz/corpus/vpx_from_bytes/
+cargo +nightly fuzz run vpx_from_bytes
+```
+
+When a crashing input is found it is written to `fuzz/artifacts/<target>/`. Re-run the target with that file as an
+argument to reproduce the crash, and use `cargo +nightly fuzz tmin <target> <file>` to minimize it to the smallest
+input that still crashes. The corpus under `fuzz/corpus/` grows as the fuzzer discovers new code paths and is worth
+keeping between runs.
+
 ## Making a release
 
 We use https://github.com/release-plz/release-plz which creates a release pr on every commit to main
