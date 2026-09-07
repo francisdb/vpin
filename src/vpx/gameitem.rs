@@ -30,7 +30,7 @@ pub mod wall;
 
 use super::biff::{BiffReader, BiffWrite, BiffWriter};
 use crate::vpx::biff::BiffRead;
-use crate::vpx::gameitem::select::HasSharedAttributes;
+use crate::vpx::gameitem::select::{HasSharedAttributes, TimerData};
 use log::warn;
 use serde::{Deserialize, Serialize};
 use std::io;
@@ -557,6 +557,34 @@ impl GameItemEnum {
             ITEM_TYPE_BALL => "Ball".to_string(),
             ITEM_TYPE_PART_GROUP => "PartGroup".to_string(),
             other => format!("Generic_{other}"),
+        }
+    }
+
+    /// The timer data of this item, `None` for the item types without one
+    pub fn timer(&self) -> Option<&TimerData> {
+        match self {
+            GameItemEnum::Wall(wall) => Some(&wall.timer),
+            GameItemEnum::Flipper(flipper) => Some(&flipper.timer),
+            GameItemEnum::Timer(timer) => Some(&timer.timer),
+            GameItemEnum::Plunger(plunger) => Some(&plunger.timer),
+            GameItemEnum::TextBox(textbox) => Some(&textbox.timer),
+            GameItemEnum::Bumper(bumper) => Some(&bumper.timer),
+            GameItemEnum::Trigger(trigger) => Some(&trigger.timer),
+            GameItemEnum::Light(light) => Some(&light.timer),
+            GameItemEnum::Kicker(kicker) => Some(&kicker.timer),
+            GameItemEnum::Gate(gate) => Some(&gate.timer),
+            GameItemEnum::Spinner(spinner) => Some(&spinner.timer),
+            GameItemEnum::Ramp(ramp) => Some(&ramp.timer),
+            GameItemEnum::Reel(reel) => Some(&reel.timer),
+            GameItemEnum::LightSequencer(seq) => Some(&seq.timer),
+            GameItemEnum::Flasher(flasher) => Some(&flasher.timer),
+            GameItemEnum::Rubber(rubber) => Some(&rubber.timer),
+            GameItemEnum::HitTarget(hittarget) => Some(&hittarget.timer),
+            GameItemEnum::Ball(ball) => Some(&ball.timer),
+            GameItemEnum::PartGroup(group) => Some(&group.timer),
+            GameItemEnum::Decal(_) | GameItemEnum::Primitive(_) | GameItemEnum::Generic(_, _) => {
+                None
+            }
         }
     }
 
