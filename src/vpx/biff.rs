@@ -157,10 +157,6 @@ impl<'a> BiffReader<'a> {
         a
     }
 
-    pub fn get(&mut self, count: usize) -> Result<&[u8], BiffError> {
-        self.take_in_record(count)
-    }
-
     pub fn get_no_remaining_update(&mut self, count: usize) -> Result<&[u8], BiffError> {
         self.take(count)
     }
@@ -189,10 +185,6 @@ impl<'a> BiffReader<'a> {
         Ok(self.take(1)?[0])
     }
 
-    pub fn get_u16(&mut self) -> Result<u16, BiffError> {
-        Ok(u16::from_le_bytes(Self::array(self.take_in_record(2)?)))
-    }
-
     pub fn get_u16_no_remaining_update(&mut self) -> Result<u16, BiffError> {
         Ok(u16::from_le_bytes(Self::array(self.take(2)?)))
     }
@@ -203,14 +195,6 @@ impl<'a> BiffReader<'a> {
 
     pub fn get_u32_no_remaining_update(&mut self) -> Result<u32, BiffError> {
         Ok(u32::from_le_bytes(Self::array(self.take(4)?)))
-    }
-
-    pub fn get_32(&mut self) -> Result<i32, BiffError> {
-        self.get_i32()
-    }
-
-    pub fn get_32_no_remaining_update(&mut self) -> Result<i32, BiffError> {
-        Ok(i32::from_le_bytes(Self::array(self.take(4)?)))
     }
 
     pub fn get_f32(&mut self) -> Result<f32, BiffError> {
@@ -274,79 +258,8 @@ impl<'a> BiffReader<'a> {
         decode_utf16le(data).map_err(|e| self.err(format!("Invalid utf16le string: {e}")))
     }
 
-    #[deprecated]
-    pub fn get_color(&mut self, has_alpha: bool) -> Result<(f32, f32, f32, f32), BiffError> {
-        Ok(if has_alpha {
-            (
-                self.get_u8()? as f32 / 255.0,
-                self.get_u8()? as f32 / 255.0,
-                self.get_u8()? as f32 / 255.0,
-                self.get_u8()? as f32 / 255.0,
-            )
-        } else {
-            (
-                self.get_u8()? as f32 / 255.0,
-                self.get_u8()? as f32 / 255.0,
-                self.get_u8()? as f32 / 255.0,
-                1.0,
-            )
-        })
-    }
-
-    pub fn get_double(&mut self) -> Result<f64, BiffError> {
-        Ok(f64::from_le_bytes(Self::array(self.take_in_record(8)?)))
-    }
-
-    pub fn get_i16(&mut self) -> Result<i16, BiffError> {
-        Ok(i16::from_le_bytes(Self::array(self.take_in_record(2)?)))
-    }
-
     pub fn get_i32(&mut self) -> Result<i32, BiffError> {
         Ok(i32::from_le_bytes(Self::array(self.take_in_record(4)?)))
-    }
-
-    pub fn get_i64(&mut self) -> Result<i64, BiffError> {
-        Ok(i64::from_le_bytes(Self::array(self.take_in_record(8)?)))
-    }
-
-    pub fn get_u64(&mut self) -> Result<u64, BiffError> {
-        Ok(u64::from_le_bytes(Self::array(self.take_in_record(8)?)))
-    }
-
-    pub fn get_u32_array(&mut self, count: usize) -> Result<Vec<u32>, BiffError> {
-        (0..count).map(|_| self.get_u32()).collect()
-    }
-
-    pub fn get_u16_array(&mut self, count: usize) -> Result<Vec<u16>, BiffError> {
-        (0..count).map(|_| self.get_u16()).collect()
-    }
-
-    pub fn get_i16_array(&mut self, count: usize) -> Result<Vec<i16>, BiffError> {
-        (0..count).map(|_| self.get_i16()).collect()
-    }
-
-    pub fn get_i32_array(&mut self, count: usize) -> Result<Vec<i32>, BiffError> {
-        (0..count).map(|_| self.get_i32()).collect()
-    }
-
-    pub fn get_i64_array(&mut self, count: usize) -> Result<Vec<i64>, BiffError> {
-        (0..count).map(|_| self.get_i64()).collect()
-    }
-
-    pub fn get_u64_array(&mut self, count: usize) -> Result<Vec<u64>, BiffError> {
-        (0..count).map(|_| self.get_u64()).collect()
-    }
-
-    pub fn get_f32_array(&mut self, count: usize) -> Result<Vec<f32>, BiffError> {
-        (0..count).map(|_| self.get_f32()).collect()
-    }
-
-    pub fn get_f64_array(&mut self, count: usize) -> Result<Vec<f64>, BiffError> {
-        (0..count).map(|_| self.get_double()).collect()
-    }
-
-    pub fn get_string_array(&mut self, count: usize) -> Result<Vec<String>, BiffError> {
-        (0..count).map(|_| self.get_string()).collect()
     }
 
     pub fn get_record_data(&mut self, with_tag: bool) -> Result<Vec<u8>, BiffError> {
@@ -558,17 +471,7 @@ impl BiffWriter {
         self.data.push(value);
     }
 
-    pub fn write_8(&mut self, value: i8) {
-        self.record_size += 1;
-        self.data.push(value as u8);
-    }
-
     pub fn write_u16(&mut self, value: u16) {
-        self.record_size += 2;
-        self.data.extend_from_slice(&value.to_le_bytes());
-    }
-
-    pub fn write_16(&mut self, value: i16) {
         self.record_size += 2;
         self.data.extend_from_slice(&value.to_le_bytes());
     }
@@ -643,11 +546,6 @@ impl BiffWriter {
         self.data.extend_from_slice(value);
     }
 
-    pub fn write_tagged_empty(&mut self, tag: &str) {
-        self.new_tag(tag);
-        self.end_tag();
-    }
-
     pub fn write_tagged_bool(&mut self, tag: &str, value: bool) {
         self.new_tag(tag);
         self.write_bool(value);
@@ -678,12 +576,6 @@ impl BiffWriter {
         self.end_tag();
     }
 
-    pub fn write_tagged_string_no_size(&mut self, tag: &str, value: &str) {
-        self.new_tag(tag);
-        self.write_string(value);
-        self.end_tag_no_size();
-    }
-
     pub fn write_tagged_string_with_encoding_no_size(
         &mut self,
         tag: &str,
@@ -697,22 +589,6 @@ impl BiffWriter {
     pub fn write_tagged_wide_string(&mut self, tag: &str, value: &str) {
         self.new_tag(tag);
         self.write_wide_string(value);
-        self.end_tag();
-    }
-
-    pub fn write_tagged_vec2(&mut self, tag: &str, x: f32, y: f32) {
-        self.new_tag(tag);
-        self.write_f32(x);
-        self.write_f32(y);
-        self.end_tag();
-    }
-
-    pub fn write_tagged_padded_vector(&mut self, tag: &str, x: f32, y: f32, z: f32) {
-        self.new_tag(tag);
-        self.write_f32(x);
-        self.write_f32(y);
-        self.write_f32(z);
-        self.write_f32(0.0);
         self.end_tag();
     }
 
@@ -788,7 +664,8 @@ mod tests {
     #[test]
     fn read_write_empty_tag() {
         let mut writer = BiffWriter::new();
-        writer.write_tagged_empty("TEST");
+        writer.new_tag("TEST");
+        writer.end_tag();
         writer.close(true);
         let mut reader = BiffReader::new(writer.get_data());
         assert_eq!(reader.next(false).unwrap(), Some("TEST".to_string()));
@@ -929,7 +806,7 @@ mod corrupt_input_tests {
         let bytes = stream_with("ABCD", &[1, 2, 3, 4]);
         let mut reader = BiffReader::new(&bytes);
         reader.next(false).unwrap();
-        let err = reader.get_double().unwrap_err();
+        let err = reader.get_string().unwrap_err();
         let io_err: io::Error = err.into();
         assert_eq!(io_err.kind(), io::ErrorKind::InvalidData);
         assert!(io_err.to_string().contains("ABCD"), "{io_err}");
