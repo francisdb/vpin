@@ -3,13 +3,17 @@ mod common;
 #[cfg(test)]
 #[cfg(not(target_family = "wasm"))]
 mod test {
-    use crate::common::{assert_equal_vpx, find_files, init_logger, tables_dir};
+    use crate::common::{
+        assert_equal_vpx, find_files, init_logger, render_differences, report_failures, tables_dir,
+    };
     use log::info;
+    use rayon::prelude::*;
     use std::io;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use testdir::testdir;
     use testresult::TestResult;
+    use vpin::vpx::diff::Difference;
 
     #[test]
     fn read_and_write() -> TestResult {
@@ -52,17 +56,36 @@ mod test {
             .collect();
         let counter = AtomicUsize::new(0);
         let total = filtered.len();
-        // To run this superfast but no error output
-        // use rayon::prelude::*;
-        // filtered.par_iter().try_for_each(|vpx_path| {
-        filtered.iter().try_for_each(|vpx_path| {
-            let n = counter.fetch_add(1, Ordering::Relaxed) + 1;
-            info!("testing {}/{}: {:?}", n, total, vpx_path);
-            let vpx_bytes = std::fs::read(vpx_path)?;
-            let original = vpin::vpx::from_bytes(&vpx_bytes)?;
-            let test_vpx_bytes = vpin::vpx::to_bytes(&original)?;
-            assert_equal_vpx(&vpx_bytes, &test_vpx_bytes, vpx_path);
-            Ok(())
-        })
+        // Every table is checked and all failures are reported together at
+        // the end. The per-table tracing span ties each log line a parser
+        // emits to the table it came from, since parallel output interleaves.
+        let failures: Vec<(PathBuf, String)> = filtered
+            .par_iter()
+            .filter_map(|vpx_path| {
+                let n = counter.fetch_add(1, Ordering::Relaxed) + 1;
+                let file = vpx_path.file_name().unwrap().to_string_lossy().to_string();
+                // a WARN level span so the table prefix also survives a
+                // warnings-only filter like RUST_LOG=warn
+                let _guard = tracing::span!(tracing::Level::WARN, "table", %file).entered();
+                info!("testing {n}/{total}");
+                match table_differences(vpx_path) {
+                    Ok(differences) if differences.is_empty() => None,
+                    Ok(differences) => {
+                        Some(((*vpx_path).clone(), render_differences(&differences)))
+                    }
+                    Err(e) => Some(((*vpx_path).clone(), format!("error: {e}"))),
+                }
+            })
+            .collect();
+
+        report_failures(&failures);
+        Ok(())
+    }
+
+    fn table_differences(vpx_path: &PathBuf) -> io::Result<Vec<Difference>> {
+        let vpx_bytes = std::fs::read(vpx_path)?;
+        let original = vpin::vpx::from_bytes(&vpx_bytes)?;
+        let test_vpx_bytes = vpin::vpx::to_bytes(&original)?;
+        vpin::vpx::diff::diff(&vpx_bytes, &test_vpx_bytes)
     }
 }

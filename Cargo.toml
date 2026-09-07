@@ -72,6 +72,7 @@ image = { version = "0.25.9", default-features = false, features = [
 ] }
 
 [dev-dependencies]
+rayon = "1.11.0"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 env_logger = "0.11"
 dirs = "6.0.0"

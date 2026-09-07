@@ -37,28 +37,30 @@ where
             if elapsed >= self.min_duration {
                 // Only log if duration exceeds threshold
                 if let Some(span) = ctx.span(&id) {
-                    let metadata = span.metadata();
-
-                    // Get span fields if any
-                    let extensions = span.extensions();
-                    let fields_str = if let Some(fields) = extensions
-                        .get::<tracing_subscriber::fmt::FormattedFields<
-                        tracing_subscriber::fmt::format::DefaultFields,
-                    >>() {
-                        if !fields.fields.is_empty() {
-                            format!(" {}", fields.fields)
-                        } else {
-                            String::new()
-                        }
-                    } else {
-                        String::new()
-                    };
+                    // The full span path from the root, so the report also
+                    // names the enclosing context such as the table a
+                    // corpus test is processing
+                    let path = span
+                        .scope()
+                        .from_root()
+                        .map(|ancestor| {
+                            let extensions = ancestor.extensions();
+                            let fields = extensions
+                                .get::<tracing_subscriber::fmt::FormattedFields<
+                                    tracing_subscriber::fmt::format::DefaultFields,
+                                >>()
+                                .filter(|fields| !fields.fields.is_empty())
+                                .map(|fields| format!("{{{}}}", fields.fields))
+                                .unwrap_or_default();
+                            format!("{}{}", ancestor.name(), fields)
+                        })
+                        .collect::<Vec<_>>()
+                        .join(":");
 
                     // Use eprintln! directly to avoid escaping the pre-formatted ANSI codes in fields
-                    let name = metadata.name();
-                    let target = metadata.target();
+                    let target = span.metadata().target();
                     eprintln!(
-                        "\x1b[38;5;208m⚠️  [SLOW] ⚠️\x1b[0m  {target}::{name} took \x1b[36m{elapsed:?}\x1b[0m (threshold: {:?}){fields_str}",
+                        "\x1b[38;5;208m⚠️  [SLOW] ⚠️\x1b[0m  {target} {path} took \x1b[36m{elapsed:?}\x1b[0m (threshold: {:?})",
                         self.min_duration
                     );
                 }

@@ -105,3 +105,30 @@ pub(crate) fn assert_equal_vpx(vpx_bytes: &[u8], test_vpx_bytes: &[u8], vpx_path
         );
     }
 }
+
+/// Renders differences for a failure report, capped so a heavily broken
+/// table does not flood the output
+pub(crate) fn render_differences(differences: &[vpin::vpx::diff::Difference]) -> String {
+    const LIMIT: usize = 20;
+    let mut lines: Vec<String> = differences
+        .iter()
+        .take(LIMIT)
+        .map(|d| format!("  {d}"))
+        .collect();
+    if differences.len() > LIMIT {
+        lines.push(format!("  ... and {} more", differences.len() - LIMIT));
+    }
+    lines.join("\n")
+}
+
+/// Panics with a per table report when any table failed
+pub(crate) fn report_failures(failures: &[(PathBuf, String)]) {
+    if !failures.is_empty() {
+        let report = failures
+            .iter()
+            .map(|(path, failure)| format!("{}:\n{failure}", path.display()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        panic!("{} table(s) failed:\n{report}", failures.len());
+    }
+}
