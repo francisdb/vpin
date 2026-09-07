@@ -1,7 +1,7 @@
 use super::dragpoint::DragPoint;
-use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
+use crate::vpx::gameitem::select::impl_shared_attributes;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};

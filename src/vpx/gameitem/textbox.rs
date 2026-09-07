@@ -1,6 +1,6 @@
 use super::vertex2d::Vertex2D;
-use crate::impl_shared_attributes;
 use crate::vpx::gameitem::font::FontJson;
+use crate::vpx::gameitem::select::impl_shared_attributes;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use crate::vpx::{
     biff::{self, BiffError, BiffRead, BiffReader, BiffWrite},

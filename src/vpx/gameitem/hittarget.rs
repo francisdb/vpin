@@ -1,6 +1,6 @@
 use super::vertex3d::Vertex3D;
-use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::gameitem::select::impl_shared_attributes;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use crate::vpx::math::{dequantize_unsigned, quantize_unsigned};
 use log::warn;

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 // TODO create the read side of this trait
 
-pub trait WriteSharedAttributes {
+pub(crate) trait WriteSharedAttributes {
     fn write_shared_attributes(&self, writer: &mut biff::BiffWriter);
     fn read_shared_attribute(
         &mut self,
@@ -15,7 +15,7 @@ pub trait WriteSharedAttributes {
 /// Required trait for any type that has shared attributes
 ///
 /// TODO we could use a shared struct to implement this trait for all types that have shared attributes. (composition)
-pub trait HasSharedAttributes {
+pub(crate) trait HasSharedAttributes {
     fn name(&self) -> &str;
     fn is_locked(&self) -> bool;
     /// in 10.8.1 Deprecated and replaced by part groups
@@ -82,7 +82,7 @@ impl fake::Dummy<fake::Faker> for TimerData {
 impl TimerData {
     /// Try to read a BIFF tag into this timer data.
     /// Returns `true` if the tag was consumed.
-    pub fn biff_read_tag(
+    pub(crate) fn biff_read_tag(
         &mut self,
         tag: &str,
         reader: &mut biff::BiffReader,
@@ -101,18 +101,18 @@ impl TimerData {
     }
 
     /// Write the timer BIFF tags.
-    pub fn biff_write(&self, writer: &mut biff::BiffWriter) {
+    pub(crate) fn biff_write(&self, writer: &mut biff::BiffWriter) {
         self.biff_write_tmon(writer);
         self.biff_write_tmin(writer);
     }
 
     /// Write only the timer enable tag, used when writing timers for items that don't have an interval.
-    pub fn biff_write_tmon(&self, writer: &mut biff::BiffWriter) {
+    pub(crate) fn biff_write_tmon(&self, writer: &mut biff::BiffWriter) {
         writer.write_tagged_bool("TMON", self.is_enabled);
     }
 
     /// Write only the timer interval tag, used when writing timers for items that don't have an enable.
-    pub fn biff_write_tmin(&self, writer: &mut biff::BiffWriter) {
+    pub(crate) fn biff_write_tmin(&self, writer: &mut biff::BiffWriter) {
         writer.write_tagged_i32("TMIN", self.interval);
     }
 }
@@ -176,7 +176,6 @@ where
 /// - editor_layer_name: `Option<String>`
 /// - editor_layer_visibility: `Option<bool>`
 /// - part_group_name: `Option<String>`
-#[macro_export]
 macro_rules! impl_shared_attributes {
     ($ty:ty) => {
         impl $crate::vpx::gameitem::select::HasSharedAttributes for $ty {
@@ -217,3 +216,4 @@ macro_rules! impl_shared_attributes {
         }
     };
 }
+pub(crate) use impl_shared_attributes;

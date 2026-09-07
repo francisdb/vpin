@@ -14,27 +14,27 @@ impl Vertex3D {
         Self { x, y, z }
     }
 
-    pub fn write_unpadded(&self, writer: &mut BiffWriter) {
+    pub(crate) fn write_unpadded(&self, writer: &mut BiffWriter) {
         writer.write_f32(self.x);
         writer.write_f32(self.y);
         writer.write_f32(self.z);
     }
 
-    pub fn read_unpadded(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
+    pub(crate) fn read_unpadded(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let x = reader.get_f32()?;
         let y = reader.get_f32()?;
         let z = reader.get_f32()?;
         Ok(Vertex3D { x, y, z })
     }
 
-    pub fn write_padded(&self, writer: &mut BiffWriter) {
+    pub(crate) fn write_padded(&self, writer: &mut BiffWriter) {
         writer.write_f32(self.x);
         writer.write_f32(self.y);
         writer.write_f32(self.z);
         writer.write_f32(0.0); // padding
     }
 
-    pub fn read_padded(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
+    pub(crate) fn read_padded(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         let x = reader.get_f32()?;
         let y = reader.get_f32()?;
         let z = reader.get_f32()?;

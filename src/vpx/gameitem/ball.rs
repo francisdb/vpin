@@ -1,7 +1,7 @@
 use super::vertex3d::Vertex3D;
-use crate::impl_shared_attributes;
 use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::color::Color;
+use crate::vpx::gameitem::select::impl_shared_attributes;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Serialize};

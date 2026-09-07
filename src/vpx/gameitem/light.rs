@@ -66,7 +66,7 @@
 //!   ramping (warm glow when turning on, red fade when turning off)
 
 use super::{dragpoint::DragPoint, vertex2d::Vertex2D};
-use crate::impl_shared_attributes;
+use crate::vpx::gameitem::select::impl_shared_attributes;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use crate::vpx::json::F32WithNanInf;
 use crate::vpx::{
