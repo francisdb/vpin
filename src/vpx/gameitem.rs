@@ -527,6 +527,38 @@ impl GameItemEnum {
         }
     }
 
+    /// Human readable name for a raw item type id, used by [`crate::vpx::diff`]
+    pub(crate) fn type_name_for_id(item_type: u32) -> String {
+        match item_type {
+            ITEM_TYPE_WALL => "Wall".to_string(),
+            ITEM_TYPE_FLIPPER => "Flipper".to_string(),
+            ITEM_TYPE_TIMER => "Timer".to_string(),
+            ITEM_TYPE_PLUNGER => "Plunger".to_string(),
+            ITEM_TYPE_TEXT_BOX => "TextBox".to_string(),
+            ITEM_TYPE_BUMPER => "Bumper".to_string(),
+            ITEM_TYPE_TRIGGER => "Trigger".to_string(),
+            ITEM_TYPE_LIGHT => "Light".to_string(),
+            ITEM_TYPE_KICKER => "Kicker".to_string(),
+            ITEM_TYPE_DECAL => "Decal".to_string(),
+            ITEM_TYPE_GATE => "Gate".to_string(),
+            ITEM_TYPE_SPINNER => "Spinner".to_string(),
+            ITEM_TYPE_RAMP => "Ramp".to_string(),
+            ITEM_TYPE_TABLE => "Table".to_string(),
+            ITEM_TYPE_LIGHT_CENTER => "LightCenter".to_string(),
+            ITEM_TYPE_DRAG_POINT => "DragPoint".to_string(),
+            ITEM_TYPE_COLLECTION => "Collection".to_string(),
+            ITEM_TYPE_REEL => "Reel".to_string(),
+            ITEM_TYPE_LIGHT_SEQUENCER => "LightSequencer".to_string(),
+            ITEM_TYPE_PRIMITIVE => "Primitive".to_string(),
+            ITEM_TYPE_FLASHER => "Flasher".to_string(),
+            ITEM_TYPE_RUBBER => "Rubber".to_string(),
+            ITEM_TYPE_HIT_TARGET => "HitTarget".to_string(),
+            ITEM_TYPE_BALL => "Ball".to_string(),
+            ITEM_TYPE_PART_GROUP => "PartGroup".to_string(),
+            other => format!("Generic_{other}"),
+        }
+    }
+
     /// Returns the part group name this item belongs to, if any.
     /// PartGroup items themselves don't have a part_group_name.
     pub fn part_group_name(&self) -> Option<&str> {

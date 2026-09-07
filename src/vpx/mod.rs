@@ -49,6 +49,7 @@ pub mod collection;
 pub mod color;
 pub(crate) mod compat;
 pub mod custominfotags;
+pub mod diff;
 pub mod expanded;
 pub mod font;
 pub mod gamedata;
