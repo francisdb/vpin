@@ -22,10 +22,13 @@
 use super::biff::BiffReader;
 use super::gameitem::GameItemEnum;
 use super::lzw::from_lzw_blocks;
+use super::model::StringWithEncoding;
 use cfb::CompoundFile;
 use flate2::read::ZlibDecoder;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::io::{self, Cursor, Read};
+use std::ops::Range;
 
 /// A single difference between two VPX files.
 ///
@@ -190,23 +193,28 @@ pub fn diff(original: &[u8], modified: &[u8]) -> io::Result<Vec<Difference>> {
 
     let streams_original = stream_entries(&comp_original);
     let streams_modified = stream_entries(&comp_modified);
+    let original_paths: HashSet<&str> = streams_original.iter().map(|(p, _)| p.as_str()).collect();
+    let modified_by_path: HashMap<&str, &str> = streams_modified
+        .iter()
+        .map(|(p, clsid)| (p.as_str(), clsid.as_str()))
+        .collect();
 
     for (path, _) in &streams_modified {
-        if !streams_original.iter().any(|(p, _)| p == path) {
+        if !original_paths.contains(path.as_str()) {
             differences.push(Difference::StreamAdded { path: path.clone() });
         }
     }
 
     for (path, clsid_original) in &streams_original {
-        let Some((_, clsid_modified)) = streams_modified.iter().find(|(p, _)| p == path) else {
+        let Some(clsid_modified) = modified_by_path.get(path.as_str()) else {
             differences.push(Difference::StreamRemoved { path: path.clone() });
             continue;
         };
-        if clsid_original != clsid_modified {
+        if clsid_original != *clsid_modified {
             differences.push(Difference::StreamClsidChanged {
                 path: path.clone(),
                 original: clsid_original.clone(),
-                modified: clsid_modified.clone(),
+                modified: clsid_modified.to_string(),
             });
         }
 
@@ -284,14 +292,18 @@ fn diff_biff_stream(
         }
         skip = 4;
     }
-    let label = stream_label(path, data_original);
+    let full_original = data_original;
+    let data_original = &data_original[skip..];
+    let data_modified = &data_modified[skip..];
 
-    let records_original = biff_records(&data_original[skip..])?;
-    let records_modified = biff_records(&data_modified[skip..])?;
+    let records_original = biff_records(data_original)?;
+    let records_modified = biff_records(data_modified)?;
 
     // Align the two record sequences on their tags so that inserted,
     // removed and reordered records are reported as such instead of
-    // knocking every following comparison out of step
+    // knocking every following comparison out of step. The label is only
+    // resolved when the stream actually differs.
+    let mut local: Vec<Difference> = Vec::new();
     let mut removed: Vec<usize> = Vec::new();
     let mut added: Vec<usize> = Vec::new();
     for pair in align(&records_original, &records_modified) {
@@ -299,14 +311,19 @@ fn diff_biff_stream(
             (Some(index_original), Some(index_modified)) => {
                 let record_original = &records_original[index_original];
                 let record_modified = &records_modified[index_modified];
-                if record_original != record_modified {
-                    differences.push(Difference::RecordChanged {
+                if let Some((len_original, len_modified)) = content_difference(
+                    record_original,
+                    data_original,
+                    record_modified,
+                    data_modified,
+                )? {
+                    local.push(Difference::RecordChanged {
                         path: path.to_string(),
-                        label: label.clone(),
+                        label: None,
                         index: index_original,
                         tag: record_original.tag.clone(),
-                        len_original: record_original.len,
-                        len_modified: record_modified.len,
+                        len_original,
+                        len_modified,
                     });
                 }
             }
@@ -319,47 +336,74 @@ fn diff_biff_stream(
     // a record removed in one place and added in another with the same tag
     // is a move
     for index_original in removed {
-        let tag = &records_original[index_original].tag;
+        let record_original = &records_original[index_original];
+        let tag = &record_original.tag;
         if let Some(position) = added
             .iter()
             .position(|&index| &records_modified[index].tag == tag)
         {
             let index_modified = added.remove(position);
-            differences.push(Difference::RecordMoved {
+            local.push(Difference::RecordMoved {
                 path: path.to_string(),
-                label: label.clone(),
+                label: None,
                 tag: tag.clone(),
                 index_original,
                 index_modified,
             });
-            if records_original[index_original] != records_modified[index_modified] {
-                differences.push(Difference::RecordChanged {
+            let record_modified = &records_modified[index_modified];
+            if let Some((len_original, len_modified)) = content_difference(
+                record_original,
+                data_original,
+                record_modified,
+                data_modified,
+            )? {
+                local.push(Difference::RecordChanged {
                     path: path.to_string(),
-                    label: label.clone(),
+                    label: None,
                     index: index_original,
                     tag: tag.clone(),
-                    len_original: records_original[index_original].len,
-                    len_modified: records_modified[index_modified].len,
+                    len_original,
+                    len_modified,
                 });
             }
         } else {
-            differences.push(Difference::RecordRemoved {
+            local.push(Difference::RecordRemoved {
                 path: path.to_string(),
-                label: label.clone(),
+                label: None,
                 index: index_original,
                 tag: tag.clone(),
             });
         }
     }
     for index_modified in added {
-        differences.push(Difference::RecordAdded {
+        local.push(Difference::RecordAdded {
             path: path.to_string(),
-            label: label.clone(),
+            label: None,
             index: index_modified,
             tag: records_modified[index_modified].tag.clone(),
         });
     }
+
+    if !local.is_empty() {
+        if let Some(label) = stream_label(path, full_original) {
+            for difference in &mut local {
+                set_label(difference, &label);
+            }
+        }
+        differences.append(&mut local);
+    }
     Ok(())
+}
+
+fn set_label(difference: &mut Difference, value: &str) {
+    match difference {
+        Difference::StreamChanged { label, .. }
+        | Difference::RecordChanged { label, .. }
+        | Difference::RecordMoved { label, .. }
+        | Difference::RecordAdded { label, .. }
+        | Difference::RecordRemoved { label, .. } => *label = Some(value.to_string()),
+        _ => {}
+    }
 }
 
 /// Pairs up the two record sequences on their tags with a longest common
@@ -440,22 +484,81 @@ fn find_record<T>(
     None
 }
 
-/// One BIFF record, normalized so that only meaningful differences remain
-#[derive(Debug, PartialEq, Eq)]
+/// One BIFF record; the payload stays in the stream buffer, referenced by
+/// its range, so walking a stream copies nothing
+#[derive(Debug)]
 struct Record {
     tag: String,
     /// The record size announced in the stream
     size_field: usize,
-    /// Length of the compared content
-    len: usize,
-    content: Content,
+    /// Raw payload location in the stream
+    range: Range<usize>,
+    kind: RecordKind,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-enum Content {
-    Bytes(Vec<u8>),
-    /// Content that cannot be compared, only the lengths are
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecordKind {
+    /// compared byte for byte
+    Plain,
+    /// zlib data, compared decompressed when the raw bytes differ
+    Zlib,
+    /// lzw data, compared decompressed when the raw bytes differ
+    Lzw,
+    /// script text, compared decoded when the raw bytes differ
+    Script,
+    /// only the payload length is compared
     Ignored,
+}
+
+/// Compares two aligned records. Compressed or encoded content is only
+/// decompressed when the raw bytes differ, since equal input always
+/// produces equal output. Returns the content lengths when they differ.
+fn content_difference(
+    record_original: &Record,
+    data_original: &[u8],
+    record_modified: &Record,
+    data_modified: &[u8],
+) -> io::Result<Option<(usize, usize)>> {
+    let raw_original = &data_original[record_original.range.clone()];
+    let raw_modified = &data_modified[record_modified.range.clone()];
+    let lens = (raw_original.len(), raw_modified.len());
+    if record_original.size_field != record_modified.size_field {
+        return Ok(Some(lens));
+    }
+    match record_original.kind {
+        RecordKind::Ignored => Ok((raw_original.len() != raw_modified.len()).then_some(lens)),
+        RecordKind::Plain => Ok((raw_original != raw_modified).then_some(lens)),
+        _ if raw_original == raw_modified => Ok(None),
+        RecordKind::Zlib => {
+            let original = zlib_decompress(raw_original)?;
+            let modified = zlib_decompress(raw_modified)?;
+            Ok((original != modified).then_some((original.len(), modified.len())))
+        }
+        RecordKind::Lzw => {
+            let original = from_lzw_blocks(raw_original)?;
+            let modified = from_lzw_blocks(raw_modified)?;
+            Ok((original != modified).then_some((original.len(), modified.len())))
+        }
+        RecordKind::Script => {
+            let original = decode_script(raw_original);
+            let modified = decode_script(raw_modified);
+            Ok((original.string != modified.string).then_some(lens))
+        }
+    }
+}
+
+fn zlib_decompress(compressed: &[u8]) -> io::Result<Vec<u8>> {
+    let mut decoder: ZlibDecoder<&[u8]> = ZlibDecoder::new(compressed);
+    let mut data = Vec::new();
+    decoder.read_to_end(&mut data)?;
+    Ok(data)
+}
+
+/// The script is stored 0-terminated in an encoding the header does not
+/// name, decoded the same way the gamedata parser does
+fn decode_script(raw: &[u8]) -> StringWithEncoding {
+    let end = raw.iter().position(|b| *b == 0).unwrap_or(raw.len());
+    raw[..end].into()
 }
 
 /// Walks a BIFF stream into comparable records, mirroring the special
@@ -476,92 +579,103 @@ fn biff_records(data: &[u8]) -> io::Result<Vec<Record>> {
         let size_field = reader.remaining_in_record();
         match tag.as_str() {
             "FONT" => {
-                let data = reader.data_until("ENDB".as_bytes())?;
+                let start = reader.pos();
+                let len = reader.skip_until("ENDB".as_bytes())?;
                 records.push(Record {
                     tag,
                     size_field,
-                    len: data.len(),
-                    content: Content::Bytes(data),
+                    range: start..start + len,
+                    kind: RecordKind::Plain,
                 });
             }
             "JPEG" => {
+                let start = reader.pos();
                 records.push(Record {
                     tag,
                     size_field,
-                    len: reader.remaining_in_record(),
-                    content: Content::Ignored,
+                    range: start..start + reader.remaining_in_record(),
+                    kind: RecordKind::Ignored,
                 });
+                let base = reader.pos();
                 let mut sub_reader = reader.child_reader();
                 while let Some(sub_tag) = sub_reader.next(false)? {
-                    let data = sub_reader.get_record_data(false)?;
+                    let sub_start = base + sub_reader.pos();
+                    let remaining = sub_reader.remaining_in_record();
+                    sub_reader.skip_tag()?;
                     records.push(Record {
                         tag: sub_tag,
                         size_field,
-                        len: data.len(),
-                        content: Content::Bytes(data),
+                        range: sub_start..sub_start + remaining,
+                        kind: RecordKind::Plain,
                     });
                 }
                 let pos = sub_reader.pos();
                 reader.skip_end_tag(pos)?;
             }
             "BITS" => {
-                let data = reader.data_until("ALTV".as_bytes())?;
-                let decompressed = from_lzw_blocks(&data)?;
+                let start = reader.pos();
+                let len = reader.skip_until("ALTV".as_bytes())?;
                 records.push(Record {
                     tag: "BITS (decompressed)".to_string(),
                     size_field,
-                    len: decompressed.len(),
-                    content: Content::Bytes(decompressed),
+                    range: start..start + len,
+                    kind: RecordKind::Lzw,
                 });
             }
             "CODE" => {
-                let len = reader.get_u32_no_remaining_update()?;
-                let script = reader.get_str_with_encoding_no_remaining_update(len as usize)?;
+                let len = reader.get_u32_no_remaining_update()? as usize;
+                let start = reader.pos();
+                reader.get_no_remaining_update(len)?;
                 records.push(Record {
                     tag: "CODE (script)".to_string(),
                     size_field,
-                    len: len as usize,
-                    content: Content::Bytes(script.string.into_bytes()),
+                    range: start..start + len,
+                    kind: RecordKind::Script,
                 });
             }
             "MATE" | "PHMA" => {
-                let data = reader.get_record_data(false)?;
+                let start = reader.pos();
+                let remaining = reader.remaining_in_record();
+                reader.skip_tag()?;
                 records.push(Record {
                     tag: format!("{tag} (padding ignored)"),
                     size_field,
-                    len: data.len(),
-                    content: Content::Ignored,
+                    range: start..start + remaining,
+                    kind: RecordKind::Ignored,
                 });
             }
             "M3CY" | "M3CJ" | "M3AY" => {
-                let data = reader.get_record_data(false)?;
+                let start = reader.pos();
+                let remaining = reader.remaining_in_record();
+                reader.skip_tag()?;
                 records.push(Record {
                     tag: format!("{tag} (compressed size ignored)"),
                     size_field,
-                    len: data.len(),
-                    content: Content::Ignored,
+                    range: start..start + remaining,
+                    kind: RecordKind::Ignored,
                 });
             }
             "M3CX" | "M3CI" | "M3AX" => {
-                let compressed = reader.get_record_data(false)?;
-                let mut decoder: ZlibDecoder<&[u8]> = ZlibDecoder::new(compressed.as_ref());
-                let mut decompressed = Vec::new();
-                decoder.read_to_end(&mut decompressed)?;
+                let start = reader.pos();
+                let remaining = reader.remaining_in_record();
+                reader.skip_tag()?;
                 records.push(Record {
                     tag: format!("{tag} (decompressed)"),
                     // the compressed size depends on the encoder
                     size_field: 0,
-                    len: decompressed.len(),
-                    content: Content::Bytes(decompressed),
+                    range: start..start + remaining,
+                    kind: RecordKind::Zlib,
                 });
             }
             _ => {
-                let data = reader.get_record_data(false)?;
+                let start = reader.pos();
+                let remaining = reader.remaining_in_record();
+                reader.skip_tag()?;
                 records.push(Record {
                     tag,
                     size_field,
-                    len: data.len(),
-                    content: Content::Bytes(data),
+                    range: start..start + remaining,
+                    kind: RecordKind::Plain,
                 });
             }
         }

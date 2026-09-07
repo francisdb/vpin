@@ -381,7 +381,15 @@ impl<'a> BiffReader<'a> {
     }
 
     pub fn data_until(&mut self, tag: &[u8]) -> Result<Vec<u8>, BiffError> {
-        // read bytes until we see tag and return it, put pos to the beginning of the tag
+        let start = self.pos;
+        let len = self.skip_until(tag)?;
+        Ok(self.data[start..start + len].to_vec())
+    }
+
+    /// Advance to the record size preceding `tag` and return how many bytes
+    /// were skipped, like [`Self::data_until`] but without copying them
+    pub(crate) fn skip_until(&mut self, tag: &[u8]) -> Result<usize, BiffError> {
+        // scan for tag, put pos to the beginning of its record size
         let found = (self.pos..self.data.len().saturating_sub(tag.len()) + 1)
             .find(|p| &self.data[*p..*p + tag.len()] == tag);
         let Some(pos) = found else {
@@ -400,10 +408,10 @@ impl<'a> BiffReader<'a> {
                 String::from_utf8_lossy(tag)
             )));
         }
-        let data = self.data[self.pos..pos].to_vec();
+        let len = pos - self.pos;
         self.pos = pos;
         self.bytes_in_record_remaining = 0;
-        Ok(data)
+        Ok(len)
     }
 }
 
