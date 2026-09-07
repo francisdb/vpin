@@ -137,7 +137,7 @@ impl Color {
         Self { r, g, b, unused: 0 }
     }
 
-    pub fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
+    pub(crate) fn biff_read(reader: &mut BiffReader<'_>) -> Result<Self, BiffError> {
         // since we read in little endian, we need to read the color in BGR0 format
         let r = reader.get_u8()?;
         let g = reader.get_u8()?;
@@ -149,7 +149,7 @@ impl Color {
         Ok(Color { r, g, b, unused })
     }
 
-    pub fn biff_write(&self, writer: &mut BiffWriter) {
+    pub(crate) fn biff_write(&self, writer: &mut BiffWriter) {
         // since we write in little endian, we need to write the color in BGR0 format
         writer.write_u8(self.r);
         writer.write_u8(self.g);

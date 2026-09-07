@@ -1,6 +1,6 @@
 use super::{GameItem, font::Font, font::FontJson, vertex2d::Vertex2D};
-use crate::impl_shared_attributes;
 use crate::vpx::gameitem::select::WriteSharedAttributes;
+use crate::vpx::gameitem::select::impl_shared_attributes;
 use crate::vpx::{
     biff::{self, BiffError, BiffRead, BiffReader, BiffWrite},
     color::Color,

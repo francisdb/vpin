@@ -5,7 +5,7 @@ use crate::vpx::expanded::WriteError;
 use crate::vpx::math::{dequantize_unsigned, quantize_unsigned};
 use crate::vpx::model::Vertex3dNoTex2;
 
-use crate::impl_shared_attributes;
+use crate::vpx::gameitem::select::impl_shared_attributes;
 use crate::vpx::obj::VpxFace;
 use crate::vpx::{
     biff::{self, BiffError, BiffRead, BiffReader, BiffWrite},
