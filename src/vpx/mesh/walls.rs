@@ -1,6 +1,6 @@
 //! Wall mesh generation for expanded VPX export
 //!
-//! This module ports the wall mesh generation from Visual Pinball's surface.cpp.
+//! This module ports the wall mesh generation from Visual Pinball's `src/parts/surface.cpp`.
 //! Walls are represented as extruded polygons with optional smoothing and texture coordinates.
 
 use crate::vpx::TableDimensions;

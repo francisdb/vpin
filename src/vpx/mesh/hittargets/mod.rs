@@ -1,6 +1,6 @@
 //! Hit target mesh generation for expanded VPX export
 //!
-//! This module ports the hit target mesh generation from Visual Pinball's hittarget.cpp.
+//! This module ports the hit target mesh generation from Visual Pinball's `src/parts/hittarget.cpp`.
 //! Hit targets use pre-defined meshes that are scaled and transformed based on
 //! the target's parameters (position, size, rotation).
 //!

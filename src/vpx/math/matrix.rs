@@ -1,7 +1,7 @@
 //! Matrix math utilities ported from VPinball
 //!
 //! This module provides matrix operations for 3D transformations,
-//! ported from VPinball's math/matrix.h
+//! ported from VPinball's `src/math/matrix.h`
 //!
 //! VPinball uses row-major matrices with pre-multiplication convention.
 //! When matrices are multiplied as A * B, the transformation A is applied first, then B.

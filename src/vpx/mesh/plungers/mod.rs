@@ -1,6 +1,6 @@
 //! Plunger mesh generation for expanded VPX export
 //!
-//! This module ports the plunger mesh generation from Visual Pinball's plunger.cpp.
+//! This module ports the plunger mesh generation from Visual Pinball's `src/parts/plunger.cpp`.
 //! Plungers can have different types:
 //! - **Flat**: Simple flat rod
 //! - **Modern**: Rod with spring coil and tip

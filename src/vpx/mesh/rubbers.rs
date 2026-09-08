@@ -1,6 +1,6 @@
 //! Rubber mesh generation for expanded VPX export
 //!
-//! This module ports the rubber mesh generation from Visual Pinball's rubber.cpp.
+//! This module ports the rubber mesh generation from Visual Pinball's `src/parts/rubber.cpp`.
 //! Rubbers are rendered as tubular shapes that follow a spline curve defined by drag points.
 
 use crate::vpx::gameitem::dragpoint::DragPoint;

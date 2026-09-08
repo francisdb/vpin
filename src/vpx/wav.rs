@@ -1,11 +1,18 @@
+//! Reading and writing the WAV container that wraps a table's sound data.
+//!
+//! Sounds in a vpx are stored as a raw Windows `WAVEFORMATEX` header followed
+//! by the audio chunks, the shape the Windows audio APIs vpinball was built on
+//! expect. This module parses that container and writes it back verbatim.
+//!
+//! It deliberately does not touch the audio samples. Sample level crates like
+//! `hound` are not a fit: they normalize the header away, drop fields like
+//! `format_tag`, `block_align`, `avg_bytes_per_sec` and `cb_size` that must
+//! round-trip exactly, and reject formats they cannot decode. So this keeps
+//! every header field and passes the chunks and the data blob through
+//! unchanged.
+
 use bytes::{Buf, BufMut, BytesMut};
 use std::io;
-
-// This parses the wav container only, it never touches samples. Sample level crates like
-// "hound" are not a fit: vpinball stores a raw WAVEFORMATEX in the vpx, so we have to keep
-// format_tag, block_align, avg_bytes_per_sec and cbSize, and pass through the chunks and the
-// data blob verbatim. Those crates normalize all of that away and reject the formats they
-// can not decode.
 
 // An example of a float format wav file can be found in
 // FirePower II (Williams 1983) 1.1.vpx Ding_01.wav
