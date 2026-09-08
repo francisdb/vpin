@@ -147,6 +147,11 @@ for these files and run the tests on them.
 cargo test --release -- --ignored --nocapture
 ```
 
+The corpus tests run tables in parallel across all cores. Every in-flight table
+holds several copies of itself in memory, so on a machine with many cores this
+can use a lot of RAM. Set `RAYON_NUM_THREADS` to reduce the number of worker
+threads if needed, for example `RAYON_NUM_THREADS=8`.
+
 ### WASM tests for server-side WASM (wasmtime)
 
 ```bash
