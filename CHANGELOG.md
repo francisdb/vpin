@@ -6,6 +6,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.0](https://github.com/francisdb/vpin/compare/v0.30.0...v0.31.0) - 2026-09-08
+
+### Added
+
+- add script-level audit checks behind a feature ([#409](https://github.com/francisdb/vpin/pull/409))
+- add a table consistency audit ([#403](https://github.com/francisdb/vpin/pull/403))
+- add a vpx diff API ([#396](https://github.com/francisdb/vpin/pull/396))
+
+### Fixed
+
+- report a mismatched bitmap extension instead of asserting ([#406](https://github.com/francisdb/vpin/pull/406))
+- don't panic in release on a negative quantize input ([#405](https://github.com/francisdb/vpin/pull/405))
+- report mesh count mismatches instead of panicking ([#404](https://github.com/francisdb/vpin/pull/404))
+- don't panic on a bad font version ([#392](https://github.com/francisdb/vpin/pull/392))
+
+### Other
+
+- explain the deprecated lzw bitmap format
+- note the vpinball source for ported modules
+- reduce the memory use of the corpus tests ([#407](https://github.com/francisdb/vpin/pull/407))
+- *(deps)* bump taiki-e/install-action from 2.87.0 to 2.87.5 ([#402](https://github.com/francisdb/vpin/pull/402))
+- [**breaking**] forbid panicking code in the library ([#400](https://github.com/francisdb/vpin/pull/400))
+- add fuzz targets for the parse path ([#391](https://github.com/francisdb/vpin/pull/391))
+- compare records in place and decompress only when needed ([#399](https://github.com/francisdb/vpin/pull/399))
+- run the corpus tests in parallel and report all failures ([#397](https://github.com/francisdb/vpin/pull/397))
+- [**breaking**] make the internal biff API crate private ([#395](https://github.com/francisdb/vpin/pull/395))
+- drop unused biff reader and writer methods ([#398](https://github.com/francisdb/vpin/pull/398))
+- [**breaking**] biff reading returns errors instead of using a failbit ([#393](https://github.com/francisdb/vpin/pull/393))
+
 ## [0.30.0](https://github.com/francisdb/vpin/compare/v0.29.0...v0.30.0) - 2026-09-04
 
 ### Added
