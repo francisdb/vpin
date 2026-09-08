@@ -1,6 +1,6 @@
 //! Flasher mesh generation for expanded VPX export
 //!
-//! This module ports the flasher mesh generation from Visual Pinball's flasher.cpp.
+//! This module ports the flasher mesh generation from Visual Pinball's `src/parts/flasher.cpp`.
 //! Flashers are flat polygons defined by drag points, with optional rotation and height.
 
 use super::super::mesh::{detail_level_to_accuracy, get_rg_vertex_2d, polygon_to_triangles};

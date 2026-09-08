@@ -1,6 +1,6 @@
 //! Ramp mesh generation for expanded VPX export
 //!
-//! This module ports the ramp mesh generation from Visual Pinball's ramp.cpp.
+//! This module ports the ramp mesh generation from Visual Pinball's `src/parts/ramp.cpp`.
 //! Ramps can be either flat (with optional walls) or wire ramps (1-4 wire types).
 
 use super::super::mesh::{

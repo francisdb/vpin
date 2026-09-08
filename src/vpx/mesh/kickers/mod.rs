@@ -1,6 +1,6 @@
 //! Kicker mesh generation for expanded VPX export
 //!
-//! This module ports the kicker mesh generation from Visual Pinball's kicker.cpp.
+//! This module ports the kicker mesh generation from Visual Pinball's `src/parts/kicker.cpp`.
 //! Kickers use pre-defined meshes that are scaled and rotated based on the kicker's
 //! parameters (radius, orientation, type, etc.).
 //!
