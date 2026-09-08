@@ -16,6 +16,7 @@ use crate::vpx::obj::{
     ObjData, ReadObjResult, VpxFace, read_obj as obj_read_obj, read_obj_from_reader, write_obj,
     write_vertex_index_for_vpx,
 };
+use log::warn;
 
 use crate::vpx::TableDimensions;
 use crate::vpx::gameitem::bumper::Bumper;
@@ -727,10 +728,31 @@ pub(super) fn read_gameitem_binaries(
                     read_gltf_and_compress(&gltf_path, fs, GltfContainer::Gltf)?
                 }
             };
-            primitive.num_vertices = Some(result.vertices_len as u32);
+            // the mesh file is authoritative, but warn when the json claimed a
+            // different count so a stale hand edit does not pass silently, the
+            // same way stale image dimensions are reported
+            let vertices_from_file = result.vertices_len as u32;
+            let indices_from_file = result.indices_len as u32;
+            if let Some(json_vertices) = primitive.num_vertices
+                && json_vertices != vertices_from_file
+            {
+                warn!(
+                    "Stale vertex count for primitive {:?} in json {json_vertices} vs in mesh {vertices_from_file}",
+                    primitive.name
+                );
+            }
+            if let Some(json_indices) = primitive.num_indices
+                && json_indices != indices_from_file
+            {
+                warn!(
+                    "Stale index count for primitive {:?} in json {json_indices} vs in mesh {indices_from_file}",
+                    primitive.name
+                );
+            }
+            primitive.num_vertices = Some(vertices_from_file);
             primitive.compressed_vertices_len = Some(result.compressed_vertices.len() as u32);
             primitive.compressed_vertices_data = Some(result.compressed_vertices);
-            primitive.num_indices = Some(result.indices_len as u32);
+            primitive.num_indices = Some(indices_from_file);
             primitive.compressed_indices_len = Some(result.compressed_indices.len() as u32);
             primitive.compressed_indices_data = Some(result.compressed_indices);
         }
