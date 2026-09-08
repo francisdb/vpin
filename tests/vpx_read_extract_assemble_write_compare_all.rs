@@ -139,6 +139,10 @@ mod test {
                 "script differs after the expanded round trip",
             ));
         }
+        // several tables can be in flight at once, free the parsed model
+        // and the expanded files before serializing the assembled copy
+        drop(original);
+        drop(fs);
 
         let test_vpx_bytes = vpin::vpx::to_bytes(&expanded_read)?;
         Ok(ReadAndWriteResult {
