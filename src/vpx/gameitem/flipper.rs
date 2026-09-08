@@ -321,10 +321,26 @@ pub struct Flipper {
     pub timer: TimerData,
 
     // these are shared between all items
+    /// Whether the item is locked in the editor to prevent accidental
+    /// selection or movement. Editor-only; has no effect at runtime.
+    ///
+    /// BIFF tag: `LOCK`
     pub is_locked: bool,
+    /// Legacy editor layer index this item belongs to. Superseded by part
+    /// groups (`part_group_name`) in 10.8.1 and no longer written by newer
+    /// versions. `None` when absent.
+    ///
+    /// BIFF tag: `LAYR`
     pub editor_layer: Option<u32>,
+    /// Display name of the legacy editor layer. Defaults to
+    /// `"Layer_{editor_layer + 1}"` when unset. `None` when absent.
+    ///
+    /// BIFF tag: `LANR`
     pub editor_layer_name: Option<String>,
-    // default "Layer_{editor_layer + 1}"
+    /// Whether the legacy editor layer is visible in the editor. `None` when
+    /// absent. Editor-only; has no effect at runtime.
+    ///
+    /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
     pub part_group_name: Option<String>,

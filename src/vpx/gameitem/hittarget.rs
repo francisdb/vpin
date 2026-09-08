@@ -222,7 +222,7 @@ pub struct HitTarget {
     /// Offset applied when depth-sorting transparent and overlapping objects.
     /// Higher values move the object "further away" in the sort order, causing it
     /// to render behind objects with lower bias.
-    /// Also used on: [`Flasher`], [`Primitive`], [`Ramp`], [`Light`].
+    /// Also used on: [`Flasher`](crate::vpx::gameitem::flasher::Flasher), [`Primitive`](crate::vpx::gameitem::primitive::Primitive), [`Ramp`](crate::vpx::gameitem::ramp::Ramp), [`Light`](crate::vpx::gameitem::light::Light).
     /// BIFF tag: `PIDB`
     pub depth_bias: f32,
     /// Whether this hittarget appears in playfield reflections.

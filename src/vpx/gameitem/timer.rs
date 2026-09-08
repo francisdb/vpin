@@ -8,8 +8,21 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Timer {
+    /// Position of the timer's icon in the editor (x, y), in VP units.
+    /// A timer has no visual or physical presence in the game; this only
+    /// places its marker in the editor.
+    ///
+    /// BIFF tag: `VCEN`
     pub center: Vertex2D,
+    /// Name of the timer, used to reference it from scripts.
+    ///
+    /// BIFF tag: `NAME`
     pub name: String,
+    /// Whether the timer's editor icon is shown on the backglass/backdrop view
+    /// rather than the playfield (VPinball `m_desktopBackdrop`). Editor
+    /// placement only; does not affect timer behavior.
+    ///
+    /// BIFF tag: `BGLS`
     pub backglass: bool,
 
     /// Timer data for scripting (shared across all game items).
@@ -17,10 +30,26 @@ pub struct Timer {
     pub timer: TimerData,
 
     // these are shared between all items
+    /// Whether the item is locked in the editor to prevent accidental
+    /// selection or movement. Editor-only; has no effect at runtime.
+    ///
+    /// BIFF tag: `LOCK`
     pub is_locked: bool,
+    /// Legacy editor layer index this item belongs to. Superseded by part
+    /// groups (`part_group_name`) in 10.8.1 and no longer written by newer
+    /// versions. `None` when absent.
+    ///
+    /// BIFF tag: `LAYR`
     pub editor_layer: Option<u32>,
+    /// Display name of the legacy editor layer. Defaults to
+    /// `"Layer_{editor_layer + 1}"` when unset. `None` when absent.
+    ///
+    /// BIFF tag: `LANR`
     pub editor_layer_name: Option<String>,
-    // default "Layer_{editor_layer + 1}"
+    /// Whether the legacy editor layer is visible in the editor. `None` when
+    /// absent. Editor-only; has no effect at runtime.
+    ///
+    /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
     pub part_group_name: Option<String>,
@@ -31,6 +60,8 @@ impl_shared_attributes!(Timer);
 struct TimerJson {
     center: Vertex2D,
     #[serde(flatten)]
+    /// Timer state (enabled flag and interval in ms) that drives this
+    /// item's script `_Timer` events. See [`TimerData`].
     pub timer: TimerData,
     name: String,
     backglass: bool,

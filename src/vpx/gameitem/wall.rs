@@ -12,32 +12,127 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Wall {
+    /// Name of the surface (wall), used to reference it from scripts.
+    /// Must be unique across all game items.
+    ///
+    /// BIFF tag: `NAME`
     pub name: String,
+    /// When `true`, the wall fires a `Hit` script event whenever the ball
+    /// collides with it above `threshold` speed.
+    ///
+    /// BIFF tag: `HTEV`
     pub hit_event: bool,
+    /// When `true`, the wall can be dropped (lowered) via script, e.g. drop
+    /// targets. A droppable wall is always rendered dynamically (it is never
+    /// prerendered as static geometry).
+    ///
+    /// BIFF tag: `DROP`
     pub is_droppable: bool,
+    /// When `true` ("flipbook animation"), the wall is not rendered while it
+    /// is in the dropped state.
+    ///
+    /// BIFF tag: `FLIP`
     pub is_flipbook: bool,
+    /// Whether the bottom face of the wall (the lower side of the extruded
+    /// "cube") is closed. Legacy behavior (`false`, the default) leaves the
+    /// bottom open, so balls can drop into or escape from inside walls from
+    /// below.
+    ///
+    /// BIFF tag: `ISBS` (legacy tables also use `BOTS`)
     pub is_bottom_solid: bool,
+    /// Whether the wall participates in physics collisions. When `false` the
+    /// wall is purely visual. Default: `true`.
+    ///
+    /// BIFF tag: `CLDW` (legacy tables also use `COLL`)
     pub is_collidable: bool,
+    /// Ball speed above which a collision registers as a hit event (also the
+    /// speed threshold at which slingshot line segments trigger).
+    /// Default: `2.0`.
+    ///
+    /// BIFF tag: `THRS`
     pub threshold: f32,
+    /// Name of the texture image mapped onto the top face of the wall.
+    /// Empty for none.
+    ///
+    /// BIFF tag: `IMAG` (legacy tables use `IMGF`)
     pub image: String,
+    /// Name of the texture image mapped onto the side faces of the wall.
+    /// Empty for none.
+    ///
+    /// BIFF tag: `SIMG` (legacy tables use `IMGS`)
     pub side_image: String,
+    /// Name of the material applied to the side faces of the wall.
+    ///
+    /// BIFF tag: `SIMA` (legacy tables use `MATR`)
     pub side_material: String,
+    /// Name of the material applied to the top face of the wall.
+    ///
+    /// BIFF tag: `TOMA` (legacy tables use `MATP`)
     pub top_material: String,
+    /// Name of the material used to render the slingshot segments of the wall.
+    ///
+    /// BIFF tag: `SLMA` (legacy tables use `MATL`)
     pub slingshot_material: String,
+    /// Height of the bottom edge of the wall above the playfield, in VP units.
+    /// Default: `0.0`.
+    ///
+    /// BIFF tag: `HTBT`
     pub height_bottom: f32,
+    /// Height of the top edge of the wall above the playfield, in VP units.
+    /// Default: `50.0`.
+    ///
+    /// BIFF tag: `HTTP`
     pub height_top: f32,
     /// Whether to display the top image texture in the VPinball editor preview.
     /// This does NOT affect runtime rendering - textures are always rendered if set.
     /// See: https://github.com/vpinball/vpinball/blob/master/src/parts/surface.h
     pub display_texture: bool,
+    /// Strength of the slingshot kick. Default: `80.0`. The COM
+    /// `SlingshotStrength` property exposes this value divided by 10, and the
+    /// value also scales the visual bulge of the slingshot animation mesh.
+    ///
+    /// BIFF tag: `SLGF` (legacy tables use `SLFO`)
     pub slingshot_force: f32,
+    /// Minimum ball speed required to trigger the slingshot.
+    /// Default: `0.0` (any contact triggers it).
+    ///
+    /// BIFF tag: `SLTH`
     pub slingshot_threshold: f32,
+    /// Bounciness of the wall. Only used when `overwrite_physics` is set,
+    /// otherwise the named `physics_material` is used. Default: `0.3`.
+    ///
+    /// BIFF tag: `ELAS`
     pub elasticity: f32,
-    pub elasticity_falloff: Option<f32>, // added in ?
+    /// Falloff of elasticity at higher impact speeds. Optional because old
+    /// tables did not store it (it was effectively fixed to `0.0`); `None`
+    /// means the tag was absent. Only used when `overwrite_physics` is set.
+    ///
+    /// BIFF tag: `ELFO`
+    pub elasticity_falloff: Option<f32>,
+    /// Surface friction. Only used when `overwrite_physics` is set.
+    /// Default: `0.3`.
+    ///
+    /// BIFF tag: `WFCT` (legacy tables use `FRIC`)
     pub friction: f32,
+    /// Scatter angle in degrees added to ball deflection on collision
+    /// (converted to radians at runtime). Only used when `overwrite_physics`
+    /// is set. Default: `0.0`.
+    ///
+    /// BIFF tag: `WSCT` (legacy tables use `SCAT`)
     pub scatter: f32,
+    /// Whether the top (and bottom) face of the wall is rendered.
+    /// Default: `true`.
+    ///
+    /// BIFF tag: `VSBL` (legacy tables use `TBVI`)
     pub is_top_bottom_visible: bool,
+    /// Whether the slingshot plays its kick animation when hit.
+    /// Default: `true`.
+    ///
+    /// BIFF tag: `SLGA` (legacy tables use `SLAN`)
     pub slingshot_animation: bool,
+    /// Whether the side faces of the wall are rendered. Default: `true`.
+    ///
+    /// BIFF tag: `SVBL` (legacy tables use `SIVI`)
     pub is_side_visible: bool,
 
     /// Legacy field for disabling lighting on top surface.
@@ -75,21 +170,57 @@ pub struct Wall {
     ///
     /// BIFF tag: `REEN` (was missing in 10.01)
     pub is_reflection_enabled: Option<bool>,
-    pub physics_material: Option<String>, // MAPH (added in 10.?)
-    pub overwrite_physics: Option<bool>,  // OVPH (added in 10.?)
+    /// Name of a named physics material to source elasticity, friction and
+    /// scatter from. Only applied when `overwrite_physics` is `false`. `None`
+    /// on older tables that predate this field.
+    ///
+    /// BIFF tag: `MAPH` (legacy tables use `PMAT`)
+    pub physics_material: Option<String>,
+    /// When `true`, the wall's own `elasticity`, `elasticity_falloff`,
+    /// `friction` and `scatter` values are used; when `false`, the named
+    /// `physics_material` is used instead. `None` on older tables that predate
+    /// this field.
+    ///
+    /// BIFF tag: `OVPH`
+    pub overwrite_physics: Option<bool>,
 
     /// Timer data for scripting (shared across all game items).
     /// See [`TimerData`] for details.
     pub timer: TimerData,
 
     // these are shared between all items
+    /// Whether the item is locked in the editor (cannot be moved or edited).
+    /// Editor-only attribute shared by all game items.
+    ///
+    /// BIFF tag: `LOCK`
     pub is_locked: bool,
+    /// Zero-based index of the editor layer this item belongs to. `None` when
+    /// absent. Editor-only attribute shared by all game items.
+    ///
+    /// BIFF tag: `LAYR`
     pub editor_layer: Option<u32>,
+    /// Display name of the editor layer this item belongs to. When absent it
+    /// defaults to `Layer_{editor_layer + 1}`. Editor-only attribute shared by
+    /// all game items.
+    ///
+    /// BIFF tag: `LANR`
     pub editor_layer_name: Option<String>,
-    // default "Layer_{editor_layer + 1}"
+    /// Whether the item's editor layer is currently visible in the editor.
+    /// `None` when absent. Editor-only attribute shared by all game items.
+    ///
+    /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>,
+    /// Name of the part group this item belongs to (editor organization).
+    /// `None` when absent. Editor-only attribute shared by all game items.
+    ///
+    /// BIFF tag: `GRUP`
     pub part_group_name: Option<String>,
 
+    /// The ordered drag points defining the outline (polygon) of the wall on
+    /// the playfield.
+    ///
+    /// BIFF tag: `DPNT` (one entry per point, preceded by an empty `PNTS`
+    /// marker tag)
     pub drag_points: Vec<DragPoint>,
 }
 impl_shared_attributes!(Wall);
@@ -102,6 +233,8 @@ struct WallJson {
     is_bottom_solid: bool,
     is_collidable: bool,
     #[serde(flatten)]
+    /// Timer state (enabled flag and interval in ms) that drives this
+    /// item's script `_Timer` events. See [`TimerData`].
     pub timer: TimerData,
     threshold: f32,
     image: String,

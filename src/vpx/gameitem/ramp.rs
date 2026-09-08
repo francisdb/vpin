@@ -164,7 +164,7 @@ pub struct Ramp {
     /// - [`Wrap`](RampImageAlignment::Wrap): UVs are based on the ramp bounding box
     ///   (texture is stretched to fit).
     ///
-    /// Also used on: [`Flasher`].
+    /// Also used on: [`Flasher`](crate::vpx::gameitem::flasher::Flasher).
     /// BIFF tag: `ALGN`
     pub image_alignment: RampImageAlignment, // 11
     pub image_walls: bool,   // 12
@@ -182,7 +182,7 @@ pub struct Ramp {
     /// Offset applied when depth-sorting transparent and overlapping objects.
     /// Higher values move the object "further away" in the sort order, causing it
     /// to render behind objects with lower bias.
-    /// Also used on: [`Flasher`], [`Primitive`], [`Light`], [`HitTarget`].
+    /// Also used on: [`Flasher`](crate::vpx::gameitem::flasher::Flasher), [`Primitive`](crate::vpx::gameitem::primitive::Primitive), [`Light`](crate::vpx::gameitem::light::Light), [`HitTarget`](crate::vpx::gameitem::hittarget::HitTarget).
     /// BIFF tag: `RADB`
     pub depth_bias: f32,
     pub wire_diameter: f32,   // 25

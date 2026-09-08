@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Copy)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Vertex2D {
+    /// X coordinate in VP units.
     pub x: f32,
+    /// Y coordinate in VP units.
     pub y: f32,
 }
 

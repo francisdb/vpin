@@ -4,8 +4,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Copy)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Vertex3D {
+    /// X coordinate in VP units.
     pub x: f32,
+    /// Y coordinate in VP units.
     pub y: f32,
+    /// Z coordinate (height) in VP units.
     pub z: f32,
 }
 

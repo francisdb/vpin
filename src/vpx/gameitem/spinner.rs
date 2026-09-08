@@ -8,6 +8,10 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Spinner {
+    /// The name of the spinner. Used for scripting and to identify the spinner
+    /// in the editor. Must be unique across all spinners in the playfield.
+    ///
+    /// BIFF tag: `NAME`
     pub name: String,
     /// BIFF tag: VCEN
     pub center: Vertex2D,
@@ -125,11 +129,25 @@ pub struct Spinner {
     /// See [`TimerData`] for details.
     pub timer: TimerData,
 
-    // these are shared between all items
+    /// Whether the item is locked in the editor to prevent accidental
+    /// moving or editing. Editor-only; has no runtime effect.
+    ///
+    /// BIFF tag: `LOCK`
     pub is_locked: bool,
+    /// Legacy editor layer index. Removed in 10.8.1, superseded by part
+    /// groups (see `part_group_name`). `None` when absent.
+    ///
+    /// BIFF tag: `LAYR`
     pub editor_layer: Option<u32>,
+    /// Display name of the legacy editor layer; defaults to
+    /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
+    ///
+    /// BIFF tag: `LANR`
     pub editor_layer_name: Option<String>,
-    // default "Layer_{editor_layer + 1}"
+    /// Whether the legacy editor layer is shown in the editor.
+    /// Editor-only; has no runtime effect. `None` when absent.
+    ///
+    /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
     pub part_group_name: Option<String>,
@@ -141,6 +159,8 @@ struct SpinnerJson {
     center: Vertex2D,
     rotation: f32,
     #[serde(flatten)]
+    /// Timer state (enabled flag and interval in ms) that drives this
+    /// item's script `_Timer` events. See [`TimerData`].
     pub timer: TimerData,
     height: f32,
     length: f32,

@@ -667,11 +667,11 @@ pub struct GameData {
     /// It is also used as the fallback in `GetSurfaceImage()` when a surface/ramp
     /// name lookup fails.
     ///
-    /// The playfield primitive is identified purely by name: any [`Primitive`] named
+    /// The playfield primitive is identified purely by name: any [`Primitive`](crate::vpx::gameitem::primitive::Primitive) named
     /// `"playfield_mesh"` (case-insensitive) is treated as the playfield and has
     /// this image (and [`playfield_material`](Self::playfield_material)) applied
     /// automatically — there is no explicit flag to mark a primitive as the
-    /// playfield. See [`Primitive::is_playfield()`].
+    /// playfield. See [`Primitive::is_playfield()`](crate::vpx::gameitem::primitive::Primitive::is_playfield).
     ///
     /// In the 2D editor, this image is drawn as the backdrop when `m_backdrop` is
     /// enabled (for the playfield view; the backglass view uses `BG_image` instead).
@@ -772,9 +772,9 @@ pub struct GameData {
     /// material.
     ///
     /// Like [`image`](Self::image), this is applied automatically to any
-    /// [`Primitive`] named `"playfield_mesh"` (case-insensitive) — there is no
+    /// [`Primitive`](crate::vpx::gameitem::primitive::Primitive) named `"playfield_mesh"` (case-insensitive) — there is no
     /// explicit flag to mark a primitive as the playfield.
-    /// See [`Primitive::is_playfield()`].
+    /// See [`Primitive::is_playfield()`](crate::vpx::gameitem::primitive::Primitive::is_playfield).
     ///
     /// Exposed as `PlayfieldMaterial` in VBScript.
     ///

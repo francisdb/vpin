@@ -11,34 +11,126 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Reel {
-    pub ver1: Vertex2D,    // position on map (top right corner)
-    pub ver2: Vertex2D,    // position on map (top right corner)
-    pub back_color: Color, // colour of the background
+    /// Top-left corner of the reel group's bounding box, in editor
+    /// background coordinates. This is the object's anchor position (what
+    /// vpinball returns as its center); [`Self::ver2`] is derived from it.
+    ///
+    /// BIFF tag: `VER1`
+    pub ver1: Vertex2D,
+    /// Bottom-right corner of the reel group's bounding box. vpinball
+    /// recomputes this from [`Self::ver1`] plus the total box size (derived
+    /// from reel count, width, height and spacing), so it is effectively a
+    /// cached value rather than an independent setting.
+    ///
+    /// BIFF tag: `VER2`
+    pub ver2: Vertex2D,
+    /// Colour of the background box drawn behind the reels. Defaults to
+    /// RGB(64, 64, 64).
+    ///
+    /// BIFF tag: `CLRB`
+    pub back_color: Color,
 
-    pub is_transparent: bool, // is the background transparent
+    /// Whether the background box is transparent (i.e. only the reel digits
+    /// are drawn, not the backing rectangle). Defaults to `false`.
+    ///
+    /// BIFF tag: `TRNS`
+    pub is_transparent: bool,
+    /// Name of the image (texture) containing the reel digit strip. The digits
+    /// are laid out either as a single horizontal strip or as a grid (see
+    /// [`Self::use_image_grid`]). HDR images (.exr/.hdr) are rejected by the
+    /// editor.
+    ///
+    /// BIFF tag: `IMAG`
     pub image: String,
-    pub sound: String, // sound to play for each turn of a digit
+    /// Name of the sound to play for each single-digit click as a reel turns.
+    /// Empty or `<None>` means no sound.
+    ///
+    /// BIFF tag: `SOUN`
+    pub sound: String,
+    /// Name of this game item.
+    ///
+    /// BIFF tag: `NAME`
     pub name: String,
-    pub width: f32,        // size of each reel
-    pub height: f32,       // size of each reel
-    pub reel_count: f32,   // number of individual reel in the set
-    pub reel_spacing: f32, // spacing between each reel and the boarders
-    pub motor_steps: f32,  // steps (or frames) to move each reel each frame
-    pub digit_range: f32,  // max number of digits per reel (usually 9)
+    /// Width of each individual reel digit, in editor background units.
+    /// Defaults to 30.0. vpinball clamps this to be non-negative.
+    ///
+    /// BIFF tag: `WDTH`
+    pub width: f32,
+    /// Height of each individual reel digit, in editor background units.
+    /// Defaults to 40.0. vpinball clamps this to be non-negative.
+    ///
+    /// BIFF tag: `HIGH`
+    pub height: f32,
+    /// Number of individual reels (digits) in the set. Defaults to 5.0.
+    /// Although stored here as an `f32`, vpinball treats it as an integer
+    /// clamped to the range 1..=MAX_REELS.
+    ///
+    /// BIFF tag: `RCNT`
+    pub reel_count: f32,
+    /// Spacing between each reel and around the borders of the background box,
+    /// in editor background units. Defaults to 4.0. vpinball clamps this to be
+    /// non-negative. (The `boarders` typo in the original comment means
+    /// "borders".)
+    ///
+    /// BIFF tag: `RSPC`
+    pub reel_spacing: f32,
+    /// Number of motor steps (animation frames) used to roll each reel by one
+    /// digit. Defaults to 2.0. Stored as `f32` but treated by vpinball as an
+    /// integer clamped to at least 1.
+    ///
+    /// BIFF tag: `MSTP`
+    pub motor_steps: f32,
+    /// Highest digit value a single reel can show (the reel cycles through
+    /// `0..=digit_range`), so it is one less than the number of distinct
+    /// digit images. Usually 9 (decimal digits); defaults to 9.0. Stored as
+    /// `f32` but treated by vpinball as an integer clamped to 0..=511.
+    ///
+    /// BIFF tag: `RANG`
+    pub digit_range: f32,
+    /// Time in milliseconds between animation updates. Defaults to 50.
+    /// vpinball clamps this to at least 5.
+    ///
+    /// BIFF tag: `UPTM`
     pub update_interval: u32,
+    /// Whether the digit image is arranged as a 2D grid rather than a single
+    /// horizontal strip. When `true`, [`Self::images_per_grid_row`] gives the
+    /// number of columns. Defaults to `false`.
+    ///
+    /// BIFF tag: `UGRD`
     pub use_image_grid: bool,
+    /// Whether the reel group is rendered in-game. Defaults to `true`.
+    ///
+    /// BIFF tag: `VISI`
     pub is_visible: bool,
+    /// Number of digit images per row when [`Self::use_image_grid`] is `true`;
+    /// ignored otherwise. Defaults to 1. vpinball clamps this to at least 1.
+    ///
+    /// BIFF tag: `GIPR`
     pub images_per_grid_row: u32,
 
     /// Timer data for scripting (shared across all game items).
     /// See [`TimerData`] for details.
     pub timer: TimerData,
 
-    // these are shared between all items
+    /// Whether the item is locked in the editor to prevent accidental
+    /// moving or editing. Editor-only; has no runtime effect.
+    ///
+    /// BIFF tag: `LOCK`
     pub is_locked: bool,
+    /// Legacy editor layer index. Removed in 10.8.1, superseded by part
+    /// groups (see `part_group_name`). `None` when absent.
+    ///
+    /// BIFF tag: `LAYR`
     pub editor_layer: Option<u32>,
+    /// Display name of the legacy editor layer; defaults to
+    /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
+    ///
+    /// BIFF tag: `LANR`
     pub editor_layer_name: Option<String>,
-    // default "Layer_{editor_layer + 1}"
+    /// Whether the legacy editor layer is shown in the editor.
+    /// Editor-only; has no runtime effect. `None` when absent.
+    ///
+    /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
     pub part_group_name: Option<String>,
@@ -51,6 +143,8 @@ struct ReelJson {
     ver2: Vertex2D,
     back_color: Color,
     #[serde(flatten)]
+    /// Timer state (enabled flag and interval in ms) that drives this
+    /// item's script `_Timer` events. See [`TimerData`].
     pub timer: TimerData,
     is_transparent: bool,
     image: String,

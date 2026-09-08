@@ -8,24 +8,122 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Rubber {
+    /// Top surface height of the rubber above its base, in VP units.
+    /// Used for the visual mesh (the rendered rubber sits at this height);
+    /// the physics/collision height is controlled separately by `hit_height`.
+    ///
+    /// Default: `25.0`
+    ///
+    /// BIFF tag: `HTTP`
     pub height: f32,
-    pub hit_height: Option<f32>, // HTHI (added in 10.?)
+    /// Height used for the collision (hit) shape, in VP units.
+    /// When absent, Visual Pinball falls back to `height` at load time (it
+    /// initializes the value to -1 and, if still -1 after loading, sets it to
+    /// `height`). Kept optional here so files that omit the tag round-trip.
+    ///
+    /// BIFF tag: `HTHI`
+    pub hit_height: Option<f32>,
+    /// Thickness (diameter) of the rubber band, in VP units.
+    /// Used as the width of the extruded tube around the drag-point spline.
+    /// When `0` the rubber is skipped during rendering.
+    ///
+    /// Default: `8`
+    ///
+    /// BIFF tag: `WDTP`
     pub thickness: i32,
+    /// Whether ball collisions fire a scriptable `Hit` event for this rubber.
+    ///
+    /// Default: `false`
+    ///
+    /// BIFF tag: `HTEV`
     pub hit_event: bool,
+    /// Name of the material used to render the rubber.
+    ///
+    /// BIFF tag: `MATR`
     pub material: String,
+    /// Name of the rubber, used for referencing in scripts.
+    /// Stored as a wide (UTF-16) string.
+    ///
+    /// BIFF tag: `NAME`
     pub name: String,
+    /// Name of the texture image mapped onto the rubber.
+    /// HDR images (.exr/.hdr) are rejected by the editor for this slot.
+    ///
+    /// BIFF tag: `IMAG`
     pub image: String,
+    /// Bounciness of the rubber. Only applied when `overwrite_physics` is true;
+    /// otherwise the value from `physics_material` is used instead.
+    ///
+    /// BIFF tag: `ELAS`
     pub elasticity: f32,
+    /// Falloff of elasticity with impact speed. Only applied when
+    /// `overwrite_physics` is true; otherwise `physics_material` supplies it.
+    ///
+    /// BIFF tag: `ELFO`
     pub elasticity_falloff: f32,
+    /// Friction coefficient. Only applied when `overwrite_physics` is true;
+    /// otherwise `physics_material` supplies it. Clamped to `0.0..=1.0` by the
+    /// script setter.
+    ///
+    /// BIFF tag: `RFCT`
     pub friction: f32,
+    /// Scatter angle in degrees (converted to radians at physics setup).
+    /// Only applied when `overwrite_physics` is true; otherwise the
+    /// `physics_material` scatter angle is used.
+    ///
+    /// BIFF tag: `RSCT`
     pub scatter: f32,
+    /// Whether the rubber participates in ball collisions.
+    ///
+    /// Default: `true`
+    ///
+    /// BIFF tag: `CLDR`
     pub is_collidable: bool,
+    /// Whether the rubber is rendered. When `static_rendering` is enabled the
+    /// visibility cannot be toggled at runtime from a script.
+    ///
+    /// Default: `true`
+    ///
+    /// BIFF tag: `RVIS`
     pub is_visible: bool,
-    pub radb: Option<f32>, // RADB (was used in 10.01)
+    /// Legacy field that was used in Visual Pinball 10.01 and is no longer read
+    /// or written by current builds. Kept optional so old files round-trip.
+    ///
+    /// BIFF tag: `RADB`
+    pub radb: Option<f32>,
+    /// Whether the rubber is rendered into the static buffer (baked, non-moving).
+    /// When true, the mesh is generated at maximum precision and its visibility
+    /// cannot be changed at runtime.
+    ///
+    /// Default: `true`
+    ///
+    /// BIFF tag: `ESTR`
     pub static_rendering: bool,
+    /// Whether the editor draws the full 3D rubber mesh (true) instead of just
+    /// the flat spline outline. Editor-only; has no effect during play. When the
+    /// mesh is shown, drag points are hidden in the editor.
+    ///
+    /// Default: `true`
+    ///
+    /// BIFF tag: `ESIE`
     pub show_in_editor: bool,
+    /// Rotation of the rubber mesh around the X axis, in degrees.
+    ///
+    /// Default: `0.0`
+    ///
+    /// BIFF tag: `ROTX`
     pub rot_x: f32,
+    /// Rotation of the rubber mesh around the Y axis, in degrees.
+    ///
+    /// Default: `0.0`
+    ///
+    /// BIFF tag: `ROTY`
     pub rot_y: f32,
+    /// Rotation of the rubber mesh around the Z axis, in degrees.
+    ///
+    /// Default: `0.0`
+    ///
+    /// BIFF tag: `ROTZ`
     pub rot_z: f32,
     /// Whether this rubber appears in playfield reflections.
     ///
@@ -34,22 +132,47 @@ pub struct Rubber {
     ///
     /// BIFF tag: `REEN` (was missing in 10.01)
     pub is_reflection_enabled: Option<bool>,
-    pub physics_material: Option<String>, // MAPH (added in 10.?)
-    pub overwrite_physics: Option<bool>,  // OVPH (added in 10.?)
+    /// Name of the physics material whose elasticity, friction and scatter are
+    /// used when `overwrite_physics` is false. Ignored when `overwrite_physics`
+    /// is true (the rubber's own values are used instead).
+    ///
+    /// BIFF tag: `MAPH`
+    pub physics_material: Option<String>,
+    /// Whether to use this rubber's own `elasticity`, `elasticity_falloff`,
+    /// `friction` and `scatter` instead of those from `physics_material`.
+    ///
+    /// BIFF tag: `OVPH`
+    pub overwrite_physics: Option<bool>,
 
     /// Timer data for scripting (shared across all game items).
     /// See [`TimerData`] for details.
     pub timer: TimerData,
 
-    // these are shared between all items
+    /// Whether the item is locked in the editor to prevent accidental
+    /// moving or editing. Editor-only; has no runtime effect.
+    ///
+    /// BIFF tag: `LOCK`
     pub is_locked: bool,
+    /// Legacy editor layer index. Removed in 10.8.1, superseded by part
+    /// groups (see `part_group_name`). `None` when absent.
+    ///
+    /// BIFF tag: `LAYR`
     pub editor_layer: Option<u32>,
+    /// Display name of the legacy editor layer; defaults to
+    /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
+    ///
+    /// BIFF tag: `LANR`
     pub editor_layer_name: Option<String>,
-    // default "Layer_{editor_layer + 1}"
+    /// Whether the legacy editor layer is shown in the editor.
+    /// Editor-only; has no runtime effect. `None` when absent.
+    ///
+    /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
     pub part_group_name: Option<String>,
 
+    /// Control points defining the shape's path as a sequence of
+    /// [`DragPoint`]s (a closed loop for walls, rubbers and flashers).
     pub drag_points: Vec<DragPoint>,
 }
 impl_shared_attributes!(Rubber);
@@ -62,6 +185,8 @@ struct RubberJson {
     hit_event: bool,
     material: String,
     #[serde(flatten)]
+    /// Timer state (enabled flag and interval in ms) that drives this
+    /// item's script `_Timer` events. See [`TimerData`].
     pub timer: TimerData,
     name: String,
     image: String,

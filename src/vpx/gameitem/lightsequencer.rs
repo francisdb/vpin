@@ -7,25 +7,75 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct LightSequencer {
+    /// Editor UI position of the light sequencer marker, in editor
+    /// background coordinates. This is only where the item's handle is drawn
+    /// in the editor; the point animations radiate from is [`Self::pos_x`] /
+    /// [`Self::pos_y`], not this.
+    ///
+    /// BIFF tag: `VCEN`
     pub center: Vertex2D,
+    /// Name of the collection of lights (and flashers/primitives) that this
+    /// sequencer animates. Only collection members of those types participate;
+    /// if no collection with this name exists the sequencer does nothing.
+    ///
+    /// BIFF tag: `COLC`
     pub collection: String,
+    /// X coordinate of the animation center, i.e. the point that
+    /// center-based effects (circle out/in, radar, etc.) originate from.
+    /// This is distinct from [`Self::center`] (the editor handle). vpinball
+    /// requires `0.0 <= pos_x < EDITOR_BG_WIDTH`.
+    ///
+    /// BIFF tag: `CTRX`
     pub pos_x: f32,
+    /// Y coordinate of the animation center (see [`Self::pos_x`]). vpinball
+    /// requires `0.0 <= pos_y < 2 * EDITOR_BG_WIDTH` (the doubled range covers
+    /// backglass placement).
+    ///
+    /// BIFF tag: `CTRY`
     pub pos_y: f32,
+    /// Time in milliseconds between animation frame updates. Defaults to 25.
+    /// vpinball clamps this to at least 1. The value in effect for a running
+    /// animation is captured when it is queued via the script `Play` call.
+    ///
+    /// BIFF tag: `UPTM`
     pub update_interval: u32,
+    /// Name of this game item.
+    ///
+    /// BIFF tag: `NAME`
     pub name: String,
+    /// Whether this sequencer lives on the backglass (desktop backdrop) rather
+    /// than the playfield. Defaults to `false`. Maps to vpinball's
+    /// `m_desktopBackdrop`.
+    ///
+    /// BIFF tag: `BGLS`
     pub backglass: bool,
 
     /// Timer data for scripting (shared across all game items).
     /// See [`TimerData`] for details.
     pub timer: TimerData,
 
-    // these are shared between all items
+    /// Whether the item is locked in the editor to prevent accidental
+    /// moving or editing. Editor-only; has no runtime effect.
+    ///
+    /// BIFF tag: `LOCK`
     pub is_locked: Option<bool>,
     // LOCK (added in 10.7?)
+    /// Legacy editor layer index. Removed in 10.8.1, superseded by part
+    /// groups (see `part_group_name`). `None` when absent.
+    ///
+    /// BIFF tag: `LAYR`
     pub editor_layer: Option<u32>,
     // LAYR (added in 10.7?)
+    /// Display name of the legacy editor layer; defaults to
+    /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
+    ///
+    /// BIFF tag: `LANR`
     pub editor_layer_name: Option<String>,
     // LANR (added in 10.7?) default "Layer_{editor_layer + 1}"
+    /// Whether the legacy editor layer is shown in the editor.
+    /// Editor-only; has no runtime effect. `None` when absent.
+    ///
+    /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>, // LVIS (added in 10.7?)
     /// Added in 10.8.1
     pub part_group_name: Option<String>,
@@ -39,6 +89,8 @@ struct LightSequencerJson {
     pos_y: f32,
     update_interval: u32,
     #[serde(flatten)]
+    /// Timer state (enabled flag and interval in ms) that drives this
+    /// item's script `_Timer` events. See [`TimerData`].
     pub timer: TimerData,
     name: String,
     backglass: bool,

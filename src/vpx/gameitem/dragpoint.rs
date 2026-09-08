@@ -6,12 +6,43 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[derive(Debug, PartialEq, Clone)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct DragPoint {
+    /// X coordinate of the control point in VP units.
+    /// Stored together with `y` in the `VCEN` record.
+    ///
+    /// BIFF tag: `VCEN`
     pub x: f32,
+    /// Y coordinate of the control point in VP units.
+    /// Stored together with `x` in the `VCEN` record.
+    ///
+    /// BIFF tag: `VCEN`
     pub y: f32,
+    /// Z coordinate (height) of the control point in VP units.
+    /// Only meaningful for shapes that use per-point height (e.g. ramps).
+    ///
+    /// BIFF tag: `POSZ`
     pub z: f32,
+    /// Whether the curve is smoothed through this point (a Catmull-Rom
+    /// spline) instead of forming a sharp corner. In the editor this is
+    /// mutually exclusive with `is_slingshot`.
+    ///
+    /// BIFF tag: `SMTH`
     pub smooth: bool,
+    /// Whether the segment starting at this point acts as a slingshot
+    /// (reactive kicker), used for walls/surfaces. Mutually exclusive with
+    /// `smooth` in the editor. `None` when the `SLNG` record is absent.
+    ///
+    /// BIFF tag: `SLNG`
     pub is_slingshot: Option<bool>,
+    /// Whether the texture coordinate is computed automatically along the
+    /// ramp/wall (VPinball defaults this to `true`). When `false`, the manual
+    /// `tex_coord` value is used instead.
+    ///
+    /// BIFF tag: `ATEX`
     pub has_auto_texture: bool,
+    /// Manual texture coordinate (U, typically 0.0-1.0) along the path at this
+    /// point, used when `has_auto_texture` is `false`.
+    ///
+    /// BIFF tag: `TEXC`
     pub tex_coord: f32,
 
     // Somehow below items don't belong here?
@@ -25,11 +56,22 @@ pub struct DragPoint {
     //   * remove them from the struct (also json)
     //   * ignore on read
     //   * write as default
+    /// Whether the control point is locked in the editor to prevent
+    /// accidental dragging. Editor-only; has no effect at runtime.
+    ///
+    /// BIFF tag: `LOCK`
     pub is_locked: bool,
     /// removed in 10.8.1
     pub editor_layer: Option<u32>,
+    /// Display name of the legacy editor layer. Defaults to
+    /// `"Layer_{editor_layer + 1}"` when unset. `None` when absent.
+    ///
+    /// BIFF tag: `LANR`
     pub editor_layer_name: Option<String>,
-    // default "Layer_{editor_layer + 1}"
+    /// Whether the legacy editor layer is visible in the editor. `None` when
+    /// absent. Editor-only; has no effect at runtime.
+    ///
+    /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>,
 }
 

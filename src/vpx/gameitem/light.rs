@@ -542,7 +542,7 @@ pub struct Light {
     /// Offset applied when depth-sorting transparent and overlapping objects.
     /// Higher values move the object "further away" in the sort order, causing it
     /// to render behind objects with lower bias.
-    /// Also used on: [`Flasher`], [`Primitive`], [`Ramp`], [`HitTarget`].
+    /// Also used on: [`Flasher`](crate::vpx::gameitem::flasher::Flasher), [`Primitive`](crate::vpx::gameitem::primitive::Primitive), [`Ramp`](crate::vpx::gameitem::ramp::Ramp), [`HitTarget`](crate::vpx::gameitem::hittarget::HitTarget).
     /// BIFF tag: `LIDB`
     pub depth_bias: f32,
     pub fade_speed_up: f32, // FASP, can be Inf (Dr. Dude (Bally 1990)v3.0.vpx)

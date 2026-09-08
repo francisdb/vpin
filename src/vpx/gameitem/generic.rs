@@ -10,7 +10,12 @@ use super::GameItem;
 /// entry in `fields` keeps the position but carries no data.
 #[derive(Debug, PartialEq)]
 pub struct Generic {
+    /// Name of the item, decoded from the `NAME` record.
     pub name: String,
+    /// All records of the item as `(tag, raw bytes)` pairs, kept in their
+    /// original order so the item can be written back unchanged. The `NAME`
+    /// record keeps its position here but carries an empty byte vector, since
+    /// its value lives in `name`.
     pub fields: Vec<(String, Vec<u8>)>,
 }
 
