@@ -23,6 +23,9 @@ exclude = [
 [features]
 default = ["parallel"]
 parallel = ["rayon"]
+# Script-level audit checks; pulls in the vbscript parser (~8k LOC, no
+# transitive deps). Deliberately not in default or wasm to keep those lean.
+script-audit = ["dep:vbscript"]
 wasm = [
     "wasm-bindgen",
     "js-sys",
@@ -58,6 +61,7 @@ unicode-normalization = "0.1"
 log = "0.4"
 tracing = "0.1"
 wavefront-obj-io = "0.3.0"
+vbscript = { version = "0.3.0", optional = true }
 rayon = { version = "1.11.0", optional = true }
 wasm-bindgen = { version = "0.2.108", optional = true }
 js-sys = { version = "0.3.85", optional = true }

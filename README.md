@@ -20,6 +20,10 @@ The library provides several optional features that can be enabled:
 
 - `parallel` (default): Enables parallel processing using rayon for better performance
 - `wasm`: Enables WebAssembly bindings for browser/Node.js usage
+- `script-audit`: Adds script-level checks to `vpx::audit` (missing `Option Explicit`,
+  duplicate procedures, `Execute` usage, VPinMAME setup). Pulls in the `vbscript`
+  parser, so it is off by default and not part of the `wasm` feature to keep the
+  npm package small; enable it (or combine it with `wasm`) when you want those checks
 
 To use only VPX functionality without parallel support:
 
