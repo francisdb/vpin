@@ -87,6 +87,25 @@ pub enum Finding {
     /// spends noticeable time hashing it into the integrity signature.
     /// Large ones are usually PNG captures, which JPEG stores much smaller.
     LargeScreenshot { bytes: usize, png: bool },
+    /// The script could not be parsed, so the script-level checks could not run
+    ScriptParseError { detail: String },
+    /// The script has no `Option Explicit`, so a typo in a variable name
+    /// silently creates a new variable instead of being caught
+    MissingOptionExplicit,
+    /// A sub or function is declared more than once; the later one wins and
+    /// the earlier is dead
+    DuplicateProcedure { name: String },
+    /// The script uses `Execute`, which runs code built at runtime; vpinball
+    /// warns this triggers security checks and can stutter. `ExecuteGlobal`
+    /// is not flagged since tables normally use it to load scripts at startup
+    ExecuteUsed,
+    /// The script uses a VPinMAME controller but the table has no timer named
+    /// `PinMAMETimer`, which it needs to drive the emulation
+    MissingPinMameTimer,
+    /// The script uses a VPinMAME controller but never calls `vpmInit`
+    MissingVpmInit,
+    /// The script uses `vpmTimer` but the table has no timer named `PulseTimer`
+    MissingPulseTimer,
 }
 
 /// How serious a [`Finding`] is
@@ -109,6 +128,7 @@ impl Finding {
             Finding::NegativeLightIntensity { .. } | Finding::StereoTableSound { .. } => {
                 Severity::Error
             }
+            Finding::MissingOptionExplicit => Severity::Suggestion,
             _ => Severity::Warning,
         }
     }
@@ -215,6 +235,38 @@ impl fmt::Display for Finding {
                     *bytes as f64 / 1e6
                 )
             }
+            Finding::ScriptParseError { detail } => {
+                write!(f, "script could not be parsed: {detail}")
+            }
+            Finding::MissingOptionExplicit => {
+                write!(
+                    f,
+                    "script has no 'Option Explicit', typos create silent new variables"
+                )
+            }
+            Finding::DuplicateProcedure { name } => {
+                write!(f, "script declares {name:?} more than once")
+            }
+            Finding::ExecuteUsed => {
+                write!(
+                    f,
+                    "script uses Execute, which runs runtime-built code and can stutter"
+                )
+            }
+            Finding::MissingPinMameTimer => write!(
+                f,
+                "script uses a VPinMAME controller but the table has no timer named 'PinMAMETimer'"
+            ),
+            Finding::MissingVpmInit => {
+                write!(
+                    f,
+                    "script uses a VPinMAME controller but never calls vpmInit"
+                )
+            }
+            Finding::MissingPulseTimer => write!(
+                f,
+                "script uses 'vpmTimer' but the table has no timer named 'PulseTimer'"
+            ),
         }
     }
 }
@@ -334,6 +386,9 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
             });
         }
     }
+
+    #[cfg(feature = "script-audit")]
+    script::check(vpx, &mut findings);
 
     findings
 }
@@ -929,8 +984,319 @@ mod tests {
     #[test]
     fn non_crlf_script_endings_are_reported() {
         let mut vpx = clean_vpx();
-        vpx.gamedata.code.string = "line one\nline two\r\n".to_string();
+        // valid VBScript with Option Explicit so only the line-ending check
+        // fires, but with a bare LF mixed into the CRLF endings
+        vpx.gamedata.code.string = "Option Explicit\r\nDim x\nDim y\r\n".to_string();
         let findings = audit(&vpx);
         assert_eq!(findings, vec![Finding::NonCrlfScriptLineEndings]);
+    }
+
+    #[cfg(feature = "script-audit")]
+    mod script {
+        use super::*;
+        use pretty_assertions::assert_eq;
+
+        /// like clean_vpx but with a known good, CRLF, Option Explicit script
+        fn scripted(body: &str) -> VPX {
+            let mut vpx = clean_vpx();
+            let script = format!("Option Explicit\r\n{}", body.replace('\n', "\r\n"));
+            vpx.gamedata.code.string = script;
+            vpx
+        }
+
+        fn script_findings(vpx: &VPX) -> Vec<Finding> {
+            audit(vpx)
+                .into_iter()
+                .filter(|f| {
+                    matches!(
+                        f,
+                        Finding::ScriptParseError { .. }
+                            | Finding::MissingOptionExplicit
+                            | Finding::DuplicateProcedure { .. }
+                            | Finding::ExecuteUsed
+                            | Finding::MissingPinMameTimer
+                            | Finding::MissingVpmInit
+                            | Finding::MissingPulseTimer
+                    )
+                })
+                .collect()
+        }
+
+        #[test]
+        fn a_clean_script_has_no_script_findings() {
+            let vpx = scripted("Sub Foo()\nEnd Sub\n");
+            assert_eq!(script_findings(&vpx), Vec::new());
+        }
+
+        #[test]
+        fn a_missing_option_explicit_is_a_suggestion() {
+            let mut vpx = clean_vpx();
+            vpx.gamedata.code.string = "Sub Foo()\r\nEnd Sub\r\n".to_string();
+            let findings = script_findings(&vpx);
+            assert_eq!(findings, vec![Finding::MissingOptionExplicit]);
+            assert_eq!(findings[0].severity(), Severity::Suggestion);
+        }
+
+        #[test]
+        fn a_duplicate_procedure_is_reported() {
+            let vpx = scripted("Sub Foo()\nEnd Sub\nSub Foo()\nEnd Sub\n");
+            assert_eq!(
+                script_findings(&vpx),
+                vec![Finding::DuplicateProcedure {
+                    name: "Foo".to_string()
+                }]
+            );
+        }
+
+        #[test]
+        fn a_method_name_reused_across_classes_is_not_a_duplicate() {
+            let vpx = scripted(
+                "Class A\nPublic Sub Init()\nEnd Sub\nEnd Class\n                 Class B\nPublic Sub Init()\nEnd Sub\nEnd Class\n",
+            );
+            assert_eq!(script_findings(&vpx), Vec::new());
+        }
+
+        #[test]
+        fn execute_is_flagged_but_execute_global_is_not() {
+            let executed = scripted("Execute \"x = 1\"\n");
+            assert_eq!(script_findings(&executed), vec![Finding::ExecuteUsed]);
+            let global = scripted("ExecuteGlobal \"x = 1\"\n");
+            assert_eq!(script_findings(&global), Vec::new());
+        }
+
+        #[test]
+        fn a_broken_script_reports_a_parse_error() {
+            let mut vpx = clean_vpx();
+            vpx.gamedata.code.string = "Sub Foo(\r\n".to_string();
+            let findings = script_findings(&vpx);
+            assert_eq!(findings.len(), 1, "{findings:#?}");
+            assert!(matches!(findings[0], Finding::ScriptParseError { .. }));
+        }
+    }
+}
+
+#[cfg(feature = "script-audit")]
+mod script {
+    use super::{Finding, VPX};
+    use crate::vpx::gameitem::GameItemEnum;
+    use std::collections::HashSet;
+    use vbscript::parser::Parser;
+    use vbscript::parser::ast::{Expr, FullIdent, Item, Stmt};
+
+    /// What one pass over the script collected
+    #[derive(Default)]
+    struct Scan {
+        option_explicit: bool,
+        /// every identifier seen, lowercased, like vpinball's audit bag
+        identifiers: HashSet<String>,
+        /// declared sub/function names, qualified by class so that a method
+        /// name reused across classes is not a duplicate
+        declared: Vec<String>,
+        /// the class currently being scanned, if any
+        current_class: Option<String>,
+    }
+
+    pub(super) fn check(vpx: &VPX, findings: &mut Vec<Finding>) {
+        let script = &vpx.gamedata.code.string;
+        if script.trim().is_empty() {
+            return;
+        }
+        let items = match Parser::new(script).file() {
+            Ok(items) => items,
+            Err(e) => {
+                findings.push(Finding::ScriptParseError {
+                    detail: format!("{e:?}"),
+                });
+                return;
+            }
+        };
+
+        let mut scan = Scan::default();
+        scan.items(&items);
+
+        if !scan.option_explicit {
+            findings.push(Finding::MissingOptionExplicit);
+        }
+
+        let mut seen: HashSet<String> = HashSet::new();
+        for name in &scan.declared {
+            if !seen.insert(name.to_lowercase()) {
+                findings.push(Finding::DuplicateProcedure { name: name.clone() });
+            }
+        }
+
+        // only bare Execute, like vpinball: it evaluates runtime-built code
+        // and can stutter in game logic. ExecuteGlobal is normal at load time
+        // (tables inject their controller and backglass scripts with it), so
+        // flagging it would be noise
+        if scan.identifiers.contains("execute") {
+            findings.push(Finding::ExecuteUsed);
+        }
+
+        let timers: HashSet<String> = vpx
+            .gameitems
+            .iter()
+            .filter_map(|item| match item {
+                GameItemEnum::Timer(timer) => Some(timer.name.to_lowercase()),
+                _ => None,
+            })
+            .collect();
+
+        let uses_vpm =
+            scan.identifiers.contains("loadvpm") || scan.identifiers.contains("loadvpmalt");
+        if uses_vpm {
+            if !timers.contains("pinmametimer") {
+                findings.push(Finding::MissingPinMameTimer);
+            }
+            if !scan.identifiers.contains("vpminit") {
+                findings.push(Finding::MissingVpmInit);
+            }
+        }
+        if scan.identifiers.contains("vpmtimer") && !timers.contains("pulsetimer") {
+            findings.push(Finding::MissingPulseTimer);
+        }
+    }
+
+    impl Scan {
+        fn items(&mut self, items: &[Item]) {
+            for item in items {
+                match item {
+                    Item::OptionExplicit => self.option_explicit = true,
+                    Item::Class { name, methods, .. } => {
+                        self.current_class = Some(name.clone());
+                        self.stmts(methods);
+                        self.current_class = None;
+                    }
+                    Item::Statement(stmt) => self.stmt(stmt),
+                    Item::Const { .. } | Item::Variable { .. } => {}
+                }
+            }
+        }
+
+        fn stmts(&mut self, stmts: &[Stmt]) {
+            for stmt in stmts {
+                self.stmt(stmt);
+            }
+        }
+
+        fn stmt(&mut self, stmt: &Stmt) {
+            match stmt {
+                Stmt::Sub { name, body, .. } | Stmt::Function { name, body, .. } => {
+                    let qualified = match &self.current_class {
+                        Some(class) => format!("{class}.{name}"),
+                        None => name.clone(),
+                    };
+                    self.declared.push(qualified);
+                    self.stmts(body);
+                }
+                Stmt::Assignment { full_ident, value } => {
+                    self.full_ident(full_ident);
+                    self.expr(value);
+                }
+                Stmt::Set { var, rhs } => {
+                    self.full_ident(var);
+                    if let vbscript::parser::ast::SetRhs::Expr(e) = rhs {
+                        self.expr(e);
+                    }
+                }
+                Stmt::SubCall { fn_name, args } => {
+                    self.full_ident(fn_name);
+                    self.args(args);
+                }
+                Stmt::Call(fi) => self.full_ident(fi),
+                Stmt::IfStmt {
+                    condition,
+                    body,
+                    elseif_statements,
+                    else_stmt,
+                } => {
+                    self.expr(condition);
+                    self.stmts(body);
+                    for (cond, block) in elseif_statements {
+                        self.expr(cond);
+                        self.stmts(block);
+                    }
+                    if let Some(block) = else_stmt {
+                        self.stmts(block);
+                    }
+                }
+                Stmt::WhileStmt { condition, body } => {
+                    self.expr(condition);
+                    self.stmts(body);
+                }
+                Stmt::ForStmt {
+                    start,
+                    end,
+                    step,
+                    body,
+                    ..
+                } => {
+                    self.expr(start);
+                    self.expr(end);
+                    if let Some(step) = step {
+                        self.expr(step);
+                    }
+                    self.stmts(body);
+                }
+                Stmt::ForEachStmt { group, body, .. } => {
+                    self.expr(group);
+                    self.stmts(body);
+                }
+                Stmt::DoLoop { body, .. } => self.stmts(body),
+                Stmt::SelectCase {
+                    test_expr,
+                    cases,
+                    else_stmt,
+                } => {
+                    self.expr(test_expr);
+                    for case in cases {
+                        self.stmts(&case.body);
+                    }
+                    if let Some(block) = else_stmt {
+                        self.stmts(block);
+                    }
+                }
+                Stmt::With { object, body } => {
+                    self.full_ident(object);
+                    self.stmts(body);
+                }
+                _ => {}
+            }
+        }
+
+        fn args(&mut self, args: &[Option<Expr>]) {
+            for arg in args.iter().flatten() {
+                self.expr(arg);
+            }
+        }
+
+        fn full_ident(&mut self, fi: &FullIdent) {
+            self.expr(&fi.0);
+        }
+
+        fn expr(&mut self, expr: &Expr) {
+            match expr {
+                Expr::Ident(name) => {
+                    self.identifiers.insert(name.to_lowercase());
+                }
+                Expr::New(name) => {
+                    self.identifiers.insert(name.to_lowercase());
+                }
+                Expr::MemberExpression { base, property } => {
+                    self.expr(base);
+                    self.identifiers.insert(property.to_lowercase());
+                }
+                Expr::FnApplication { callee, args } => {
+                    self.expr(callee);
+                    self.args(args);
+                }
+                Expr::PrefixOp { expr, .. } => self.expr(expr),
+                Expr::InfixOp { lhs, rhs, .. } => {
+                    self.expr(lhs);
+                    self.expr(rhs);
+                }
+                Expr::Literal(_) | Expr::WithScoped => {}
+            }
+        }
     }
 }
