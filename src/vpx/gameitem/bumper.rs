@@ -13,33 +13,123 @@ pub struct Bumper {
     /// Must be unique across all bumpers in the playfield.
     /// BIFF tag: `NAME`
     pub name: String,
+    /// Center position of the bumper on the playfield, in VP units (x, y).
+    /// The base, cap, ring and skirt meshes and the collision circle are all
+    /// placed here; the Z base height is taken from `surface`.
+    ///
+    /// BIFF tag: `VCEN`
     pub center: Vertex2D,
+    /// Radius of the bumper in VP units. Default `45.0`.
+    ///
+    /// Scales the base/cap/ring/skirt meshes in x and y and sets the radius of
+    /// the collision circle.
+    ///
+    /// BIFF tag: `RADI`
     pub radius: f32,
+    /// Minimum ball speed required for the bumper to react (kick the ball back
+    /// and fire its hit event). Default `1.0`. Physics property.
+    ///
+    /// BIFF tag: `THRS`
     pub threshold: f32,
+    /// Force with which the bumper kicks the ball away on a hit. Default `15.0`.
+    /// Physics property.
+    ///
+    /// BIFF tag: `FORC`
     pub force: f32,
-    // BSCT (added in ?)
+    /// Scatter angle in degrees, applied randomly to the kick direction on each
+    /// hit (converted to radians via `ANGTORAD` when handed to the hit circle).
+    /// Optional (added later); treated as `0.0` when absent. Physics property.
+    ///
+    /// BIFF tag: `BSCT`
     pub scatter: Option<f32>,
+    /// Vertical scale (height) of the bumper in VP units. Default `90.0`.
+    ///
+    /// Multiplies the mesh Z coordinates and sets the top of the collision
+    /// cylinder (`base_height + height_scale`). Also feeds the ring drop
+    /// animation limit (`ring_drop_offset + height_scale * 0.5`).
+    ///
+    /// BIFF tag: `HISC`
     pub height_scale: f32,
+    /// Speed of the ring drop/return animation, in offset units per
+    /// millisecond. Default `0.5`.
+    ///
+    /// BIFF tag: `RISP`
     pub ring_speed: f32,
+    /// Rotation of the bumper around the Z axis, in degrees. Default `0.0`.
+    /// Applied (via `ANGTORAD`) as a Z rotation to all meshes.
+    ///
+    /// BIFF tag: `ORIN`
     pub orientation: f32,
-    // RDLI (added in ?)
+    /// Extra downward distance the ring drops during the hit animation, in VP
+    /// units; added to `height_scale * 0.5` to form the ring animation limit.
+    /// Optional (added later); treated as `0.0` when absent. Not editable
+    /// through the normal defaults (always reset to `0.0` there); exposed via
+    /// the script API.
+    ///
+    /// BIFF tag: `RDLI`
     pub ring_drop_offset: Option<f32>,
+    /// Material name for the cap mesh (the translucent dome on top). References
+    /// a material in the table's material list.
+    ///
+    /// BIFF tag: `MATR`
     pub cap_material: String,
+    /// Material name for the base mesh (the fixed disc the bumper sits on).
+    /// References a material in the table's material list.
+    ///
+    /// BIFF tag: `BAMA`
     pub base_material: String,
+    /// Material name for the skirt mesh (the collar around the base that tilts
+    /// toward the ball on a hit). Named "socket" here but maps to VPinball's
+    /// skirt material (`m_szSkirtMaterial`).
+    ///
+    /// BIFF tag: `SKMA`
     pub socket_material: String,
-    // RIMA (added in ?)
+    /// Material name for the ring mesh (the ring that drops on a hit). Optional
+    /// (added later); an empty/absent value falls back to a default ring
+    /// material.
+    ///
+    /// BIFF tag: `RIMA`
     pub ring_material: Option<String>,
     /// The name of the surface (wall, ramp, or empty for playfield) that this bumper sits on.
     /// Used to determine the Z height of the bumper via `GetSurfaceHeight()`.
     ///
     /// BIFF tag: `SURF`
     pub surface: String,
+    /// Whether the cap mesh (the dome on top) is rendered. Default `true`.
+    ///
+    /// BIFF tag: `CAVI`
     pub is_cap_visible: bool,
+    /// Whether the base mesh is rendered. Default `true`.
+    ///
+    /// For backward compatibility, loading a pre-10.2 `BSVS` tag also copies
+    /// this value into ring and skirt visibility, and the old VP9 `BVIS` tag
+    /// set cap, base, ring and skirt visibility all at once.
+    ///
+    /// BIFF tag: `BSVS`
     pub is_base_visible: bool,
-    pub is_ring_visible: Option<bool>,   // RIVS (added in ?)
-    pub is_socket_visible: Option<bool>, // SKVS (added in ?)
-    pub hit_event: Option<bool>,         // HAHE (added in ?)
-    pub is_collidable: Option<bool>,     // COLI (added in ?)
+    /// Whether the ring mesh (the animated ring that drops on a hit) is
+    /// rendered. Optional (added in 10.2); defaults to `true`. In pre-10.2
+    /// tables ring visibility fell back to `is_base_visible`.
+    ///
+    /// BIFF tag: `RIVS`
+    pub is_ring_visible: Option<bool>,
+    /// Whether the skirt mesh (the tilting collar; "socket" here) is rendered.
+    /// Optional (added in 10.2); defaults to `true`. Maps to VPinball's
+    /// `m_skirtVisible`. In pre-10.2 tables it fell back to `is_base_visible`.
+    ///
+    /// BIFF tag: `SKVS`
+    pub is_socket_visible: Option<bool>,
+    /// Whether the bumper fires a `Hit` scripting event when struck. Optional
+    /// (added later); defaults to `true`.
+    ///
+    /// BIFF tag: `HAHE`
+    pub hit_event: Option<bool>,
+    /// Whether the bumper physically collides with the ball. Optional (added
+    /// later); defaults to `true`. When `false` the bumper is still rendered
+    /// but the ball passes through it (a non-collidable hit circle is used).
+    ///
+    /// BIFF tag: `COLI`
+    pub is_collidable: Option<bool>,
     /// Whether this bumper appears in playfield reflections.
     ///
     /// When `true`, the ball is rendered in the reflection pass.
@@ -52,11 +142,25 @@ pub struct Bumper {
     /// See [`TimerData`] for details.
     pub timer: TimerData,
 
-    // these are shared between all items
+    /// Whether the item is locked in the editor to prevent accidental
+    /// moving or editing. Editor-only; has no runtime effect.
+    ///
+    /// BIFF tag: `LOCK`
     pub is_locked: bool,
+    /// Legacy editor layer index. Removed in 10.8.1, superseded by part
+    /// groups (see `part_group_name`). `None` when absent.
+    ///
+    /// BIFF tag: `LAYR`
     pub editor_layer: Option<u32>,
+    /// Display name of the legacy editor layer; defaults to
+    /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
+    ///
+    /// BIFF tag: `LANR`
     pub editor_layer_name: Option<String>,
-    // default "Layer_{editor_layer + 1}"
+    /// Whether the legacy editor layer is shown in the editor.
+    /// Editor-only; has no runtime effect. `None` when absent.
+    ///
+    /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
     pub part_group_name: Option<String>,

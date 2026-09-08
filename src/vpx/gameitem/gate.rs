@@ -136,26 +136,105 @@ pub struct Gate {
     pub name: String,
     /// BIFF tag: `VCEN`
     pub center: Vertex2D,
-    pub length: f32,          // 2 LGTH
-    pub height: f32,          // 3 HGTH
-    pub rotation: f32,        // 4 ROTA
-    pub material: String,     // 5 MATR
-    pub show_bracket: bool,   // 7 GSUP
-    pub is_collidable: bool,  // 8 GCOL
-    pub imgf: Option<String>, // IMGF (was in use in 10.01)
-    pub imgb: Option<String>, // IMGB (was in use in 10.01)
+    /// Length of the gate in VP units. Scales the wire/plate mesh and sets the
+    /// half-length of the collision line segment.
+    ///
+    /// Default: `100.0`
+    ///
+    /// BIFF tag: `LGTH`
+    pub length: f32,
+    /// Height of the gate above its base surface, in VP units.
+    /// Also determines the top of the bracket collision posts (base .. base + height).
+    ///
+    /// Default: `50.0`
+    ///
+    /// BIFF tag: `HGTH`
+    pub height: f32,
+    /// Rotation of the gate around the Z axis, in degrees.
+    ///
+    /// Default: `-90.0`
+    ///
+    /// BIFF tag: `ROTA`
+    pub rotation: f32,
+    /// Name of the material used to render the gate's wire/plate and bracket.
+    ///
+    /// BIFF tag: `MATR`
+    pub material: String,
+    /// Whether the bracket (support posts) is rendered. When true, two collision
+    /// circles are also added at the ends of the gate.
+    ///
+    /// Default: `true`
+    ///
+    /// BIFF tag: `GSUP`
+    pub show_bracket: bool,
+    /// Whether the gate collides with the ball.
+    ///
+    /// Default: `true`
+    ///
+    /// BIFF tag: `GCOL`
+    pub is_collidable: bool,
+    /// Legacy front image that was used in Visual Pinball 10.01 and is no longer
+    /// read or written by current builds. Kept optional so old files round-trip.
+    ///
+    /// BIFF tag: `IMGF`
+    pub imgf: Option<String>,
+    /// Legacy back image that was used in Visual Pinball 10.01 and is no longer
+    /// read or written by current builds. Kept optional so old files round-trip.
+    ///
+    /// BIFF tag: `IMGB`
+    pub imgb: Option<String>,
     /// Name of the surface (ramp or wall top) this gate sits on.
     /// Used to determine the gate's base height (z position).
     /// If empty, the gate sits on the playfield.
     /// BIFF tag: `SURF`
     pub surface: String,
-    pub elasticity: f32,             // 11 ELAS
-    pub angle_max: f32,              // 12 GAMA
-    pub angle_min: f32,              // 13 GAMI
-    pub friction: f32,               // 14 GFRC
-    pub damping: Option<f32>,        // 15 AFRC (added in 10.?)
-    pub gravity_factor: Option<f32>, // 16 GGFC (added in 10.?)
-    pub is_visible: bool,            // 17 GVSB
+    /// Bounciness of the gate's blocking line segment (one-way gates).
+    ///
+    /// Default: `0.3`
+    ///
+    /// BIFF tag: `ELAS`
+    pub elasticity: f32,
+    /// Maximum swing angle of the gate, in radians. At physics setup the min/max
+    /// pair is normalized (swapped if inverted). The COM API exposes this as the
+    /// open angle in degrees.
+    ///
+    /// Default: `PI / 2` (90 degrees)
+    ///
+    /// BIFF tag: `GAMA`
+    pub angle_max: f32,
+    /// Minimum (closed) swing angle of the gate, in radians. Forced to `0` when
+    /// the gate is collidable. The COM API exposes this as the close angle in
+    /// degrees.
+    ///
+    /// Default: `0.0`
+    ///
+    /// BIFF tag: `GAMI`
+    pub angle_min: f32,
+    /// Friction coefficient of the gate. Clamped to `0.0..=1.0` by the script
+    /// setter.
+    ///
+    /// Default: `0.02`
+    ///
+    /// BIFF tag: `GFRC`
+    pub friction: f32,
+    /// Damping (anti-friction) factor of the gate's swing. Clamped to `0.0..=1.0`
+    /// and raised to `PHYS_FACTOR` at runtime. Optional so old files that omit
+    /// the tag round-trip; Visual Pinball's default is `0.985`.
+    ///
+    /// BIFF tag: `AFRC`
+    pub damping: Option<f32>,
+    /// Gravity factor applied to the gate's swing. Clamped to `0.0..=100.0` by the
+    /// script setter. Optional so old files that omit the tag round-trip;
+    /// Visual Pinball's default is `0.25`.
+    ///
+    /// BIFF tag: `GGFC`
+    pub gravity_factor: Option<f32>,
+    /// Whether the gate is rendered.
+    ///
+    /// Default: `true`
+    ///
+    /// BIFF tag: `GVSB`
+    pub is_visible: bool,
 
     /// Whether the gate can swing in both directions.
     ///
@@ -189,11 +268,25 @@ pub struct Gate {
     /// See [`TimerData`] for details.
     pub timer: TimerData,
 
-    // these are shared between all items
+    /// Whether the item is locked in the editor to prevent accidental
+    /// moving or editing. Editor-only; has no runtime effect.
+    ///
+    /// BIFF tag: `LOCK`
     pub is_locked: bool,
+    /// Legacy editor layer index. Removed in 10.8.1, superseded by part
+    /// groups (see `part_group_name`). `None` when absent.
+    ///
+    /// BIFF tag: `LAYR`
     pub editor_layer: Option<u32>,
+    /// Display name of the legacy editor layer; defaults to
+    /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
+    ///
+    /// BIFF tag: `LANR`
     pub editor_layer_name: Option<String>,
-    // default "Layer_{editor_layer + 1}"
+    /// Whether the legacy editor layer is shown in the editor.
+    /// Editor-only; has no runtime effect. `None` when absent.
+    ///
+    /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
     pub part_group_name: Option<String>,
@@ -242,6 +335,8 @@ pub(crate) struct GateJson {
     rotation: f32,
     material: String,
     #[serde(flatten)]
+    /// Timer state (enabled flag and interval in ms) that drives this
+    /// item's script `_Timer` events. See [`TimerData`].
     pub timer: TimerData,
     show_bracket: bool,
     is_collidable: bool,

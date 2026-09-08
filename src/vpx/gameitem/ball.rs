@@ -158,10 +158,31 @@ pub struct Ball {
     pub timer: TimerData,
 
     // these are shared between all items
+    /// Whether the item is locked in the editor to prevent accidental
+    /// selection or movement. Editor-only; has no effect at runtime.
+    ///
+    /// BIFF tag: `LOCK`
     pub is_locked: bool,
+    /// Legacy editor layer index this item belongs to. Superseded by part
+    /// groups (`part_group_name`) in 10.8.1 and no longer written by newer
+    /// versions. `None` when absent.
+    ///
+    /// BIFF tag: `LAYR`
     pub editor_layer: Option<u32>,
+    /// Display name of the legacy editor layer. Defaults to
+    /// `"Layer_{editor_layer + 1}"` when unset. `None` when absent.
+    ///
+    /// BIFF tag: `LANR`
     pub editor_layer_name: Option<String>,
+    /// Whether the legacy editor layer is visible in the editor. `None` when
+    /// absent. Editor-only; has no effect at runtime.
+    ///
+    /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>,
+    /// Name of the part group this item belongs to (added in 10.8.1,
+    /// replacing editor layers). `None` for tables written by older versions.
+    ///
+    /// BIFF tag: `GRUP`
     pub part_group_name: Option<String>,
 }
 impl_shared_attributes!(Ball);
@@ -181,6 +202,8 @@ struct BallJson {
     spherical_mapping: bool,
     is_reflection_enabled: bool,
     #[serde(flatten)]
+    /// Timer state (enabled flag and interval in ms) that drives this
+    /// item's script `_Timer` events. See [`TimerData`].
     pub timer: TimerData,
     name: String,
     #[serde(skip_serializing_if = "Option::is_none")]

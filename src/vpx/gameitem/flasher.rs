@@ -656,13 +656,13 @@ pub struct Flasher {
     pub image_src_link: Option<String>,
     /// Whether to display the texture in the VPinball editor preview.
     /// This does NOT affect runtime rendering — textures are always rendered if set.
-    /// Also used on: [`Wall`], [`Primitive`].
+    /// Also used on: [`Wall`](crate::vpx::gameitem::wall::Wall), [`Primitive`](crate::vpx::gameitem::primitive::Primitive).
     /// BIFF tag: `DSPT`
     pub display_texture: bool,
     /// Offset applied when depth-sorting transparent and overlapping objects.
     /// Higher values move the object "further away" in the sort order, causing it
     /// to render behind objects with lower bias.
-    /// Also used on: [`Primitive`], [`Ramp`], [`Light`], [`HitTarget`].
+    /// Also used on: [`Primitive`](crate::vpx::gameitem::primitive::Primitive), [`Ramp`](crate::vpx::gameitem::ramp::Ramp), [`Light`](crate::vpx::gameitem::light::Light), [`HitTarget`](crate::vpx::gameitem::hittarget::HitTarget).
     /// BIFF tag: `FLDB`
     pub depth_bias: f32,
     /// Controls how the texture is mapped onto the flasher polygon.
@@ -670,7 +670,7 @@ pub struct Flasher {
     /// - [`Wrap`](RampImageAlignment::Wrap): UVs are based on the flasher bounding box
     ///   (texture is stretched to fit).
     ///
-    /// Also used on: [`Ramp`].
+    /// Also used on: [`Ramp`](crate::vpx::gameitem::ramp::Ramp).
     /// BIFF tag: `ALGN`
     pub image_alignment: RampImageAlignment,
     /// Blend mode used when combining image_a and image_b.

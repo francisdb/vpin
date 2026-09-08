@@ -246,7 +246,7 @@ pub struct Primitive {
 
     /// Whether to display the texture in the VPinball editor preview.
     /// This does NOT affect runtime rendering - textures are always
-    /// rendered if set. Also used on: [`Flasher`], [`Wall`].
+    /// rendered if set. Also used on: [`Flasher`](crate::vpx::gameitem::flasher::Flasher), [`Wall`](crate::vpx::gameitem::wall::Wall).
     ///
     /// BIFF tag: `DIPT`
     pub display_texture: Option<bool>,
@@ -328,7 +328,7 @@ pub struct Primitive {
     /// Offset applied when depth-sorting transparent and overlapping
     /// objects. Higher values move the object "further away" in the
     /// sort order, causing it to render behind objects with lower bias.
-    /// Also used on: [`Flasher`], [`Ramp`], [`Light`], [`HitTarget`].
+    /// Also used on: [`Flasher`](crate::vpx::gameitem::flasher::Flasher), [`Ramp`](crate::vpx::gameitem::ramp::Ramp), [`Light`](crate::vpx::gameitem::light::Light), [`HitTarget`](crate::vpx::gameitem::hittarget::HitTarget).
     ///
     /// BIFF tag: `PIDB`
     pub depth_bias: f32,
@@ -386,13 +386,39 @@ pub struct Primitive {
     pub refraction_thickness: Option<f32>,
 
     // these are shared between all items
+    /// Editor-only lock flag shared by all game items. When `true`, the
+    /// item is locked in the vpinball editor so it can't be selected or
+    /// moved by mistake; it has no effect at runtime.
+    ///
+    /// BIFF tag: `LOCK`
     pub is_locked: bool,
+
+    /// Editor-only layer index this item belongs to (0-based). Used only
+    /// for grouping in the vpinball editor's layer panel; has no runtime
+    /// effect. `None` for tables saved before layers were added.
+    ///
+    /// BIFF tag: `LAYR`
     pub editor_layer: Option<u32>,
+
+    /// Editor-only display name of the layer this item belongs to.
+    /// `None` falls back to `"Layer_{editor_layer + 1}"`. Editor grouping
+    /// only; no runtime effect.
+    ///
+    /// BIFF tag: `LANR`
     pub editor_layer_name: Option<String>,
-    // default "Layer_{editor_layer + 1}"
+
+    /// Editor-only visibility toggle for this item's layer. Controls
+    /// whether the item is shown in the vpinball editor, not at runtime.
+    /// `None` for tables saved before this flag was added.
+    ///
+    /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>,
 
-    /// Added in 10.8.1
+    /// Name of the part group this item belongs to (vpinball's newer
+    /// grouping mechanism that supersedes editor layers). Editor
+    /// organization only; no runtime effect. Added in 10.8.1.
+    ///
+    /// BIFF tag: `GRUP`
     pub part_group_name: Option<String>,
 }
 impl_shared_attributes!(Primitive);
@@ -522,7 +548,10 @@ struct PrimitiveJson {
 /// TODO only keep this data around if we know we had NaNs in the source data
 #[derive(Debug, Clone, PartialEq)]
 pub struct VertexWrapper {
+    /// The original 32-byte encoded vertex from the vpx file, kept verbatim so
+    /// values that decode to NaN (see the type doc) round-trip exactly.
     pub vpx_encoded_vertex: [u8; 32],
+    /// The decoded vertex (position, texture coordinates and normal).
     pub vertex: Vertex3dNoTex2,
 }
 impl VertexWrapper {
@@ -534,8 +563,11 @@ impl VertexWrapper {
     }
 }
 
+/// A primitive mesh decoded from its compressed vertex and index buffers.
 pub struct ReadMesh {
+    /// The mesh vertices, each keeping its original encoded bytes for fidelity.
     pub vertices: Vec<VertexWrapper>,
+    /// The triangle faces, three vertex indices each.
     pub indices: Vec<VpxFace>,
 }
 
@@ -601,7 +633,7 @@ impl Primitive {
     /// VPinball identifies the playfield purely by name — there is no explicit
     /// flag or field. Any primitive named `"playfield_mesh"` (case-insensitive)
     /// is treated as the playfield and has the table-level
-    /// [`GameData::image`] and [`GameData::playfield_material`] applied
+    /// `GameData::image` and `GameData::playfield_material` applied
     /// automatically at render time.
     ///
     /// From VPinball `primitive.h`:
@@ -1250,11 +1282,17 @@ fn read_vertex(buffer: &mut BytesMut) -> VertexWrapper {
 /// This struct is used for serializing and deserializing in the vpinball C++ code
 #[derive(Debug, Clone, Copy)]
 pub struct VertData {
+    /// Vertex X position in VP units.
     pub x: f32,
+    /// Vertex Y position in VP units.
     pub y: f32,
+    /// Vertex Z position in VP units.
     pub z: f32,
+    /// Normal X component.
     pub nx: f32,
+    /// Normal Y component.
     pub ny: f32,
+    /// Normal Z component.
     pub nz: f32,
 }
 impl VertData {
