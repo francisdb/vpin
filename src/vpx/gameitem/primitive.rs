@@ -546,11 +546,16 @@ impl Primitive {
                 let raw_vertices = decompress_mesh_data(vertices_data)?;
                 let indices = decompress_mesh_data(indices_data)?;
                 let calculated_num_vertices = raw_vertices.len() / BYTES_PER_VERTEX;
-                assert_eq!(
-                    calculated_num_vertices,
-                    self.num_vertices.unwrap_or(0) as usize,
-                    "Vertices count mismatch"
-                );
+                let expected_vertices = self.num_vertices.unwrap_or(0) as usize;
+                if calculated_num_vertices != expected_vertices {
+                    return Err(WriteError::Io(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!(
+                            "Primitive {} declares {expected_vertices} vertices but its mesh data holds {calculated_num_vertices}",
+                            self.name
+                        ),
+                    )));
+                }
 
                 let calculated_num_indices =
                     if calculated_num_vertices > MAX_VERTICES_FOR_2_BYTE_INDEX {
@@ -558,11 +563,16 @@ impl Primitive {
                     } else {
                         indices.len() / 2
                     };
-                assert_eq!(
-                    calculated_num_indices,
-                    self.num_indices.unwrap_or(0) as usize,
-                    "Indices count mismatch"
-                );
+                let expected_indices = self.num_indices.unwrap_or(0) as usize;
+                if calculated_num_indices != expected_indices {
+                    return Err(WriteError::Io(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!(
+                            "Primitive {} declares {expected_indices} indices but its mesh data holds {calculated_num_indices}",
+                            self.name
+                        ),
+                    )));
+                }
                 let num_vertices = raw_vertices.len() / 32;
                 let bytes_per_index: u8 = if num_vertices > MAX_VERTICES_FOR_2_BYTE_INDEX {
                     4
