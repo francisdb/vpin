@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.1](https://github.com/francisdb/vpin/compare/v0.31.0...v0.31.1) - 2026-09-08
+
+### Other
+
+- build docs and fail on broken links
+- document all game item struct fields
+
 ## [0.31.0](https://github.com/francisdb/vpin/compare/v0.30.0...v0.31.0) - 2026-09-08
 
 ### Added
