@@ -85,7 +85,7 @@ pub struct Wall {
     pub height_top: f32,
     /// Whether to display the top image texture in the VPinball editor preview.
     /// This does NOT affect runtime rendering - textures are always rendered if set.
-    /// See: https://github.com/vpinball/vpinball/blob/master/src/parts/surface.h
+    /// See <https://github.com/vpinball/vpinball/blob/master/src/parts/surface.h>
     pub display_texture: bool,
     /// Strength of the slingshot kick. Default: `80.0`. The COM
     /// `SlingshotStrength` property exposes this value divided by 10, and the

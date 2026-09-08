@@ -174,7 +174,7 @@ pub struct Primitive {
     pub is_toy: bool,
 
     /// Switches between the procedural builtin primitive (`false`,
-    /// see [`crate::vpx::mesh::builtin_primitive`]) and a 3D mesh
+    /// see `crate::vpx::mesh::builtin_primitive`) and a 3D mesh
     /// loaded from the M3CX/M3CI chunks.
     ///
     /// BIFF tag: `U3DM`
