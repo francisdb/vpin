@@ -153,11 +153,16 @@ pub(super) fn write_images<P: AsRef<Path>>(
                         "Writing BMP data (compressed size: {} bytes)",
                         bits.lzw_compressed_data.len()
                     );
-                    assert_eq!(
-                        image.ext().to_ascii_lowercase(),
-                        "bmp",
-                        "Images stored as bits should have the extension .bmp"
-                    );
+                    if !image.ext().eq_ignore_ascii_case("bmp") {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!(
+                                "Image '{}' is stored as a bitmap but has extension {:?}, expected bmp",
+                                image_file_name,
+                                image.ext()
+                            ),
+                        ));
+                    }
 
                     write_image_bmp(
                         &file_path,
