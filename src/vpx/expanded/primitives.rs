@@ -702,6 +702,18 @@ pub(super) fn read_gameitem_binaries(
         } else if fs.exists(&gltf_path) {
             Some(PrimitiveMeshFormat::Gltf)
         } else {
+            // a primitive that declares a mesh must have a sidecar file,
+            // otherwise the mesh would silently be dropped
+            if primitive.use_3d_mesh {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!(
+                        "Primitive {:?} uses a 3D mesh but no mesh file was found, expected {}",
+                        primitive.name,
+                        obj_path.display()
+                    ),
+                ));
+            }
             None
         };
 

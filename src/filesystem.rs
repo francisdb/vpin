@@ -41,12 +41,14 @@ impl FileSystem for RealFileSystem {
     }
 
     fn open_file(&self, path: &Path) -> io::Result<Box<dyn Read>> {
-        let file = File::open(path)?;
+        let file = File::open(path)
+            .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", path.display())))?;
         Ok(Box::new(file))
     }
 
     fn read_file(&self, path: &Path) -> io::Result<Vec<u8>> {
         std::fs::read(path)
+            .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", path.display())))
     }
 
     fn write_file(&self, path: &Path, data: &[u8]) -> io::Result<()> {

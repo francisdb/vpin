@@ -45,6 +45,7 @@ use self::sound::SoundData;
 use self::version::{read_version, write_version};
 
 /// Internal BIFF record reading and writing
+pub mod audit;
 pub(crate) mod biff;
 pub mod collection;
 pub mod color;

@@ -39,6 +39,20 @@ const VPX_FILE_MAP_TS: &'static str = r#"
  * Produced by `extract`, consumed by `assemble` and `export_glb`.
  */
 export type VpxFileMap = Record<string, Uint8Array>;
+
+/**
+ * Progress callback: receives a human readable status message while a
+ * long running operation works through a table.
+ */
+export type ProgressCallback = (message: string) => void;
+
+/**
+ * One table consistency finding reported by `audit`.
+ */
+export type AuditFinding = {
+  severity: "error" | "warning" | "suggestion";
+  message: string;
+};
 "#;
 
 #[wasm_bindgen]
@@ -48,11 +62,21 @@ extern "C" {
     /// TypeScript side as the `VpxFileMap` alias above.
     #[wasm_bindgen(typescript_type = "VpxFileMap", extends = js_sys::Object)]
     pub type VpxFileMap;
+
+    /// A `(message: string) => void` progress callback, typed on the
+    /// TypeScript side as the `ProgressCallback` alias above.
+    #[wasm_bindgen(typescript_type = "ProgressCallback", extends = js_sys::Function)]
+    pub type ProgressCallback;
+
+    /// The findings array returned by [`audit`], typed on the TypeScript
+    /// side as `AuditFinding[]`.
+    #[wasm_bindgen(typescript_type = "AuditFinding[]", extends = js_sys::Array)]
+    pub type AuditFindings;
 }
 
 #[wasm_bindgen]
-pub fn extract(data: &[u8], callback: Option<js_sys::Function>) -> Result<VpxFileMap, JsError> {
-    set_progress_callback(callback);
+pub fn extract(data: &[u8], callback: Option<ProgressCallback>) -> Result<VpxFileMap, JsError> {
+    set_progress_callback(callback.map(Into::into));
 
     emit_progress("Parsing VPX file...");
     let vpx_data = vpx::from_bytes(data).map_err(|e| {
@@ -145,9 +169,60 @@ fn file_map_to_fs_filtered(
     Ok(fs)
 }
 
+/// One table consistency finding, see [`crate::vpx::audit`]
+#[derive(serde::Serialize)]
+pub struct AuditFinding {
+    /// "warning" or "suggestion"
+    pub severity: String,
+    /// Human readable description of the finding
+    pub message: String,
+}
+
+/// Checks the expanded table files for consistency problems: references to
+/// images, materials, surfaces or collection items that do not exist,
+/// duplicate or over-long names, and storage suggestions. Returns an array
+/// of `{severity, message}` objects, empty when the table is clean.
 #[wasm_bindgen]
-pub fn assemble(files: VpxFileMap, callback: Option<js_sys::Function>) -> Result<Vec<u8>, JsError> {
-    set_progress_callback(callback);
+pub fn audit(
+    files: VpxFileMap,
+    callback: Option<ProgressCallback>,
+) -> Result<AuditFindings, JsError> {
+    set_progress_callback(callback.map(Into::into));
+
+    emit_progress("Reading files...");
+    let fs = file_map_to_fs(&files).inspect_err(|_| {
+        set_progress_callback(None);
+    })?;
+
+    emit_progress("Assembling VPX...");
+    let root_dir = "/vpx".to_string();
+    let vpx_data = read_fs(&root_dir, &fs).map_err(|e| {
+        set_progress_callback(None);
+        JsError::new(&format!("Failed to assemble VPX: {}", e))
+    })?;
+
+    emit_progress("Auditing...");
+    let findings: Vec<AuditFinding> = crate::vpx::audit::audit(&vpx_data)
+        .iter()
+        .map(|finding| AuditFinding {
+            severity: match finding.severity() {
+                crate::vpx::audit::Severity::Suggestion => "suggestion".to_string(),
+                crate::vpx::audit::Severity::Error => "error".to_string(),
+                _ => "warning".to_string(),
+            },
+            message: finding.to_string(),
+        })
+        .collect();
+
+    set_progress_callback(None);
+    let value = serde_wasm_bindgen::to_value(&findings)
+        .map_err(|e| JsError::new(&format!("Failed to serialize findings: {}", e)))?;
+    Ok(value.unchecked_into())
+}
+
+#[wasm_bindgen]
+pub fn assemble(files: VpxFileMap, callback: Option<ProgressCallback>) -> Result<Vec<u8>, JsError> {
+    set_progress_callback(callback.map(Into::into));
 
     emit_progress("Reading files...");
     let fs = file_map_to_fs(&files).inspect_err(|_| {
@@ -298,7 +373,7 @@ struct GlbExportOptionsData {
 pub fn export_glb(
     files: VpxFileMap,
     options: Option<GlbExportOptions>,
-    callback: Option<js_sys::Function>,
+    callback: Option<ProgressCallback>,
 ) -> Result<Vec<u8>, JsError> {
     use crate::vpx::export::gltf_export::{GltfExportOptions, GltfFormat, export_gltf};
 
@@ -307,7 +382,7 @@ pub fn export_glb(
     let js: Option<&JsValue> = options.as_ref().map(|o| o.as_ref());
     let data: GlbExportOptionsData = parse_js_options(js)?;
 
-    set_progress_callback(callback);
+    set_progress_callback(callback.map(Into::into));
 
     emit_progress("Reading files...");
     // The exporter never reads sounds, so skip them to keep peak wasm
@@ -362,7 +437,7 @@ pub fn export_glb(
 pub fn export_obj(
     files: VpxFileMap,
     options: Option<ObjExportOptions>,
-    callback: Option<js_sys::Function>,
+    callback: Option<ProgressCallback>,
 ) -> Result<ObjExportFileMap, JsError> {
     use crate::vpx::export::obj_export::{ObjExportOptions as NativeOptions, export_obj};
 
@@ -377,7 +452,7 @@ pub fn export_obj(
         include_plunger: data.include_plunger.unwrap_or(defaults.include_plunger),
     };
 
-    set_progress_callback(callback);
+    set_progress_callback(callback.map(Into::into));
 
     emit_progress("Reading files...");
     let fs = file_map_to_fs_filtered(&files, |path| {

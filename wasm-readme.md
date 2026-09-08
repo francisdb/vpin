@@ -62,6 +62,30 @@ const vpxBytes = assemble(files, (message) => {
 
 **Returns:** `Uint8Array` - VPX file bytes
 
+### audit(files, callback?)
+
+Checks the expanded table files for consistency problems: references to
+images, materials, surfaces or collection items that do not exist, duplicate
+or over-long names, and storage suggestions. The checks themselves run in a
+few milliseconds even on very large tables, so it is fine to call this after
+every change; the cost is dominated by reading the files into a table.
+
+```typescript
+const findings = audit(files);
+for (const finding of findings) {
+  console.log(`${finding.severity}: ${finding.message}`);
+}
+// warning: Light "L18": placed on missing surface "!l68"
+// suggestion: image "chrome" is stored as a bitmap, consider converting to webp
+```
+
+**Parameters:**
+
+- `files: VpxFileMap` (`Record<string, Uint8Array>`) - file paths to contents
+- `callback?: (message: string) => void` - Optional progress callback
+
+**Returns:** `{severity: "warning" | "suggestion", message: string}[]` - empty when the table is clean
+
 ### export_glb(files, options?, callback?)
 
 Exports a whole table to a GLB (binary glTF 2.0) file. Takes the same

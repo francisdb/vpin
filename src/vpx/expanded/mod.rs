@@ -548,6 +548,7 @@ mod tests {
         let mut primitive: Primitive = Faker.fake();
         primitive.name = "test primitive".to_string();
         // keep the vertices and indices empty to work around compression errors on fake data
+        primitive.use_3d_mesh = false;
         primitive.num_vertices = None;
         primitive.num_indices = None;
         primitive.compressed_vertices_len = None;
@@ -780,6 +781,7 @@ mod tests {
         // NFC "ö" (U+00F6), the form found in real VPX files
         primitive.name = "PfL\u{00F6}cher".to_string();
         primitive.editor_layer_name = Some("Layer_1".to_string());
+        primitive.use_3d_mesh = false;
         primitive.num_vertices = None;
         primitive.num_indices = None;
         primitive.compressed_vertices_len = None;
