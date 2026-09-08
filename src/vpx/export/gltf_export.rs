@@ -1,8 +1,8 @@
 //! Whole-table GLTF/GLB export
 //!
 //! Reference implementations and resources:
-//! https://github.com/vpinball/vpinball
-//! https://github.com/vbousquet/vpx_lightmapper
+//! <https://github.com/vpinball/vpinball>
+//! <https://github.com/vbousquet/vpx_lightmapper>
 //!
 //! This module provides functionality to export an entire VPX table as a single
 //! GLTF/GLB file containing all meshes (primitives, walls, ramps, rubbers, flashers).
