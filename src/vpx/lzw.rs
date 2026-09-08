@@ -1,13 +1,19 @@
-//! LZW compression and decompression for BMP raw bitmaps stored compressed in vpx files
+//! LZW compression and decompression for the raw bitmap (`BITS`) image format.
 //!
-//! NOTE: Visual Pinball uses its own LZW implementation that differs slightly from the standard LZW
-//! implementation. However, Visual Pinball can also read the compressed data we produce.
+//! This format is deprecated: Visual Pinball stopped writing LZW-compressed
+//! bitmaps in 10.8.1 (`BITS` is now read only, for pre-10.8.1 tables) and
+//! stores images as webp, png or jpeg instead. So vpinball ships only a
+//! decoder now, and this module keeps an encoder mainly to round-trip the old
+//! streams unchanged. The [audit](crate::vpx::audit) suggests converting these
+//! images to webp.
 //!
-//! <https://github.com/vpinball/vpinball/blob/master/media/lzwwriter.h>
-//! <https://github.com/vpinball/vpinball/blob/master/media/lzwwriter.cpp>
+//! Visual Pinball uses its own LZW variant that differs slightly from the
+//! standard, but it can also read the standard stream this module produces.
 //!
-//! <https://github.com/freezy/VisualPinball.Engine/blob/master/VisualPinball.Engine/IO/LzwWriter.cs>
-//! <https://github.com/freezy/VisualPinball.Engine/blob/master/VisualPinball.Engine/IO/LzwReader.cs>
+//! - vpinball's decoder: <https://github.com/vpinball/vpinball/blob/master/src/utils/lzwreader.cpp>
+//! - a reference encoder/decoder pair:
+//!   <https://github.com/freezy/VisualPinball.Engine/blob/master/VisualPinball.Engine/IO/LzwWriter.cs>
+//!   <https://github.com/freezy/VisualPinball.Engine/blob/master/VisualPinball.Engine/IO/LzwReader.cs>
 
 use std::io;
 use weezl::BitOrder;
