@@ -156,6 +156,10 @@ pub enum Finding {
     FastTimer { item: String, interval: i32 },
     /// A light has a negative intensity
     NegativeLightIntensity { item: String },
+    /// A primitive is marked static, which bakes it at load, while the
+    /// script refers to it; most of its properties cannot change at
+    /// runtime then (reading them is fine)
+    StaticPrimitiveInScript { item: String },
     /// A sound plays on the playfield speakers but is not mono
     StereoTableSound { sound: String },
     /// The embedded screenshot is large; it bloats the file and every save
@@ -418,6 +422,10 @@ impl fmt::Display for Finding {
             Finding::NegativeLightIntensity { item } => {
                 write!(f, "{item}: negative light intensity")
             }
+            Finding::StaticPrimitiveInScript { item } => write!(
+                f,
+                "{item}: is static (baked at load) but the script refers to it; most of its properties cannot change at runtime"
+            ),
             Finding::StereoTableSound { sound } => write!(
                 f,
                 "sound {sound:?} plays on the playfield speakers but is not mono"
@@ -2381,6 +2389,7 @@ mod tests {
                             | Finding::RndWithoutRandomize
                             | Finding::TimerWithoutHandler { .. }
                             | Finding::HandlersWithoutItem { .. }
+                            | Finding::StaticPrimitiveInScript { .. }
                     )
                 })
                 .collect()
@@ -2525,6 +2534,31 @@ mod tests {
             );
             let vpx = scripted("Randomize\nSub Table1_Init\n    x = Rnd * 10\nEnd Sub\n");
             assert_eq!(script_findings(&vpx), vec![]);
+        }
+
+        #[test]
+        fn a_static_primitive_named_in_the_script_is_reported() {
+            use crate::vpx::gameitem::primitive::Primitive;
+            let mut vpx = scripted(
+                "Sub Table1_Init\r\n    Baked.Visible = False\r\n    Dynamic.Visible = False\r\nEnd Sub\r\n",
+            );
+            let primitive = |name: &str, static_rendering: bool| {
+                GameItemEnum::Primitive(Box::new(Primitive {
+                    name: name.to_string(),
+                    static_rendering,
+                    ..Primitive::default()
+                }))
+            };
+            vpx.gameitems.push(primitive("Baked", true));
+            vpx.gameitems.push(primitive("Dynamic", false));
+            vpx.gameitems.push(primitive("Unmentioned", true));
+            vpx.gamedata.gameitems_size = vpx.gameitems.len() as u32;
+            assert_eq!(
+                script_findings(&vpx),
+                vec![Finding::StaticPrimitiveInScript {
+                    item: "Primitive \"Baked\"".to_string(),
+                }]
+            );
         }
 
         #[test]
@@ -2786,6 +2820,19 @@ mod script {
             .collect();
         if !orphans.is_empty() {
             findings.push(Finding::HandlersWithoutItem { names: orphans });
+        }
+
+        // like vpinball: any mention of a static primitive's name, reading a
+        // property is fine but writing one has no effect once it is baked
+        for item in &vpx.gameitems {
+            if let GameItemEnum::Primitive(primitive) = item
+                && primitive.static_rendering
+                && scan.identifiers.contains(&primitive.name.to_lowercase())
+            {
+                findings.push(Finding::StaticPrimitiveInScript {
+                    item: super::item_label(item),
+                });
+            }
         }
     }
 
