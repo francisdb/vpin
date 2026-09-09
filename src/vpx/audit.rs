@@ -114,6 +114,14 @@ pub enum Finding {
     /// PinMAME plugin has deprecated; it logs and ignores it, VPinMAME
     /// on Windows still honors it
     DeprecatedControllerProperty { property: String },
+    /// A primitive mesh with over a million vertices; the biggest tables
+    /// bake a whole playfield into one, anything else that size is a
+    /// mistake in the import
+    HugeMesh {
+        item: String,
+        vertices: u32,
+        indices: u32,
+    },
     /// The glass is below two inches or upside down
     GlassHeightInvalid { detail: &'static str },
     /// The legacy spherical ball mapping renders badly in VR, stereo and
@@ -196,7 +204,9 @@ impl Finding {
             | Finding::UnusedFont { .. }
             | Finding::NonStandardFont { .. }
             | Finding::DeprecatedTableProperty { .. } => Severity::Suggestion,
-            Finding::DeprecatedControllerProperty { .. } => Severity::Info,
+            Finding::DeprecatedControllerProperty { .. } | Finding::HugeMesh { .. } => {
+                Severity::Info
+            }
             Finding::NegativeLightIntensity { .. } | Finding::StereoTableSound { .. } => {
                 Severity::Error
             }
@@ -302,6 +312,15 @@ impl fmt::Display for Finding {
                     .collect();
                 write!(f, "script mixes line endings: {}", styles.join(", "))
             }
+            Finding::HugeMesh {
+                item,
+                vertices,
+                indices,
+            } => write!(
+                f,
+                "{item}: mesh has {vertices} vertices and {indices} indices, in the top thousandth of all primitives"
+            ),
+
             Finding::UnusedFont { font, faces } => write!(
                 f,
                 "font {font:?} ({}) is not used by any textbox or decal and the script does not mention it",
@@ -533,6 +552,7 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
     check_render_settings(vpx, &mut findings);
     for item in &vpx.gameitems {
         check_item_behavior(item, &mut findings);
+        check_mesh_size(item, &mut findings);
     }
     for sound in &vpx.sounds {
         if sound.output_target == crate::vpx::sound::OutputTarget::Table
@@ -605,6 +625,24 @@ fn check_item_behavior(item: &GameItemEnum, findings: &mut Vec<Finding>) {
         findings.push(Finding::FastTimer {
             item: item_label(item),
             interval: timer.interval,
+        });
+    }
+}
+
+/// One in a thousand primitives in a corpus of 306 thousand has more
+/// vertices than this; the ten above it are whole-playfield bakes of
+/// VPW tables
+const HUGE_MESH_VERTICES: u32 = 1_000_000;
+
+fn check_mesh_size(item: &GameItemEnum, findings: &mut Vec<Finding>) {
+    if let GameItemEnum::Primitive(primitive) = item
+        && let Some(vertices) = primitive.num_vertices
+        && vertices > HUGE_MESH_VERTICES
+    {
+        findings.push(Finding::HugeMesh {
+            item: item_label(item),
+            vertices,
+            indices: primitive.num_indices.unwrap_or(0),
         });
     }
 }
@@ -1483,6 +1521,39 @@ mod tests {
         let mut vpx = clean_vpx();
         vpx.gamedata.code.string = "Option Explicit\nDim x\nDim y\n".to_string();
         assert_eq!(audit(&vpx), vec![]);
+    }
+
+    #[test]
+    fn a_huge_mesh_is_informational() {
+        use crate::vpx::gameitem::primitive::Primitive;
+        let mut vpx = clean_vpx();
+        vpx.collections.clear();
+        vpx.gamedata.collections_size = 0;
+        vpx.gameitems = vec![
+            GameItemEnum::Primitive(Box::new(Primitive {
+                name: "Bake".to_string(),
+                num_vertices: Some(2_000_000),
+                num_indices: Some(2_100_000),
+                ..Primitive::default()
+            })),
+            GameItemEnum::Primitive(Box::new(Primitive {
+                name: "Peg".to_string(),
+                num_vertices: Some(131),
+                num_indices: Some(396),
+                ..Primitive::default()
+            })),
+        ];
+        vpx.gamedata.gameitems_size = 2;
+        let findings = audit(&vpx);
+        assert_eq!(
+            findings,
+            vec![Finding::HugeMesh {
+                item: "Primitive \"Bake\"".to_string(),
+                vertices: 2_000_000,
+                indices: 2_100_000,
+            }]
+        );
+        assert_eq!(findings[0].severity(), Severity::Info);
     }
 
     #[test]
