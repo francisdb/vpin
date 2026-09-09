@@ -17,7 +17,11 @@
 //! This module compares the file representation, not the parsed model: a
 //! difference in bytes the library does not even interpret is still
 //! reported. That makes it the tool for validating that a write changed
-//! nothing it should not have.
+//! nothing it should not have. For a report in the terms a table author
+//! uses (which wall was removed, which sound was replaced, which property
+//! has a new value) see the [`semantic`] module.
+
+pub mod semantic;
 
 use super::biff::BiffReader;
 use super::gameitem::GameItemEnum;
