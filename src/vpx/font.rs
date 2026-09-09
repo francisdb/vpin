@@ -119,9 +119,19 @@ fn read_write() {
     assert_eq!(font, font_read);
 }
 
+impl FontData {
+    /// The family and full names in the font file, which are the names a
+    /// textbox or decal refers to. Empty when the data is not a TrueType or
+    /// OpenType font.
+    pub fn face_names(&self) -> Vec<String> {
+        super::ttf::face_names(&self.data)
+    }
+}
+
 #[cfg(test)]
 mod corrupt_input_tests {
     use super::*;
+
     use crate::vpx::biff::BiffWriter;
 
     #[test]
