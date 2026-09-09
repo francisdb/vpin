@@ -150,12 +150,26 @@ pub enum Finding {
     /// The script uses `Rnd` without calling `Randomize`, so every run
     /// draws the same sequence
     RndWithoutRandomize,
+    /// A game item's timer is enabled but the script has no `<item>_Timer`
+    /// handler, so every tick fires an event nothing receives. Handlers
+    /// core.vbs builds (`PinMAMETimer`, `PulseTimer`, `vpmBuildEvent`,
+    /// `InitTimer`) and timers handled through an event firing collection
+    /// are accounted for; handlers built with `Execute`, `ExecuteGlobal` or
+    /// `Eval` are not seen
+    TimerWithoutHandler { item: String, interval: i32 },
+    /// Event handlers such as `<name>_Hit` or `<name>_Timer` whose item,
+    /// collection or table does not exist and that nothing calls by name:
+    /// dead code, typically a sound package pasted in without its
+    /// collections, or an item that was renamed. Reported once per table
+    HandlersWithoutItem { names: Vec<String> },
 }
 
 /// How serious a [`Finding`] is
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum Severity {
+    /// Worth knowing, nothing to fix
+    Info,
     /// An improvement worth considering
     Suggestion,
     /// Something looks wrong, though vpinball tolerates it at runtime
@@ -178,6 +192,9 @@ impl Finding {
                 Severity::Error
             }
             Finding::MissingOptionExplicit | Finding::RndWithoutRandomize => Severity::Suggestion,
+            Finding::TimerWithoutHandler { .. } | Finding::HandlersWithoutItem { .. } => {
+                Severity::Info
+            }
             _ => Severity::Warning,
         }
     }
@@ -362,6 +379,24 @@ impl fmt::Display for Finding {
             Finding::MissingPulseTimer => write!(
                 f,
                 "script uses 'vpmTimer' but the table has no timer named 'PulseTimer'"
+            ),
+            Finding::TimerWithoutHandler { item, interval } => {
+                write!(f, "timer of {item:?} fires ")?;
+                match interval {
+                    -1 => write!(f, "every frame")?,
+                    ms => write!(f, "every {ms} ms")?,
+                }
+                write!(f, " but the script has no {item}_Timer handler")
+            }
+            Finding::HandlersWithoutItem { names } => write!(
+                f,
+                "script has {} event handlers for items that do not exist: {}",
+                names.len(),
+                names
+                    .iter()
+                    .map(|name| format!("{name:?}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
         }
     }
@@ -1056,11 +1091,14 @@ mod tests {
         let findings: Vec<Finding> = audit(&blank_vpx())
             .into_iter()
             // the template's score textbox uses a Windows only font and its
-            // script draws random numbers without Randomize
+            // script draws random numbers without Randomize and has timer
+            // handlers for timers it does not have
             .filter(|finding| {
                 !matches!(
                     finding,
-                    Finding::NonStandardFont { .. } | Finding::RndWithoutRandomize
+                    Finding::NonStandardFont { .. }
+                        | Finding::RndWithoutRandomize
+                        | Finding::HandlersWithoutItem { .. }
                 )
             })
             .collect();
@@ -1234,6 +1272,8 @@ mod tests {
         flasher.timer.is_enabled = true;
         flasher.timer.interval = 5;
         vpx.add_game_item(crate::vpx::gameitem::GameItemEnum::Flasher(flasher));
+        vpx.gamedata
+            .set_code("Option Explicit\r\nSub F1_Timer\r\nEnd Sub\r\n".to_string());
         let findings = audit(&vpx);
         assert_eq!(findings.len(), 1, "{findings:#?}");
         assert!(matches!(
@@ -1429,9 +1469,97 @@ mod tests {
                             | Finding::MissingPulseTimer
                             | Finding::ScriptNameShadowsItem { .. }
                             | Finding::RndWithoutRandomize
+                            | Finding::TimerWithoutHandler { .. }
+                            | Finding::HandlersWithoutItem { .. }
                     )
                 })
                 .collect()
+        }
+
+        #[test]
+        fn an_enabled_timer_without_a_handler_is_reported() {
+            use crate::vpx::collection::Collection;
+            use crate::vpx::gameitem::timer::Timer;
+            let mut vpx = scripted(
+                "Sub Handled_Timer\nEnd Sub\n\
+                 Sub Group_Timer(idx)\nEnd Sub\n\
+                 Sub Table1_Init\n    vpmTimer.InitTimer Pulsed, True\n    Call vpmBuildEvent(Built, \"Timer\", \"x\")\nEnd Sub\n",
+            );
+            for (name, enabled, interval) in [
+                ("Handled", true, 100),
+                ("Grouped", true, 100),
+                ("Pulsed", true, 100),
+                ("Built", true, 100),
+                ("PulseTimer", true, 1),
+                ("Off", false, 100),
+                ("Orphan", true, -1),
+                ("Lonely", true, 250),
+            ] {
+                let mut timer = Timer {
+                    name: name.to_string(),
+                    ..Timer::default()
+                };
+                timer.timer.is_enabled = enabled;
+                timer.timer.interval = interval;
+                vpx.gameitems.push(GameItemEnum::Timer(timer));
+            }
+            vpx.gamedata.gameitems_size = vpx.gameitems.len() as u32;
+            vpx.collections.push(Collection {
+                name: "Group".to_string(),
+                items: vec!["Grouped".to_string()],
+                fire_events: true,
+                stop_single_events: false,
+                group_elements: false,
+            });
+            vpx.gamedata.collections_size = 1;
+            let findings = script_findings(&vpx);
+            assert_eq!(
+                findings,
+                vec![
+                    Finding::TimerWithoutHandler {
+                        item: "Orphan".to_string(),
+                        interval: -1,
+                    },
+                    Finding::TimerWithoutHandler {
+                        item: "Lonely".to_string(),
+                        interval: 250,
+                    },
+                ]
+            );
+            assert_eq!(findings[0].severity(), Severity::Info);
+            assert_eq!(
+                findings[0].to_string(),
+                "timer of \"Orphan\" fires every frame but the script has no Orphan_Timer handler"
+            );
+        }
+
+        #[test]
+        fn handlers_for_missing_items_are_reported_once() {
+            use crate::vpx::gameitem::wall::Wall;
+            let mut vpx = scripted(
+                "Sub Bumper1_Hit\nEnd Sub\n\
+                 Sub Arch1_Hit\nEnd Sub\n\
+                 Sub TBWR_Timer\nEnd Sub\n\
+                 Sub Game_Init\nEnd Sub\n\
+                 Sub Table1_KeyDown(ByVal key)\nEnd Sub\n\
+                 Sub Helper_Timer\nEnd Sub\n\
+                 Sub Table1_Init\n    Game_Init\n    Helper_Timer\nEnd Sub\n\
+                 Class Foo\n    Public Sub Bar_Hit\n    End Sub\nEnd Class\n",
+            );
+            vpx.gameitems.push(GameItemEnum::Wall(Wall {
+                name: "Bumper1".to_string(),
+                ..Wall::default()
+            }));
+            vpx.gamedata.gameitems_size = vpx.gameitems.len() as u32;
+            vpx.gamedata.name = "Table1".to_string();
+            let findings = script_findings(&vpx);
+            assert_eq!(
+                findings,
+                vec![Finding::HandlersWithoutItem {
+                    names: vec!["Arch1_Hit".to_string(), "TBWR_Timer".to_string()],
+                }]
+            );
+            assert_eq!(findings[0].severity(), Severity::Info);
         }
 
         #[test]
@@ -1567,7 +1695,38 @@ mod script {
         script_level: Vec<String>,
         /// how many procedures deep the scan is
         depth: usize,
+        /// subs and functions declared at script level, the only ones
+        /// vpinball can dispatch events to
+        procedures: Vec<String>,
+        /// items handed to core.vbs `vpmBuildEvent` or `InitTimer`, which
+        /// build the timer handler at runtime
+        built_events: HashSet<String>,
     }
+
+    /// The events vpinball fires on script objects, from vpinball.idl
+    const EVENTS: [&str; 21] = [
+        "init",
+        "timer",
+        "hit",
+        "unhit",
+        "animate",
+        "limiteos",
+        "limitbos",
+        "spin",
+        "slingshot",
+        "raised",
+        "dropped",
+        "paused",
+        "unpaused",
+        "sounddone",
+        "playdone",
+        "optionevent",
+        "musicdone",
+        "keyup",
+        "keydown",
+        "exit",
+        "collide",
+    ];
 
     pub(super) fn check(vpx: &VPX, findings: &mut Vec<Finding>) {
         let script = &vpx.gamedata.code.string;
@@ -1661,6 +1820,63 @@ mod script {
         if scan.identifiers.contains("rnd") && !scan.identifiers.contains("randomize") {
             findings.push(Finding::RndWithoutRandomize);
         }
+
+        // enabled timers nothing handles, and handlers nothing fires
+        let procedures: HashSet<String> = scan
+            .procedures
+            .iter()
+            .map(|name| name.to_lowercase())
+            .collect();
+        let handled_by_collection: HashSet<String> = vpx
+            .collections
+            .iter()
+            .filter(|collection| {
+                collection.fire_events
+                    && procedures.contains(&format!("{}_timer", collection.name.to_lowercase()))
+            })
+            .flat_map(|collection| collection.items.iter().map(|item| item.to_lowercase()))
+            .collect();
+        for item in &vpx.gameitems {
+            let Some(timer) = item.timer() else {
+                continue;
+            };
+            let name = item.name().to_lowercase();
+            let handler = format!("{name}_timer");
+            if !timer.is_enabled
+                || name.is_empty()
+                || procedures.contains(&handler)
+                || scan.identifiers.contains(&handler)
+                || handled_by_collection.contains(&name)
+                || scan.built_events.contains(&name)
+                || matches!(name.as_str(), "pinmametimer" | "pulsetimer")
+            {
+                continue;
+            }
+            findings.push(Finding::TimerWithoutHandler {
+                item: item.name().to_string(),
+                interval: timer.interval,
+            });
+        }
+        let table = vpx.gamedata.name.to_lowercase();
+        let orphans: Vec<String> = scan
+            .procedures
+            .iter()
+            .filter(|name| {
+                let lower = name.to_lowercase();
+                lower.rsplit_once('_').is_some_and(|(object, event)| {
+                    !object.is_empty()
+                        && EVENTS.contains(&event)
+                        && object != table
+                        && !items.contains(object)
+                        && !collections.contains(object)
+                        && !scan.identifiers.contains(&lower)
+                })
+            })
+            .cloned()
+            .collect();
+        if !orphans.is_empty() {
+            findings.push(Finding::HandlersWithoutItem { names: orphans });
+        }
     }
 
     impl Scan {
@@ -1702,6 +1918,9 @@ mod script {
                     };
                     if self.current_class.is_none() {
                         self.script_level.push(name.clone());
+                        if self.depth == 0 {
+                            self.procedures.push(name.clone());
+                        }
                     }
                     self.declared.push(qualified);
                     self.depth += 1;
@@ -1729,10 +1948,16 @@ mod script {
                     }
                 }
                 Stmt::SubCall { fn_name, args } => {
+                    self.built_event(&fn_name.0, args);
                     self.full_ident(fn_name);
                     self.args(args);
                 }
-                Stmt::Call(fi) => self.full_ident(fi),
+                Stmt::Call(fi) => {
+                    if let Expr::FnApplication { callee, args } = &*fi.0 {
+                        self.built_event(callee, args);
+                    }
+                    self.full_ident(fi);
+                }
                 Stmt::IfStmt {
                     condition,
                     body,
@@ -1790,6 +2015,23 @@ mod script {
                     self.stmts(body);
                 }
                 _ => {}
+            }
+        }
+
+        /// `vpmBuildEvent item, ...` and `vpmTimer.InitTimer item, ...` give
+        /// the item a handler at runtime
+        fn built_event(&mut self, callee: &Expr, args: &[Option<Expr>]) {
+            let name = match callee {
+                Expr::Ident(name) | Expr::MemberExpression { property: name, .. } => name,
+                _ => return,
+            };
+            if !name.eq_ignore_ascii_case("vpmbuildevent")
+                && !name.eq_ignore_ascii_case("inittimer")
+            {
+                return;
+            }
+            if let Some(Some(Expr::Ident(item))) = args.first() {
+                self.built_events.insert(item.to_lowercase());
             }
         }
 
