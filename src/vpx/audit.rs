@@ -131,6 +131,9 @@ pub enum Finding {
     /// names. They cost nothing in the file, but they clutter the material
     /// list; reported once per table since most tables carry dozens
     UnusedMaterials { names: Vec<String>, total: usize },
+    /// The script plays or stops a sound that does not exist; vpinball
+    /// logs a warning and plays nothing
+    MissingSound { sound: String },
     /// The glass is below two inches or upside down
     GlassHeightInvalid { detail: &'static str },
     /// The legacy spherical ball mapping renders badly in VR, stereo and
@@ -368,6 +371,9 @@ impl fmt::Display for Finding {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
+            Finding::MissingSound { sound } => {
+                write!(f, "script names missing sound {sound:?}")
+            }
             Finding::UnusedSound { sound, bytes } => write!(
                 f,
                 "sound {sound:?} ({} KB) is not named in the script",
@@ -525,6 +531,7 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
     check_deprecated_properties(vpx, &mut findings);
     check_deprecated_controller_properties(vpx, &mut findings);
     check_unused_assets(vpx, &mut findings);
+    check_sound_calls(vpx, &mut findings);
 
     check_duplicates(
         vpx.images.iter().map(|image| image.name.as_str()),
@@ -1063,6 +1070,84 @@ fn script_names(literals: &[Literal], name: &str) -> bool {
     })
 }
 
+/// The literal sound names the script plays or stops: the first argument
+/// of the `PlaySound` family (`PlaySound`, `PlaySoundAt`, `PlaySoundAtVol`,
+/// the helper subs tables define with the same prefix), of `StopSound`,
+/// and of the `SoundFX` and `SoundFXDOF` wrappers those calls take the name
+/// from. Lower cased, comments excluded. The flag tells that the literal is
+/// joined to more with `&`, the `"fx_ballrolling" & i` way of picking one
+/// of a numbered set.
+pub(crate) fn sound_call_literals(script: &str) -> Vec<(String, bool)> {
+    const CALLS: [&str; 3] = ["playsound", "stopsound", "soundfx"];
+    let mut names = Vec::new();
+    for line in script.lines() {
+        let mut rest = line;
+        loop {
+            let lower = rest.to_lowercase();
+            let Some((position, call)) = CALLS
+                .iter()
+                .filter_map(|call| lower.find(call).map(|position| (position, call.len())))
+                .min()
+            else {
+                break;
+            };
+            let before = &rest[..position];
+            // only outside strings and comments, and at a word start
+            if before.matches('"').count() % 2 == 1 || before.contains('\'') {
+                break;
+            }
+            if before
+                .chars()
+                .last()
+                .is_some_and(|c| c.is_alphanumeric() || c == '_')
+            {
+                rest = &rest[position + call..];
+                continue;
+            }
+            let after = &rest[position + call..];
+            // the rest of the identifier, then optional spaces and a paren
+            let after = after.trim_start_matches(|c: char| c.is_alphanumeric() || c == '_');
+            let after = after
+                .trim_start()
+                .strip_prefix('(')
+                .unwrap_or(after)
+                .trim_start();
+            if let Some(literal) = after.strip_prefix('"')
+                && let Some(end) = literal.find('"')
+            {
+                let joined = matches!(
+                    literal[end + 1..].trim_start().chars().next(),
+                    Some('&' | '+')
+                );
+                names.push((literal[..end].to_lowercase(), joined));
+            }
+            rest = after;
+        }
+    }
+    names
+}
+
+/// Sounds the script plays or stops by name that the table does not have
+fn check_sound_calls(vpx: &VPX, findings: &mut Vec<Finding>) {
+    let sounds = name_set(vpx.sounds.iter().map(|sound| sound.name.as_str()));
+    let mut reported: HashSet<String> = HashSet::new();
+    for (name, joined) in sound_call_literals(&vpx.gamedata.code.string) {
+        let exists = if joined {
+            sounds.iter().any(|sound| sound.starts_with(&name))
+        } else {
+            sounds.contains(&name)
+        };
+        if !name.is_empty() && !exists && reported.insert(name.clone()) {
+            findings.push(Finding::MissingSound { sound: name });
+        }
+    }
+}
+
+/// Images and sounds nothing refers to: no item, table setting, info
+/// markdown or script literal. A name built at runtime from parts the
+/// scan cannot follow escapes this, so these are suggestions. Materials
+/// are not checked: they cost nothing and every template ships unused
+/// ones.
 /// Images, sounds and materials nothing refers to: no item, table
 /// setting, info markdown or script literal. A name built at runtime
 /// from parts the scan cannot follow escapes this, so images and sounds
@@ -1509,6 +1594,8 @@ mod tests {
         // the template ships an image nothing refers to
         vpx.images.clear();
         vpx.gamedata.images_size = 0;
+        // and a script that plays the sample table's sounds
+        vpx.gamedata.set_code("Option Explicit\r\n".to_string());
         // and materials nothing uses
         let unused: Vec<String> = audit(&vpx)
             .into_iter()
@@ -1541,8 +1628,9 @@ mod tests {
         // images themselves are only present in the sample table
         let findings: Vec<Finding> = audit(&blank_vpx())
             .into_iter()
-            // the template's score textbox uses a Windows only font and its
-            // script draws random numbers without Randomize and has timer
+            // the template's score textbox uses a Windows only font, it carries
+            // materials nothing uses, and its script draws random numbers
+            // without Randomize, plays the sample table's sounds and has timer
             // handlers for timers it does not have
             .filter(|finding| {
                 !matches!(
@@ -1551,6 +1639,7 @@ mod tests {
                         | Finding::RndWithoutRandomize
                         | Finding::HandlersWithoutItem { .. }
                         | Finding::UnusedMaterials { .. }
+                        | Finding::MissingSound { .. }
                 )
             })
             .collect();
@@ -2021,6 +2110,64 @@ mod tests {
         let literals = script_literals("x = \"fx_\" _\r\n    & name\r\ny = \"lone\"\r\n");
         assert!(literals[0].joined_after);
         assert!(!literals[1].joined_after);
+    }
+
+    #[test]
+    fn sound_calls_are_found() {
+        let script = "PlaySound \"fx_a\", 1\r\n\
+            PlaySoundAt(\"fx_b\", Bumper1)\r\n\
+            PlaySoundAtLevelStatic \"fx_c\", 0.5, Wall1 ' PlaySound \"commented\"\r\n\
+            x = \"PlaySound \"\"in_string\"\"\"\r\n\
+            MyPlaySound \"prefixed\"\r\n\
+            PlaySound SoundFX(\"fx_d\", DOFContactors)\r\n\
+            PlaySoundAtLevelStatic SoundFXDOF(\"fx_e\", 105, DOFPulse, DOFContactors), 1, Kicker1\r\n\
+            StopSound \"fx_f\"\r\n\
+            PlaySound \"fx_ballrolling\" & i\r\n";
+        assert_eq!(
+            sound_call_literals(script),
+            vec![
+                ("fx_a".to_string(), false),
+                ("fx_b".to_string(), false),
+                ("fx_c".to_string(), false),
+                ("fx_d".to_string(), false),
+                ("fx_e".to_string(), false),
+                ("fx_f".to_string(), false),
+                ("fx_ballrolling".to_string(), true)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_missing_sound_is_reported_once() {
+        use crate::vpx::sound::{OutputTarget, SoundData};
+        let mut vpx = clean_vpx();
+        vpx.sounds = vec![SoundData {
+            name: "fx_hit".to_string(),
+            path: "fx_hit.wav".to_string(),
+            wave_form: Default::default(),
+            data: Vec::new(),
+            internal_name: String::new(),
+            fade: 0,
+            volume: 0,
+            balance: 0,
+            output_target: OutputTarget::Table,
+        }];
+        vpx.gamedata.sounds_size = 1;
+        vpx.gamedata.set_code(
+            "Option Explicit\r\nPlaySound \"FX_HIT\"\r\nPlaySound \"fx_gone\"\r\nPlaySoundAt \"fx_gone\", Bumper1\r\nPlaySound \"fx_h\" & i\r\nPlaySound \"fx_roll\" & i\r\n"
+                .to_string(),
+        );
+        assert_eq!(
+            audit(&vpx),
+            vec![
+                Finding::MissingSound {
+                    sound: "fx_gone".to_string(),
+                },
+                Finding::MissingSound {
+                    sound: "fx_roll".to_string(),
+                },
+            ]
+        );
     }
 
     #[test]
