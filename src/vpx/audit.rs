@@ -107,6 +107,9 @@ pub enum Finding {
     /// `Name-Style.ttf` (spaces removed) next to the table and falls back
     /// to Liberation Sans for anything else, embedded or not
     NonStandardFont { item: String, font: String },
+    /// The script uses a table property vpinball has deprecated; it logs
+    /// an error and the call does nothing
+    DeprecatedTableProperty { property: String },
     /// The glass is below two inches or upside down
     GlassHeightInvalid { detail: &'static str },
     /// The legacy spherical ball mapping renders badly in VR, stereo and
@@ -187,7 +190,8 @@ impl Finding {
             | Finding::MixedScriptLineEndings { .. }
             | Finding::MissingImageWithFallback { .. }
             | Finding::UnusedFont { .. }
-            | Finding::NonStandardFont { .. } => Severity::Suggestion,
+            | Finding::NonStandardFont { .. }
+            | Finding::DeprecatedTableProperty { .. } => Severity::Suggestion,
             Finding::NegativeLightIntensity { .. } | Finding::StereoTableSound { .. } => {
                 Severity::Error
             }
@@ -305,6 +309,10 @@ impl fmt::Display for Finding {
             Finding::NonStandardFont { item, font } => write!(
                 f,
                 "{item}: font {font:?} is not embedded in the table and not a core font, so it renders with a substitute where it is not installed (standalone needs it as a .ttf next to the table)"
+            ),
+            Finding::DeprecatedTableProperty { property } => write!(
+                f,
+                "script uses the deprecated table property {property}, which does nothing"
             ),
             Finding::GlassHeightInvalid { detail } => {
                 write!(f, "glass height seems invalid: {detail}")
@@ -454,6 +462,8 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
 
     check_fonts(vpx, &mut findings);
     check_font_availability(vpx, &mut findings);
+
+    check_deprecated_properties(vpx, &mut findings);
 
     check_duplicates(
         vpx.images.iter().map(|image| image.name.as_str()),
@@ -729,6 +739,93 @@ fn check_fonts(vpx: &VPX, findings: &mut Vec<Finding>) {
                 faces,
             });
         }
+    }
+}
+
+/// Table properties vpinball logs "is deprecated" for and ignores
+/// (pintable.cpp); the camera ones moved to the view setups
+const DEPRECATED_TABLE_PROPERTIES: &[&str] = &[
+    "3DOffset",
+    "BackglassMode",
+    "EnableAntialiasing",
+    "EnableFXAA",
+    "FieldOfView",
+    "GlobalAlphaAcc",
+    "GlobalDayNight",
+    "GlobalStereo3D",
+    "Inclination",
+    "Layback",
+    "MaxSeparation",
+    "PlungerFilter",
+    "PlungerNormalize",
+    "ReflectElementsOnPlayfield",
+    "Rotation",
+    "Scalex",
+    "Scaley",
+    "Scalez",
+    "TableAdaptiveVSync",
+    "TableHeight",
+    "Xlatex",
+    "Xlatey",
+    "Xlatez",
+    "YieldTime",
+    "ZPD",
+];
+
+/// The code of a script with comments and string literals removed, lower
+/// cased, one line per line
+fn script_code(script: &str) -> String {
+    let mut code = String::with_capacity(script.len());
+    for line in script.lines() {
+        let mut in_string = false;
+        for c in line.chars() {
+            match (in_string, c) {
+                (false, '"') => in_string = true,
+                (false, '\'') => break,
+                (false, c) => code.push(c.to_ascii_lowercase()),
+                (true, '"') => in_string = false,
+                (true, _) => {}
+            }
+        }
+        code.push('\n');
+    }
+    code
+}
+
+/// Deprecated properties accessed on the table object, by its name
+/// (`Table1.Inclination`); other objects have properties with some of
+/// these names, so only the table qualified form counts
+fn check_deprecated_properties(vpx: &VPX, findings: &mut Vec<Finding>) {
+    let table = vpx.gamedata.name.to_lowercase();
+    if table.is_empty() {
+        return;
+    }
+    let code = script_code(&vpx.gamedata.code.string);
+    let prefix = format!("{table}.");
+    let mut reported: HashSet<&str> = HashSet::new();
+    let mut rest = code.as_str();
+    while let Some(position) = rest.find(&prefix) {
+        let word_start = position == 0
+            || !rest[..position]
+                .chars()
+                .last()
+                .is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.');
+        let after = &rest[position + prefix.len()..];
+        let property: String = after
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
+        if word_start
+            && let Some(known) = DEPRECATED_TABLE_PROPERTIES
+                .iter()
+                .find(|known| known.eq_ignore_ascii_case(&property))
+            && reported.insert(known)
+        {
+            findings.push(Finding::DeprecatedTableProperty {
+                property: (*known).to_string(),
+            });
+        }
+        rest = after;
     }
 }
 
@@ -1439,6 +1536,27 @@ mod tests {
             ]
         );
         assert_eq!(findings[0].severity(), Severity::Suggestion);
+    }
+
+    #[test]
+    fn deprecated_table_properties_are_reported_once() {
+        let mut vpx = clean_vpx();
+        vpx.gamedata.name = "Table1".to_string();
+        vpx.gamedata.set_code(
+            "Option Explicit\r\nTABLE1.Inclination = 42\r\nTable1.Inclination = 43\r\nTable1.Layback = 1 ' Table1.ZPD = 2\r\nx = \"Table1.YieldTime\"\r\nMyTable1.Rotation = 1\r\nPrimitive1.Rotation = 90\r\nTable1.Name = \"x\"\r\n"
+                .to_string(),
+        );
+        assert_eq!(
+            audit(&vpx),
+            vec![
+                Finding::DeprecatedTableProperty {
+                    property: "Inclination".to_string(),
+                },
+                Finding::DeprecatedTableProperty {
+                    property: "Layback".to_string(),
+                },
+            ]
+        );
     }
 
     #[cfg(feature = "script-audit")]
