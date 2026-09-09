@@ -58,7 +58,8 @@ pub enum Finding {
     /// The table info has no table name
     MissingTableName,
     /// An image is stored as an uncompressed era bitmap; vpinball suggests
-    /// converting these to webp
+    /// converting these to webp, which
+    /// [`VPX::bitmaps_to_webp`](crate::vpx::VPX::bitmaps_to_webp) does
     BmpImage { image: String },
     /// The color grade lookup table image is not the 256x16 layout the
     /// shader expects, which silently renders wrong colors
