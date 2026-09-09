@@ -39,6 +39,21 @@ pub enum Finding {
         field: &'static str,
         image: String,
     },
+    /// A table setting references an image that does not exist, but
+    /// vpinball renders with a built-in instead: the environment image
+    /// falls back to its own environment map, the ball image to its
+    /// built-in ball, a ball decal is left off. The reference is stale,
+    /// the table plays as intended
+    MissingImageWithFallback {
+        field: &'static str,
+        image: String,
+        /// What vpinball uses instead
+        fallback: &'static str,
+    },
+    /// The color grade image does not exist. vpinball looks it up in the
+    /// table only and silently renders without color grading when it is
+    /// missing, so this one changes the picture
+    MissingColorGradeImage { image: String },
     /// A game item or table setting references a material that does not exist
     MissingMaterial {
         item: String,
@@ -128,7 +143,8 @@ impl Finding {
         match self {
             Finding::BmpImage { .. }
             | Finding::LargeScreenshot { .. }
-            | Finding::MixedScriptLineEndings { .. } => Severity::Suggestion,
+            | Finding::MixedScriptLineEndings { .. }
+            | Finding::MissingImageWithFallback { .. } => Severity::Suggestion,
             Finding::NegativeLightIntensity { .. } | Finding::StereoTableSound { .. } => {
                 Severity::Error
             }
@@ -164,6 +180,18 @@ impl fmt::Display for Finding {
             Finding::MissingImage { item, field, image } => {
                 write!(f, "{item}: {field} references missing image {image:?}")
             }
+            Finding::MissingImageWithFallback {
+                field,
+                image,
+                fallback,
+            } => write!(
+                f,
+                "table settings: {field} references missing image {image:?}, vpinball uses {fallback}"
+            ),
+            Finding::MissingColorGradeImage { image } => write!(
+                f,
+                "table settings: color grade image {image:?} does not exist, color grading is silently off"
+            ),
             Finding::MissingMaterial {
                 item,
                 field,
@@ -521,7 +549,12 @@ fn check_table_settings(
     findings: &mut Vec<Finding>,
 ) {
     let gamedata = &vpx.gamedata;
-    let image_fields: [(&'static str, &str); 7] = [
+    let missing = |image: &str| {
+        !image.is_empty()
+            && !image.eq_ignore_ascii_case(NONE_SELECTION)
+            && !images.contains(image.to_lowercase().as_str())
+    };
+    let image_fields: [(&'static str, &str); 4] = [
         ("playfield image", &gamedata.image),
         (
             "desktop backglass image",
@@ -538,15 +571,9 @@ fn check_table_settings(
                 .as_deref()
                 .unwrap_or(""),
         ),
-        ("color grade image", &gamedata.image_color_grade),
-        ("ball image", &gamedata.ball_image),
-        ("ball decal image", &gamedata.ball_image_front),
     ];
     for (field, image) in image_fields {
-        if !image.is_empty()
-            && !image.eq_ignore_ascii_case(NONE_SELECTION)
-            && !images.contains(image.to_lowercase().as_str())
-        {
+        if missing(image) {
             findings.push(Finding::MissingImage {
                 item: "table settings".to_string(),
                 field,
@@ -554,15 +581,32 @@ fn check_table_settings(
             });
         }
     }
-    if let Some(env_image) = &gamedata.env_image
-        && !env_image.is_empty()
-        && !env_image.eq_ignore_ascii_case(NONE_SELECTION)
-        && !images.contains(env_image.to_lowercase().as_str())
-    {
-        findings.push(Finding::MissingImage {
-            item: "table settings".to_string(),
-            field: "environment image",
-            image: env_image.clone(),
+    // these render with a built-in when the image is missing
+    let fallback_fields: [(&'static str, &str, &'static str); 3] = [
+        (
+            "environment image",
+            gamedata.env_image.as_deref().unwrap_or(""),
+            "its built-in environment map",
+        ),
+        (
+            "ball image",
+            &gamedata.ball_image,
+            "its built-in ball image",
+        ),
+        ("ball decal image", &gamedata.ball_image_front, "no decal"),
+    ];
+    for (field, image, fallback) in fallback_fields {
+        if missing(image) {
+            findings.push(Finding::MissingImageWithFallback {
+                field,
+                image: image.to_string(),
+                fallback,
+            });
+        }
+    }
+    if missing(&gamedata.image_color_grade) {
+        findings.push(Finding::MissingColorGradeImage {
+            image: gamedata.image_color_grade.clone(),
         });
     }
     if !gamedata.image_color_grade.is_empty()
@@ -831,13 +875,16 @@ mod tests {
         // images themselves are only present in the sample table
         let findings = audit(&blank_vpx());
         assert_eq!(findings.len(), 6, "{findings:#?}");
+        let count = |wanted: fn(&Finding) -> bool| findings.iter().filter(|f| wanted(f)).count();
+        // the playfield image is the only one without a fallback
+        assert_eq!(count(|f| matches!(f, Finding::MissingImage { .. })), 1);
         assert_eq!(
-            findings
-                .iter()
-                .filter(|finding| matches!(finding, Finding::MissingImage { .. }))
-                .count(),
-            5,
-            "{findings:#?}"
+            count(|f| matches!(f, Finding::MissingImageWithFallback { .. })),
+            3
+        );
+        assert_eq!(
+            count(|f| matches!(f, Finding::MissingColorGradeImage { .. })),
+            1
         );
         // pre 10.8 tables implicitly use the legacy ball mapping
         assert!(findings.contains(&Finding::BallSphericalMapping));
@@ -846,16 +893,51 @@ mod tests {
     #[test]
     fn a_missing_image_reference_is_reported() {
         let mut vpx = clean_vpx();
-        vpx.gamedata.ball_image = "no_such_image".to_string();
+        vpx.gamedata.image = "no_such_image".to_string();
         let findings = audit(&vpx);
         assert_eq!(
             findings,
             vec![Finding::MissingImage {
                 item: "table settings".to_string(),
-                field: "ball image",
+                field: "playfield image",
                 image: "no_such_image".to_string(),
             }]
         );
+        assert_eq!(findings[0].severity(), Severity::Warning);
+    }
+
+    #[test]
+    fn a_missing_image_with_a_built_in_fallback_is_a_suggestion() {
+        let mut vpx = clean_vpx();
+        vpx.gamedata.ball_image = "no_such_image".to_string();
+        let findings = audit(&vpx);
+        assert_eq!(
+            findings,
+            vec![Finding::MissingImageWithFallback {
+                field: "ball image",
+                image: "no_such_image".to_string(),
+                fallback: "its built-in ball image",
+            }]
+        );
+        assert_eq!(findings[0].severity(), Severity::Suggestion);
+        assert_eq!(
+            findings[0].to_string(),
+            "table settings: ball image references missing image \"no_such_image\", vpinball uses its built-in ball image"
+        );
+    }
+
+    #[test]
+    fn a_missing_color_grade_image_is_a_warning() {
+        let mut vpx = clean_vpx();
+        vpx.gamedata.image_color_grade = "ColorGradeLUT256x16_1to1".to_string();
+        let findings = audit(&vpx);
+        assert_eq!(
+            findings,
+            vec![Finding::MissingColorGradeImage {
+                image: "ColorGradeLUT256x16_1to1".to_string(),
+            }]
+        );
+        assert_eq!(findings[0].severity(), Severity::Warning);
     }
 
     #[test]
