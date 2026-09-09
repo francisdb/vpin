@@ -29,7 +29,6 @@ use log::{debug, info, warn};
 use md2::{Digest, Md2};
 use tracing::{info_span, instrument};
 
-use crate::vpx::image::vpx_image_to_dynamic_image;
 use crate::vpx::tableinfo::read_tableinfo;
 use tableinfo::{TableInfo, write_tableinfo};
 use version::Version;
@@ -63,6 +62,7 @@ pub mod gamedata;
 pub mod gameitem;
 /// Images embedded in a table, either as encoded files or as raw bitmaps.
 pub mod image;
+pub mod images;
 /// Deprecated re-exports of the JSON conversions, which now live next to
 /// the types they convert.
 pub mod jsonmodel;
@@ -309,11 +309,13 @@ impl<F: Read + Seek + Write> VpxFile<F> {
         Ok(true)
     }
 
-    /// Convert all PNG and BMP images to WebP format and write them back to the VPX file.
-    /// This will overwrite the existing images.
-    /// The images will be converted to lossless WebP.
+    /// Converts all PNG and BMP images to lossless WebP and writes them
+    /// back to the VPX file in place, overwriting the existing images.
+    /// Images that fail to decode are skipped with a warning.
     ///
-    /// Note: this will not shrink the vpx file, that requires compacting the file.
+    /// Note: this will not shrink the vpx file, that requires compacting
+    /// the file. [`fix::bitmaps_to_webp`]
+    /// does the bitmap part on a parsed table.
     ///
     /// Returns a list of conversions that were made.
     pub fn images_to_webp(&mut self) -> io::Result<Vec<ImageToWebpConversion>> {
@@ -1205,42 +1207,18 @@ fn images_to_webp<F: Read + Write + Seek>(
                     });
                 }
             }
-            "bmp" => {
-                // convert the image to webp
-                image_data.change_extension("webp");
-                if let Some(bits) = &mut image_data.bits {
-                    // read the image bytes using the rust image library
-
-                    let dynamic_image = vpx_image_to_dynamic_image(
-                        &bits.lzw_compressed_data,
-                        image_data.width,
-                        image_data.height,
-                    )
-                    .map_err(|e| with_context(e, &image_data.name))?;
-
-                    // write as webp back to the image
-                    let mut webp = Vec::new();
-                    let mut cursor = io::Cursor::new(&mut webp);
-                    // should be lossless according to the docs
-                    dynamic_image
-                        .write_to(&mut cursor, ImageFormat::WebP)
-                        .map_err(|e| io::Error::other(e.to_string()))?;
-                    let jpg = PinBinary {
-                        path: image_data.path.clone(),
-                        name: image_data.name.clone(),
-                        internal_name: None,
-                        data: webp,
-                    };
-                    image_data.bits = None;
-                    image_data.jpeg = Some(jpg);
+            "bmp" => match image_data.bitmap_to_webp() {
+                Ok(true) => {
                     write_image(comp, index as usize, &image_data, true)?;
+                    conversions.push(ImageToWebpConversion {
+                        name: image_data.name.clone(),
+                        old_extension: "bmp".to_string(),
+                        new_extension: "webp".to_string(),
+                    });
                 }
-                conversions.push(ImageToWebpConversion {
-                    name: image_data.name.clone(),
-                    old_extension: "bmp".to_string(),
-                    new_extension: "webp".to_string(),
-                });
-            }
+                Ok(false) => {}
+                Err(e) => warn!("Skipping image {}: {e}", image_data.name),
+            },
             _ => {}
         }
     }
