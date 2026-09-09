@@ -110,6 +110,10 @@ pub enum Finding {
     /// The script uses a table property vpinball has deprecated; it logs
     /// an error and the call does nothing
     DeprecatedTableProperty { property: String },
+    /// The script sets a VPinMAME controller property the standalone
+    /// PinMAME plugin has deprecated; it logs and ignores it, VPinMAME
+    /// on Windows still honors it
+    DeprecatedControllerProperty { property: String },
     /// The glass is below two inches or upside down
     GlassHeightInvalid { detail: &'static str },
     /// The legacy spherical ball mapping renders badly in VR, stereo and
@@ -192,6 +196,7 @@ impl Finding {
             | Finding::UnusedFont { .. }
             | Finding::NonStandardFont { .. }
             | Finding::DeprecatedTableProperty { .. } => Severity::Suggestion,
+            Finding::DeprecatedControllerProperty { .. } => Severity::Info,
             Finding::NegativeLightIntensity { .. } | Finding::StereoTableSound { .. } => {
                 Severity::Error
             }
@@ -309,6 +314,10 @@ impl fmt::Display for Finding {
             Finding::NonStandardFont { item, font } => write!(
                 f,
                 "{item}: font {font:?} is not embedded in the table and not a core font, so it renders with a substitute where it is not installed (standalone needs it as a .ttf next to the table)"
+            ),
+            Finding::DeprecatedControllerProperty { property } => write!(
+                f,
+                "script sets the VPinMAME controller property {property}, which the standalone PinMAME plugin ignores"
             ),
             Finding::DeprecatedTableProperty { property } => write!(
                 f,
@@ -464,6 +473,7 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
     check_font_availability(vpx, &mut findings);
 
     check_deprecated_properties(vpx, &mut findings);
+    check_deprecated_controller_properties(vpx, &mut findings);
 
     check_duplicates(
         vpx.images.iter().map(|image| image.name.as_str()),
@@ -772,6 +782,23 @@ const DEPRECATED_TABLE_PROPERTIES: &[&str] = &[
     "ZPD",
 ];
 
+/// VPinMAME controller properties the standalone PinMAME plugin logs
+/// "is deprecated" for (plugins/pinmame/Controller.h); they concern the
+/// VPinMAME window, which the plugin does not have
+const DEPRECATED_CONTROLLER_PROPERTIES: &[&str] = &[
+    "CabinetMode",
+    "DoubleSize",
+    "FastFrames",
+    "HandleKeyboard",
+    "IgnoreRomCrc",
+    "LockDisplay",
+    "ShowDMDOnly",
+    "ShowFrame",
+    "ShowOptsDialog",
+    "ShowTitle",
+    "SoundMode",
+];
+
 /// The code of a script with comments and string literals removed, lower
 /// cased, one line per line
 fn script_code(script: &str) -> String {
@@ -826,6 +853,28 @@ fn check_deprecated_properties(vpx: &VPX, findings: &mut Vec<Finding>) {
             });
         }
         rest = after;
+    }
+}
+
+/// Controller properties are set on whatever variable holds the
+/// controller, usually inside `With Controller`, so any `.name` member
+/// access counts; the names are specific to VPinMAME
+fn check_deprecated_controller_properties(vpx: &VPX, findings: &mut Vec<Finding>) {
+    let code = script_code(&vpx.gamedata.code.string);
+    let mut reported: HashSet<&str> = HashSet::new();
+    for word in code.split(|c: char| !c.is_alphanumeric() && c != '_' && c != '.') {
+        let Some(member) = word.rsplit('.').next().filter(|_| word.contains('.')) else {
+            continue;
+        };
+        if let Some(known) = DEPRECATED_CONTROLLER_PROPERTIES
+            .iter()
+            .find(|known| known.eq_ignore_ascii_case(member))
+            && reported.insert(known)
+        {
+            findings.push(Finding::DeprecatedControllerProperty {
+                property: (*known).to_string(),
+            });
+        }
     }
 }
 
@@ -1557,6 +1606,34 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn deprecated_controller_properties_are_informational() {
+        let mut vpx = clean_vpx();
+        vpx.gamedata.set_code(
+            "Option Explicit\r\nWith Controller\r\n    .ShowTitle = False\r\n    .ShowDMDOnly = 1 : .ShowFrame = 0\r\n    .HandleKeyboard = 0\r\n    .Run\r\nEnd With\r\n' .ShowTitle in a comment\r\nx = \"ShowTitle\"\r\n"
+                .to_string(),
+        );
+        let findings = audit(&vpx);
+        assert_eq!(
+            findings,
+            vec![
+                Finding::DeprecatedControllerProperty {
+                    property: "ShowTitle".to_string(),
+                },
+                Finding::DeprecatedControllerProperty {
+                    property: "ShowDMDOnly".to_string(),
+                },
+                Finding::DeprecatedControllerProperty {
+                    property: "ShowFrame".to_string(),
+                },
+                Finding::DeprecatedControllerProperty {
+                    property: "HandleKeyboard".to_string(),
+                },
+            ]
+        );
+        assert_eq!(findings[0].severity(), Severity::Info);
     }
 
     #[cfg(feature = "script-audit")]
