@@ -6,6 +6,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.32.0](https://github.com/francisdb/vpin/compare/v0.31.1...v0.32.0) - 2026-09-09
+
+### Added
+
+- audit static primitives the script refers to ([#418](https://github.com/francisdb/vpin/pull/418))
+- audit image records whose stored size differs from the picture ([#423](https://github.com/francisdb/vpin/pull/423))
+- audit sounds the script plays or stops that the table does not have ([#426](https://github.com/francisdb/vpin/pull/426))
+- audit images, sounds and materials nothing refers to
+- audit primitives with a huge mesh ([#421](https://github.com/francisdb/vpin/pull/421))
+- audit deprecated VPinMAME controller properties
+- audit deprecated table properties used by the script
+- audit enabled timers without a handler, and handlers without an item ([#431](https://github.com/francisdb/vpin/pull/431))
+- audit script names that hide items, and Rnd without Randomize ([#420](https://github.com/francisdb/vpin/pull/420))
+- audit textbox and decal fonts that are neither embedded nor core ([#429](https://github.com/francisdb/vpin/pull/429))
+- audit embedded fonts nothing uses ([#417](https://github.com/francisdb/vpin/pull/417))
+- tell missing table images with a built-in fallback apart ([#415](https://github.com/francisdb/vpin/pull/415))
+- add a semantic diff of two tables ([#412](https://github.com/francisdb/vpin/pull/412))
+- [**breaking**] report only mixed script line endings, as a suggestion ([#413](https://github.com/francisdb/vpin/pull/413))
+
+### Fixed
+
+- [**breaking**] report a duplicate name once, with a count ([#425](https://github.com/francisdb/vpin/pull/425))
+
+### Other
+
+- optimize only dependencies in the test profile and run tests once ([#432](https://github.com/francisdb/vpin/pull/432))
+
 ## [0.31.1](https://github.com/francisdb/vpin/compare/v0.31.0...v0.31.1) - 2026-09-08
 
 ### Other
