@@ -134,6 +134,17 @@ pub enum Finding {
     /// The script plays or stops a sound that does not exist; vpinball
     /// logs a warning and plays nothing
     MissingSound { sound: String },
+    /// The image's stored width and height differ from the encoded
+    /// picture; older vpinball versions wrote the dimensions after their
+    /// load time resize. vpinball logs it as a corrupted file and uses the
+    /// picture's own size, so this only matters to tools reading the header
+    ImageDimensionMismatch {
+        image: String,
+        /// Width and height stored in the image record
+        stored: (u32, u32),
+        /// Width and height of the encoded picture
+        actual: (u32, u32),
+    },
     /// The glass is below two inches or upside down
     GlassHeightInvalid { detail: &'static str },
     /// The legacy spherical ball mapping renders badly in VR, stereo and
@@ -221,6 +232,7 @@ impl Finding {
             }
             Finding::UnusedImage { .. } | Finding::UnusedSound { .. } => Severity::Suggestion,
             Finding::UnusedMaterials { .. } => Severity::Info,
+            Finding::ImageDimensionMismatch { .. } => Severity::Info,
             Finding::NegativeLightIntensity { .. } | Finding::StereoTableSound { .. } => {
                 Severity::Error
             }
@@ -333,6 +345,15 @@ impl fmt::Display for Finding {
             } => write!(
                 f,
                 "{item}: mesh has {vertices} vertices and {indices} indices, in the top thousandth of all primitives"
+            ),
+            Finding::ImageDimensionMismatch {
+                image,
+                stored,
+                actual,
+            } => write!(
+                f,
+                "image {image:?} is stored as {}x{} but the picture is {}x{}; vpinball logs a corrupted file and uses the picture's size",
+                stored.0, stored.1, actual.0, actual.1
             ),
 
             Finding::UnusedFont { font, faces } => write!(
@@ -569,6 +590,15 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
                 image: image.name.clone(),
             });
         }
+        if let Some(actual) = picture_dimensions(image)
+            && actual != (image.width, image.height)
+        {
+            findings.push(Finding::ImageDimensionMismatch {
+                image: image.name.clone(),
+                stored: (image.width, image.height),
+                actual,
+            });
+        }
     }
 
     let script = &vpx.gamedata.code.string;
@@ -684,6 +714,27 @@ fn check_mesh_size(item: &GameItemEnum, findings: &mut Vec<Finding>) {
             indices: primitive.num_indices.unwrap_or(0),
         });
     }
+}
+
+/// The size of the encoded picture, read from its header only; a bitmap
+/// has no header, its decoded byte count tells whether the stored size
+/// fits. `None` when there is no data or it does not parse.
+fn picture_dimensions(image: &crate::vpx::image::ImageData) -> Option<(u32, u32)> {
+    if let Some(jpeg) = &image.jpeg {
+        let mut reader = ::image::ImageReader::new(std::io::Cursor::new(&jpeg.data));
+        if let Some(format) = ::image::ImageFormat::from_extension(image.ext()) {
+            reader.set_format(format);
+        }
+        return reader.with_guessed_format().ok()?.into_dimensions().ok();
+    }
+    if let Some(bits) = &image.bits {
+        let bytes = crate::vpx::lzw::from_lzw_blocks(&bits.lzw_compressed_data).ok()?;
+        let expected = image.width as usize * image.height as usize * 4;
+        // the stored size fits the data, or it does not and the data alone
+        // cannot say what the size is
+        return (bytes.len() == expected).then_some((image.width, image.height));
+    }
+    None
 }
 
 fn name_set<'a>(names: impl Iterator<Item = &'a str>) -> HashSet<String> {
@@ -1915,6 +1966,46 @@ mod tests {
                 item: "Primitive \"Bake\"".to_string(),
                 vertices: 2_000_000,
                 indices: 2_100_000,
+            }]
+        );
+        assert_eq!(findings[0].severity(), Severity::Info);
+    }
+
+    #[test]
+    fn stale_image_dimensions_are_informational() {
+        use crate::vpx::image::{ImageData, ImageDataJpeg};
+        let mut png = Vec::new();
+        ::image::RgbaImage::from_pixel(2, 3, ::image::Rgba([1, 2, 3, 255]))
+            .write_to(
+                &mut std::io::Cursor::new(&mut png),
+                ::image::ImageFormat::Png,
+            )
+            .expect("encodes");
+        let image = |name: &str, width: u32, height: u32| ImageData {
+            name: name.to_string(),
+            path: format!("{name}.png"),
+            width,
+            height,
+            jpeg: Some(ImageDataJpeg {
+                path: format!("{name}.png"),
+                name: name.to_string(),
+                internal_name: None,
+                data: png.clone(),
+            }),
+            ..Default::default()
+        };
+        let mut vpx = clean_vpx();
+        vpx.images = vec![image("right", 2, 3), image("resized", 8, 8)];
+        vpx.gamedata.images_size = 2;
+        vpx.gamedata.image = "right".to_string();
+        vpx.gamedata.ball_image = "resized".to_string();
+        let findings = audit(&vpx);
+        assert_eq!(
+            findings,
+            vec![Finding::ImageDimensionMismatch {
+                image: "resized".to_string(),
+                stored: (8, 8),
+                actual: (2, 3),
             }]
         );
         assert_eq!(findings[0].severity(), Severity::Info);
