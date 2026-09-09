@@ -16,8 +16,10 @@
 
 use super::VPX;
 use super::gameitem::GameItemEnum;
+use super::gameitem::primitive::{Primitive, decompress_mesh_data};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 /// The sentinel vpinball's editor writes for "no image selected"
 const NONE_SELECTION: &str = "<None>";
@@ -90,6 +92,17 @@ pub enum Finding {
     /// An embedded font whose face names no textbox or decal uses and the
     /// script does not mention; it only adds to the file
     UnusedFont { font: String, faces: Vec<String> },
+    /// Several primitives embed the same mesh; vpinball has no mesh
+    /// sharing, so each copy is stored and loaded on its own. Only
+    /// reported when the copies add up to something, tiny shared quads
+    /// such as ball shadows are common and harmless
+    DuplicateMesh {
+        primitives: Vec<String>,
+        vertices: u32,
+        indices: u32,
+        /// The decoded bytes stored more than once
+        duplicated_bytes: usize,
+    },
     /// The glass is below two inches or upside down
     GlassHeightInvalid { detail: &'static str },
     /// The legacy spherical ball mapping renders badly in VR, stereo and
@@ -132,6 +145,8 @@ pub enum Finding {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum Severity {
+    /// Worth knowing, nothing to fix
+    Info,
     /// An improvement worth considering
     Suggestion,
     /// Something looks wrong, though vpinball tolerates it at runtime
@@ -149,6 +164,7 @@ impl Finding {
             | Finding::MixedScriptLineEndings { .. }
             | Finding::MissingImageWithFallback { .. }
             | Finding::UnusedFont { .. } => Severity::Suggestion,
+            Finding::DuplicateMesh { .. } => Severity::Info,
             Finding::NegativeLightIntensity { .. } | Finding::StereoTableSound { .. } => {
                 Severity::Error
             }
@@ -242,6 +258,22 @@ impl fmt::Display for Finding {
                     .collect();
                 write!(f, "script mixes line endings: {}", styles.join(", "))
             }
+            Finding::DuplicateMesh {
+                primitives,
+                vertices,
+                indices,
+                duplicated_bytes,
+            } => write!(
+                f,
+                "primitives {} embed the same mesh ({vertices} vertices, {indices} indices), {} KB stored more than once",
+                primitives
+                    .iter()
+                    .map(|name| format!("{name:?}"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                duplicated_bytes / 1024
+            ),
+
             Finding::UnusedFont { font, faces } => write!(
                 f,
                 "font {font:?} ({}) is not used by any textbox or decal and the script does not mention it",
@@ -372,6 +404,7 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
     }
 
     check_fonts(vpx, &mut findings);
+    check_duplicate_meshes(vpx, &mut findings);
 
     check_duplicates(
         vpx.images.iter().map(|image| image.name.as_str()),
@@ -547,6 +580,62 @@ fn check_duplicates<'a>(
     }
 }
 
+/// Duplicated mesh data below this is not worth a finding
+const DUPLICATE_MESH_MIN_BYTES: usize = 64 * 1024;
+
+/// Groups primitives by their decoded mesh data. The hash narrows the
+/// candidates, the bytes decide, so two different meshes are never
+/// reported as one.
+fn check_duplicate_meshes(vpx: &VPX, findings: &mut Vec<Finding>) {
+    struct Group<'a> {
+        data: Vec<u8>,
+        primitives: Vec<&'a Primitive>,
+    }
+    let mut groups: HashMap<u64, Vec<Group>> = HashMap::new();
+    let mut order: Vec<u64> = Vec::new();
+    for item in &vpx.gameitems {
+        let GameItemEnum::Primitive(primitive) = item else {
+            continue;
+        };
+        let Some(data) = mesh_bytes(primitive) else {
+            continue;
+        };
+        let mut hasher = DefaultHasher::new();
+        data.hash(&mut hasher);
+        let key = hasher.finish();
+        let candidates = groups.entry(key).or_default();
+        if candidates.is_empty() {
+            order.push(key);
+        }
+        match candidates.iter_mut().find(|group| group.data == data) {
+            Some(group) => group.primitives.push(primitive),
+            None => candidates.push(Group {
+                data,
+                primitives: vec![primitive],
+            }),
+        }
+    }
+    for key in order {
+        for group in &groups[&key] {
+            let duplicated_bytes = group.data.len() * (group.primitives.len() - 1);
+            if group.primitives.len() < 2 || duplicated_bytes < DUPLICATE_MESH_MIN_BYTES {
+                continue;
+            }
+            let first = group.primitives[0];
+            findings.push(Finding::DuplicateMesh {
+                primitives: group
+                    .primitives
+                    .iter()
+                    .map(|primitive| primitive.name.clone())
+                    .collect(),
+                vertices: first.num_vertices.unwrap_or(0),
+                indices: first.num_indices.unwrap_or(0),
+                duplicated_bytes,
+            });
+        }
+    }
+}
+
 /// An embedded font is registered by the names inside the font file, so
 /// those are what a textbox or decal refers to. A font whose names do not
 /// decode is left alone.
@@ -581,6 +670,23 @@ fn check_fonts(vpx: &VPX, findings: &mut Vec<Finding>) {
             });
         }
     }
+}
+
+/// The decoded vertices, indices and animation frames of a primitive's
+/// mesh, `None` when it has none or the data does not decode
+fn mesh_bytes(primitive: &Primitive) -> Option<Vec<u8>> {
+    let vertices = primitive.compressed_vertices_data.as_ref()?;
+    let indices = primitive.compressed_indices_data.as_ref()?;
+    let mut data = decompress_mesh_data(vertices).ok()?;
+    data.extend(decompress_mesh_data(indices).ok()?);
+    for frame in primitive
+        .compressed_animation_vertices_data
+        .iter()
+        .flatten()
+    {
+        data.extend(decompress_mesh_data(frame).ok()?);
+    }
+    Some(data)
 }
 
 fn item_label(item: &GameItemEnum) -> String {
@@ -1153,6 +1259,59 @@ mod tests {
         let mut vpx = clean_vpx();
         vpx.gamedata.code.string = "Option Explicit\nDim x\nDim y\n".to_string();
         assert_eq!(audit(&vpx), vec![]);
+    }
+
+    #[test]
+    fn primitives_sharing_a_mesh_are_reported_as_info() {
+        use crate::vpx::gameitem::primitive::compress_mesh_data;
+        let primitive = |name: &str, vertices: &[u8], indices: &[u8]| {
+            GameItemEnum::Primitive(Box::new(Primitive {
+                name: name.to_string(),
+                num_vertices: Some(vertices.len() as u32 / 32),
+                num_indices: Some(indices.len() as u32 / 2),
+                compressed_vertices_data: Some(compress_mesh_data(vertices).expect("compresses")),
+                compressed_indices_data: Some(compress_mesh_data(indices).expect("compresses")),
+                ..Primitive::default()
+            }))
+        };
+        // 2000 vertices of 32 bytes: two extra copies are 128 KB
+        let peg_vertices: Vec<u8> = (0..2000u32 * 32).map(|i| (i % 251) as u8).collect();
+        let peg_indices = vec![0, 0, 1, 0, 2, 0];
+        let quad_vertices = vec![7u8; 32 * 4];
+        let mut vpx = clean_vpx();
+        // the template's collections refer to the items replaced here
+        vpx.collections.clear();
+        vpx.gamedata.collections_size = 0;
+        vpx.gameitems = vec![
+            primitive("Peg1", &peg_vertices, &peg_indices),
+            primitive("Post", &vec![9u8; 32 * 2000], &peg_indices),
+            primitive("Peg2", &peg_vertices, &peg_indices),
+            primitive("Peg3", &peg_vertices, &peg_indices),
+            // a small shared quad is not worth a finding
+            primitive("Shadow1", &quad_vertices, &peg_indices),
+            primitive("Shadow2", &quad_vertices, &peg_indices),
+            GameItemEnum::Primitive(Box::new(Primitive {
+                name: "Generated".to_string(),
+                ..Primitive::default()
+            })),
+        ];
+        vpx.gamedata.gameitems_size = vpx.gameitems.len() as u32;
+        let findings = audit(&vpx);
+        assert_eq!(
+            findings,
+            vec![Finding::DuplicateMesh {
+                primitives: vec!["Peg1".to_string(), "Peg2".to_string(), "Peg3".to_string()],
+                vertices: 2000,
+                indices: 3,
+                duplicated_bytes: 2 * (2000 * 32 + 6),
+            }]
+        );
+        assert_eq!(findings[0].severity(), Severity::Info);
+        assert!(Severity::Info < Severity::Suggestion);
+        assert_eq!(
+            findings[0].to_string(),
+            "primitives \"Peg1\", \"Peg2\", \"Peg3\" embed the same mesh (2000 vertices, 3 indices), 125 KB stored more than once"
+        );
     }
 
     #[test]
