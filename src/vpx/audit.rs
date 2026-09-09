@@ -122,6 +122,15 @@ pub enum Finding {
         vertices: u32,
         indices: u32,
     },
+    /// An image no game item or table setting uses and the script never
+    /// names; it only adds to the file
+    UnusedImage { image: String, bytes: usize },
+    /// A sound the script never names; it only adds to the file
+    UnusedSound { sound: String, bytes: usize },
+    /// Materials no game item or the playfield uses and the script never
+    /// names. They cost nothing in the file, but they clutter the material
+    /// list; reported once per table since most tables carry dozens
+    UnusedMaterials { names: Vec<String>, total: usize },
     /// The glass is below two inches or upside down
     GlassHeightInvalid { detail: &'static str },
     /// The legacy spherical ball mapping renders badly in VR, stereo and
@@ -207,6 +216,8 @@ impl Finding {
             Finding::DeprecatedControllerProperty { .. } | Finding::HugeMesh { .. } => {
                 Severity::Info
             }
+            Finding::UnusedImage { .. } | Finding::UnusedSound { .. } => Severity::Suggestion,
+            Finding::UnusedMaterials { .. } => Severity::Info,
             Finding::NegativeLightIntensity { .. } | Finding::StereoTableSound { .. } => {
                 Severity::Error
             }
@@ -341,6 +352,26 @@ impl fmt::Display for Finding {
             Finding::DeprecatedTableProperty { property } => write!(
                 f,
                 "script uses the deprecated table property {property}, which does nothing"
+            ),
+            Finding::UnusedImage { image, bytes } => write!(
+                f,
+                "image {image:?} ({} KB) is not used by any item or table setting and the script does not name it",
+                bytes / 1024
+            ),
+            Finding::UnusedMaterials { names, total } => write!(
+                f,
+                "{} of {total} materials are not used by any item or the playfield and the script does not name them: {}",
+                names.len(),
+                names
+                    .iter()
+                    .map(|name| format!("{name:?}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Finding::UnusedSound { sound, bytes } => write!(
+                f,
+                "sound {sound:?} ({} KB) is not named in the script",
+                bytes / 1024
             ),
             Finding::GlassHeightInvalid { detail } => {
                 write!(f, "glass height seems invalid: {detail}")
@@ -493,6 +524,7 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
 
     check_deprecated_properties(vpx, &mut findings);
     check_deprecated_controller_properties(vpx, &mut findings);
+    check_unused_assets(vpx, &mut findings);
 
     check_duplicates(
         vpx.images.iter().map(|image| image.name.as_str()),
@@ -916,6 +948,219 @@ fn check_deprecated_controller_properties(vpx: &VPX, findings: &mut Vec<Finding>
     }
 }
 
+/// A string literal of a script, lower cased, with whether it is joined
+/// to another expression with `&` or `+` on either side, which makes it
+/// the start or the end of a name built at runtime
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct Literal {
+    pub(crate) text: String,
+    /// `... & "text"`: the literal ends a built name
+    pub(crate) joined_before: bool,
+    /// `"text" & ...`: the literal starts a built name
+    pub(crate) joined_after: bool,
+}
+
+/// The string literals of a VBScript, comments excluded; a doubled quote
+/// inside a string is one quote. A line ending in `_` continues on the
+/// next one.
+pub(crate) fn script_literals(script: &str) -> Vec<Literal> {
+    let mut literals: Vec<Literal> = Vec::new();
+    // the statement text so far, literals replaced by a quote, to see
+    // what precedes a literal
+    let mut statement = String::new();
+    // a literal that ended a line with a continuation, waiting to see
+    // whether the next line joins it
+    let mut continued: Option<usize> = None;
+    for line in script.lines() {
+        let mut chars = line.chars().peekable();
+        let mut current: Option<String> = None;
+        let first = line.trim_start().chars().next();
+        if let Some(index) = continued.take()
+            && matches!(first, Some('&' | '+'))
+        {
+            literals[index].joined_after = true;
+        }
+        while let Some(c) = chars.next() {
+            match (&mut current, c) {
+                (None, '"') => current = Some(String::new()),
+                (None, '\'') => break,
+                (None, c) => statement.push(c),
+                (Some(literal), '"') => {
+                    if chars.peek() == Some(&'"') {
+                        chars.next();
+                        literal.push('"');
+                    } else if let Some(literal) = current.take() {
+                        let joined_before =
+                            matches!(statement.trim_end().chars().last(), Some('&' | '+'));
+                        let rest: String = chars.clone().collect();
+                        let rest = rest.trim();
+                        let joined_after = matches!(rest.chars().next(), Some('&' | '+'));
+                        literals.push(Literal {
+                            text: literal.to_lowercase(),
+                            joined_before,
+                            joined_after,
+                        });
+                        if rest == "_" || rest.is_empty() {
+                            continued = Some(literals.len() - 1);
+                        }
+                        statement.push('"');
+                    }
+                }
+                (Some(literal), c) => literal.push(c),
+            }
+        }
+        if statement.trim_end().ends_with('_') {
+            statement.pop();
+        } else {
+            statement.clear();
+            continued = None;
+        }
+    }
+    literals
+}
+
+/// The table images the markdown of the table info refers to as
+/// `![alt](name)`; vpinball's in game pages render the blurb, the
+/// description and the rules that way and resolve the link as an image
+/// name
+fn markdown_images(text: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("![") {
+        let after = &rest[start + 2..];
+        let Some(open) = after.find("](") else {
+            break;
+        };
+        let link = &after[open + 2..];
+        let Some(close) = link.find(')') else {
+            break;
+        };
+        let name = link[..close].trim();
+        if !name.is_empty() {
+            names.push(name.to_lowercase());
+        }
+        rest = &link[close + 1..];
+    }
+    names
+}
+
+/// Whether the script names an asset: as a whole literal, which is how
+/// `.Image = "name"` and `PlaySound "name"` refer to it; as the start or
+/// end of a name built with `&`, the way `"fx_ballrolling" & i` plays one
+/// of a numbered set; or as the `VPX.name` FlexDMD reads a table image by
+fn script_names(literals: &[Literal], name: &str) -> bool {
+    let lower = name.to_lowercase();
+    literals.iter().any(|literal| {
+        let text = literal.text.as_str();
+        lower == text
+            || (literal.joined_after && !text.is_empty() && lower.starts_with(text))
+            || (literal.joined_before && !text.is_empty() && lower.ends_with(text))
+            || text.strip_prefix("vpx.").is_some_and(|rest| {
+                rest.split(['&', '|'])
+                    .next()
+                    .is_some_and(|n| n.trim() == lower)
+            })
+    })
+}
+
+/// Images, sounds and materials nothing refers to: no item, table
+/// setting, info markdown or script literal. A name built at runtime
+/// from parts the scan cannot follow escapes this, so images and sounds
+/// are suggestions; materials, which only clutter, are one informational
+/// finding per table.
+fn check_unused_assets(vpx: &VPX, findings: &mut Vec<Finding>) {
+    let literals = script_literals(&vpx.gamedata.code.string);
+    let gamedata = &vpx.gamedata;
+
+    let mut used_images: HashSet<String> = HashSet::new();
+    let mut used_materials: HashSet<String> = HashSet::new();
+    for item in &vpx.gameitems {
+        let refs = item_references(item);
+        used_images.extend(refs.images.iter().map(|(_, image)| image.to_lowercase()));
+        used_materials.extend(refs.materials.iter().map(|(_, m)| m.to_lowercase()));
+    }
+    used_materials.insert(gamedata.playfield_material.to_lowercase());
+    for text in [
+        &vpx.info.table_blurb,
+        &vpx.info.table_description,
+        &vpx.info.table_rules,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        used_images.extend(markdown_images(text));
+    }
+    used_images.extend(
+        [
+            gamedata.image.as_str(),
+            gamedata.backglass_image_full_desktop.as_str(),
+            gamedata.backglass_image_full_fullscreen.as_str(),
+            gamedata
+                .backglass_image_full_single_screen
+                .as_deref()
+                .unwrap_or(""),
+            gamedata.image_color_grade.as_str(),
+            gamedata.ball_image.as_str(),
+            gamedata.ball_image_front.as_str(),
+            gamedata.env_image.as_deref().unwrap_or(""),
+            // the image the table screenshot is taken from on save
+            gamedata.screen_shot.as_str(),
+        ]
+        .into_iter()
+        .map(str::to_lowercase),
+    );
+    for image in &vpx.images {
+        if !used_images.contains(&image.name.to_lowercase())
+            && !script_names(&literals, &image.name)
+        {
+            let bytes = image
+                .jpeg
+                .as_ref()
+                .map(|jpeg| jpeg.data.len())
+                .or_else(|| {
+                    image
+                        .bits
+                        .as_ref()
+                        .map(|bits| bits.lzw_compressed_data.len())
+                })
+                .unwrap_or(0);
+            findings.push(Finding::UnusedImage {
+                image: image.name.clone(),
+                bytes,
+            });
+        }
+    }
+    for sound in &vpx.sounds {
+        if !script_names(&literals, &sound.name) {
+            findings.push(Finding::UnusedSound {
+                sound: sound.name.clone(),
+                bytes: sound.data.len(),
+            });
+        }
+    }
+    let material_names: Vec<&str> = match &gamedata.materials {
+        Some(materials) => materials.iter().map(|m| m.name.as_str()).collect(),
+        None => gamedata
+            .materials_old
+            .iter()
+            .map(|m| m.name.as_str())
+            .collect(),
+    };
+    let unused: Vec<String> = material_names
+        .iter()
+        .filter(|name| {
+            !used_materials.contains(&name.to_lowercase()) && !script_names(&literals, name)
+        })
+        .map(|name| name.to_string())
+        .collect();
+    if !unused.is_empty() {
+        findings.push(Finding::UnusedMaterials {
+            names: unused,
+            total: material_names.len(),
+        });
+    }
+}
+
 fn item_label(item: &GameItemEnum) -> String {
     format!("{} {:?}", item.type_name(), item.name())
 }
@@ -1158,6 +1403,7 @@ fn item_references(item: &GameItemEnum) -> References<'_> {
         }
         GameItemEnum::Primitive(primitive) => {
             refs.images.push(("image", &primitive.image));
+            push_optional_image(&mut refs.images, "normal map", &primitive.normal_map);
             refs.materials.push(("material", &primitive.material));
             push_optional(
                 &mut refs.materials,
@@ -1260,6 +1506,27 @@ mod tests {
         }
         // the template script draws random numbers without Randomize
         vpx.gamedata.set_code("Option Explicit\r\n".to_string());
+        // the template ships an image nothing refers to
+        vpx.images.clear();
+        vpx.gamedata.images_size = 0;
+        // and materials nothing uses
+        let unused: Vec<String> = audit(&vpx)
+            .into_iter()
+            .find_map(|finding| match finding {
+                Finding::UnusedMaterials { names, .. } => Some(names),
+                _ => None,
+            })
+            .unwrap_or_default();
+        if let Some(materials) = &mut vpx.gamedata.materials {
+            materials.retain(|material| !unused.contains(&material.name));
+        }
+        vpx.gamedata
+            .materials_old
+            .retain(|material| !unused.contains(&material.name));
+        if let Some(physics) = &mut vpx.gamedata.materials_physics_old {
+            physics.retain(|material| !unused.contains(&material.name));
+        }
+        vpx.gamedata.materials_size = vpx.gamedata.materials_old.len() as u32;
         vpx
     }
 
@@ -1283,10 +1550,12 @@ mod tests {
                     Finding::NonStandardFont { .. }
                         | Finding::RndWithoutRandomize
                         | Finding::HandlersWithoutItem { .. }
+                        | Finding::UnusedMaterials { .. }
                 )
             })
             .collect();
-        assert_eq!(findings.len(), 6, "{findings:#?}");
+        // 6 dangling references and the image nothing refers to
+        assert_eq!(findings.len(), 7, "{findings:#?}");
         let count = |wanted: fn(&Finding) -> bool| findings.iter().filter(|f| wanted(f)).count();
         // the playfield image is the only one without a fallback
         assert_eq!(count(|f| matches!(f, Finding::MissingImage { .. })), 1);
@@ -1393,6 +1662,8 @@ mod tests {
                 ..Default::default()
             });
         }
+        // the duplicates are referenced so only the duplicate is reported
+        vpx.gamedata.image = "ding".to_string();
         let findings = audit(&vpx);
         assert_eq!(
             findings,
@@ -1544,7 +1815,11 @@ mod tests {
             })),
         ];
         vpx.gamedata.gameitems_size = 2;
-        let findings = audit(&vpx);
+        // replacing every item leaves the template's materials unused
+        let findings: Vec<Finding> = audit(&vpx)
+            .into_iter()
+            .filter(|finding| !matches!(finding, Finding::UnusedMaterials { .. }))
+            .collect();
         assert_eq!(
             findings,
             vec![Finding::HugeMesh {
@@ -1641,6 +1916,11 @@ mod tests {
             textbox("Custom", "Bebas Neue"),
         ];
         vpx.gamedata.gameitems_size = 5;
+        // the template's materials were only used by the items replaced here
+        vpx.gamedata.materials_old.clear();
+        vpx.gamedata.materials_physics_old = None;
+        vpx.gamedata.materials_size = 0;
+        vpx.gamedata.playfield_material.clear();
         let findings = audit(&vpx);
         assert_eq!(
             findings,
@@ -1705,6 +1985,132 @@ mod tests {
             ]
         );
         assert_eq!(findings[0].severity(), Severity::Info);
+    }
+
+    #[test]
+    fn script_literals_skip_comments_and_see_concatenations() {
+        let script = "PlaySound \"Fx_Hit\", 1 ' \"commented\"\r\n\
+            x = \"say \"\"hi\"\"\" & \"VPX.Logo&dmd=2\"\r\n\
+            PlaySound \"fx_ballrolling\" & i\r\n\
+            Light1.Image = \"LM\" & _\r\n    color & \"On\"\r\n";
+        let literals = script_literals(script);
+        let literal = |text: &str, before: bool, after: bool| Literal {
+            text: text.to_string(),
+            joined_before: before,
+            joined_after: after,
+        };
+        assert_eq!(
+            literals,
+            vec![
+                literal("fx_hit", false, false),
+                literal("say \"hi\"", false, true),
+                literal("vpx.logo&dmd=2", true, false),
+                literal("fx_ballrolling", false, true),
+                literal("lm", false, true),
+                literal("on", true, false),
+            ]
+        );
+        assert!(script_names(&literals, "FX_HIT"));
+        assert!(script_names(&literals, "fx_ballrolling12"));
+        assert!(!script_names(&literals, "fx_hit_loud"));
+        assert!(script_names(&literals, "LMRedOn"));
+        assert!(script_names(&literals, "logo"));
+        assert!(!script_names(&literals, "commented"));
+
+        // a continuation line joining a literal that ended the previous one
+        let literals = script_literals("x = \"fx_\" _\r\n    & name\r\ny = \"lone\"\r\n");
+        assert!(literals[0].joined_after);
+        assert!(!literals[1].joined_after);
+    }
+
+    #[test]
+    fn markdown_images_are_found() {
+        assert_eq!(
+            markdown_images(
+                "# Rules\n![the playfield](Playfield_Rules) and ![](Logo)\n[a link](http://x)"
+            ),
+            vec!["playfield_rules".to_string(), "logo".to_string()]
+        );
+    }
+
+    #[test]
+    fn unused_assets_are_reported() {
+        use crate::vpx::image::ImageData;
+        use crate::vpx::sound::{OutputTarget, SoundData};
+        let image = |name: &str| ImageData {
+            name: name.to_string(),
+            path: format!("{name}.png"),
+            ..Default::default()
+        };
+        let sound = |name: &str| SoundData {
+            name: name.to_string(),
+            path: format!("{name}.wav"),
+            wave_form: Default::default(),
+            data: vec![0; 2048],
+            internal_name: String::new(),
+            fade: 0,
+            volume: 0,
+            balance: 0,
+            output_target: OutputTarget::Table,
+        };
+        let mut vpx = clean_vpx();
+        vpx.images = vec![
+            image("playfield"),
+            image("scripted"),
+            image("dmd_logo"),
+            image("rules_sheet"),
+            image("orphan"),
+        ];
+        vpx.gamedata.images_size = 5;
+        vpx.gamedata.image = "Playfield".to_string();
+        vpx.info.table_rules = Some("![rules](Rules_Sheet)".to_string());
+        vpx.sounds = vec![sound("fx_hit"), sound("fx_unused")];
+        vpx.gamedata.sounds_size = 2;
+        let material = |name: &str| {
+            let mut material = crate::vpx::material::Material::default();
+            material.name = name.to_string();
+            material
+        };
+        vpx.gamedata.materials = Some(vec![
+            material("Playfield"),
+            material("ByScript"),
+            material("Forgotten"),
+            material("Spare"),
+        ]);
+        vpx.gamedata.playfield_material = "playfield".to_string();
+        vpx.gamedata.set_code(
+            "Option Explicit\r\nDim img\r\nWall1.Image = \"Scripted\"\r\nPlaySound \"FX_Hit\"\r\nSet img = FlexDMD.NewImage(\"l\", \"VPX.dmd_logo&dmd=2\")\r\nWall1.Material = \"byscript\"\r\n"
+                .to_string(),
+        );
+
+        let findings = audit(&vpx);
+        assert_eq!(
+            findings,
+            vec![
+                Finding::UnusedImage {
+                    image: "orphan".to_string(),
+                    bytes: 0,
+                },
+                Finding::UnusedSound {
+                    sound: "fx_unused".to_string(),
+                    bytes: 2048,
+                },
+                Finding::UnusedMaterials {
+                    names: vec!["Forgotten".to_string(), "Spare".to_string()],
+                    total: 4,
+                },
+            ]
+        );
+        assert_eq!(findings[0].severity(), Severity::Suggestion);
+        assert_eq!(findings[2].severity(), Severity::Info);
+        assert_eq!(
+            findings[2].to_string(),
+            "2 of 4 materials are not used by any item or the playfield and the script does not name them: \"Forgotten\", \"Spare\""
+        );
+        assert_eq!(
+            findings[1].to_string(),
+            "sound \"fx_unused\" (2 KB) is not named in the script"
+        );
     }
 
     #[cfg(feature = "script-audit")]
