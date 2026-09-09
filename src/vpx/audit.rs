@@ -145,6 +145,11 @@ pub enum Finding {
         /// Width and height of the encoded picture
         actual: (u32, u32),
     },
+    /// The script creates a `VPinMAME.WSHDlg` dialog, directly or through
+    /// the `cvpmDips` helper of core.vbs. The standalone build cannot
+    /// create it; core.vbs guards the call, so the DIP switch or options
+    /// menu just never opens there
+    WshDlgUsed,
     /// The glass is below two inches or upside down
     GlassHeightInvalid { detail: &'static str },
     /// The legacy spherical ball mapping renders badly in VR, stereo and
@@ -237,6 +242,7 @@ impl Finding {
             Finding::UnusedImage { .. } | Finding::UnusedSound { .. } => Severity::Suggestion,
             Finding::UnusedMaterials { .. } => Severity::Info,
             Finding::ImageDimensionMismatch { .. } => Severity::Info,
+            Finding::WshDlgUsed => Severity::Info,
             Finding::NegativeLightIntensity { .. } | Finding::StereoTableSound { .. } => {
                 Severity::Error
             }
@@ -399,6 +405,10 @@ impl fmt::Display for Finding {
             Finding::MissingSound { sound } => {
                 write!(f, "script names missing sound {sound:?}")
             }
+            Finding::WshDlgUsed => write!(
+                f,
+                "script uses a VPinMAME.WSHDlg dialog (directly or through cvpmDips); the DIP switch menu does not open on standalone"
+            ),
             Finding::UnusedSound { sound, bytes } => write!(
                 f,
                 "sound {sound:?} ({} KB) is not named in the script",
@@ -561,6 +571,7 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
     check_deprecated_controller_properties(vpx, &mut findings);
     check_unused_assets(vpx, &mut findings);
     check_sound_calls(vpx, &mut findings);
+    check_standalone(vpx, &mut findings);
 
     check_duplicates(
         vpx.images.iter().map(|image| image.name.as_str()),
@@ -1184,6 +1195,21 @@ pub(crate) fn sound_call_literals(script: &str) -> Vec<(String, bool)> {
         }
     }
     names
+}
+
+/// Things the standalone build does not support; 265 of 1361 corpus
+/// tables have the DIP menu, so this is informational
+fn check_standalone(vpx: &VPX, findings: &mut Vec<Finding>) {
+    let script = &vpx.gamedata.code.string;
+    let creates_dialog = script_literals(script)
+        .iter()
+        .any(|literal| literal.text == "vpinmame.wshdlg");
+    let uses_dips = script_code(script)
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .any(|word| word == "cvpmdips");
+    if creates_dialog || uses_dips {
+        findings.push(Finding::WshDlgUsed);
+    }
 }
 
 /// Sounds the script plays or stops by name that the table does not have
@@ -2267,6 +2293,25 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn a_wsh_dialog_is_reported() {
+        let mut vpx = clean_vpx();
+        vpx.gamedata.set_code(
+            "Option Explicit\r\nDim dlg\r\nSet dlg = CreateObject(\"VPinMAME.WSHDlg\")\r\n"
+                .to_string(),
+        );
+        assert_eq!(audit(&vpx), vec![Finding::WshDlgUsed]);
+        assert_eq!(audit(&vpx)[0].severity(), Severity::Info);
+
+        vpx.gamedata
+            .set_code("Option Explicit\r\nDim dips\r\nSet dips = New cvpmDips\r\n".to_string());
+        assert_eq!(audit(&vpx), vec![Finding::WshDlgUsed]);
+
+        vpx.gamedata
+            .set_code("Option Explicit\r\n' Set dips = New cvpmDips\r\n".to_string());
+        assert_eq!(audit(&vpx), vec![]);
     }
 
     #[test]
