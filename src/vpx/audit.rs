@@ -143,6 +143,13 @@ pub enum Finding {
     MissingVpmInit,
     /// The script uses `vpmTimer` but the table has no timer named `PulseTimer`
     MissingPulseTimer,
+    /// The script declares a variable, constant, procedure or class with
+    /// the name of a game item or collection, which hides the item from
+    /// the script
+    ScriptNameShadowsItem { name: String, kind: NameKind },
+    /// The script uses `Rnd` without calling `Randomize`, so every run
+    /// draws the same sequence
+    RndWithoutRandomize,
 }
 
 /// How serious a [`Finding`] is
@@ -170,7 +177,7 @@ impl Finding {
             Finding::NegativeLightIntensity { .. } | Finding::StereoTableSound { .. } => {
                 Severity::Error
             }
-            Finding::MissingOptionExplicit => Severity::Suggestion,
+            Finding::MissingOptionExplicit | Finding::RndWithoutRandomize => Severity::Suggestion,
             _ => Severity::Warning,
         }
     }
@@ -344,6 +351,14 @@ impl fmt::Display for Finding {
                     "script uses a VPinMAME controller but never calls vpmInit"
                 )
             }
+            Finding::ScriptNameShadowsItem { name, kind } => write!(
+                f,
+                "script declares {name:?}, which hides the {kind} of that name"
+            ),
+            Finding::RndWithoutRandomize => write!(
+                f,
+                "script uses Rnd without Randomize, so every run draws the same numbers"
+            ),
             Finding::MissingPulseTimer => write!(
                 f,
                 "script uses 'vpmTimer' but the table has no timer named 'PulseTimer'"
@@ -1024,6 +1039,8 @@ mod tests {
                 );
             }
         }
+        // the template script draws random numbers without Randomize
+        vpx.gamedata.set_code("Option Explicit\r\n".to_string());
         vpx
     }
 
@@ -1038,8 +1055,14 @@ mod tests {
         // images themselves are only present in the sample table
         let findings: Vec<Finding> = audit(&blank_vpx())
             .into_iter()
-            // the template's score textbox uses a Windows only font
-            .filter(|finding| !matches!(finding, Finding::NonStandardFont { .. }))
+            // the template's score textbox uses a Windows only font and its
+            // script draws random numbers without Randomize
+            .filter(|finding| {
+                !matches!(
+                    finding,
+                    Finding::NonStandardFont { .. } | Finding::RndWithoutRandomize
+                )
+            })
             .collect();
         assert_eq!(findings.len(), 6, "{findings:#?}");
         let count = |wanted: fn(&Finding) -> bool| findings.iter().filter(|f| wanted(f)).count();
@@ -1404,9 +1427,66 @@ mod tests {
                             | Finding::MissingPinMameTimer
                             | Finding::MissingVpmInit
                             | Finding::MissingPulseTimer
+                            | Finding::ScriptNameShadowsItem { .. }
+                            | Finding::RndWithoutRandomize
                     )
                 })
                 .collect()
+        }
+
+        #[test]
+        fn script_names_that_hide_items_are_reported() {
+            use crate::vpx::collection::Collection;
+            use crate::vpx::gameitem::wall::Wall;
+            let mut vpx = scripted(
+                "Dim Bumper1, Free\n\
+                 Const Wall1 = 3\n\
+                 Public Wall2\n\
+                 Sub AllLights\nEnd Sub\n\
+                 Class Wall3\nEnd Class\n\
+                 Sub Table1_Init\n    Dim Wall4\nEnd Sub\n",
+            );
+            for name in ["Bumper1", "Wall1", "Wall2", "Wall3", "Wall4"] {
+                vpx.gameitems.push(GameItemEnum::Wall(Wall {
+                    name: name.to_string(),
+                    ..Wall::default()
+                }));
+            }
+            vpx.gamedata.gameitems_size = vpx.gameitems.len() as u32;
+            vpx.collections.push(Collection {
+                name: "AllLights".to_string(),
+                items: Vec::new(),
+                fire_events: false,
+                stop_single_events: false,
+                group_elements: false,
+            });
+            vpx.gamedata.collections_size = vpx.collections.len() as u32;
+            let shadows = |name: &str, kind: NameKind| Finding::ScriptNameShadowsItem {
+                name: name.to_string(),
+                kind,
+            };
+            assert_eq!(
+                script_findings(&vpx),
+                vec![
+                    shadows("Bumper1", NameKind::GameItem),
+                    shadows("Wall1", NameKind::GameItem),
+                    shadows("Wall2", NameKind::GameItem),
+                    shadows("AllLights", NameKind::Collection),
+                    shadows("Wall3", NameKind::GameItem),
+                ]
+            );
+        }
+
+        #[test]
+        fn rnd_without_randomize_is_a_suggestion() {
+            let vpx = scripted("Sub Table1_Init\n    x = Rnd * 10\nEnd Sub\n");
+            assert_eq!(script_findings(&vpx), vec![Finding::RndWithoutRandomize]);
+            assert_eq!(
+                Finding::RndWithoutRandomize.severity(),
+                Severity::Suggestion
+            );
+            let vpx = scripted("Randomize\nSub Table1_Init\n    x = Rnd * 10\nEnd Sub\n");
+            assert_eq!(script_findings(&vpx), vec![]);
         }
 
         #[test]
@@ -1464,7 +1544,7 @@ mod tests {
 
 #[cfg(feature = "script-audit")]
 mod script {
-    use super::{Finding, VPX};
+    use super::{Finding, NameKind, VPX};
     use crate::vpx::gameitem::GameItemEnum;
     use std::collections::HashSet;
     use vbscript::parser::Parser;
@@ -1481,6 +1561,12 @@ mod script {
         declared: Vec<String>,
         /// the class currently being scanned, if any
         current_class: Option<String>,
+        /// names declared at script level: variables, constants, subs,
+        /// functions and classes, which all live in the namespace the
+        /// table items are in
+        script_level: Vec<String>,
+        /// how many procedures deep the scan is
+        depth: usize,
     }
 
     pub(super) fn check(vpx: &VPX, findings: &mut Vec<Finding>) {
@@ -1542,6 +1628,39 @@ mod script {
         if scan.identifiers.contains("vpmtimer") && !timers.contains("pulsetimer") {
             findings.push(Finding::MissingPulseTimer);
         }
+
+        // a script level name equal to an item or collection name hides it
+        let items: HashSet<String> = vpx
+            .gameitems
+            .iter()
+            .map(|item| item.name().to_lowercase())
+            .collect();
+        let collections: HashSet<String> = vpx
+            .collections
+            .iter()
+            .map(|collection| collection.name.to_lowercase())
+            .collect();
+        let mut reported: HashSet<String> = HashSet::new();
+        for name in &scan.script_level {
+            let lower = name.to_lowercase();
+            let kind = if items.contains(&lower) {
+                NameKind::GameItem
+            } else if collections.contains(&lower) {
+                NameKind::Collection
+            } else {
+                continue;
+            };
+            if reported.insert(lower) {
+                findings.push(Finding::ScriptNameShadowsItem {
+                    name: name.clone(),
+                    kind,
+                });
+            }
+        }
+
+        if scan.identifiers.contains("rnd") && !scan.identifiers.contains("randomize") {
+            findings.push(Finding::RndWithoutRandomize);
+        }
     }
 
     impl Scan {
@@ -1550,12 +1669,20 @@ mod script {
                 match item {
                     Item::OptionExplicit => self.option_explicit = true,
                     Item::Class { name, methods, .. } => {
+                        self.script_level.push(name.clone());
                         self.current_class = Some(name.clone());
                         self.stmts(methods);
                         self.current_class = None;
                     }
                     Item::Statement(stmt) => self.stmt(stmt),
-                    Item::Const { .. } | Item::Variable { .. } => {}
+                    Item::Const { values, .. } => {
+                        self.script_level
+                            .extend(values.iter().map(|(name, _)| name.clone()));
+                    }
+                    Item::Variable { vars, .. } => {
+                        self.script_level
+                            .extend(vars.iter().map(|(name, _)| name.clone()));
+                    }
                 }
             }
         }
@@ -1573,8 +1700,23 @@ mod script {
                         Some(class) => format!("{class}.{name}"),
                         None => name.clone(),
                     };
+                    if self.current_class.is_none() {
+                        self.script_level.push(name.clone());
+                    }
                     self.declared.push(qualified);
+                    self.depth += 1;
                     self.stmts(body);
+                    self.depth -= 1;
+                }
+                // a Dim inside a procedure is local, but VBScript hoists
+                // nothing: only script level declarations shadow items
+                Stmt::Dim { vars } if self.current_class.is_none() && self.depth == 0 => {
+                    self.script_level
+                        .extend(vars.iter().map(|(name, _)| name.clone()));
+                }
+                Stmt::Const(values) if self.current_class.is_none() && self.depth == 0 => {
+                    self.script_level
+                        .extend(values.iter().map(|(name, _)| name.clone()));
                 }
                 Stmt::Assignment { full_ident, value } => {
                     self.full_ident(full_ident);
