@@ -66,8 +66,18 @@ pub enum Finding {
     MissingPartGroup { item: String, part_group: String },
     /// A collection contains an item that does not exist
     MissingCollectionItem { collection: String, item: String },
-    /// Two images, sounds, game items or collections share a name
-    DuplicateName { kind: NameKind, name: String },
+    /// Several images, sounds, game items or collections share a name,
+    /// compared case insensitively like vpinball's lookups, reported once
+    /// per name with how many carry it. Only the first image or sound is
+    /// ever found: vpinball drops an exact duplicate when it loads the
+    /// table and its lookups stop at the first match for one that differs
+    /// in case only. A duplicate part is renamed at load, which breaks the
+    /// script's reference to it
+    DuplicateName {
+        kind: NameKind,
+        name: String,
+        count: usize,
+    },
     /// A game item name is longer than vpinball supports
     NameTooLong { item: String, length: usize },
     /// The table info has no table name
@@ -224,7 +234,16 @@ impl fmt::Display for Finding {
                     "collection {collection:?} contains missing item {item:?}"
                 )
             }
-            Finding::DuplicateName { kind, name } => write!(f, "duplicate {kind} name {name:?}"),
+            Finding::DuplicateName { kind, name, count } => {
+                let consequence = match kind {
+                    NameKind::Image | NameKind::Sound => "vpinball only ever finds the first",
+                    NameKind::GameItem => {
+                        "vpinball renames all but the first, which breaks the script's reference"
+                    }
+                    NameKind::Collection => "the script reaches only one of them",
+                };
+                write!(f, "{count} {kind}s share the name {name:?}, {consequence}")
+            }
             Finding::NameTooLong { item, length } => write!(
                 f,
                 "{item}: name is {length} characters, vpinball supports {MAX_NAME_LENGTH}"
@@ -546,15 +565,27 @@ fn check_duplicates<'a>(
     kind: NameKind,
     findings: &mut Vec<Finding>,
 ) {
-    let mut seen: HashMap<String, &str> = HashMap::new();
+    // the first spelling and how often the name occurs, in first seen order
+    let mut seen: Vec<(&str, usize)> = Vec::new();
+    let mut index: HashMap<String, usize> = HashMap::new();
     for name in names {
         if name.is_empty() {
             continue;
         }
-        if seen.insert(name.to_lowercase(), name).is_some() {
+        match index.get(&name.to_lowercase()) {
+            Some(&at) => seen[at].1 += 1,
+            None => {
+                index.insert(name.to_lowercase(), seen.len());
+                seen.push((name, 1));
+            }
+        }
+    }
+    for (name, count) in seen {
+        if count > 1 {
             findings.push(Finding::DuplicateName {
                 kind,
                 name: name.to_string(),
+                count,
             });
         }
     }
@@ -1111,7 +1142,7 @@ mod tests {
     #[test]
     fn duplicate_names_are_reported_case_insensitively() {
         let mut vpx = clean_vpx();
-        for name in ["ding", "DING"] {
+        for name in ["ding", "DING", "Ding"] {
             vpx.images.push(crate::vpx::image::ImageData {
                 name: name.to_string(),
                 ..Default::default()
@@ -1122,8 +1153,13 @@ mod tests {
             findings,
             vec![Finding::DuplicateName {
                 kind: NameKind::Image,
-                name: "DING".to_string(),
+                name: "ding".to_string(),
+                count: 3,
             }]
+        );
+        assert_eq!(
+            findings[0].to_string(),
+            "3 images share the name \"ding\", vpinball only ever finds the first"
         );
     }
 
