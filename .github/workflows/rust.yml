@@ -40,9 +40,7 @@ jobs:
       - name: Build
         run: cargo build --verbose
       - name: Run tests
-        run: cargo test --verbose
-      - name: Run tests with the script-audit feature
-        run: cargo test --features script-audit
+        run: cargo test --all-features
 
   # Verify the declared rust-version stays accurate, dependency bumps or
   # new language features would otherwise silently raise the real MSRV

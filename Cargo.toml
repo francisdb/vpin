@@ -102,7 +102,8 @@ wasm-bindgen-test = "0.3.58"
 # In fact an indirect dependency of rand, but we need to specify the wasm_js feature here
 getrandom = { version = "0.4.2", features = ["wasm_js"] }
 
-[profile.test]
 # level 0 is very slow for writing to compound files
-# see https://github.com/mdsteele/rust-cfb/issues/42
+# (https://github.com/mdsteele/rust-cfb/issues/42), but optimizing this crate
+# itself doubles the test build time, so only dependencies are optimized
+[profile.test.package."*"]
 opt-level = 1
