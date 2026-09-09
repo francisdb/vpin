@@ -62,6 +62,7 @@ pub(crate) mod le;
 pub mod math;
 pub mod model;
 pub mod sound;
+pub mod sounds;
 pub mod tableinfo;
 pub mod units;
 pub mod version;

@@ -81,7 +81,10 @@ pub enum Finding {
     FastTimer { item: String, interval: i32 },
     /// A light has a negative intensity
     NegativeLightIntensity { item: String },
-    /// A sound plays on the playfield speakers but is not mono
+    /// A sound plays on the playfield speakers but is not mono; vpinball
+    /// averages the channels at playback, which
+    /// [`VPX::playfield_sounds_to_mono`](crate::vpx::VPX::playfield_sounds_to_mono)
+    /// does once in the file
     StereoTableSound { sound: String },
     /// The embedded screenshot is large; it bloats the file and every save
     /// spends noticeable time hashing it into the integrity signature.
