@@ -90,6 +90,13 @@ pub enum Finding {
     /// An embedded font whose face names no textbox or decal uses and the
     /// script does not mention; it only adds to the file
     UnusedFont { font: String, faces: Vec<String> },
+    /// A textbox or decal uses a font that is neither embedded in the
+    /// table nor one of the core fonts available on every platform, so
+    /// it renders with a substitute on any machine without it installed.
+    /// Standalone resolves fonts differently: it looks for
+    /// `Name-Style.ttf` (spaces removed) next to the table and falls back
+    /// to Liberation Sans for anything else, embedded or not
+    NonStandardFont { item: String, font: String },
     /// The glass is below two inches or upside down
     GlassHeightInvalid { detail: &'static str },
     /// The legacy spherical ball mapping renders badly in VR, stereo and
@@ -148,7 +155,8 @@ impl Finding {
             | Finding::LargeScreenshot { .. }
             | Finding::MixedScriptLineEndings { .. }
             | Finding::MissingImageWithFallback { .. }
-            | Finding::UnusedFont { .. } => Severity::Suggestion,
+            | Finding::UnusedFont { .. }
+            | Finding::NonStandardFont { .. } => Severity::Suggestion,
             Finding::NegativeLightIntensity { .. } | Finding::StereoTableSound { .. } => {
                 Severity::Error
             }
@@ -250,6 +258,10 @@ impl fmt::Display for Finding {
                     .map(|face| format!("{face:?}"))
                     .collect::<Vec<_>>()
                     .join(", ")
+            ),
+            Finding::NonStandardFont { item, font } => write!(
+                f,
+                "{item}: font {font:?} is not embedded in the table and not a core font, so it renders with a substitute where it is not installed (standalone needs it as a .ttf next to the table)"
             ),
             Finding::GlassHeightInvalid { detail } => {
                 write!(f, "glass height seems invalid: {detail}")
@@ -372,6 +384,7 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
     }
 
     check_fonts(vpx, &mut findings);
+    check_font_availability(vpx, &mut findings);
 
     check_duplicates(
         vpx.images.iter().map(|image| image.name.as_str()),
@@ -542,6 +555,61 @@ fn check_duplicates<'a>(
             findings.push(Finding::DuplicateName {
                 kind,
                 name: name.to_string(),
+            });
+        }
+    }
+}
+
+/// Fonts a table can count on everywhere, lower cased: Microsoft's
+/// freely redistributable Core fonts for the Web, which Windows ships
+/// and Linux and macOS install as the `msttcorefonts` package, and
+/// Liberation Sans, the one font standalone vpinball ships and uses for
+/// anything not provided as `Name-Style.ttf` next to the table. The
+/// other fonts Windows ships (Segoe UI, Tahoma, Calibri, Lucida Sans
+/// Unicode and the like) need a Windows license and are absent
+/// elsewhere. Vertical variants are prefixed with `@` and stripped.
+const CORE_FONTS: &[&str] = &[
+    "liberation sans",
+    "andale mono",
+    "arial",
+    "arial black",
+    "comic sans ms",
+    "courier new",
+    "georgia",
+    "impact",
+    "times new roman",
+    "trebuchet ms",
+    "verdana",
+    "webdings",
+];
+
+/// Textboxes and decals using a font the table does not embed and that
+/// is not one of the core fonts. A font name is looked up as a family, so
+/// a style suffix such as "Arial Narrow" counts as its family.
+fn check_font_availability(vpx: &VPX, findings: &mut Vec<Finding>) {
+    let embedded: HashSet<String> = vpx
+        .fonts
+        .iter()
+        .flat_map(|font| font.face_names())
+        .map(|face| face.to_lowercase())
+        .collect();
+    let available = |font: &str| {
+        let name = font.trim_start_matches('@').to_lowercase();
+        embedded.contains(&name)
+            || CORE_FONTS
+                .iter()
+                .any(|known| name == *known || name.starts_with(&format!("{known} ")))
+    };
+    for item in &vpx.gameitems {
+        let font = match item {
+            GameItemEnum::TextBox(textbox) => textbox.font.name(),
+            GameItemEnum::Decal(decal) => decal.font.name(),
+            _ => continue,
+        };
+        if !font.is_empty() && !available(font) {
+            findings.push(Finding::NonStandardFont {
+                item: item_label(item),
+                font: font.to_string(),
             });
         }
     }
@@ -912,6 +980,19 @@ mod tests {
         vpx.gamedata.ball_image_front.clear();
         vpx.gamedata.env_image = None;
         vpx.gamedata.ball_spherical_mapping = Some(false);
+        // the template's score textbox uses Lucida Sans Unicode, a Windows
+        // only font
+        for item in &mut vpx.gameitems {
+            if let GameItemEnum::TextBox(textbox) = item {
+                textbox.font = crate::vpx::gameitem::font::Font::new(
+                    0,
+                    Default::default(),
+                    400,
+                    120000,
+                    "Arial".to_string(),
+                );
+            }
+        }
         vpx
     }
 
@@ -924,7 +1005,11 @@ mod tests {
     fn the_blank_template_has_dangling_default_references() {
         // vpinball's blank template keeps the default image names while the
         // images themselves are only present in the sample table
-        let findings = audit(&blank_vpx());
+        let findings: Vec<Finding> = audit(&blank_vpx())
+            .into_iter()
+            // the template's score textbox uses a Windows only font
+            .filter(|finding| !matches!(finding, Finding::NonStandardFont { .. }))
+            .collect();
         assert_eq!(findings.len(), 6, "{findings:#?}");
         let count = |wanted: fn(&Finding) -> bool| findings.iter().filter(|f| wanted(f)).count();
         // the playfield image is the only one without a fallback
@@ -1208,6 +1293,53 @@ mod tests {
             findings[0].to_string(),
             "font \"unused\" (\"Nobody Uses This\") is not used by any textbox or decal and the script does not mention it"
         );
+    }
+
+    #[test]
+    fn a_font_that_is_neither_embedded_nor_standard_is_reported() {
+        use crate::vpx::font::FontData;
+        use crate::vpx::gameitem::font::Font;
+        use crate::vpx::gameitem::textbox::TextBox;
+        use crate::vpx::ttf::font_with_names;
+        let textbox = |name: &str, font: &str| {
+            GameItemEnum::TextBox(TextBox {
+                name: name.to_string(),
+                font: Font::new(0, Default::default(), 400, 120000, font.to_string()),
+                ..TextBox::default()
+            })
+        };
+        let mut vpx = clean_vpx();
+        vpx.fonts = vec![FontData {
+            name: "led".to_string(),
+            path: "led.ttf".to_string(),
+            data: font_with_names("Digital Readout", "Digital Readout Upright"),
+        }];
+        vpx.gamedata.fonts_size = 1;
+        vpx.collections.clear();
+        vpx.gamedata.collections_size = 0;
+        vpx.gameitems = vec![
+            textbox("Score", "Arial Black"),
+            textbox("Vertical", "@Arial Narrow"),
+            textbox("Embedded", "digital readout upright"),
+            textbox("Windows", "Segoe UI"),
+            textbox("Custom", "Bebas Neue"),
+        ];
+        vpx.gamedata.gameitems_size = 5;
+        let findings = audit(&vpx);
+        assert_eq!(
+            findings,
+            vec![
+                Finding::NonStandardFont {
+                    item: "TextBox \"Windows\"".to_string(),
+                    font: "Segoe UI".to_string(),
+                },
+                Finding::NonStandardFont {
+                    item: "TextBox \"Custom\"".to_string(),
+                    font: "Bebas Neue".to_string(),
+                },
+            ]
+        );
+        assert_eq!(findings[0].severity(), Severity::Suggestion);
     }
 
     #[cfg(feature = "script-audit")]
