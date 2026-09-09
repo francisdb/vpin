@@ -12,13 +12,55 @@
 //! Neither FlexDMD implementation reads a bitmap image out of a table
 //! (they only read the encoded `JPEG` record), so nothing that worked is
 //! lost by the conversion.
+//!
+//! # Png to webp
+//!
+//! [`VPX::pngs_to_webp`] goes further than vpinball: a png is stored as is
+//! by vpinball, but lossless webp holds the same pixels in about three
+//! quarters of the bytes. One consumer cannot follow: FlexDMD reads images
+//! straight out of the table by the `VPX.name` syntax in the script,
+//! decides the asset type from the stored file extension (png, jpg, jpeg
+//! or bmp) and decodes with GDI+ on Windows and with an SDL_image built
+//! without webp on standalone. Images the script hands to FlexDMD are
+//! therefore left as png and reported.
 
 use super::VPX;
 use super::image::{ImageData, ImageDataJpeg, vpx_image_to_dynamic_image};
 use ::image::codecs::jpeg::JpegEncoder;
 use ::image::{DynamicImage, ImageFormat, ImageReader};
 use log::warn;
+use std::collections::HashSet;
+use std::fmt;
 use std::io;
+
+/// What [`VPX::pngs_to_webp`] did with one png
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PngToWebp {
+    /// The png was re-encoded as lossless webp
+    Converted { name: String },
+    /// The script hands the image to FlexDMD, which cannot read webp
+    UsedByFlexDmd { name: String },
+    /// The png data does not decode
+    Undecodable { name: String, detail: String },
+}
+
+impl fmt::Display for PngToWebp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PngToWebp::Converted { name } => write!(f, "image {name:?}: png -> webp"),
+            PngToWebp::UsedByFlexDmd { name } => {
+                write!(
+                    f,
+                    "image {name:?} kept as png, the script hands it to FlexDMD"
+                )
+            }
+            PngToWebp::Undecodable { name, detail } => {
+                write!(f, "image {name:?} kept, cannot decode: {detail}")
+            }
+        }
+    }
+}
 
 /// An image that was re-encoded as webp, see [`VPX::bitmaps_to_webp`]
 #[derive(Debug, PartialEq, Clone)]
@@ -50,6 +92,83 @@ impl VPX {
         }
         conversions
     }
+}
+
+impl VPX {
+    /// Re-encodes every png image as lossless webp, except the ones the
+    /// script hands to FlexDMD, which cannot read webp. See the
+    /// [module documentation](self).
+    pub fn pngs_to_webp(&mut self) -> Vec<PngToWebp> {
+        let flexdmd = flexdmd_images(&self.gamedata.code.string);
+        let mut results = Vec::new();
+        for image in &mut self.images {
+            if !image.ext().eq_ignore_ascii_case("png") || image.is_link() {
+                continue;
+            }
+            let name = image.name.clone();
+            if flexdmd.contains(&name.to_lowercase()) {
+                results.push(PngToWebp::UsedByFlexDmd { name });
+                continue;
+            }
+            results.push(match image.png_to_webp() {
+                Ok(true) => PngToWebp::Converted { name },
+                Ok(false) => continue,
+                Err(e) => PngToWebp::Undecodable {
+                    name,
+                    detail: e.to_string(),
+                },
+            });
+        }
+        results
+    }
+}
+
+/// The names of the table images a script hands to FlexDMD, lower cased.
+/// FlexDMD addresses them as `VPX.name` inside a string, optionally
+/// followed by `&` and filter options or `|` and another image.
+pub fn flexdmd_images(script: &str) -> HashSet<String> {
+    let mut names = HashSet::new();
+    for literal in string_literals(script) {
+        let lower = literal.to_lowercase();
+        let mut rest = lower.as_str();
+        while let Some(start) = rest.find("vpx.") {
+            let after = &rest[start + 4..];
+            let end = after.find(['&', '|']).unwrap_or(after.len());
+            let name = after[..end].trim();
+            if !name.is_empty() {
+                names.insert(name.to_string());
+            }
+            rest = &after[end..];
+        }
+    }
+    names
+}
+
+/// The contents of the double quoted strings in a VBScript, comments
+/// excluded; a doubled quote inside a string is one quote
+fn string_literals(script: &str) -> Vec<String> {
+    let mut literals = Vec::new();
+    for line in script.lines() {
+        let mut chars = line.chars().peekable();
+        let mut current: Option<String> = None;
+        while let Some(c) = chars.next() {
+            match (&mut current, c) {
+                (None, '"') => current = Some(String::new()),
+                (None, '\'') => break,
+                (None, _) => {}
+                (Some(literal), '"') => {
+                    if chars.peek() == Some(&'"') {
+                        chars.next();
+                        literal.push('"');
+                    } else if let Some(literal) = current.take() {
+                        literals.push(literal);
+                    }
+                }
+                (Some(literal), c) => literal.push(c),
+            }
+        }
+    }
+    literals
 }
 
 impl ImageData {
@@ -92,6 +211,24 @@ impl ImageData {
     /// When the bitmap data does not decode.
     pub fn bitmap_to_webp(&mut self) -> io::Result<bool> {
         if self.bits.is_none() {
+            return Ok(false);
+        }
+        let decoded = self.decode()?;
+        let webp = encode(&decoded, ImageFormat::WebP, 0)?;
+        self.set_data(webp, "webp", decoded.width(), decoded.height());
+        Ok(true)
+    }
+
+    /// Re-encodes a png image as lossless webp. Returns `false` when the
+    /// image is not a png. Mind that FlexDMD cannot read webp, see
+    /// [`VPX::pngs_to_webp`] for a conversion that leaves those images
+    /// alone.
+    ///
+    /// # Errors
+    ///
+    /// When the png data does not decode.
+    pub fn png_to_webp(&mut self) -> io::Result<bool> {
+        if self.is_link() || !self.ext().eq_ignore_ascii_case("png") {
             return Ok(false);
         }
         let decoded = self.decode()?;
@@ -234,6 +371,64 @@ mod tests {
         assert_eq!(image.decode()?.to_rgba8(), before);
         // a second run has nothing to do
         assert!(!image.bitmap_to_webp()?);
+        Ok(())
+    }
+
+    #[test]
+    fn flexdmd_image_names_are_found_in_the_script() {
+        let script = r#"
+            Dim x
+            x = FlexDMD.NewImage("logo", "VPX.Logo_Big&dmd=2")
+            FlexDMD.NewVideo("v", "VPX.Anim|VPX.Anim2")
+            ' a comment: "VPX.Commented" is not a reference
+            y = "say ""hi"" then vpx.spaced name "
+        "#;
+        let names = flexdmd_images(script);
+        assert_eq!(
+            names,
+            ["logo_big", "anim", "anim2", "spaced name"]
+                .into_iter()
+                .map(String::from)
+                .collect()
+        );
+        assert!(flexdmd_images("").is_empty());
+    }
+
+    #[test]
+    fn pngs_become_webp_unless_flexdmd_uses_them() -> TestResult {
+        let mut vpx = VPX::default();
+        vpx.add_or_replace_image(encoded_image("Playfield", "png", 8, 8)?);
+        vpx.add_or_replace_image(encoded_image("DmdFont", "png", 8, 8)?);
+        vpx.add_or_replace_image(encoded_image("Photo", "jpg", 8, 8)?);
+        let mut broken = encoded_image("Broken", "png", 8, 8)?;
+        broken.jpeg.as_mut().expect("has data").data = vec![1, 2, 3];
+        vpx.add_or_replace_image(broken);
+        vpx.gamedata
+            .set_code("FlexDMD.NewImage(\"f\", \"VPX.dmdfont&dmd=2\")\r\n".to_string());
+
+        let results = vpx.pngs_to_webp();
+        assert_eq!(results.len(), 3, "{results:?}");
+        assert_eq!(
+            results[0],
+            PngToWebp::Converted {
+                name: "Playfield".to_string()
+            }
+        );
+        assert_eq!(
+            results[1],
+            PngToWebp::UsedByFlexDmd {
+                name: "DmdFont".to_string()
+            }
+        );
+        assert!(matches!(&results[2], PngToWebp::Undecodable { name, .. } if name == "Broken"));
+        assert_eq!(vpx.images[0].ext(), "webp");
+        assert_eq!(vpx.images[1].ext(), "png");
+        assert_eq!(vpx.images[2].ext(), "jpg");
+        assert_eq!(vpx.images[3].ext(), "png");
+        assert_eq!(
+            results[1].to_string(),
+            "image \"DmdFont\" kept as png, the script hands it to FlexDMD"
+        );
         Ok(())
     }
 

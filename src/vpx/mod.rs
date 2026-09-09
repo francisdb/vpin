@@ -14,7 +14,6 @@
 //! ```
 //!
 
-use ::image::ImageFormat;
 use std::fs::OpenOptions;
 use std::io::{self, Error, Read, Seek, Write};
 use std::path::MAIN_SEPARATOR_STR;
@@ -260,7 +259,9 @@ impl<F: Read + Seek + Write> VpxFile<F> {
 
     /// Converts all PNG and BMP images to lossless WebP and writes them
     /// back to the VPX file in place, overwriting the existing images.
-    /// Images that fail to decode are skipped with a warning.
+    /// Images that fail to decode are skipped with a warning, and so are
+    /// pngs the script hands to FlexDMD, which cannot read webp (see
+    /// [`VPX::pngs_to_webp`](crate::vpx::VPX::pngs_to_webp)).
     ///
     /// Note: this will not shrink the vpx file, that requires compacting
     /// the file. [`VPX::bitmaps_to_webp`](crate::vpx::VPX::bitmaps_to_webp)
@@ -1049,54 +1050,35 @@ fn images_to_webp<F: Read + Write + Seek>(
     comp: &mut CompoundFile<F>,
     gamedata: &GameData,
 ) -> io::Result<Vec<ImageToWebpConversion>> {
+    let flexdmd = images::flexdmd_images(&gamedata.code.string);
     let mut conversions = Vec::new();
     for index in 0..gamedata.images_size {
         let mut image_data = read_image(comp, index)?;
-        match image_data.ext().to_lowercase().as_str() {
-            "png" => {
-                // convert the image to webp
-                image_data.change_extension("webp");
-                if let Some(jpeg) = &mut image_data.jpeg {
-                    // read the image bytes using the rust image library
-                    let dynamic_image =
-                        match ::image::load_from_memory_with_format(&jpeg.data, ImageFormat::Png) {
-                            Ok(image) => image,
-                            Err(e) => {
-                                // see https://github.com/image-rs/image/issues/2260
-                                warn!("Skipping image {}: {}", image_data.name, e);
-                                continue;
-                            }
-                        };
-
-                    // write as webp back to the image
-                    let mut webp = Vec::new();
-                    let mut cursor = io::Cursor::new(&mut webp);
-                    // should be lossless according to the docs
-                    dynamic_image
-                        .write_to(&mut cursor, ImageFormat::WebP)
-                        .map_err(|e| io::Error::other(e.to_string()))?;
-                    jpeg.data = webp;
-                    write_image(comp, index as usize, &image_data, true)?;
-                    conversions.push(ImageToWebpConversion {
-                        name: image_data.name.clone(),
-                        old_extension: "png".to_string(),
-                        new_extension: "webp".to_string(),
-                    });
-                }
+        let old_extension = image_data.ext().to_lowercase();
+        let converted = match old_extension.as_str() {
+            "png" if flexdmd.contains(&image_data.name.to_lowercase()) => {
+                info!(
+                    "Keeping image {} as png, the script hands it to FlexDMD",
+                    image_data.name
+                );
+                continue;
             }
-            "bmp" => match image_data.bitmap_to_webp() {
-                Ok(true) => {
-                    write_image(comp, index as usize, &image_data, true)?;
-                    conversions.push(ImageToWebpConversion {
-                        name: image_data.name.clone(),
-                        old_extension: "bmp".to_string(),
-                        new_extension: "webp".to_string(),
-                    });
-                }
-                Ok(false) => {}
-                Err(e) => warn!("Skipping image {}: {e}", image_data.name),
-            },
-            _ => {}
+            "png" => image_data.png_to_webp(),
+            "bmp" => image_data.bitmap_to_webp(),
+            _ => continue,
+        };
+        match converted {
+            Ok(true) => {
+                write_image(comp, index as usize, &image_data, true)?;
+                conversions.push(ImageToWebpConversion {
+                    name: image_data.name.clone(),
+                    old_extension,
+                    new_extension: "webp".to_string(),
+                });
+            }
+            Ok(false) => {}
+            // see https://github.com/image-rs/image/issues/2260
+            Err(e) => warn!("Skipping image {}: {e}", image_data.name),
         }
     }
     Ok(conversions)
@@ -1511,7 +1493,7 @@ mod tests {
         let mut png_data = Vec::new();
         let mut cursor = io::Cursor::new(&mut png_data);
         dynamic_image
-            .write_to(&mut cursor, ImageFormat::Png)
+            .write_to(&mut cursor, ::image::ImageFormat::Png)
             .unwrap();
         let png_image = ImageData {
             name: "pngimage".to_string(),
