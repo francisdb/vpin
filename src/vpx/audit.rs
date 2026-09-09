@@ -87,6 +87,9 @@ pub enum Finding {
     /// an extracted script, patchers, some editors) trips over a mix. The
     /// counts tell a stray line from a wholesale mix
     MixedScriptLineEndings { crlf: usize, lf: usize, cr: usize },
+    /// An embedded font whose face names no textbox or decal uses and the
+    /// script does not mention; it only adds to the file
+    UnusedFont { font: String, faces: Vec<String> },
     /// The glass is below two inches or upside down
     GlassHeightInvalid { detail: &'static str },
     /// The legacy spherical ball mapping renders badly in VR, stereo and
@@ -144,7 +147,8 @@ impl Finding {
             Finding::BmpImage { .. }
             | Finding::LargeScreenshot { .. }
             | Finding::MixedScriptLineEndings { .. }
-            | Finding::MissingImageWithFallback { .. } => Severity::Suggestion,
+            | Finding::MissingImageWithFallback { .. }
+            | Finding::UnusedFont { .. } => Severity::Suggestion,
             Finding::NegativeLightIntensity { .. } | Finding::StereoTableSound { .. } => {
                 Severity::Error
             }
@@ -238,6 +242,15 @@ impl fmt::Display for Finding {
                     .collect();
                 write!(f, "script mixes line endings: {}", styles.join(", "))
             }
+            Finding::UnusedFont { font, faces } => write!(
+                f,
+                "font {font:?} ({}) is not used by any textbox or decal and the script does not mention it",
+                faces
+                    .iter()
+                    .map(|face| format!("{face:?}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
             Finding::GlassHeightInvalid { detail } => {
                 write!(f, "glass height seems invalid: {detail}")
             }
@@ -357,6 +370,8 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
             }
         }
     }
+
+    check_fonts(vpx, &mut findings);
 
     check_duplicates(
         vpx.images.iter().map(|image| image.name.as_str()),
@@ -527,6 +542,42 @@ fn check_duplicates<'a>(
             findings.push(Finding::DuplicateName {
                 kind,
                 name: name.to_string(),
+            });
+        }
+    }
+}
+
+/// An embedded font is registered by the names inside the font file, so
+/// those are what a textbox or decal refers to. A font whose names do not
+/// decode is left alone.
+fn check_fonts(vpx: &VPX, findings: &mut Vec<Finding>) {
+    if vpx.fonts.is_empty() {
+        return;
+    }
+    let used: HashSet<String> = vpx
+        .gameitems
+        .iter()
+        .filter_map(|item| match item {
+            GameItemEnum::TextBox(textbox) => Some(textbox.font.name()),
+            GameItemEnum::Decal(decal) => Some(decal.font.name()),
+            _ => None,
+        })
+        .map(str::to_lowercase)
+        .collect();
+    let script = vpx.gamedata.code.string.to_lowercase();
+    for font in &vpx.fonts {
+        let faces = font.face_names();
+        if faces.is_empty() {
+            continue;
+        }
+        let referenced = faces.iter().any(|face| {
+            let face = face.to_lowercase();
+            used.contains(&face) || script.contains(&face)
+        });
+        if !referenced {
+            findings.push(Finding::UnusedFont {
+                font: font.name.clone(),
+                faces,
             });
         }
     }
@@ -1102,6 +1153,61 @@ mod tests {
         let mut vpx = clean_vpx();
         vpx.gamedata.code.string = "Option Explicit\nDim x\nDim y\n".to_string();
         assert_eq!(audit(&vpx), vec![]);
+    }
+
+    #[test]
+    fn an_unused_embedded_font_is_reported() {
+        use crate::vpx::font::FontData;
+        use crate::vpx::gameitem::font::Font;
+        use crate::vpx::gameitem::textbox::TextBox;
+        use crate::vpx::ttf::font_with_names;
+        let font_data = |name: &str, family: &str, full: &str| FontData {
+            name: name.to_string(),
+            path: format!("{name}.ttf"),
+            data: font_with_names(family, full),
+        };
+        let mut vpx = clean_vpx();
+        vpx.fonts = vec![
+            font_data("led", "Advanced LED Board-7", "Advanced LED Board-7"),
+            font_data("script_only", "Emerald Beacon", "Emerald Beacon Italic"),
+            font_data("unused", "Nobody Uses This", "Nobody Uses This"),
+            FontData {
+                name: "junk".to_string(),
+                path: "junk.ttf".to_string(),
+                data: vec![1, 2, 3],
+            },
+        ];
+        vpx.gamedata.fonts_size = 4;
+        let textbox = TextBox {
+            name: "Score".to_string(),
+            font: Font::new(
+                0,
+                Default::default(),
+                400,
+                120000,
+                "advanced led board-7".to_string(),
+            ),
+            ..TextBox::default()
+        };
+        vpx.gameitems.push(GameItemEnum::TextBox(textbox));
+        vpx.gamedata.gameitems_size = vpx.gameitems.len() as u32;
+        vpx.gamedata.set_code(
+            "Option Explicit\r\n' FlexDMD.NewFont(\"Emerald Beacon Italic\", 1)\r\n".to_string(),
+        );
+
+        let findings = audit(&vpx);
+        assert_eq!(
+            findings,
+            vec![Finding::UnusedFont {
+                font: "unused".to_string(),
+                faces: vec!["Nobody Uses This".to_string()],
+            }]
+        );
+        assert_eq!(findings[0].severity(), Severity::Suggestion);
+        assert_eq!(
+            findings[0].to_string(),
+            "font \"unused\" (\"Nobody Uses This\") is not used by any textbox or decal and the script does not mention it"
+        );
     }
 
     #[cfg(feature = "script-audit")]

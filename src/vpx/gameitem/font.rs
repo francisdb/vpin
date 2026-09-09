@@ -184,6 +184,12 @@ impl FontJson {
 }
 
 impl Font {
+    /// The face name, which is how a font is looked up: a system font or
+    /// one embedded in the table
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     pub fn new(
         charset: u16,
         style: HashSet<FontStyle>,

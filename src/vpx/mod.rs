@@ -63,6 +63,7 @@ pub mod math;
 pub mod model;
 pub mod sound;
 pub mod tableinfo;
+pub(crate) mod ttf;
 pub mod units;
 pub mod version;
 
