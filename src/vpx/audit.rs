@@ -67,9 +67,11 @@ pub enum Finding {
         width: u32,
         height: u32,
     },
-    /// The script does not use CRLF line endings everywhere, which breaks
-    /// some standalone setups
-    NonCrlfScriptLineEndings,
+    /// The script mixes line ending styles. vpinball and the standalone
+    /// VBScript engine accept any of them, but line based tooling (diffs of
+    /// an extracted script, patchers, some editors) trips over a mix. The
+    /// counts tell a stray line from a wholesale mix
+    MixedScriptLineEndings { crlf: usize, lf: usize, cr: usize },
     /// The glass is below two inches or upside down
     GlassHeightInvalid { detail: &'static str },
     /// The legacy spherical ball mapping renders badly in VR, stereo and
@@ -124,7 +126,9 @@ impl Finding {
     /// How serious this finding is
     pub fn severity(&self) -> Severity {
         match self {
-            Finding::BmpImage { .. } | Finding::LargeScreenshot { .. } => Severity::Suggestion,
+            Finding::BmpImage { .. }
+            | Finding::LargeScreenshot { .. }
+            | Finding::MixedScriptLineEndings { .. } => Severity::Suggestion,
             Finding::NegativeLightIntensity { .. } | Finding::StereoTableSound { .. } => {
                 Severity::Error
             }
@@ -198,8 +202,13 @@ impl fmt::Display for Finding {
                 f,
                 "color grade image {image:?} is {width}x{height}, the shader expects 256x16"
             ),
-            Finding::NonCrlfScriptLineEndings => {
-                write!(f, "script does not use CRLF line endings everywhere")
+            Finding::MixedScriptLineEndings { crlf, lf, cr } => {
+                let styles: Vec<String> = [(crlf, "CRLF"), (lf, "LF"), (cr, "CR")]
+                    .into_iter()
+                    .filter(|(count, _)| **count > 0)
+                    .map(|(count, name)| format!("{count} {name}"))
+                    .collect();
+                write!(f, "script mixes line endings: {}", styles.join(", "))
             }
             Finding::GlassHeightInvalid { detail } => {
                 write!(f, "glass height seems invalid: {detail}")
@@ -360,8 +369,11 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
     }
 
     let script = &vpx.gamedata.code.string;
-    if script.replace("\r\n", "").contains(['\r', '\n']) {
-        findings.push(Finding::NonCrlfScriptLineEndings);
+    let crlf = script.matches("\r\n").count();
+    let lf = script.matches('\n').count() - crlf;
+    let cr = script.matches('\r').count() - crlf;
+    if [crlf, lf, cr].iter().filter(|count| **count > 0).count() > 1 {
+        findings.push(Finding::MixedScriptLineEndings { crlf, lf, cr });
     }
 
     if let Some(screenshot) = &vpx.info.screenshot
@@ -982,13 +994,32 @@ mod tests {
     }
 
     #[test]
-    fn non_crlf_script_endings_are_reported() {
+    fn mixed_script_line_endings_are_reported() {
         let mut vpx = clean_vpx();
         // valid VBScript with Option Explicit so only the line-ending check
-        // fires, but with a bare LF mixed into the CRLF endings
-        vpx.gamedata.code.string = "Option Explicit\r\nDim x\nDim y\r\n".to_string();
+        // fires, with a bare LF and a bare CR mixed into the CRLF endings
+        vpx.gamedata.code.string = "Option Explicit\r\nDim x\nDim y\rDim z\r\n".to_string();
         let findings = audit(&vpx);
-        assert_eq!(findings, vec![Finding::NonCrlfScriptLineEndings]);
+        assert_eq!(
+            findings,
+            vec![Finding::MixedScriptLineEndings {
+                crlf: 2,
+                lf: 1,
+                cr: 1
+            }]
+        );
+        assert_eq!(findings[0].severity(), Severity::Suggestion);
+        assert_eq!(
+            findings[0].to_string(),
+            "script mixes line endings: 2 CRLF, 1 LF, 1 CR"
+        );
+    }
+
+    #[test]
+    fn consistent_lf_line_endings_are_fine() {
+        let mut vpx = clean_vpx();
+        vpx.gamedata.code.string = "Option Explicit\nDim x\nDim y\n".to_string();
+        assert_eq!(audit(&vpx), vec![]);
     }
 
     #[cfg(feature = "script-audit")]
