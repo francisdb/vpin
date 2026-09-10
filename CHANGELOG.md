@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.32.1](https://github.com/francisdb/vpin/compare/v0.32.0...v0.32.1) - 2026-09-10
+
+### Fixed
+
+- leave the layer visibility of drag points out of the semantic diff too
+- leave the editor layer visibility out of the semantic diff
+
 ## [0.32.0](https://github.com/francisdb/vpin/compare/v0.31.1...v0.32.0) - 2026-09-09
 
 ### Added
