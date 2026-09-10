@@ -83,6 +83,18 @@ pub enum Finding {
     /// name as soon as it is edited, and the script's reference to the
     /// full name then fails
     NameTooLong { item: String, length: usize },
+    /// A game item or collection has a name the script already gives a
+    /// meaning: a VBScript keyword, which the script cannot even refer
+    /// to; a VBScript builtin function or constant, which the item then
+    /// hides, since the script engine resolves named items before its
+    /// builtins; or one of the table's global script methods and
+    /// properties, which vpinball on Windows renames at load and
+    /// standalone vpinball lets the item hide
+    ReservedName {
+        kind: NameKind,
+        name: String,
+        reserved: ReservedName,
+    },
     /// Game items of one type have no name, reported once per type with
     /// how many. Such an item cannot be reached from the script, and
     /// vpinball gives all but the first a number when it loads the table.
@@ -256,9 +268,25 @@ impl Finding {
                 Severity::Info
             }
             Finding::UnnamedItems { type_name, .. } if type_name == "Decal" => Severity::Suggestion,
+            Finding::ReservedName { reserved, .. } => match reserved {
+                ReservedName::VbsKeyword | ReservedName::TableGlobal => Severity::Error,
+                ReservedName::VbsBuiltin => Severity::Warning,
+            },
             _ => Severity::Warning,
         }
     }
+}
+
+/// What a [`Finding::ReservedName`] clashes with
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReservedName {
+    /// A VBScript keyword such as `To` or `Empty`
+    VbsKeyword,
+    /// A VBScript builtin function or constant such as `Timer` or `Left`
+    VbsBuiltin,
+    /// A method or property of the table's global script object, such as
+    /// `PlaySound` or `ActiveBall`, or the `Debug` object
+    TableGlobal,
 }
 
 /// What kind of name a [`Finding::DuplicateName`] is about
@@ -346,6 +374,24 @@ impl fmt::Display for Finding {
                     "they cannot be reached from the script"
                 };
                 write!(f, "{count} {type_name} {items} no name, {consequence}")
+            }
+            Finding::ReservedName {
+                kind,
+                name,
+                reserved,
+            } => {
+                let consequence = match reserved {
+                    ReservedName::VbsKeyword => {
+                        "is a VBScript keyword, the script cannot refer to the item"
+                    }
+                    ReservedName::VbsBuiltin => {
+                        "is a VBScript builtin, the item hides it from the script"
+                    }
+                    ReservedName::TableGlobal => {
+                        "is a table script global, vpinball renames the item at load"
+                    }
+                };
+                write!(f, "{kind} {name:?} {consequence}")
             }
             Finding::NameTooLong { item, length } => write!(
                 f,
@@ -585,6 +631,25 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
         findings.push(Finding::UnnamedItems { type_name, count });
     }
 
+    for item in &vpx.gameitems {
+        if let Some(reserved) = reserved_name(item.name()) {
+            findings.push(Finding::ReservedName {
+                kind: NameKind::GameItem,
+                name: item.name().to_string(),
+                reserved,
+            });
+        }
+    }
+    for collection in &vpx.collections {
+        if let Some(reserved) = reserved_name(&collection.name) {
+            findings.push(Finding::ReservedName {
+                kind: NameKind::Collection,
+                name: collection.name.clone(),
+                reserved,
+            });
+        }
+    }
+
     for collection in &vpx.collections {
         if collection.name.chars().count() > MAX_NAME_LENGTH {
             findings.push(Finding::NameTooLong {
@@ -808,6 +873,311 @@ fn picture_dimensions(image: &crate::vpx::image::ImageData) -> Option<(u32, u32)
         return (bytes.len() == expected).then_some((image.width, image.height));
     }
     None
+}
+
+/// The words VBScript reserves, lower cased
+const VBS_KEYWORDS: &[&str] = &[
+    "and",
+    "as",
+    "byref",
+    "byval",
+    "call",
+    "case",
+    "class",
+    "const",
+    "default",
+    "dim",
+    "do",
+    "each",
+    "else",
+    "elseif",
+    "empty",
+    "end",
+    "eqv",
+    "erase",
+    "error",
+    "event",
+    "exit",
+    "explicit",
+    "false",
+    "for",
+    "function",
+    "get",
+    "goto",
+    "if",
+    "imp",
+    "implements",
+    "in",
+    "inherits",
+    "is",
+    "let",
+    "like",
+    "loop",
+    "lset",
+    "me",
+    "mod",
+    "new",
+    "next",
+    "not",
+    "nothing",
+    "null",
+    "on",
+    "option",
+    "optional",
+    "or",
+    "paramarray",
+    "preserve",
+    "private",
+    "property",
+    "public",
+    "raiseevent",
+    "redim",
+    "rem",
+    "resume",
+    "rset",
+    "select",
+    "set",
+    "shared",
+    "single",
+    "static",
+    "step",
+    "stop",
+    "sub",
+    "then",
+    "to",
+    "true",
+    "type",
+    "typeof",
+    "until",
+    "variant",
+    "wend",
+    "while",
+    "with",
+    "xor",
+];
+
+/// The functions, objects and constants the VBScript engine provides,
+/// lower cased, from wine's vbscript `global.c`, which mirrors Windows
+const VBS_BUILTINS: &[&str] = &[
+    "abs",
+    "array",
+    "asc",
+    "ascb",
+    "ascw",
+    "atn",
+    "cbool",
+    "cbyte",
+    "ccur",
+    "cdate",
+    "cdbl",
+    "chr",
+    "chrb",
+    "chrw",
+    "cint",
+    "clng",
+    "cos",
+    "createobject",
+    "csng",
+    "cstr",
+    "date",
+    "dateadd",
+    "datediff",
+    "datepart",
+    "dateserial",
+    "datevalue",
+    "day",
+    "err",
+    "escape",
+    "eval",
+    "execute",
+    "executeglobal",
+    "exp",
+    "filter",
+    "fix",
+    "formatcurrency",
+    "formatdatetime",
+    "formatnumber",
+    "formatpercent",
+    "getlocale",
+    "getobject",
+    "getref",
+    "hex",
+    "hour",
+    "inputbox",
+    "instr",
+    "instrb",
+    "instrrev",
+    "int",
+    "isarray",
+    "isdate",
+    "isempty",
+    "isnull",
+    "isnumeric",
+    "isobject",
+    "join",
+    "lbound",
+    "lcase",
+    "left",
+    "leftb",
+    "len",
+    "lenb",
+    "loadpicture",
+    "log",
+    "ltrim",
+    "mid",
+    "midb",
+    "minute",
+    "month",
+    "monthname",
+    "msgbox",
+    "now",
+    "oct",
+    "randomize",
+    "replace",
+    "rgb",
+    "right",
+    "rightb",
+    "rnd",
+    "round",
+    "rtrim",
+    "scriptengine",
+    "scriptenginebuildversion",
+    "scriptenginemajorversion",
+    "scriptengineminorversion",
+    "second",
+    "setlocale",
+    "sgn",
+    "sin",
+    "space",
+    "split",
+    "sqr",
+    "strcomp",
+    "string",
+    "strreverse",
+    "tan",
+    "time",
+    "timer",
+    "timeserial",
+    "timevalue",
+    "trim",
+    "typename",
+    "ubound",
+    "ucase",
+    "unescape",
+    "vartype",
+    "weekday",
+    "weekdayname",
+    "year",
+];
+
+/// The methods and properties of the table's global script object, plus
+/// the `Debug` object, lower cased, from vpinball's `ITableGlobal`
+/// interface
+const TABLE_GLOBALS: &[&str] = &[
+    "debug",
+    // methods, which vpinball reserves itself on Windows
+    "addobject",
+    "beginmodal",
+    "closeserial",
+    "createpluginobject",
+    "endmodal",
+    "endmusic",
+    "fireknocker",
+    "flushserial",
+    "getballs",
+    "getcustomparam",
+    "getelementbyname",
+    "getelements",
+    "getmaterial",
+    "getmaterialphysics",
+    "getserialdevices",
+    "gettextfile",
+    "loadtexture",
+    "loadvalue",
+    "materialcolor",
+    "nudge",
+    "nudgegetcalibration",
+    "nudgesensorstatus",
+    "nudgesetcalibration",
+    "nudgetiltstatus",
+    "openserial",
+    "playmusic",
+    "playsound",
+    "quitplayer",
+    "readserial",
+    "savevalue",
+    "setupserial",
+    "stopsound",
+    "updatematerial",
+    "updatematerialphysics",
+    "writeserial",
+    // properties
+    "activeball",
+    "activetable",
+    "addcreditkey",
+    "addcreditkey2",
+    "centertiltkey",
+    "disablestaticprerendering",
+    "dmdcoloredpixels",
+    "dmdheight",
+    "dmdpixels",
+    "dmdwidth",
+    "exitgame",
+    "frameindex",
+    "gametime",
+    "getplayerhwnd",
+    "joycustomkey",
+    "leftflipperkey",
+    "leftmagnasave",
+    "lefttiltkey",
+    "lockbarkey",
+    "mechanicaltilt",
+    "musicdirectory",
+    "musicvolume",
+    "nightday",
+    "platformbits",
+    "platformcpu",
+    "platformos",
+    "plungerkey",
+    "precisegametime",
+    "renderingmode",
+    "rightflipperkey",
+    "rightmagnasave",
+    "righttiltkey",
+    "scriptsdirectory",
+    "setting",
+    "showcursor",
+    "showdt",
+    "showfss",
+    "stagedleftflipperkey",
+    "stagedrightflipperkey",
+    "startgamekey",
+    "systemtime",
+    "tablesdirectory",
+    "userdirectory",
+    "version",
+    "versionmajor",
+    "versionminor",
+    "versionrevision",
+    "vpbuildversion",
+    "vpxactionkey",
+    "windowheight",
+    "windowwidth",
+];
+
+/// What the script already means by this name, if anything
+fn reserved_name(name: &str) -> Option<ReservedName> {
+    let lower = name.to_lowercase();
+    let lower = lower.as_str();
+    if VBS_KEYWORDS.contains(&lower) {
+        Some(ReservedName::VbsKeyword)
+    } else if VBS_BUILTINS.contains(&lower) {
+        Some(ReservedName::VbsBuiltin)
+    } else if TABLE_GLOBALS.contains(&lower) {
+        Some(ReservedName::TableGlobal)
+    } else {
+        None
+    }
 }
 
 fn name_set<'a>(names: impl Iterator<Item = &'a str>) -> HashSet<String> {
@@ -1951,6 +2321,68 @@ mod tests {
                 "Wall {:?}: name is 32 characters, vpinball cuts names at 31",
                 "w".repeat(32)
             )
+        );
+    }
+
+    #[test]
+    fn names_the_script_already_means_something_by_are_reported() {
+        use crate::vpx::collection::Collection;
+        use crate::vpx::gameitem::timer::Timer;
+        use crate::vpx::gameitem::wall::Wall;
+        let mut vpx = clean_vpx();
+        vpx.gameitems.push(GameItemEnum::Timer(Timer {
+            name: "Timer".to_string(),
+            ..Default::default()
+        }));
+        vpx.gameitems.push(GameItemEnum::Wall(Wall {
+            name: "TO".to_string(),
+            ..Default::default()
+        }));
+        vpx.collections.push(Collection {
+            name: "GetBalls".to_string(),
+            items: Vec::new(),
+            fire_events: false,
+            stop_single_events: false,
+            group_elements: false,
+        });
+        let findings: Vec<Finding> = audit(&vpx)
+            .into_iter()
+            .filter(|finding| matches!(finding, Finding::ReservedName { .. }))
+            .collect();
+        assert_eq!(
+            findings,
+            vec![
+                Finding::ReservedName {
+                    kind: NameKind::GameItem,
+                    name: "Timer".to_string(),
+                    reserved: ReservedName::VbsBuiltin,
+                },
+                Finding::ReservedName {
+                    kind: NameKind::GameItem,
+                    name: "TO".to_string(),
+                    reserved: ReservedName::VbsKeyword,
+                },
+                Finding::ReservedName {
+                    kind: NameKind::Collection,
+                    name: "GetBalls".to_string(),
+                    reserved: ReservedName::TableGlobal,
+                },
+            ]
+        );
+        assert_eq!(findings[0].severity(), Severity::Warning);
+        assert_eq!(
+            findings[0].to_string(),
+            "game item \"Timer\" is a VBScript builtin, the item hides it from the script"
+        );
+        assert_eq!(findings[1].severity(), Severity::Error);
+        assert_eq!(
+            findings[1].to_string(),
+            "game item \"TO\" is a VBScript keyword, the script cannot refer to the item"
+        );
+        assert_eq!(findings[2].severity(), Severity::Error);
+        assert_eq!(
+            findings[2].to_string(),
+            "collection \"GetBalls\" is a table script global, vpinball renames the item at load"
         );
     }
 
