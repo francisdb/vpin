@@ -4,10 +4,11 @@ use crate::filesystem::FileSystem;
 use crate::vpx::collection::Collection;
 use crate::vpx::custominfotags::CustomInfoTags;
 use crate::vpx::gamedata::{GameData, GameDataJson};
+use crate::vpx::gameitem::MAX_NAME_LENGTH;
 use crate::vpx::jsonmodel::{collections_json, info_to_json, json_to_collections, json_to_info};
 use crate::vpx::renderprobe::{RenderProbeJson, RenderProbeWithGarbage};
 use crate::vpx::tableinfo::TableInfo;
-use log::info;
+use log::{info, warn};
 use serde_json::Value;
 use std::io::{self, Write};
 use std::path::Path;
@@ -102,8 +103,25 @@ pub(super) fn read_collections<P: AsRef<Path>>(
         return Ok(vec![]);
     }
     let value = read_json(collections_path, fs)?;
-    let collections: Vec<Collection> = json_to_collections(value)?;
+    let mut collections: Vec<Collection> = json_to_collections(value)?;
+    for collection in &mut collections {
+        cap_collection_name(collection);
+    }
     Ok(collections)
+}
+
+/// Cuts a collection name the way vpinball does when it loads a table,
+/// so the assembled table holds what the player will see
+fn cap_collection_name(collection: &mut Collection) {
+    if collection.name.chars().count() <= MAX_NAME_LENGTH {
+        return;
+    }
+    let capped: String = collection.name.chars().take(MAX_NAME_LENGTH).collect();
+    warn!(
+        "Collection name {:?} cut to {capped:?}, vpinball cuts collection names at {MAX_NAME_LENGTH} characters when it loads the table",
+        collection.name
+    );
+    collection.name = capped;
 }
 
 pub(super) fn write_renderprobes<P: AsRef<Path>>(

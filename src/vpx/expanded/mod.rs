@@ -584,6 +584,24 @@ mod tests {
     }
 
     #[test]
+    fn a_long_collection_name_is_cut_like_vpinball_does() -> TestResult {
+        let fs = MemoryFileSystem::default();
+        let mut vpx = VPX::default();
+        vpx.collections.push(Collection {
+            name: "c".repeat(32),
+            items: Vec::new(),
+            fire_events: false,
+            stop_single_events: false,
+            group_elements: false,
+        });
+        write_fs(&vpx, &"/vpx".to_string(), &ExpandOptions::new(), &fs)?;
+
+        let read = read_fs(&"/vpx".to_string(), &fs)?;
+        assert_eq!(read.collections[0].name, "c".repeat(31));
+        Ok(())
+    }
+
+    #[test]
     fn test_read_write() -> TestResult {
         let fs = MemoryFileSystem::default();
         let version = Version::new(1074);
