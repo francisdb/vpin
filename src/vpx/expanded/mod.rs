@@ -371,13 +371,15 @@ pub fn read_fs<P: AsRef<Path>>(expanded_dir: &P, fs: &dyn FileSystem) -> io::Res
     // published tables have references longer than any stored name,
     // which vpinball resolves to its default material, and the audit
     // reports them as missing
+    // vpinball takes the 10.8 material records over the old ones when the
+    // file version is 10.8 or newer and they are present. That record
+    // holds any name and the player looks materials up by it, so a longer
+    // one only loses the records older versions read
     match &gamedata.materials {
-        // the 10.8 record holds any name and the player looks materials up
-        // by it, so a longer one only loses the records older versions read
-        Some(materials) => {
+        Some(materials) if version >= Version::new(1080) => {
             materials::warn_material_names(materials.iter().map(|material| material.name.as_str()))
         }
-        None => materials::check_material_names(
+        _ => materials::check_material_names(
             gamedata
                 .materials_old
                 .iter()
@@ -543,7 +545,10 @@ mod tests {
         use crate::vpx::gameitem::wall::Wall;
         use crate::vpx::material::Material;
         let fs = MemoryFileSystem::default();
-        let mut vpx = VPX::default();
+        let mut vpx = VPX {
+            version: Version::new(1080),
+            ..Default::default()
+        };
         let mut material = Material::default();
         material.name = "a".repeat(33);
         vpx.gamedata.materials = Some(vec![material]);
@@ -568,7 +573,10 @@ mod tests {
     fn a_material_name_the_old_record_cannot_store_is_rejected() -> TestResult {
         use crate::vpx::material::SaveMaterial;
         let fs = MemoryFileSystem::default();
-        let mut vpx = VPX::default();
+        let mut vpx = VPX {
+            version: Version::new(1072),
+            ..Default::default()
+        };
         vpx.gamedata.materials_old = vec![SaveMaterial {
             name: "a".repeat(32),
             ..Default::default()
