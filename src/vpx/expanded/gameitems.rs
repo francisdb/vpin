@@ -1,7 +1,7 @@
 //! Game item reading and writing for expanded VPX format
 
 use crate::filesystem::FileSystem;
-use crate::vpx::gameitem::GameItemEnum;
+use crate::vpx::gameitem::{GameItemEnum, MAX_NAME_LENGTH};
 use log::{info, warn};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -184,6 +184,18 @@ pub(super) fn read_gameitems<P: AsRef<Path>>(
     }
     if let Some(warning) = empty_name_warning(&out) {
         warn!("{warning}");
+    }
+    for item in &out {
+        let length = item.name().chars().count();
+        if length > MAX_NAME_LENGTH {
+            // kept as it is: vpinball loads such a name and the script may
+            // refer to it, the editor only cuts it once it is edited
+            warn!(
+                "{} {:?} has a name of {length} characters, vpinball's editor cuts names at {MAX_NAME_LENGTH}",
+                item.type_name(),
+                item.name()
+            );
+        }
     }
     Ok(out)
 }

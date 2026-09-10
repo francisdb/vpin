@@ -16,15 +16,12 @@
 
 use super::VPX;
 use super::gameitem::GameItemEnum;
+use crate::vpx::gameitem::MAX_NAME_LENGTH;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 /// The sentinel vpinball's editor writes for "no image selected"
 const NONE_SELECTION: &str = "<None>";
-
-/// vpinball limits object names to 32 characters
-/// (<https://github.com/vpinball/vpinball/issues/1706>)
-const MAX_NAME_LENGTH: usize = 32;
 
 /// A single consistency problem found by [`audit`].
 ///
@@ -81,7 +78,10 @@ pub enum Finding {
         name: String,
         count: usize,
     },
-    /// A game item name is longer than vpinball supports
+    /// A game item or collection name is longer than vpinball's editor
+    /// allows. vpinball cuts a collection name at load and a game item
+    /// name as soon as it is edited, and the script's reference to the
+    /// full name then fails
     NameTooLong { item: String, length: usize },
     /// Game items of one type have no name, reported once per type with
     /// how many. Such an item cannot be reached from the script, and
@@ -349,7 +349,7 @@ impl fmt::Display for Finding {
             }
             Finding::NameTooLong { item, length } => write!(
                 f,
-                "{item}: name is {length} characters, vpinball supports {MAX_NAME_LENGTH}"
+                "{item}: name is {length} characters, vpinball cuts names at {MAX_NAME_LENGTH}"
             ),
             Finding::MissingTableName => write!(f, "table info has no table name"),
             Finding::BmpImage { image } => write!(
@@ -586,6 +586,12 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
     }
 
     for collection in &vpx.collections {
+        if collection.name.chars().count() > MAX_NAME_LENGTH {
+            findings.push(Finding::NameTooLong {
+                item: format!("Collection {:?}", collection.name),
+                length: collection.name.chars().count(),
+            });
+        }
         for item in &collection.items {
             if !item_names.contains(item.to_lowercase().as_str()) {
                 findings.push(Finding::MissingCollectionItem {
@@ -1902,6 +1908,49 @@ mod tests {
         assert_eq!(
             findings[1].to_string(),
             "1 Wall item has no name, they cannot be reached from the script"
+        );
+    }
+
+    #[test]
+    fn names_longer_than_the_editor_allows_are_reported() {
+        use crate::vpx::collection::Collection;
+        use crate::vpx::gameitem::wall::Wall;
+        let mut vpx = clean_vpx();
+        let wall = |name: String| {
+            GameItemEnum::Wall(Wall {
+                name,
+                ..Default::default()
+            })
+        };
+        vpx.gameitems.push(wall("w".repeat(31)));
+        vpx.gameitems.push(wall("w".repeat(32)));
+        vpx.collections.push(Collection {
+            name: "c".repeat(32),
+            items: Vec::new(),
+            fire_events: false,
+            stop_single_events: false,
+            group_elements: false,
+        });
+        let findings = audit(&vpx);
+        assert_eq!(
+            findings,
+            vec![
+                Finding::NameTooLong {
+                    item: format!("Wall {:?}", "w".repeat(32)),
+                    length: 32,
+                },
+                Finding::NameTooLong {
+                    item: format!("Collection {:?}", "c".repeat(32)),
+                    length: 32,
+                },
+            ]
+        );
+        assert_eq!(
+            findings[0].to_string(),
+            format!(
+                "Wall {:?}: name is 32 characters, vpinball cuts names at 31",
+                "w".repeat(32)
+            )
         );
     }
 

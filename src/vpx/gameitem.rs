@@ -42,6 +42,13 @@ trait GameItem: BiffRead {
     fn name(&self) -> &str;
 }
 
+/// The longest name vpinball's editor gives a game item or collection: it
+/// keeps scriptable names in a 32 character buffer including the
+/// terminator, truncates a name to this length when it is set and cuts a
+/// longer collection name when it loads a table. A longer game item name
+/// survives loading, but is cut the moment it is edited.
+pub const MAX_NAME_LENGTH: usize = 31;
+
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
 // #[serde(tag = "type")]
 pub enum GameItemEnum {
