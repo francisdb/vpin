@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- audit materials that share a name
+
 ## [0.32.1](https://github.com/francisdb/vpin/compare/v0.32.0...v0.32.1) - 2026-09-10
 
 ### Fixed

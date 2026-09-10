@@ -66,13 +66,16 @@ pub enum Finding {
     MissingPartGroup { item: String, part_group: String },
     /// A collection contains an item that does not exist
     MissingCollectionItem { collection: String, item: String },
-    /// Several images, sounds, game items or collections share a name,
-    /// compared case insensitively like vpinball's lookups, reported once
-    /// per name with how many carry it. Only the first image or sound is
-    /// ever found: vpinball drops an exact duplicate when it loads the
-    /// table and its lookups stop at the first match for one that differs
-    /// in case only. A duplicate part is renamed at load, which breaks the
-    /// script's reference to it
+    /// Several images, sounds, game items, collections or materials share
+    /// a name, compared case insensitively like vpinball's lookups,
+    /// reported once per name with how many carry it. Only the first image
+    /// or sound is ever found: vpinball drops an exact duplicate when it
+    /// loads the table and its lookups stop at the first match for one
+    /// that differs in case only. A duplicate part is renamed at load,
+    /// which breaks the script's reference to it. Duplicate materials are
+    /// kept, but the editor resolves a reference by its exact name while
+    /// the player looks it up case insensitively and takes the last one
+    /// loaded, so the two render it differently
     DuplicateName {
         kind: NameKind,
         name: String,
@@ -256,6 +259,7 @@ pub enum NameKind {
     Sound,
     GameItem,
     Collection,
+    Material,
 }
 
 impl fmt::Display for NameKind {
@@ -265,6 +269,7 @@ impl fmt::Display for NameKind {
             NameKind::Sound => write!(f, "sound"),
             NameKind::GameItem => write!(f, "game item"),
             NameKind::Collection => write!(f, "collection"),
+            NameKind::Material => write!(f, "material"),
         }
     }
 }
@@ -314,6 +319,9 @@ impl fmt::Display for Finding {
                         "vpinball renames all but the first, which breaks the script's reference"
                     }
                     NameKind::Collection => "the script reaches only one of them",
+                    NameKind::Material => {
+                        "the editor uses the exact match and the player the last one"
+                    }
                 };
                 write!(f, "{count} {kind}s share the name {name:?}, {consequence}")
             }
@@ -582,6 +590,23 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
         NameKind::Collection,
         &mut findings,
     );
+    // a 10.8 table carries both lists but vpinball replaces the old one
+    // with the new
+    match &vpx.gamedata.materials {
+        Some(materials) => check_duplicates(
+            materials.iter().map(|material| material.name.as_str()),
+            NameKind::Material,
+            &mut findings,
+        ),
+        None => check_duplicates(
+            vpx.gamedata
+                .materials_old
+                .iter()
+                .map(|material| material.name.as_str()),
+            NameKind::Material,
+            &mut findings,
+        ),
+    }
 
     if vpx
         .info
@@ -1825,6 +1850,56 @@ mod tests {
             findings[0].to_string(),
             "3 images share the name \"ding\", vpinball only ever finds the first"
         );
+    }
+
+    #[test]
+    fn duplicate_materials_are_reported_from_the_list_vpinball_uses() {
+        use crate::vpx::material::{Material, SaveMaterial};
+        let mut vpx = clean_vpx();
+        // the old list of a 10.8 table repeats the new one, so counting
+        // both would report every material
+        let names = ["Apron", "apron", "Plastic"];
+        vpx.gamedata.materials_old = names
+            .iter()
+            .map(|name| SaveMaterial {
+                name: name.to_string(),
+                ..Default::default()
+            })
+            .collect();
+        vpx.gamedata.materials = Some(
+            names
+                .iter()
+                .map(|name| {
+                    let mut material = Material::default();
+                    material.name = name.to_string();
+                    material
+                })
+                .collect(),
+        );
+        let findings: Vec<Finding> = audit(&vpx)
+            .into_iter()
+            .filter(|finding| matches!(finding, Finding::DuplicateName { .. }))
+            .collect();
+        assert_eq!(
+            findings,
+            vec![Finding::DuplicateName {
+                kind: NameKind::Material,
+                name: "Apron".to_string(),
+                count: 2,
+            }]
+        );
+        assert_eq!(
+            findings[0].to_string(),
+            "2 materials share the name \"Apron\", the editor uses the exact match and the player the last one"
+        );
+
+        // a table from before 10.8 only has the old list
+        vpx.gamedata.materials = None;
+        let findings: Vec<Finding> = audit(&vpx)
+            .into_iter()
+            .filter(|finding| matches!(finding, Finding::DuplicateName { .. }))
+            .collect();
+        assert_eq!(findings.len(), 1);
     }
 
     #[test]
