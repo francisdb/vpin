@@ -946,11 +946,14 @@ fn game_item_leaves(original: &GameItemEnum, modified: &GameItemEnum) -> Vec<Lea
     leaves
 }
 
+/// The layer visibility of an item, and of the drag points that keep
+/// their own; a setting of the editor view (toggled by showing or hiding
+/// a layer), not of the table
+const EDITOR_VIEW: &[&str] = &["editor_layer_visibility"];
+
 /// The properties of a game item without the enum wrapper serde adds,
 /// plus the editor attributes the expanded format keeps in its item list
-/// rather than in the item JSON. The layer visibility is left out: it is
-/// a setting of the editor view (toggled by showing or hiding a layer),
-/// not of the table.
+/// rather than in the item JSON, and without the editor view settings
 fn game_item_json(item: &GameItemEnum) -> Value {
     let mut json = to_value(item);
     if let Value::Object(map) = &mut json
@@ -971,6 +974,7 @@ fn game_item_json(item: &GameItemEnum) -> Value {
             to_value(item.editor_layer_name()),
         );
     }
+    remove_keys_deep(&mut json, EDITOR_VIEW);
     json
 }
 
@@ -1075,6 +1079,26 @@ fn remove_keys(json: &mut Value, keys: &[&str]) {
         for key in keys {
             map.remove(*key);
         }
+    }
+}
+
+/// Removes the keys from every object in the tree
+fn remove_keys_deep(json: &mut Value, keys: &[&str]) {
+    match json {
+        Value::Object(map) => {
+            for key in keys {
+                map.remove(*key);
+            }
+            for value in map.values_mut() {
+                remove_keys_deep(value, keys);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                remove_keys_deep(item, keys);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -1829,6 +1853,19 @@ mod tests {
             wall.editor_layer_visibility = Some(false);
         }
 
+        assert_eq!(diff(&original, &modified), Vec::new());
+
+        // drag points keep a visibility of their own
+        let point = |visible: bool| DragPoint {
+            editor_layer_visibility: Some(visible),
+            ..DragPoint::default()
+        };
+        if let GameItemEnum::Wall(wall) = &mut original.gameitems[0] {
+            wall.drag_points = vec![point(true), point(true)];
+        }
+        if let GameItemEnum::Wall(wall) = &mut modified.gameitems[0] {
+            wall.drag_points = vec![point(false), point(false)];
+        }
         assert_eq!(diff(&original, &modified), Vec::new());
 
         // the layer itself is part of the table
