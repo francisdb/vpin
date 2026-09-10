@@ -15,9 +15,10 @@
 //! sound reports its format and duration, a primitive its mesh size.
 //!
 //! Differences that are not edits are left out: floats that moved by
-//! less than a millionth, a mesh whose triangles were only reordered, and
+//! less than a millionth, a mesh whose triangles were only reordered,
 //! properties an older file version did not store yet where the newer
-//! file holds their default.
+//! file holds their default, and the visibility of an item's editor
+//! layer, which is a setting of the editor view rather than of the table.
 //!
 //! The script is only reported as changed, with a line count; a text diff
 //! of the two scripts is left to the caller, which has both tables.
@@ -425,7 +426,7 @@ fn numbered<T>(items: &[T], entity: &impl Fn(&T) -> Entity) -> Vec<(Entity, usiz
 
 /// Properties vpinball fills in when it upgrades a file to the 10.7 layer
 /// system, derived from the numeric layer of every item
-const DERIVED_ON_UPGRADE: &[&str] = &["editor_layer_name", "editor_layer_visibility"];
+const DERIVED_ON_UPGRADE: &[&str] = &["editor_layer_name"];
 
 /// Drops properties that are absent on one side because the other file
 /// version did not store them yet, and hold what vpinball filled in: a
@@ -947,7 +948,9 @@ fn game_item_leaves(original: &GameItemEnum, modified: &GameItemEnum) -> Vec<Lea
 
 /// The properties of a game item without the enum wrapper serde adds,
 /// plus the editor attributes the expanded format keeps in its item list
-/// rather than in the item JSON
+/// rather than in the item JSON. The layer visibility is left out: it is
+/// a setting of the editor view (toggled by showing or hiding a layer),
+/// not of the table.
 fn game_item_json(item: &GameItemEnum) -> Value {
     let mut json = to_value(item);
     if let Value::Object(map) = &mut json
@@ -966,10 +969,6 @@ fn game_item_json(item: &GameItemEnum) -> Value {
         map.insert(
             "editor_layer_name".to_string(),
             to_value(item.editor_layer_name()),
-        );
-        map.insert(
-            "editor_layer_visibility".to_string(),
-            to_value(item.editor_layer_visibility()),
         );
     }
     json
@@ -1814,6 +1813,31 @@ mod tests {
         assert_eq!(
             changes[0].to_string(),
             "Wall \"A\": elasticity falloff (none) -> 0.5, drag points 4 items -> 4 items, 4 changed, editor layer name (none) -> \"Layer_1\""
+        );
+    }
+
+    #[test]
+    fn editor_layer_visibility_is_not_a_change() {
+        let mut original = blank_table();
+        original.gameitems = vec![wall("A")];
+        let mut modified = blank_table();
+        modified.gameitems = vec![wall("A")];
+        if let GameItemEnum::Wall(wall) = &mut original.gameitems[0] {
+            wall.editor_layer_visibility = Some(true);
+        }
+        if let GameItemEnum::Wall(wall) = &mut modified.gameitems[0] {
+            wall.editor_layer_visibility = Some(false);
+        }
+
+        assert_eq!(diff(&original, &modified), Vec::new());
+
+        // the layer itself is part of the table
+        if let GameItemEnum::Wall(wall) = &mut modified.gameitems[0] {
+            wall.editor_layer_name = Some("Lights".to_string());
+        }
+        assert_eq!(
+            diff(&original, &modified)[0].to_string(),
+            "Wall \"A\": editor layer name (none) -> \"Lights\""
         );
     }
 
