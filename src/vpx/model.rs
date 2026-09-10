@@ -1,4 +1,6 @@
-use encoding_rs::mem::{decode_latin1, encode_latin1_lossy};
+use encoding_rs::mem::decode_latin1;
+use log::warn;
+use std::borrow::Cow;
 
 /// The enum used inside vpinball to represent a vertex in the vpx format (Vertex3D_NoTex2).
 /// <https://github.com/vpinball/vpinball/blob/9bb99ca92ff7e7eb37c9fb42dd4dcc206b814132/def.h#L165C7-L181>
@@ -125,8 +127,48 @@ impl From<StringWithEncoding> for Vec<u8> {
     }
 }
 
+/// Encodes a string as Latin-1, one byte per character, with `?` for
+/// every character Latin-1 cannot hold. Borrows when the string is ASCII.
+///
+/// The `encoding_rs` function of the same name is not lossy: it requires
+/// Latin-1 input and otherwise panics under debug assertions or produces
+/// unspecified bytes, so a table name or script with a character outside
+/// Latin-1 needs this one.
+pub(crate) fn encode_latin1_lossy(string: &str) -> Cow<'_, [u8]> {
+    if string.is_ascii() {
+        return Cow::Borrowed(string.as_bytes());
+    }
+    let mut replaced = 0usize;
+    let bytes: Vec<u8> = string
+        .chars()
+        .map(|c| match u32::from(c) {
+            code @ 0..=0xFF => code as u8,
+            _ => {
+                replaced += 1;
+                b'?'
+            }
+        })
+        .collect();
+    if replaced > 0 {
+        warn!("{replaced} character(s) of {string:?} cannot be stored as Latin-1, written as '?'");
+    }
+    Cow::Owned(bytes)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn latin1_encoding_is_lossy_and_borrows_ascii() {
+        use super::encode_latin1_lossy;
+        use std::borrow::Cow;
+        assert!(matches!(
+            encode_latin1_lossy("Metal"),
+            Cow::Borrowed(b"Metal")
+        ));
+        assert_eq!(encode_latin1_lossy("Métal").as_ref(), b"M\xe9tal");
+        assert_eq!(encode_latin1_lossy("Metal ✓ ok").as_ref(), b"Metal ? ok");
+    }
+
     use super::*;
     use pretty_assertions::assert_eq;
 
