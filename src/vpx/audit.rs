@@ -16,6 +16,7 @@
 
 use super::VPX;
 use super::gameitem::GameItemEnum;
+use super::gameitem::light::Fader;
 use crate::vpx::gameitem::MAX_NAME_LENGTH;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -183,6 +184,27 @@ pub enum Finding {
     /// script refers to it; most of its properties cannot change at
     /// runtime then (reading them is fine)
     StaticPrimitiveInScript { item: String },
+    /// A light with a linear or incandescent fader has a fade speed of
+    /// zero, below zero or not a number, so a state change never moves its
+    /// intensity: switched through `State` the light stays as it started.
+    /// The editor writes a zero speed when the fade time is edited while
+    /// the intensity is zero (it stores intensity per millisecond) and
+    /// nothing repairs it later
+    /// (<https://github.com/vpinball/vpinball/issues/3937>). A script that
+    /// sets `Intensity` bypasses the fade and is not affected. A light
+    /// saved with a zero intensity shows nothing yet, so that is only a
+    /// suggestion until something lights it
+    LightCannotFade {
+        item: String,
+        /// The unusable fade up speed, with which the light cannot turn
+        /// on, as text: `0`, a negative number or `NaN`
+        up: Option<String>,
+        /// The unusable fade down speed, with which the light cannot turn
+        /// off, as text
+        down: Option<String>,
+        /// The light has an intensity, so the stuck state shows
+        lit: bool,
+    },
     /// A sound plays on the playfield speakers but is not mono
     StereoTableSound { sound: String },
     /// The embedded screenshot is large; it bloats the file and every save
@@ -268,6 +290,7 @@ impl Finding {
                 Severity::Info
             }
             Finding::UnnamedItems { type_name, .. } if type_name == "Decal" => Severity::Suggestion,
+            Finding::LightCannotFade { lit: false, .. } => Severity::Suggestion,
             Finding::ReservedName { reserved, .. } => match reserved {
                 ReservedName::VbsKeyword | ReservedName::TableGlobal => Severity::Error,
                 ReservedName::VbsBuiltin => Severity::Warning,
@@ -502,6 +525,16 @@ impl fmt::Display for Finding {
                 f,
                 "{item}: is static (baked at load) but the script refers to it; most of its properties cannot change at runtime"
             ),
+            Finding::LightCannotFade { item, up, down, .. } => {
+                let which = match (up, down) {
+                    (Some(up), Some(down)) if up == down => format!("fade speeds are {up}"),
+                    (Some(up), Some(down)) => format!("fade speeds are {up} and {down}"),
+                    (Some(up), None) => format!("fade up speed is {up}"),
+                    (None, Some(down)) => format!("fade down speed is {down}"),
+                    (None, None) => "fade speed is unusable".to_string(),
+                };
+                write!(f, "{item}: {which}, state changes never show")
+            }
             Finding::StereoTableSound { sound } => write!(
                 f,
                 "sound {sound:?} plays on the playfield speakers but is not mono"
@@ -822,6 +855,33 @@ fn check_item_behavior(item: &GameItemEnum, findings: &mut Vec<Finding>) {
         findings.push(Finding::NegativeLightIntensity {
             item: item_label(item),
         });
+    }
+    // an absent fader record means vpinball's default, linear; a fade
+    // speed that is not above zero (that includes NaN) never moves the
+    // intensity, with either fading fader
+    if let GameItemEnum::Light(light) = item
+        && !matches!(light.fader, Some(Fader::None))
+    {
+        // rendered as text so the finding stays comparable
+        let unusable = |speed: f32| {
+            (speed.is_nan() || speed <= 0.0).then(|| {
+                if speed == 0.0 {
+                    "0".to_string()
+                } else {
+                    speed.to_string()
+                }
+            })
+        };
+        let up = unusable(light.fade_speed_up);
+        let down = unusable(light.fade_speed_down);
+        if up.is_some() || down.is_some() {
+            findings.push(Finding::LightCannotFade {
+                item: item_label(item),
+                up,
+                down,
+                lit: light.intensity > 0.0,
+            });
+        }
     }
     if let Some(timer) = item.timer()
         && timer.is_enabled
@@ -2652,6 +2712,78 @@ mod tests {
             }]
         );
         assert_eq!(findings[0].severity(), Severity::Info);
+    }
+
+    #[test]
+    fn a_light_with_a_zero_fade_speed_cannot_fade() {
+        use crate::vpx::gameitem::light::Light;
+        let lit = |name: &str, fader: Option<Fader>, up: f32, down: f32, intensity: f32| {
+            GameItemEnum::Light(Light {
+                name: name.to_string(),
+                fader,
+                fade_speed_up: up,
+                fade_speed_down: down,
+                intensity,
+                ..Light::default()
+            })
+        };
+        let light =
+            |name: &str, fader: Option<Fader>, up: f32, down: f32| lit(name, fader, up, down, 1.0);
+        let mut vpx = clean_vpx();
+        vpx.collections.clear();
+        vpx.gamedata.collections_size = 0;
+        vpx.gameitems = vec![
+            light("fine", Some(Fader::Linear), 0.2, 0.2),
+            light("instant", Some(Fader::None), 0.0, 0.0),
+            light("stuck", None, 0.0, 0.0),
+            light("halfway", Some(Fader::Incandescent), 0.2, -1.0),
+            light("nan", Some(Fader::Linear), f32::NAN, 0.2),
+            light("inf", Some(Fader::Linear), f32::INFINITY, 0.2),
+        ];
+        // saved dark, with the zero the editor writes in that case
+        vpx.gameitems
+            .push(lit("dark", Some(Fader::Linear), 0.0, 0.0, 0.0));
+        vpx.gamedata.gameitems_size = vpx.gameitems.len() as u32;
+        // replacing every item leaves the template's materials unused
+        let findings: Vec<Finding> = audit(&vpx)
+            .into_iter()
+            .filter(|finding| !matches!(finding, Finding::UnusedMaterials { .. }))
+            .collect();
+        let messages: Vec<(String, Severity)> = findings
+            .iter()
+            .map(|finding| (finding.to_string(), finding.severity()))
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                (
+                    "Light \"stuck\": fade speeds are 0, state changes never show".to_string(),
+                    Severity::Warning
+                ),
+                (
+                    "Light \"halfway\": fade down speed is -1, state changes never show"
+                        .to_string(),
+                    Severity::Warning
+                ),
+                (
+                    "Light \"nan\": fade up speed is NaN, state changes never show".to_string(),
+                    Severity::Warning
+                ),
+                (
+                    "Light \"dark\": fade speeds are 0, state changes never show".to_string(),
+                    Severity::Suggestion
+                ),
+            ]
+        );
+        assert_eq!(
+            findings[0],
+            Finding::LightCannotFade {
+                item: "Light \"stuck\"".to_string(),
+                up: Some("0".to_string()),
+                down: Some("0".to_string()),
+                lit: true,
+            }
+        );
     }
 
     #[test]
