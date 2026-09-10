@@ -7,10 +7,74 @@ use bytes::{Buf, BufMut, BytesMut};
 use encoding_rs::mem::{decode_latin1, encode_latin1_lossy};
 use log::warn;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::ffi::CStr;
+use std::fmt;
 use std::io;
 
 const MAX_NAME_BUFFER: usize = 32;
+
+/// The longest material name vpinball stores: the pre-10.8 material and
+/// physics material records keep the name in a fixed buffer of 32 Latin-1
+/// bytes including the terminator, and the editor caps every name at this
+/// length
+pub const MAX_NAME_LENGTH: usize = MAX_NAME_BUFFER - 1;
+
+/// Why a material name cannot be stored as it is
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NameError {
+    /// The name takes more than [`MAX_NAME_LENGTH`] bytes in Latin-1
+    TooLong { bytes: usize },
+    /// The name has a character Latin-1 cannot encode
+    NotLatin1 { character: char },
+}
+
+impl fmt::Display for NameError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NameError::TooLong { bytes } => write!(
+                f,
+                "is {bytes} bytes, vpinball stores at most {MAX_NAME_LENGTH}"
+            ),
+            NameError::NotLatin1 { character } => write!(
+                f,
+                "has the character {character:?}, which vpinball's Latin-1 material record cannot hold"
+            ),
+        }
+    }
+}
+
+/// Whether vpinball can store the material name unchanged. The fixed
+/// record would otherwise truncate it, and the physics record written next
+/// to it would then no longer match the material by name.
+pub fn check_name(name: &str) -> Result<(), NameError> {
+    if let Some(character) = name.chars().find(|c| u32::from(*c) > 0xFF) {
+        return Err(NameError::NotLatin1 { character });
+    }
+    let bytes = name.chars().count();
+    if bytes > MAX_NAME_LENGTH {
+        return Err(NameError::TooLong { bytes });
+    }
+    Ok(())
+}
+
+/// The name as vpinball's fixed material record stores it: encoded as
+/// Latin-1 with `?` for anything it cannot hold, cut to
+/// [`MAX_NAME_LENGTH`] bytes. A reference capped this way still matches a
+/// material name that went through the same record.
+pub fn stored_name(name: &str) -> Cow<'_, str> {
+    if check_name(name).is_ok() {
+        return Cow::Borrowed(name);
+    }
+    // every Latin-1 character is one byte, so counting characters counts
+    // bytes once the others are replaced
+    Cow::Owned(
+        name.chars()
+            .map(|c| if u32::from(c) > 0xFF { '?' } else { c })
+            .take(MAX_NAME_LENGTH)
+            .collect(),
+    )
+}
 
 /// Shading model of a material, mirroring vpinball's `Material::MaterialType`.
 ///
@@ -820,6 +884,29 @@ impl BiffWrite for Material {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_name_vpinball_stores_passes_and_others_do_not() {
+        assert_eq!(check_name(&"a".repeat(31)), Ok(()));
+        assert_eq!(check_name("Métal"), Ok(()));
+        assert_eq!(
+            check_name(&"a".repeat(32)),
+            Err(NameError::TooLong { bytes: 32 })
+        );
+        assert_eq!(
+            check_name("Metal ✓"),
+            Err(NameError::NotLatin1 { character: '✓' })
+        );
+    }
+
+    #[test]
+    fn stored_name_matches_the_fixed_record() {
+        assert!(matches!(stored_name("Metal"), Cow::Borrowed("Metal")));
+        let long = format!("{}xyz", "a".repeat(30));
+        assert_eq!(stored_name(&long), format!("{}x", "a".repeat(30)));
+        assert_eq!(stored_name("Metal ✓"), "Metal ?");
+    }
+
     use bytes::BytesMut;
     use fake::{Fake, Faker};
     use pretty_assertions::assert_eq;
