@@ -1,10 +1,15 @@
 //! Material reading and writing for expanded VPX format
 
 use crate::filesystem::FileSystem;
+use crate::vpx::gamedata::GameData;
+use crate::vpx::gameitem::GameItemEnum;
 use crate::vpx::material::{
-    Material, MaterialJson, SaveMaterial, SaveMaterialJson, SavePhysicsMaterial,
+    self, Material, MaterialJson, SaveMaterial, SaveMaterialJson, SavePhysicsMaterial,
     SavePhysicsMaterialJson,
 };
+use log::warn;
+use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::path::Path;
 
@@ -118,4 +123,50 @@ pub(super) fn read_old_materials_physics<P: AsRef<Path>>(
         .map(|m| SavePhysicsMaterialJson::to_save_physics_material(&m))
         .collect();
     Ok(Some(materials))
+}
+
+/// Fails when a material has a name vpinball cannot store: the editor
+/// never creates one, so it can only come from an edited json, and the
+/// fixed material record would silently cut it while the physics record
+/// next to it is matched by name
+pub(super) fn check_material_names<'a>(names: impl Iterator<Item = &'a str>) -> io::Result<()> {
+    for name in names {
+        if let Err(problem) = material::check_name(name) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Material name {name:?} {problem}"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Caps every material reference of the table to what vpinball stores,
+/// like the editor does when a name is entered, and logs each distinct
+/// name that changed. A reference longer than any material name can hold
+/// could never match one, so this only turns a dangling reference into
+/// the one the author meant.
+pub(super) fn cap_material_references(gamedata: &mut GameData, gameitems: &mut [GameItemEnum]) {
+    let mut capped: BTreeMap<String, (String, usize)> = BTreeMap::new();
+    let mut cap = |reference: &mut String| {
+        if let Cow::Owned(stored) = material::stored_name(reference) {
+            let entry = capped
+                .entry(reference.clone())
+                .or_insert_with(|| (stored.clone(), 0));
+            entry.1 += 1;
+            *reference = stored;
+        }
+    };
+    cap(&mut gamedata.playfield_material);
+    for item in gameitems.iter_mut() {
+        for reference in item.material_references_mut() {
+            cap(reference);
+        }
+    }
+    for (original, (stored, count)) in capped {
+        warn!(
+            "Material reference {original:?} capped to {stored:?} in {count} place(s), vpinball stores at most {} Latin-1 characters",
+            material::MAX_NAME_LENGTH
+        );
+    }
 }

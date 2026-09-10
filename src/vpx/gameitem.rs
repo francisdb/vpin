@@ -736,6 +736,62 @@ impl GameItemEnum {
         out
     }
 
+    /// Every material reference of this item that can be edited: the
+    /// rendering materials of [`materials`](Self::materials) and the
+    /// physics material, including empty ones
+    pub fn material_references_mut(&mut self) -> Vec<&mut String> {
+        let mut out: Vec<&mut String> = Vec::new();
+        match self {
+            GameItemEnum::Bumper(bumper) => {
+                out.push(&mut bumper.cap_material);
+                out.push(&mut bumper.base_material);
+                out.extend(bumper.ring_material.as_mut());
+                out.push(&mut bumper.socket_material);
+            }
+            GameItemEnum::Decal(decal) => out.push(&mut decal.material),
+            GameItemEnum::Flipper(flipper) => {
+                out.push(&mut flipper.material);
+                out.push(&mut flipper.rubber_material);
+            }
+            GameItemEnum::Gate(gate) => out.push(&mut gate.material),
+            GameItemEnum::HitTarget(hittarget) => {
+                out.push(&mut hittarget.material);
+                out.extend(hittarget.physics_material.as_mut());
+            }
+            GameItemEnum::Kicker(kicker) => out.push(&mut kicker.material),
+            GameItemEnum::Plunger(plunger) => out.push(&mut plunger.material),
+            GameItemEnum::Primitive(primitive) => {
+                out.push(&mut primitive.material);
+                out.extend(primitive.physics_material.as_mut());
+            }
+            GameItemEnum::Ramp(ramp) => {
+                out.push(&mut ramp.material);
+                out.extend(ramp.physics_material.as_mut());
+            }
+            GameItemEnum::Rubber(rubber) => {
+                out.push(&mut rubber.material);
+                out.extend(rubber.physics_material.as_mut());
+            }
+            GameItemEnum::Spinner(spinner) => out.push(&mut spinner.material),
+            GameItemEnum::Trigger(trigger) => out.push(&mut trigger.material),
+            GameItemEnum::Wall(wall) => {
+                out.push(&mut wall.top_material);
+                out.push(&mut wall.side_material);
+                out.push(&mut wall.slingshot_material);
+                out.extend(wall.physics_material.as_mut());
+            }
+            GameItemEnum::Ball(_)
+            | GameItemEnum::Flasher(_)
+            | GameItemEnum::Light(_)
+            | GameItemEnum::LightSequencer(_)
+            | GameItemEnum::Reel(_)
+            | GameItemEnum::TextBox(_)
+            | GameItemEnum::Timer(_)
+            | GameItemEnum::PartGroup(_)
+            | GameItemEnum::Generic(_, _) => {}
+        }
+        out
+    }
     /// Returns the physics-material name this item references, if any.
     /// Physics material is a separate concept from rendering material and was
     /// added in 10.x; only items that can be collided with carry it.

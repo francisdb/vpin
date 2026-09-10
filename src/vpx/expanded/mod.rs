@@ -366,6 +366,22 @@ pub fn read_fs<P: AsRef<Path>>(expanded_dir: &P, fs: &dyn FileSystem) -> io::Res
     gamedata.render_probes = metadata::read_renderprobes(expanded_dir, fs)?;
     info!("✓ Game data read");
 
+    // apply what vpinball's editor enforces on names, so the assembled
+    // table is one it could have written
+    match &gamedata.materials {
+        Some(materials) => materials::check_material_names(
+            materials.iter().map(|material| material.name.as_str()),
+        )?,
+        None => materials::check_material_names(
+            gamedata
+                .materials_old
+                .iter()
+                .map(|material| material.name.as_str()),
+        )?,
+    }
+    let mut gameitems = gameitems;
+    materials::cap_material_references(&mut gamedata, &mut gameitems);
+
     let vpx = VPX {
         custominfotags,
         info,
@@ -517,6 +533,54 @@ mod tests {
             default_size, double_size,
             "derived mesh should depend on the table dimensions"
         );
+    }
+
+    #[test]
+    fn a_material_name_vpinball_cannot_store_is_rejected() -> TestResult {
+        use crate::vpx::material::Material;
+        let fs = MemoryFileSystem::default();
+        let mut vpx = VPX::default();
+        let mut material = Material::default();
+        material.name = "a".repeat(32);
+        vpx.gamedata.materials = Some(vec![material]);
+        write_fs(&vpx, &"/vpx".to_string(), &ExpandOptions::new(), &fs)?;
+
+        let error = read_fs(&"/vpx".to_string(), &fs).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "Material name {:?} is 32 bytes, vpinball stores at most 31",
+                "a".repeat(32)
+            )
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn material_references_are_capped_like_the_editor_does() -> TestResult {
+        use crate::vpx::gameitem::wall::Wall;
+        let fs = MemoryFileSystem::default();
+        let mut vpx = VPX::default();
+        let long = format!("{}xyz", "a".repeat(30));
+        vpx.gamedata.playfield_material = long.clone();
+        vpx.gameitems = vec![GameItemEnum::Wall(Wall {
+            name: "Wall1".to_string(),
+            top_material: long.clone(),
+            physics_material: Some("Metal ✓".to_string()),
+            ..Default::default()
+        })];
+        write_fs(&vpx, &"/vpx".to_string(), &ExpandOptions::new(), &fs)?;
+
+        let read = read_fs(&"/vpx".to_string(), &fs)?;
+        let capped = format!("{}x", "a".repeat(30));
+        assert_eq!(read.gamedata.playfield_material, capped);
+        let GameItemEnum::Wall(wall) = &read.gameitems[0] else {
+            panic!("expected a wall");
+        };
+        assert_eq!(wall.top_material, capped);
+        assert_eq!(wall.physics_material.as_deref(), Some("Metal ?"));
+        Ok(())
     }
 
     #[test]
