@@ -8,7 +8,6 @@ use bytes::{Buf, BufMut, BytesMut};
 use encoding_rs::mem::decode_latin1;
 use log::warn;
 use serde::{Deserialize, Serialize};
-use std::borrow::Cow;
 use std::ffi::CStr;
 use std::fmt;
 use std::io;
@@ -57,24 +56,6 @@ pub fn check_name(name: &str) -> Result<(), NameError> {
         return Err(NameError::TooLong { bytes });
     }
     Ok(())
-}
-
-/// The name as vpinball's fixed material record stores it: encoded as
-/// Latin-1 with `?` for anything it cannot hold, cut to
-/// [`MAX_NAME_LENGTH`] bytes. A reference capped this way still matches a
-/// material name that went through the same record.
-pub fn stored_name(name: &str) -> Cow<'_, str> {
-    if check_name(name).is_ok() {
-        return Cow::Borrowed(name);
-    }
-    // every Latin-1 character is one byte, so counting characters counts
-    // bytes once the others are replaced
-    Cow::Owned(
-        name.chars()
-            .map(|c| if u32::from(c) > 0xFF { '?' } else { c })
-            .take(MAX_NAME_LENGTH)
-            .collect(),
-    )
 }
 
 /// Shading model of a material, mirroring vpinball's `Material::MaterialType`.
@@ -898,14 +879,6 @@ mod tests {
             check_name("Metal ✓"),
             Err(NameError::NotLatin1 { character: '✓' })
         );
-    }
-
-    #[test]
-    fn stored_name_matches_the_fixed_record() {
-        assert!(matches!(stored_name("Metal"), Cow::Borrowed("Metal")));
-        let long = format!("{}xyz", "a".repeat(30));
-        assert_eq!(stored_name(&long), format!("{}x", "a".repeat(30)));
-        assert_eq!(stored_name("Metal ✓"), "Metal ?");
     }
 
     use bytes::BytesMut;
