@@ -83,6 +83,14 @@ pub enum Finding {
     },
     /// A game item name is longer than vpinball supports
     NameTooLong { item: String, length: usize },
+    /// Game items of one type have no name, reported once per type with
+    /// how many. Such an item cannot be reached from the script, and
+    /// vpinball gives all but the first a number when it loads the table.
+    /// Decals only gained a name in 2026, so tables saved before that have
+    /// unnamed ones. vpinball and vpx-editor name them when they load the
+    /// table and write the name on save, so a resave fixes it; that is a
+    /// suggestion
+    UnnamedItems { type_name: String, count: usize },
     /// The table info has no table name
     MissingTableName,
     /// An image is stored as an uncompressed era bitmap; vpinball suggests
@@ -247,6 +255,7 @@ impl Finding {
             Finding::TimerWithoutHandler { .. } | Finding::HandlersWithoutItem { .. } => {
                 Severity::Info
             }
+            Finding::UnnamedItems { type_name, .. } if type_name == "Decal" => Severity::Suggestion,
             _ => Severity::Warning,
         }
     }
@@ -324,6 +333,19 @@ impl fmt::Display for Finding {
                     }
                 };
                 write!(f, "{count} {kind}s share the name {name:?}, {consequence}")
+            }
+            Finding::UnnamedItems { type_name, count } => {
+                let items = if *count == 1 {
+                    "item has"
+                } else {
+                    "items have"
+                };
+                let consequence = if type_name == "Decal" {
+                    "saving the table in vpinball or vpx-editor names them"
+                } else {
+                    "they cannot be reached from the script"
+                };
+                write!(f, "{count} {type_name} {items} no name, {consequence}")
             }
             Finding::NameTooLong { item, length } => write!(
                 f,
@@ -549,6 +571,18 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
                 length: name.chars().count(),
             });
         }
+    }
+
+    let mut unnamed: Vec<(String, usize)> = Vec::new();
+    for item in vpx.gameitems.iter().filter(|item| item.name().is_empty()) {
+        let type_name = item.type_name();
+        match unnamed.iter_mut().find(|(name, _)| *name == type_name) {
+            Some((_, count)) => *count += 1,
+            None => unnamed.push((type_name, 1)),
+        }
+    }
+    for (type_name, count) in unnamed {
+        findings.push(Finding::UnnamedItems { type_name, count });
     }
 
     for collection in &vpx.collections {
@@ -1654,6 +1688,15 @@ mod tests {
     /// The blank fixture with its dangling default references cleared
     fn clean_vpx() -> VPX {
         let mut vpx = blank_vpx();
+        // the template ships a decal without a name, like vpinball's own
+        // blank table
+        for item in &mut vpx.gameitems {
+            if let GameItemEnum::Decal(decal) = item
+                && decal.name.is_empty()
+            {
+                decal.name = "Decal1".to_string();
+            }
+        }
         vpx.gamedata.image.clear();
         vpx.gamedata.image_color_grade.clear();
         vpx.gamedata.ball_image.clear();
@@ -1713,9 +1756,9 @@ mod tests {
         let findings: Vec<Finding> = audit(&blank_vpx())
             .into_iter()
             // the template's score textbox uses a Windows only font, it carries
-            // materials nothing uses, and its script draws random numbers
-            // without Randomize, plays the sample table's sounds and has timer
-            // handlers for timers it does not have
+            // materials nothing uses and a decal without a name, and its
+            // script draws random numbers without Randomize, plays the sample
+            // table's sounds and has timer handlers for timers it does not have
             .filter(|finding| {
                 !matches!(
                     finding,
@@ -1724,6 +1767,7 @@ mod tests {
                         | Finding::HandlersWithoutItem { .. }
                         | Finding::UnusedMaterials { .. }
                         | Finding::MissingSound { .. }
+                        | Finding::UnnamedItems { .. }
                 )
             })
             .collect();
@@ -1823,6 +1867,41 @@ mod tests {
                 collection: "Bumpers".to_string(),
                 item: "Bumper1".to_string(),
             }]
+        );
+    }
+
+    #[test]
+    fn unnamed_items_are_reported_per_type() {
+        use crate::vpx::gameitem::decal::Decal;
+        use crate::vpx::gameitem::wall::Wall;
+        let mut vpx = clean_vpx();
+        for _ in 0..2 {
+            vpx.gameitems.push(GameItemEnum::Decal(Decal::default()));
+        }
+        vpx.gameitems.push(GameItemEnum::Wall(Wall::default()));
+        let findings = audit(&vpx);
+        assert_eq!(
+            findings,
+            vec![
+                Finding::UnnamedItems {
+                    type_name: "Decal".to_string(),
+                    count: 2,
+                },
+                Finding::UnnamedItems {
+                    type_name: "Wall".to_string(),
+                    count: 1,
+                },
+            ]
+        );
+        assert_eq!(findings[0].severity(), Severity::Suggestion);
+        assert_eq!(
+            findings[0].to_string(),
+            "2 Decal items have no name, saving the table in vpinball or vpx-editor names them"
+        );
+        assert_eq!(findings[1].severity(), Severity::Warning);
+        assert_eq!(
+            findings[1].to_string(),
+            "1 Wall item has no name, they cannot be reached from the script"
         );
     }
 

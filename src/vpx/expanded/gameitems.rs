@@ -2,10 +2,10 @@
 
 use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::GameItemEnum;
-use log::info;
+use log::{info, warn};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::io::{self, Write};
 use std::path::Path;
 use tracing::instrument;
@@ -182,7 +182,39 @@ pub(super) fn read_gameitems<P: AsRef<Path>>(
     for r in results {
         out.push(r?);
     }
+    if let Some(warning) = empty_name_warning(&out) {
+        warn!("{warning}");
+    }
     Ok(out)
+}
+
+/// One line about the items without a name, per type. They are kept:
+/// existing tables have unnamed decals, which vpinball names when it
+/// loads the table. Anything else without a name cannot be reached from
+/// the script, and vpinball gives all but the first a number at load.
+fn empty_name_warning(gameitems: &[GameItemEnum]) -> Option<String> {
+    let mut per_type: BTreeMap<String, usize> = BTreeMap::new();
+    for item in gameitems.iter().filter(|item| item.name().is_empty()) {
+        *per_type.entry(item.type_name()).or_default() += 1;
+    }
+    if per_type.is_empty() {
+        return None;
+    }
+    let total: usize = per_type.values().sum();
+    let per_type: Vec<String> = per_type
+        .iter()
+        .map(|(type_name, count)| format!("{count} {type_name}"))
+        .collect();
+    let items = if total == 1 { "item has" } else { "items have" };
+    let consequence = if per_type.len() == 1 && per_type[0].ends_with("Decal") {
+        "vpinball names them when it loads the table"
+    } else {
+        "vpinball names decals when it loads the table, other items cannot be reached from the script"
+    };
+    Some(format!(
+        "{total} game {items} no name ({}); {consequence}",
+        per_type.join(", ")
+    ))
 }
 
 #[instrument(skip(fs, gameitems_dir, gameitem_info), fields(path = ?&gameitem_info.file_name))]
@@ -210,4 +242,46 @@ fn read_game_item(
 
     // read associated binaries (must be thread-safe; they operate on distinct files)
     read_gameitem_binaries(gameitems_dir, file_name, item, fs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vpx::gameitem::decal::Decal;
+    use crate::vpx::gameitem::wall::Wall;
+
+    #[test]
+    fn unnamed_items_are_summarized_per_type() {
+        let decal = |name: &str| {
+            GameItemEnum::Decal(Decal {
+                name: name.to_string(),
+                ..Default::default()
+            })
+        };
+        let wall = |name: &str| {
+            GameItemEnum::Wall(Wall {
+                name: name.to_string(),
+                ..Default::default()
+            })
+        };
+        assert_eq!(empty_name_warning(&[decal("Logo"), wall("Wall1")]), None);
+        assert_eq!(
+            empty_name_warning(&[decal(""), decal(""), wall("Wall1")]).as_deref(),
+            Some(
+                "2 game items have no name (2 Decal); vpinball names them when it loads the table"
+            )
+        );
+        assert_eq!(
+            empty_name_warning(&[decal(""), wall("")]).as_deref(),
+            Some(
+                "2 game items have no name (1 Decal, 1 Wall); vpinball names decals when it loads the table, other items cannot be reached from the script"
+            )
+        );
+        assert_eq!(
+            empty_name_warning(&[wall("")]).as_deref(),
+            Some(
+                "1 game item has no name (1 Wall); vpinball names decals when it loads the table, other items cannot be reached from the script"
+            )
+        );
+    }
 }
