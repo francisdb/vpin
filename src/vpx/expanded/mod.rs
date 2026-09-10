@@ -367,11 +367,16 @@ pub fn read_fs<P: AsRef<Path>>(expanded_dir: &P, fs: &dyn FileSystem) -> io::Res
     info!("✓ Game data read");
 
     // apply what vpinball's editor enforces on names, so the assembled
-    // table is one it could have written
+    // table is one it could have written. References are left alone:
+    // published tables have references longer than any stored name,
+    // which vpinball resolves to its default material, and the audit
+    // reports them as missing
     match &gamedata.materials {
-        Some(materials) => materials::check_material_names(
-            materials.iter().map(|material| material.name.as_str()),
-        )?,
+        // the 10.8 record holds any name and the player looks materials up
+        // by it, so a longer one only loses the records older versions read
+        Some(materials) => {
+            materials::warn_material_names(materials.iter().map(|material| material.name.as_str()))
+        }
         None => materials::check_material_names(
             gamedata
                 .materials_old
@@ -379,8 +384,6 @@ pub fn read_fs<P: AsRef<Path>>(expanded_dir: &P, fs: &dyn FileSystem) -> io::Res
                 .map(|material| material.name.as_str()),
         )?,
     }
-    let mut gameitems = gameitems;
-    materials::cap_material_references(&mut gamedata, &mut gameitems);
 
     let vpx = VPX {
         custominfotags,
@@ -536,13 +539,40 @@ mod tests {
     }
 
     #[test]
-    fn a_material_name_vpinball_cannot_store_is_rejected() -> TestResult {
+    fn a_long_material_name_is_kept_in_a_10_8_table() -> TestResult {
+        use crate::vpx::gameitem::wall::Wall;
         use crate::vpx::material::Material;
         let fs = MemoryFileSystem::default();
         let mut vpx = VPX::default();
         let mut material = Material::default();
-        material.name = "a".repeat(32);
+        material.name = "a".repeat(33);
         vpx.gamedata.materials = Some(vec![material]);
+        vpx.gameitems = vec![GameItemEnum::Wall(Wall {
+            name: "Wall1".to_string(),
+            top_material: "a".repeat(33),
+            ..Default::default()
+        })];
+        write_fs(&vpx, &"/vpx".to_string(), &ExpandOptions::new(), &fs)?;
+
+        // published tables have such names and vpinball plays them
+        let read = read_fs(&"/vpx".to_string(), &fs)?;
+        assert_eq!(read.gamedata.materials.unwrap()[0].name, "a".repeat(33));
+        let GameItemEnum::Wall(wall) = &read.gameitems[0] else {
+            panic!("expected a wall");
+        };
+        assert_eq!(wall.top_material, "a".repeat(33));
+        Ok(())
+    }
+
+    #[test]
+    fn a_material_name_the_old_record_cannot_store_is_rejected() -> TestResult {
+        use crate::vpx::material::SaveMaterial;
+        let fs = MemoryFileSystem::default();
+        let mut vpx = VPX::default();
+        vpx.gamedata.materials_old = vec![SaveMaterial {
+            name: "a".repeat(32),
+            ..Default::default()
+        }];
         write_fs(&vpx, &"/vpx".to_string(), &ExpandOptions::new(), &fs)?;
 
         let error = read_fs(&"/vpx".to_string(), &fs).unwrap_err();
@@ -554,32 +584,6 @@ mod tests {
                 "a".repeat(32)
             )
         );
-        Ok(())
-    }
-
-    #[test]
-    fn material_references_are_capped_like_the_editor_does() -> TestResult {
-        use crate::vpx::gameitem::wall::Wall;
-        let fs = MemoryFileSystem::default();
-        let mut vpx = VPX::default();
-        let long = format!("{}xyz", "a".repeat(30));
-        vpx.gamedata.playfield_material = long.clone();
-        vpx.gameitems = vec![GameItemEnum::Wall(Wall {
-            name: "Wall1".to_string(),
-            top_material: long.clone(),
-            physics_material: Some("Metal ✓".to_string()),
-            ..Default::default()
-        })];
-        write_fs(&vpx, &"/vpx".to_string(), &ExpandOptions::new(), &fs)?;
-
-        let read = read_fs(&"/vpx".to_string(), &fs)?;
-        let capped = format!("{}x", "a".repeat(30));
-        assert_eq!(read.gamedata.playfield_material, capped);
-        let GameItemEnum::Wall(wall) = &read.gameitems[0] else {
-            panic!("expected a wall");
-        };
-        assert_eq!(wall.top_material, capped);
-        assert_eq!(wall.physics_material.as_deref(), Some("Metal ?"));
         Ok(())
     }
 

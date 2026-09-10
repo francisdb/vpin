@@ -1,15 +1,11 @@
 //! Material reading and writing for expanded VPX format
 
 use crate::filesystem::FileSystem;
-use crate::vpx::gamedata::GameData;
-use crate::vpx::gameitem::GameItemEnum;
 use crate::vpx::material::{
     self, Material, MaterialJson, SaveMaterial, SaveMaterialJson, SavePhysicsMaterial,
     SavePhysicsMaterialJson,
 };
 use log::warn;
-use std::borrow::Cow;
-use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::path::Path;
 
@@ -141,32 +137,14 @@ pub(super) fn check_material_names<'a>(names: impl Iterator<Item = &'a str>) -> 
     Ok(())
 }
 
-/// Caps every material reference of the table to what vpinball stores,
-/// like the editor does when a name is entered, and logs each distinct
-/// name that changed. A reference longer than any material name can hold
-/// could never match one, so this only turns a dangling reference into
-/// the one the author meant.
-pub(super) fn cap_material_references(gamedata: &mut GameData, gameitems: &mut [GameItemEnum]) {
-    let mut capped: BTreeMap<String, (String, usize)> = BTreeMap::new();
-    let mut cap = |reference: &mut String| {
-        if let Cow::Owned(stored) = material::stored_name(reference) {
-            let entry = capped
-                .entry(reference.clone())
-                .or_insert_with(|| (stored.clone(), 0));
-            entry.1 += 1;
-            *reference = stored;
+/// Logs the material names of a 10.8 table that the records older
+/// versions read cannot hold. The player uses the 10.8 record, which
+/// holds any name, so the table plays; only a pre-10.8 vpinball would
+/// see the name cut and its physics lost
+pub(super) fn warn_material_names<'a>(names: impl Iterator<Item = &'a str>) {
+    for name in names {
+        if let Err(problem) = material::check_name(name) {
+            warn!("Material name {name:?} {problem}, versions before 10.8 will not find it");
         }
-    };
-    cap(&mut gamedata.playfield_material);
-    for item in gameitems.iter_mut() {
-        for reference in item.material_references_mut() {
-            cap(reference);
-        }
-    }
-    for (original, (stored, count)) in capped {
-        warn!(
-            "Material reference {original:?} capped to {stored:?} in {count} place(s), vpinball stores at most {} Latin-1 characters",
-            material::MAX_NAME_LENGTH
-        );
     }
 }
