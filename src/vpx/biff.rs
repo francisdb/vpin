@@ -1,4 +1,5 @@
-use encoding_rs::mem::{decode_latin1, encode_latin1_lossy};
+use crate::vpx::model::encode_latin1_lossy;
+use encoding_rs::mem::decode_latin1;
 use log::warn;
 use std::fmt;
 use std::io;
@@ -704,6 +705,17 @@ mod corrupt_input_tests {
         writer.write_tagged_data(tag, data);
         writer.close(true);
         writer.get_data().to_vec()
+    }
+
+    #[test]
+    fn a_string_outside_latin1_is_written_with_question_marks() {
+        let mut writer = BiffWriter::new();
+        writer.write_tagged_string("NAME", "Métal ✓");
+        let data = writer.get_data().to_vec();
+        let mut reader = BiffReader::new(&data);
+        reader.next(WARN).unwrap();
+        assert_eq!(reader.tag(), "NAME");
+        assert_eq!(reader.get_string().unwrap(), "Métal ?");
     }
 
     #[test]
