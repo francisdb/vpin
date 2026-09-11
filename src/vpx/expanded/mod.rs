@@ -398,6 +398,9 @@ pub fn read_fs<P: AsRef<Path>>(expanded_dir: &P, fs: &dyn FileSystem) -> io::Res
         fonts,
         collections,
     };
+    for warning in name_warnings(&vpx) {
+        warn!("{warning}");
+    }
     info!("=== VPX assembly process completed successfully ===");
     Ok(vpx)
 }
@@ -459,6 +462,105 @@ pub(super) fn write_mesh_to_file(
         }
     }
     Ok(())
+}
+
+/// What vpinball would change about the names when it loads this table,
+/// one line each. The table is left as it is, since published tables
+/// carry all of these and vpinball loads them: it renames a part whose
+/// name another part, a collection or the table already has, drops an
+/// image or sound whose name an earlier one has, and on Windows renames
+/// a part or collection named like a global script method. Names are
+/// compared case insensitively like vpinball does. A stricter mode can
+/// refuse them later.
+fn name_warnings(vpx: &VPX) -> Vec<String> {
+    use crate::vpx::audit::{ReservedName, reserved_name};
+    use std::collections::HashMap;
+    let mut warnings = Vec::new();
+
+    // scriptable names share one namespace: the table, then collections,
+    // then parts, in the order vpinball registers them
+    let mut taken: HashMap<String, String> = HashMap::new();
+    if !vpx.gamedata.name.is_empty() {
+        taken.insert(
+            vpx.gamedata.name.to_lowercase(),
+            format!("the table {:?}", vpx.gamedata.name),
+        );
+    }
+    for collection in &vpx.collections {
+        let label = format!("collection {:?}", collection.name);
+        let key = collection.name.to_lowercase();
+        if let Some(holder) = taken.get(&key) {
+            warnings.push(format!(
+                "{label} has the same name as {holder}, vpinball only reaches one of them"
+            ));
+        } else {
+            taken.insert(key, label);
+        }
+    }
+    for item in &vpx.gameitems {
+        if item.name().is_empty() {
+            continue;
+        }
+        let label = format!("{} {:?}", item.type_name(), item.name());
+        let key = item.name().to_lowercase();
+        if let Some(holder) = taken.get(&key) {
+            warnings.push(format!(
+                "{label} has the same name as {holder}, vpinball renames it when it loads the table"
+            ));
+        } else {
+            taken.insert(key, label);
+        }
+    }
+    for (kind, name) in vpx
+        .gameitems
+        .iter()
+        .map(|item| (item.type_name(), item.name()))
+        .chain(
+            vpx.collections
+                .iter()
+                .map(|collection| ("Collection".to_string(), collection.name.as_str())),
+        )
+    {
+        if let Some(reserved) = reserved_name(name) {
+            let consequence = match reserved {
+                ReservedName::VbsKeyword => "the script cannot refer to the item",
+                ReservedName::VbsBuiltin => "the item hides it from the script",
+                ReservedName::TableGlobal => "vpinball renames the item at load",
+            };
+            warnings.push(format!("{kind} {name:?} is a {reserved}, {consequence}"));
+        }
+    }
+
+    for (what, names) in [
+        (
+            "image",
+            vpx.images
+                .iter()
+                .map(|image| image.name.as_str())
+                .collect::<Vec<_>>(),
+        ),
+        (
+            "sound",
+            vpx.sounds
+                .iter()
+                .map(|sound| sound.name.as_str())
+                .collect::<Vec<_>>(),
+        ),
+    ] {
+        let mut seen: HashMap<String, &str> = HashMap::new();
+        for name in names {
+            let key = name.to_lowercase();
+            match seen.get(&key) {
+                Some(first) => warnings.push(format!(
+                    "{what} {name:?} has the same name as {what} {first:?}, vpinball drops it when it loads the table"
+                )),
+                None => {
+                    seen.insert(key, name);
+                }
+            }
+        }
+    }
+    warnings
 }
 
 #[cfg(test)]
@@ -611,6 +713,53 @@ mod tests {
         let read = read_fs(&"/vpx".to_string(), &fs)?;
         assert_eq!(read.collections[0].name, "c".repeat(31));
         Ok(())
+    }
+
+    #[test]
+    fn name_conflicts_vpinball_would_resolve_are_warned_about() {
+        use crate::vpx::gameitem::timer::Timer;
+        use crate::vpx::gameitem::wall::Wall;
+        let wall = |name: &str| {
+            GameItemEnum::Wall(Wall {
+                name: name.to_string(),
+                ..Default::default()
+            })
+        };
+        let mut vpx = VPX::default();
+        vpx.gamedata.name = "Table1".to_string();
+        vpx.collections.push(Collection {
+            name: "Bumpers".to_string(),
+            items: Vec::new(),
+            fire_events: false,
+            stop_single_events: false,
+            group_elements: false,
+        });
+        vpx.gameitems = vec![
+            wall("Wall1"),
+            wall("wall1"),
+            wall("bumpers"),
+            wall("table1"),
+            GameItemEnum::Timer(Timer {
+                name: "Timer".to_string(),
+                ..Default::default()
+            }),
+        ];
+        for name in ["ding", "DING"] {
+            vpx.images.push(ImageData {
+                name: name.to_string(),
+                ..Default::default()
+            });
+        }
+        assert_eq!(
+            name_warnings(&vpx),
+            vec![
+                "Wall \"wall1\" has the same name as Wall \"Wall1\", vpinball renames it when it loads the table",
+                "Wall \"bumpers\" has the same name as collection \"Bumpers\", vpinball renames it when it loads the table",
+                "Wall \"table1\" has the same name as the table \"Table1\", vpinball renames it when it loads the table",
+                "Timer \"Timer\" is a VBScript builtin, the item hides it from the script",
+                "image \"DING\" has the same name as image \"ding\", vpinball drops it when it loads the table",
+            ]
+        );
     }
 
     #[test]

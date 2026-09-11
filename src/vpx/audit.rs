@@ -316,6 +316,16 @@ pub enum ReservedName {
     TableGlobal,
 }
 
+impl fmt::Display for ReservedName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ReservedName::VbsKeyword => write!(f, "VBScript keyword"),
+            ReservedName::VbsBuiltin => write!(f, "VBScript builtin"),
+            ReservedName::TableGlobal => write!(f, "table script global"),
+        }
+    }
+}
+
 /// What kind of name a [`Finding::DuplicateName`] is about
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NameKind {
@@ -1236,7 +1246,7 @@ const TABLE_GLOBALS: &[&str] = &[
 ];
 
 /// What the script already means by this name, if anything
-fn reserved_name(name: &str) -> Option<ReservedName> {
+pub(crate) fn reserved_name(name: &str) -> Option<ReservedName> {
     let lower = name.to_lowercase();
     let lower = lower.as_str();
     if VBS_KEYWORDS.contains(&lower) {
