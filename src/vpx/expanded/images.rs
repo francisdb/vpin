@@ -6,11 +6,11 @@ use crate::vpx::lzw::to_lzw_blocks;
 use log::{debug, info, warn};
 use std::collections::HashSet;
 use std::ffi::OsStr;
-use std::io::{self, BufRead, Seek, Write};
+use std::io::{self, BufRead, Seek};
 use std::path::Path;
 
-use super::WriteError;
 use super::util::{read_json, sanitize_filename};
+use super::{IMAGES_DIR, Output, WriteError};
 
 struct ImageBmp {
     width: u32,
@@ -18,15 +18,12 @@ struct ImageBmp {
     lzw_compressed_data: Vec<u8>,
 }
 
-pub(super) fn write_images<P: AsRef<Path>>(
-    images: &[ImageData],
-    expanded_dir: &P,
-    fs: &dyn FileSystem,
-) -> Result<(), WriteError> {
+pub(super) fn write_images(images: &[ImageData], out: &Output) -> Result<(), WriteError> {
     info!("Starting image processing - total images: {}", images.len());
 
-    let images_index_path = expanded_dir.as_ref().join("images.json");
-    let mut images_index_file = fs.create_buffered_file(&images_index_path)?;
+    // the dimensions only serve the index, so a filtered out index skips
+    // parsing every image header
+    let index_wanted = out.wants(Path::new("images.json"));
     let mut image_names_lower: HashSet<String> = HashSet::new();
     let mut image_names_dupe_counter = 0;
     let mut json_images = Vec::with_capacity(images.len());
@@ -66,7 +63,7 @@ pub(super) fn write_images<P: AsRef<Path>>(
             let actual_name = json.name_dedup.as_ref().unwrap_or(&image.name);
             let file_name = format!("{}.{}", actual_name, image.ext());
 
-            if let Some(jpeg) = &image.jpeg {
+            if index_wanted && let Some(jpeg) = &image.jpeg {
                 // Only if the actual image dimensions are different from
                 // the ones in the vpx file we add them to the json.
                 let cursor = io::Cursor::new(&jpeg.data);
@@ -110,12 +107,8 @@ pub(super) fn write_images<P: AsRef<Path>>(
         })
         .collect();
     let images_list = images_list?;
-    serde_json::to_writer_pretty(&mut images_index_file, &json_images)?;
-    images_index_file.flush()?;
+    out.write_json(Path::new("images.json"), || json_images)?;
 
-    let images_dir = expanded_dir.as_ref().join("images");
-    fs.create_dir_all(&images_dir)?;
-    debug!("Created images directory: {}", images_dir.display());
     info!(
         "Starting to write {} image files to disk",
         images_list.len()
@@ -131,23 +124,30 @@ pub(super) fn write_images<P: AsRef<Path>>(
                 images_list.len(),
                 image_file_name
             );
-            let file_path = images_dir.join(image_file_name);
+            let relative_path = Path::new(IMAGES_DIR).join(image_file_name);
+            // checked before anything is decoded so a filtered out bitmap costs nothing
+            if !out.wants(&relative_path) {
+                debug!("Image filtered out, skipping");
+                return Ok(());
+            }
+            let file_path = out.path(&relative_path);
             debug!("Full file path: {}", file_path.display());
 
-            if !fs.exists(&file_path) {
+            if !out.exists(&relative_path) {
                 if image.is_link() {
                     info!("Image is a link, no data to write");
                     Ok(())
                 } else if let Some(jpeg) = &image.jpeg {
                     debug!("Writing JPEG data ({} bytes)", jpeg.data.len());
-                    fs.write_file(&file_path, &jpeg.data).map_err(|e| {
-                        warn!(
-                            "ERROR: Failed to write JPEG data for '{}': {}",
-                            file_path.display(),
+                    out.write(&relative_path, &jpeg.data)
+                        .map_err(|e| {
+                            warn!(
+                                "ERROR: Failed to write JPEG data for '{}': {}",
+                                file_path.display(),
+                                e
+                            );
                             e
-                        );
-                        e
-                    })
+                        })
                 } else if let Some(bits) = &image.bits {
                     debug!(
                         "Writing BMP data (compressed size: {} bytes)",
@@ -165,11 +165,11 @@ pub(super) fn write_images<P: AsRef<Path>>(
                     }
 
                     write_image_bmp(
-                        &file_path,
+                        out,
+                        &relative_path,
                         &bits.lzw_compressed_data,
                         image.width,
                         image.height,
-                        fs,
                     )
                     .map_err(|e| {
                         warn!(
@@ -207,11 +207,11 @@ pub(super) fn write_images<P: AsRef<Path>>(
 }
 
 fn write_image_bmp(
-    file_path: &Path,
+    out: &Output,
+    relative_path: &Path,
     lzw_compressed_data: &[u8],
     width: u32,
     height: u32,
-    fs: &dyn FileSystem,
 ) -> io::Result<()> {
     let image_to_save = vpx_image_to_dynamic_image(lzw_compressed_data, width, height)?;
     if image_to_save.color().has_alpha() {
@@ -219,7 +219,7 @@ fn write_image_bmp(
         // that contains vp9 images with non-255 alpha values.
         // They are actually labeled as sRGBA in the Visual Pinball image manager.
         // However, when Visual Pinball itself exports the image it drops the alpha values.
-        let file_name = file_path
+        let file_name = relative_path
             .file_name()
             .map(OsStr::to_string_lossy)
             .unwrap_or_default();
@@ -233,11 +233,11 @@ fn write_image_bmp(
         .map_err(|image_error| {
             io::Error::other(format!(
                 "Failed to encode bitmap {}: {}",
-                file_path.display(),
+                relative_path.display(),
                 image_error
             ))
         })?;
-    fs.write_file(file_path, buffer.get_ref())
+    out.write(relative_path, buffer.get_ref())
 }
 
 pub(super) fn read_images<P: AsRef<Path>>(

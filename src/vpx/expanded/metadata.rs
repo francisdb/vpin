@@ -10,26 +10,20 @@ use crate::vpx::renderprobe::{RenderProbeJson, RenderProbeWithGarbage};
 use crate::vpx::tableinfo::TableInfo;
 use log::{info, warn};
 use serde_json::Value;
-use std::io::{self, Write};
+use std::borrow::Cow;
+use std::io;
 use std::path::Path;
 
-use super::WriteError;
 use super::util::read_json;
+use super::{Output, WriteError};
 
-pub(super) fn write_game_data<P: AsRef<Path>>(
-    gamedata: &GameData,
-    expanded_dir: &P,
-    fs: &dyn FileSystem,
-) -> Result<(), WriteError> {
-    let game_data_path = expanded_dir.as_ref().join("gamedata.json");
-    let mut game_data_file = fs.create_buffered_file(&game_data_path)?;
-    let json = GameDataJson::from_game_data(gamedata);
-    serde_json::to_writer_pretty(&mut game_data_file, &json)?;
-    game_data_file.flush()?;
-    let script_path = expanded_dir.as_ref().join("script.vbs");
-    let mut script_file = fs.create_file(&script_path)?;
-    let script_bytes: Vec<u8> = gamedata.code.clone().into();
-    script_file.write_all(script_bytes.as_ref())?;
+pub(super) fn write_game_data(gamedata: &GameData, out: &Output) -> Result<(), WriteError> {
+    out.write_json(Path::new("gamedata.json"), || {
+        GameDataJson::from_game_data(gamedata)
+    })?;
+    out.write_with(Path::new("script.vbs"), || {
+        Ok(Cow::Owned(gamedata.code.clone().into()))
+    })?;
     Ok(())
 }
 
@@ -52,18 +46,14 @@ pub(super) fn read_game_data<P: AsRef<Path>>(
     Ok(game_data)
 }
 
-pub(super) fn write_info<P: AsRef<Path>>(
+pub(super) fn write_info(
     info: &TableInfo,
     custominfotags: &CustomInfoTags,
-    expanded_dir: &P,
-    fs: &dyn FileSystem,
+    out: &Output,
 ) -> Result<(), WriteError> {
-    let json_path = expanded_dir.as_ref().join("info.json");
-    let mut json_file = fs.create_buffered_file(&json_path)?;
-    let info = info_to_json(info, custominfotags);
-    serde_json::to_writer_pretty(&mut json_file, &info)?;
-    json_file.flush()?;
-    Ok(())
+    out.write_json(Path::new("info.json"), || {
+        info_to_json(info, custominfotags)
+    })
 }
 
 pub(super) fn read_info<P: AsRef<Path>>(
@@ -80,17 +70,13 @@ pub(super) fn read_info<P: AsRef<Path>>(
     Ok((info, custominfotags))
 }
 
-pub(super) fn write_collections<P: AsRef<Path>>(
+pub(super) fn write_collections(
     collections: &[Collection],
-    expanded_dir: &P,
-    fs: &dyn FileSystem,
+    out: &Output,
 ) -> Result<(), WriteError> {
-    let collections_json_path = expanded_dir.as_ref().join("collections.json");
-    let mut collections_json_file = fs.create_buffered_file(&collections_json_path)?;
-    let json_collections = collections_json(collections);
-    serde_json::to_writer_pretty(&mut collections_json_file, &json_collections)?;
-    collections_json_file.flush()?;
-    Ok(())
+    out.write_json(Path::new("collections.json"), || {
+        collections_json(collections)
+    })
 }
 
 pub(super) fn read_collections<P: AsRef<Path>>(
@@ -124,20 +110,17 @@ fn cap_collection_name(collection: &mut Collection) {
     collection.name = capped;
 }
 
-pub(super) fn write_renderprobes<P: AsRef<Path>>(
+pub(super) fn write_renderprobes(
     render_probes: Option<&Vec<RenderProbeWithGarbage>>,
-    expanded_dir: &P,
-    fs: &dyn FileSystem,
+    out: &Output,
 ) -> Result<(), WriteError> {
     if let Some(renderprobes) = render_probes {
-        let renderprobes_path = expanded_dir.as_ref().join("renderprobes.json");
-        let mut renderprobes_file = fs.create_buffered_file(&renderprobes_path)?;
-        let renderprobes_index: Vec<RenderProbeJson> = renderprobes
-            .iter()
-            .map(RenderProbeJson::from_renderprobe)
-            .collect();
-        serde_json::to_writer_pretty(&mut renderprobes_file, &renderprobes_index)?;
-        renderprobes_file.flush()?;
+        out.write_json(Path::new("renderprobes.json"), || {
+            renderprobes
+                .iter()
+                .map(RenderProbeJson::from_renderprobe)
+                .collect::<Vec<_>>()
+        })?;
     }
     Ok(())
 }
@@ -158,6 +141,7 @@ pub(super) fn read_renderprobes<P: AsRef<Path>>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vpx::expanded::{ExpandOptions, Output};
     use crate::vpx::model::StringWithEncoding;
     use crate::vpx::renderprobe::{RenderProbe, RenderProbeType};
     use pretty_assertions::assert_eq;
@@ -179,7 +163,9 @@ mod tests {
 
         let custom_info_tags = vec!["Some custom info tag".to_string()];
 
-        write_info(&info, &custom_info_tags, &expanded_dir, &fs).unwrap();
+        let options = ExpandOptions::default();
+        let out = Output::new(&expanded_dir, &fs, &options);
+        write_info(&info, &custom_info_tags, &out).unwrap();
 
         let (read_info, read_custom_info_tags) = read_info(&expanded_dir, None, &fs).unwrap();
 
@@ -201,7 +187,9 @@ mod tests {
             ..Default::default()
         };
 
-        write_game_data(&gamedata, &expanded_dir, &fs).unwrap();
+        let options = ExpandOptions::default();
+        let out = Output::new(&expanded_dir, &fs, &options);
+        write_game_data(&gamedata, &out).unwrap();
 
         let read_gamedata = read_game_data(&expanded_dir, &fs).unwrap();
 
@@ -233,7 +221,9 @@ mod tests {
             },
         ];
 
-        write_collections(&collections, &expanded_dir, &fs).unwrap();
+        let options = ExpandOptions::default();
+        let out = Output::new(&expanded_dir, &fs, &options);
+        write_collections(&collections, &out).unwrap();
 
         let read_collections = read_collections(&expanded_dir, &fs).unwrap();
 
@@ -263,7 +253,9 @@ mod tests {
             },
         ];
 
-        write_renderprobes(Some(&render_probes), &expanded_dir, &fs).unwrap();
+        let options = ExpandOptions::default();
+        let out = Output::new(&expanded_dir, &fs, &options);
+        write_renderprobes(Some(&render_probes), &out).unwrap();
 
         let read_renderprobes = read_renderprobes(&expanded_dir, &fs).unwrap().unwrap();
 

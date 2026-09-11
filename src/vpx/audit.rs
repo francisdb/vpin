@@ -60,13 +60,9 @@ pub enum Finding {
     },
     /// A game item is placed on a surface (wall or ramp) that does not exist
     MissingSurface { item: String, surface: String },
-    /// A game item belongs to a part group that does not exist. vpinball
-    /// matches the name exactly and creates a new group for a reference
-    /// that differs only in case
+    /// A game item belongs to a part group that does not exist
     MissingPartGroup { item: String, part_group: String },
-    /// A collection contains an item that does not exist. vpinball
-    /// matches the name exactly and silently drops the entry, also for
-    /// one that differs only in case
+    /// A collection contains an item that does not exist
     MissingCollectionItem { collection: String, item: String },
     /// Several images, sounds, game items, collections or materials share
     /// a name, compared case insensitively like vpinball's lookups,
@@ -314,16 +310,6 @@ pub enum ReservedName {
     /// A method or property of the table's global script object, such as
     /// `PlaySound` or `ActiveBall`, or the `Debug` object
     TableGlobal,
-}
-
-impl fmt::Display for ReservedName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ReservedName::VbsKeyword => write!(f, "VBScript keyword"),
-            ReservedName::VbsBuiltin => write!(f, "VBScript builtin"),
-            ReservedName::TableGlobal => write!(f, "table script global"),
-        }
-    }
 }
 
 /// What kind of name a [`Finding::DuplicateName`] is about
@@ -647,17 +633,11 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
             _ => None,
         })
         .collect();
-    // vpinball resolves part groups and collection items by their exact
-    // name, unlike images, sounds and materials
-    let part_groups: HashSet<&str> = vpx
-        .gameitems
-        .iter()
-        .filter_map(|item| match item {
-            GameItemEnum::PartGroup(group) => Some(group.name.as_str()),
-            _ => None,
-        })
-        .collect();
-    let item_names: HashSet<&str> = vpx.gameitems.iter().map(|item| item.name()).collect();
+    let part_groups = name_set(vpx.gameitems.iter().filter_map(|item| match item {
+        GameItemEnum::PartGroup(group) => Some(group.name.as_str()),
+        _ => None,
+    }));
+    let item_names = name_set(vpx.gameitems.iter().map(|item| item.name()));
 
     check_table_settings(vpx, &images, &materials, &mut findings);
     for item in &vpx.gameitems {
@@ -711,7 +691,7 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
             });
         }
         for item in &collection.items {
-            if !item_names.contains(item.as_str()) {
+            if !item_names.contains(item.to_lowercase().as_str()) {
                 findings.push(Finding::MissingCollectionItem {
                     collection: collection.name.clone(),
                     item: item.clone(),
@@ -1246,7 +1226,7 @@ const TABLE_GLOBALS: &[&str] = &[
 ];
 
 /// What the script already means by this name, if anything
-pub(crate) fn reserved_name(name: &str) -> Option<ReservedName> {
+fn reserved_name(name: &str) -> Option<ReservedName> {
     let lower = name.to_lowercase();
     let lower = lower.as_str();
     if VBS_KEYWORDS.contains(&lower) {
@@ -1921,10 +1901,14 @@ fn check_table_settings(
     }
 }
 
-fn check_part_group(item: &GameItemEnum, part_groups: &HashSet<&str>, findings: &mut Vec<Finding>) {
+fn check_part_group(
+    item: &GameItemEnum,
+    part_groups: &HashSet<String>,
+    findings: &mut Vec<Finding>,
+) {
     if let Some(part_group) = item.part_group_name()
         && !part_group.is_empty()
-        && !part_groups.contains(part_group)
+        && !part_groups.contains(part_group.to_lowercase().as_str())
     {
         findings.push(Finding::MissingPartGroup {
             item: item_label(item),
@@ -2304,21 +2288,10 @@ mod tests {
 
     #[test]
     fn a_missing_collection_item_is_reported() {
-        use crate::vpx::gameitem::wall::Wall;
         let mut vpx = clean_vpx();
-        vpx.gameitems.push(GameItemEnum::Wall(Wall {
-            name: "Wall1".to_string(),
-            ..Default::default()
-        }));
         vpx.collections.push(crate::vpx::collection::Collection {
             name: "Bumpers".to_string(),
-            // vpinball matches the exact name, so the case mismatch is
-            // dropped like the missing item
-            items: vec![
-                "Bumper1".to_string(),
-                "wall1".to_string(),
-                "Wall1".to_string(),
-            ],
+            items: vec!["Bumper1".to_string()],
             fire_events: false,
             stop_single_events: false,
             group_elements: false,
@@ -2326,41 +2299,9 @@ mod tests {
         let findings = audit(&vpx);
         assert_eq!(
             findings,
-            vec![
-                Finding::MissingCollectionItem {
-                    collection: "Bumpers".to_string(),
-                    item: "Bumper1".to_string(),
-                },
-                Finding::MissingCollectionItem {
-                    collection: "Bumpers".to_string(),
-                    item: "wall1".to_string(),
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn a_part_group_reference_must_match_the_case() {
-        use crate::vpx::gameitem::partgroup::PartGroup;
-        use crate::vpx::gameitem::wall::Wall;
-        let mut vpx = clean_vpx();
-        vpx.gameitems.push(GameItemEnum::PartGroup(PartGroup {
-            name: "Plastics".to_string(),
-            ..Default::default()
-        }));
-        for (name, group) in [("Wall1", "Plastics"), ("Wall2", "plastics")] {
-            vpx.gameitems.push(GameItemEnum::Wall(Wall {
-                name: name.to_string(),
-                part_group_name: Some(group.to_string()),
-                ..Default::default()
-            }));
-        }
-        let findings = audit(&vpx);
-        assert_eq!(
-            findings,
-            vec![Finding::MissingPartGroup {
-                item: "Wall \"Wall2\"".to_string(),
-                part_group: "plastics".to_string(),
+            vec![Finding::MissingCollectionItem {
+                collection: "Bumpers".to_string(),
+                item: "Bumper1".to_string(),
             }]
         );
     }

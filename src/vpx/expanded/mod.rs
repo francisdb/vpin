@@ -13,6 +13,17 @@
 //! Use [`write()`] with [`ExpandOptions`] to specify the format and other
 //! options. All formats are supported for reading, with OBJ checked first
 //! for backward compatibility.
+//!
+//! # Writing part of a table
+//!
+//! [`ExpandOptions::filter`] takes a predicate over the path of each file
+//! relative to the expanded directory, for example `gamedata.json` or
+//! `images/playfield.webp`. Files the predicate rejects are not written,
+//! and the work to produce them, decoding bitmaps and decompressing
+//! meshes, is skipped. Directories only come into being for files that
+//! are written. Index files such as `images.json` still list every entry,
+//! so a partial directory documents what was left out; it cannot be read
+//! back as a table since the reader expects the files its indexes name.
 
 mod fonts;
 mod gameitems;
@@ -31,10 +42,13 @@ use crate::vpx::obj::{VpxFace, write_obj};
 use crate::vpx::{VPX, Version};
 use log::{info, warn};
 pub use primitives::BytesMutExt;
+use serde::Serialize;
+use std::borrow::Cow;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::io::{self, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// Format for exporting primitive mesh data
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -68,10 +82,25 @@ pub enum PrimitiveMeshFormat {
 ///     .mesh_format(PrimitiveMeshFormat::Glb)
 ///     .generate_derived_meshes(true);
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ExpandOptions {
     mesh_format: PrimitiveMeshFormat,
     generate_derived_meshes: bool,
+    filter: Option<PathFilter>,
+}
+
+/// Decides per file, by its path relative to the expanded directory,
+/// whether it is written
+type PathFilter = Arc<dyn Fn(&Path) -> bool + Send + Sync>;
+
+impl std::fmt::Debug for ExpandOptions {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExpandOptions")
+            .field("mesh_format", &self.mesh_format)
+            .field("generate_derived_meshes", &self.generate_derived_meshes)
+            .field("filter", &self.filter.as_ref().map(|_| "<predicate>"))
+            .finish()
+    }
 }
 
 impl ExpandOptions {
@@ -103,6 +132,37 @@ impl ExpandOptions {
         self
     }
 
+    /// Only writes the files whose path, relative to the expanded
+    /// directory, satisfies the predicate (`true` keeps, like
+    /// [`Iterator::filter`]). See the [module documentation](self) for
+    /// what a partial directory holds.
+    ///
+    /// ```
+    /// use std::path::Path;
+    /// use vpin::vpx::expanded::ExpandOptions;
+    ///
+    /// // everything except the image and sound data
+    /// let options = ExpandOptions::new().filter(|path: &Path| {
+    ///     !path.starts_with("images") && !path.starts_with("sounds")
+    /// });
+    /// ```
+    ///
+    /// Paths are compared by component, as [`Path::starts_with`] does:
+    /// `gameitems.json` does not start with `gameitems`, so rejecting the
+    /// `gameitems` directory keeps its index file.
+    pub fn filter(mut self, predicate: impl Fn(&Path) -> bool + Send + Sync + 'static) -> Self {
+        self.filter = Some(Arc::new(predicate));
+        self
+    }
+
+    /// Whether the file at this path relative to the expanded directory
+    /// is written
+    pub(super) fn should_write(&self, relative_path: &Path) -> bool {
+        self.filter
+            .as_ref()
+            .is_none_or(|predicate| predicate(relative_path))
+    }
+
     /// Returns the configured mesh format.
     pub(super) fn get_mesh_format(&self) -> PrimitiveMeshFormat {
         self.mesh_format
@@ -119,7 +179,139 @@ impl Default for ExpandOptions {
         Self {
             mesh_format: PrimitiveMeshFormat::Obj,
             generate_derived_meshes: false,
+            filter: None,
         }
+    }
+}
+
+/// The directory game item files go in
+pub(super) const GAMEITEMS_DIR: &str = "gameitems";
+/// The directory image files go in
+pub(super) const IMAGES_DIR: &str = "images";
+/// The directory sound files go in
+pub(super) const SOUNDS_DIR: &str = "sounds";
+/// The directory font files go in
+pub(super) const FONTS_DIR: &str = "fonts";
+
+/// Where an expanded write goes: the target directory, the file system
+/// and the options. Every writer asks it before producing a file, so a
+/// filtered out file is neither built nor written, and a directory only
+/// comes into being when a file goes into it.
+///
+/// Paths are relative to the expanded directory, the same ones the
+/// [`ExpandOptions::filter`] predicate sees.
+pub(super) struct Output<'a> {
+    root: &'a Path,
+    fs: &'a dyn FileSystem,
+    options: &'a ExpandOptions,
+}
+
+impl<'a> Output<'a> {
+    pub(super) fn new(root: &'a Path, fs: &'a dyn FileSystem, options: &'a ExpandOptions) -> Self {
+        Self { root, fs, options }
+    }
+
+    pub(super) fn options(&self) -> &ExpandOptions {
+        self.options
+    }
+
+    /// The absolute path of a file, for messages
+    pub(super) fn path(&self, relative: &Path) -> PathBuf {
+        self.root.join(relative)
+    }
+
+    pub(super) fn exists(&self, relative: &Path) -> bool {
+        self.fs.exists(&self.path(relative))
+    }
+
+    /// Whether this file is produced at all; callers skip the work behind
+    /// a file that is not
+    pub(super) fn wants(&self, relative: &Path) -> bool {
+        self.options.should_write(relative)
+    }
+
+    /// The absolute path of a wanted file with its directory in place,
+    /// `None` when the file is filtered out
+    pub(super) fn prepare(&self, relative: &Path) -> io::Result<Option<PathBuf>> {
+        if !self.wants(relative) {
+            return Ok(None);
+        }
+        let path = self.path(relative);
+        if let Some(parent) = path.parent() {
+            self.fs.create_dir_all(parent)?;
+        }
+        Ok(Some(path))
+    }
+
+    /// A buffered writer for the file, `None` when it is filtered out.
+    /// Callers flush before dropping it so write errors surface.
+    pub(super) fn create_buffered(&self, relative: &Path) -> io::Result<Option<Box<dyn Write>>> {
+        match self.prepare(relative)? {
+            Some(path) => Ok(Some(self.fs.create_buffered_file(&path)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Writes the bytes, nothing when the file is filtered out
+    pub(super) fn write(&self, relative: &Path, data: &[u8]) -> io::Result<()> {
+        match self.prepare(relative)? {
+            Some(path) => self.fs.write_file(&path, data),
+            None => Ok(()),
+        }
+    }
+
+    /// Writes the bytes the closure produces. The closure only runs when
+    /// the file is wanted, so the caller does not need to ask first.
+    pub(super) fn write_with<'b>(
+        &self,
+        relative: &Path,
+        produce: impl FnOnce() -> Result<Cow<'b, [u8]>, WriteError>,
+    ) -> Result<(), WriteError> {
+        let Some(path) = self.prepare(relative)? else {
+            return Ok(());
+        };
+        let data = produce()?;
+        self.fs.write_file(&path, &data)?;
+        Ok(())
+    }
+
+    /// Writes the value as pretty printed JSON. The value is only built
+    /// when the file is written, so a filtered out index costs nothing.
+    pub(super) fn write_json<T: Serialize>(
+        &self,
+        relative: &Path,
+        value: impl FnOnce() -> T,
+    ) -> Result<(), WriteError> {
+        let Some(mut file) = self.create_buffered(relative)? else {
+            return Ok(());
+        };
+        serde_json::to_writer_pretty(&mut file, &value())?;
+        file.flush()?;
+        Ok(())
+    }
+
+    /// Writes a mesh in the configured format, nothing when the file is
+    /// filtered out
+    pub(super) fn write_mesh(
+        &self,
+        relative: &Path,
+        name: &str,
+        vertices: &[VertexWrapper],
+        indices: &[VpxFace],
+    ) -> Result<(), WriteError> {
+        let Some(path) = self.prepare(relative)? else {
+            return Ok(());
+        };
+        let result = match self.options.get_mesh_format() {
+            PrimitiveMeshFormat::Obj => write_obj(name, vertices, indices, &path, self.fs),
+            PrimitiveMeshFormat::Glb => {
+                write_gltf(name, vertices, indices, &path, GltfContainer::Glb, self.fs)
+            }
+            PrimitiveMeshFormat::Gltf => {
+                write_gltf(name, vertices, indices, &path, GltfContainer::Gltf, self.fs)
+            }
+        };
+        result.map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))
     }
 }
 
@@ -177,54 +369,53 @@ pub fn write_fs<P: AsRef<Path>>(
 ) -> Result<(), WriteError> {
     info!("=== Starting VPX extraction process ===");
     info!("Target directory: {}", expanded_dir.as_ref().display());
+    let out = Output::new(expanded_dir.as_ref(), fs, options);
 
-    let version_path = expanded_dir.as_ref().join("version.txt");
-    let mut version_file = fs.create_file(&version_path)?;
-    let version_string = vpx.version.to_u32_string();
-    version_file.write_all(version_string.as_bytes())?;
+    out.write(
+        Path::new("version.txt"),
+        vpx.version.to_u32_string().as_bytes(),
+    )?;
     info!("✓ Version file written");
 
     if let Some(screenshot) = &vpx.info.screenshot {
-        let screenshot_path = expanded_dir.as_ref().join("screenshot.png");
-        let mut screenshot_file = fs.create_file(&screenshot_path)?;
-        screenshot_file.write_all(screenshot)?;
+        out.write(Path::new("screenshot.png"), screenshot)?;
         info!("✓ Screenshot written");
     } else {
         info!("✓ No screenshot to write");
     }
 
     info!("Writing table info...");
-    metadata::write_info(&vpx.info, &vpx.custominfotags, expanded_dir, fs)?;
+    metadata::write_info(&vpx.info, &vpx.custominfotags, &out)?;
     info!("✓ Table info written");
 
     info!("Writing collections...");
-    metadata::write_collections(&vpx.collections, expanded_dir, fs)?;
+    metadata::write_collections(&vpx.collections, &out)?;
     info!("✓ {} Collections written", vpx.collections.len());
 
     info!("Writing game items...");
     let table_dims = crate::vpx::TableDimensions::from_gamedata(&vpx.gamedata);
-    gameitems::write_gameitems(&vpx.gameitems, expanded_dir, options, &table_dims, fs)?;
+    gameitems::write_gameitems(&vpx.gameitems, &table_dims, &out)?;
     info!("✓ {} Game items written", vpx.gameitems.len());
 
     info!("Writing images...");
-    images::write_images(&vpx.images, expanded_dir, fs)?;
+    images::write_images(&vpx.images, &out)?;
     info!("✓ {} Images written", vpx.images.len());
 
     info!("Writing sounds...");
-    sounds::write_sounds(&vpx.sounds, expanded_dir, fs)?;
+    sounds::write_sounds(&vpx.sounds, &out)?;
     info!("✓ {} Sounds written", vpx.sounds.len());
 
     info!("Writing fonts...");
-    fonts::write_fonts(&vpx.fonts, expanded_dir, fs)?;
+    fonts::write_fonts(&vpx.fonts, &out)?;
     info!("✓ {} Fonts written", vpx.fonts.len());
 
     info!("Writing game data...");
-    metadata::write_game_data(&vpx.gamedata, expanded_dir, fs)?;
+    metadata::write_game_data(&vpx.gamedata, &out)?;
     info!("✓ Game data written");
 
     if let Some(materials) = &vpx.gamedata.materials {
         info!("Writing materials...");
-        materials::write_materials(materials, expanded_dir, fs)?;
+        materials::write_materials(materials, &out)?;
         info!("✓ Materials written");
         validate_material_conversion(&vpx, materials);
     } else {
@@ -232,14 +423,13 @@ pub fn write_fs<P: AsRef<Path>>(
         materials::write_legacy_materials(
             &vpx.gamedata.materials_old,
             vpx.gamedata.materials_physics_old.as_ref(),
-            expanded_dir,
-            fs,
+            &out,
         )?;
         info!("✓ Legacy materials written");
     }
 
     info!("Writing render probes...");
-    metadata::write_renderprobes(vpx.gamedata.render_probes.as_ref(), expanded_dir, fs)?;
+    metadata::write_renderprobes(vpx.gamedata.render_probes.as_ref(), &out)?;
     info!("✓ Render probes written");
 
     info!("=== VPX extraction process completed successfully ===");
@@ -398,9 +588,6 @@ pub fn read_fs<P: AsRef<Path>>(expanded_dir: &P, fs: &dyn FileSystem) -> io::Res
         fonts,
         collections,
     };
-    for warning in name_warnings(&vpx) {
-        warn!("{warning}");
-    }
     info!("=== VPX assembly process completed successfully ===");
     Ok(vpx)
 }
@@ -432,135 +619,17 @@ pub(super) fn generated_mesh_file_name(
     json_file_name: &str,
     mesh_format: PrimitiveMeshFormat,
 ) -> String {
-    let extension = match mesh_format {
-        PrimitiveMeshFormat::Obj => "obj",
-        PrimitiveMeshFormat::Glb => "glb",
-        PrimitiveMeshFormat::Gltf => "gltf",
-    };
+    let extension = mesh_file_extension(mesh_format);
     format!("{json_file_name}-generated.{extension}")
 }
 
-/// Write a mesh to a file in the specified format
-pub(super) fn write_mesh_to_file(
-    mesh_path: &Path,
-    name: &str,
-    vertices: &[VertexWrapper],
-    indices: &[VpxFace],
-    mesh_format: PrimitiveMeshFormat,
-    fs: &dyn FileSystem,
-) -> Result<(), WriteError> {
+/// The file extension mesh files get in this format
+pub(super) fn mesh_file_extension(mesh_format: PrimitiveMeshFormat) -> &'static str {
     match mesh_format {
-        PrimitiveMeshFormat::Obj => write_obj(name, vertices, indices, mesh_path, fs)
-            .map_err(|e| WriteError::Io(std::io::Error::other(format!("{e}"))))?,
-        PrimitiveMeshFormat::Glb => {
-            write_gltf(name, vertices, indices, mesh_path, GltfContainer::Glb, fs)
-                .map_err(|e| WriteError::Io(std::io::Error::other(format!("{e}"))))?
-        }
-        PrimitiveMeshFormat::Gltf => {
-            write_gltf(name, vertices, indices, mesh_path, GltfContainer::Gltf, fs)
-                .map_err(|e| WriteError::Io(std::io::Error::other(format!("{e}"))))?
-        }
+        PrimitiveMeshFormat::Obj => "obj",
+        PrimitiveMeshFormat::Glb => "glb",
+        PrimitiveMeshFormat::Gltf => "gltf",
     }
-    Ok(())
-}
-
-/// What vpinball would change about the names when it loads this table,
-/// one line each. The table is left as it is, since published tables
-/// carry all of these and vpinball loads them: it renames a part whose
-/// name another part, a collection or the table already has, drops an
-/// image or sound whose name an earlier one has, and on Windows renames
-/// a part or collection named like a global script method. Names are
-/// compared case insensitively like vpinball does. A stricter mode can
-/// refuse them later.
-fn name_warnings(vpx: &VPX) -> Vec<String> {
-    use crate::vpx::audit::{ReservedName, reserved_name};
-    use std::collections::HashMap;
-    let mut warnings = Vec::new();
-
-    // scriptable names share one namespace: the table, then collections,
-    // then parts, in the order vpinball registers them
-    let mut taken: HashMap<String, String> = HashMap::new();
-    if !vpx.gamedata.name.is_empty() {
-        taken.insert(
-            vpx.gamedata.name.to_lowercase(),
-            format!("the table {:?}", vpx.gamedata.name),
-        );
-    }
-    for collection in &vpx.collections {
-        let label = format!("collection {:?}", collection.name);
-        let key = collection.name.to_lowercase();
-        if let Some(holder) = taken.get(&key) {
-            warnings.push(format!(
-                "{label} has the same name as {holder}, vpinball only reaches one of them"
-            ));
-        } else {
-            taken.insert(key, label);
-        }
-    }
-    for item in &vpx.gameitems {
-        if item.name().is_empty() {
-            continue;
-        }
-        let label = format!("{} {:?}", item.type_name(), item.name());
-        let key = item.name().to_lowercase();
-        if let Some(holder) = taken.get(&key) {
-            warnings.push(format!(
-                "{label} has the same name as {holder}, vpinball renames it when it loads the table"
-            ));
-        } else {
-            taken.insert(key, label);
-        }
-    }
-    for (kind, name) in vpx
-        .gameitems
-        .iter()
-        .map(|item| (item.type_name(), item.name()))
-        .chain(
-            vpx.collections
-                .iter()
-                .map(|collection| ("Collection".to_string(), collection.name.as_str())),
-        )
-    {
-        if let Some(reserved) = reserved_name(name) {
-            let consequence = match reserved {
-                ReservedName::VbsKeyword => "the script cannot refer to the item",
-                ReservedName::VbsBuiltin => "the item hides it from the script",
-                ReservedName::TableGlobal => "vpinball renames the item at load",
-            };
-            warnings.push(format!("{kind} {name:?} is a {reserved}, {consequence}"));
-        }
-    }
-
-    for (what, names) in [
-        (
-            "image",
-            vpx.images
-                .iter()
-                .map(|image| image.name.as_str())
-                .collect::<Vec<_>>(),
-        ),
-        (
-            "sound",
-            vpx.sounds
-                .iter()
-                .map(|sound| sound.name.as_str())
-                .collect::<Vec<_>>(),
-        ),
-    ] {
-        let mut seen: HashMap<String, &str> = HashMap::new();
-        for name in names {
-            let key = name.to_lowercase();
-            match seen.get(&key) {
-                Some(first) => warnings.push(format!(
-                    "{what} {name:?} has the same name as {what} {first:?}, vpinball drops it when it loads the table"
-                )),
-                None => {
-                    seen.insert(key, name);
-                }
-            }
-        }
-    }
-    warnings
 }
 
 #[cfg(test)]
@@ -713,53 +782,6 @@ mod tests {
         let read = read_fs(&"/vpx".to_string(), &fs)?;
         assert_eq!(read.collections[0].name, "c".repeat(31));
         Ok(())
-    }
-
-    #[test]
-    fn name_conflicts_vpinball_would_resolve_are_warned_about() {
-        use crate::vpx::gameitem::timer::Timer;
-        use crate::vpx::gameitem::wall::Wall;
-        let wall = |name: &str| {
-            GameItemEnum::Wall(Wall {
-                name: name.to_string(),
-                ..Default::default()
-            })
-        };
-        let mut vpx = VPX::default();
-        vpx.gamedata.name = "Table1".to_string();
-        vpx.collections.push(Collection {
-            name: "Bumpers".to_string(),
-            items: Vec::new(),
-            fire_events: false,
-            stop_single_events: false,
-            group_elements: false,
-        });
-        vpx.gameitems = vec![
-            wall("Wall1"),
-            wall("wall1"),
-            wall("bumpers"),
-            wall("table1"),
-            GameItemEnum::Timer(Timer {
-                name: "Timer".to_string(),
-                ..Default::default()
-            }),
-        ];
-        for name in ["ding", "DING"] {
-            vpx.images.push(ImageData {
-                name: name.to_string(),
-                ..Default::default()
-            });
-        }
-        assert_eq!(
-            name_warnings(&vpx),
-            vec![
-                "Wall \"wall1\" has the same name as Wall \"Wall1\", vpinball renames it when it loads the table",
-                "Wall \"bumpers\" has the same name as collection \"Bumpers\", vpinball renames it when it loads the table",
-                "Wall \"table1\" has the same name as the table \"Table1\", vpinball renames it when it loads the table",
-                "Timer \"Timer\" is a VBScript builtin, the item hides it from the script",
-                "image \"DING\" has the same name as image \"ding\", vpinball drops it when it loads the table",
-            ]
-        );
     }
 
     #[test]
@@ -1180,6 +1202,165 @@ mod tests {
         );
 
         assert_eq!(files.len(), 95);
+    }
+
+    /// A table with one game item and one image, enough for every
+    /// expanded file kind to show up
+    fn small_table() -> VPX {
+        let mut wall: gameitem::wall::Wall = Faker.fake();
+        wall.name = "test wall".to_string();
+        VPX {
+            gameitems: vec![GameItemEnum::Wall(wall)],
+            images: vec![ImageData {
+                name: "test image".to_string(),
+                path: "test.png".to_string(),
+                jpeg: Some(ImageDataJpeg {
+                    path: "test.png".to_string(),
+                    name: "test image".to_string(),
+                    internal_name: None,
+                    data: vec![0, 1, 2, 3],
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    /// The files below `root` in the memory file system, relative and sorted
+    fn relative_files(fs: &MemoryFileSystem, root: &Path) -> Vec<String> {
+        let mut files: Vec<String> = fs
+            .list_files()
+            .iter()
+            .map(|file| {
+                Path::new(file)
+                    .strip_prefix(root)
+                    .unwrap_or(Path::new(file))
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect();
+        files.sort();
+        files
+    }
+
+    #[test]
+    fn test_write_filter_keeps_only_matching_files() -> TestResult {
+        let vpx = small_table();
+        let root = Path::new("table");
+
+        let unfiltered = MemoryFileSystem::new();
+        write_fs(&vpx, &root, &ExpandOptions::new(), &unfiltered)?;
+        let all_files = relative_files(&unfiltered, root);
+        assert!(all_files.contains(&"gameitems/Wall.test_wall.json".to_string()));
+        assert!(all_files.iter().any(|file| file.starts_with("images/")));
+
+        // everything except the game item files
+        let filtered = MemoryFileSystem::new();
+        let options = ExpandOptions::new().filter(|path: &Path| !path.starts_with("gameitems"));
+        write_fs(&vpx, &root, &options, &filtered)?;
+        let expected: Vec<String> = all_files
+            .iter()
+            .filter(|file| !file.starts_with("gameitems/"))
+            .cloned()
+            .collect();
+        let files = relative_files(&filtered, root);
+        assert_eq!(files, expected);
+        // the index still lists what was left out
+        assert!(files.contains(&"gameitems.json".to_string()));
+
+        // a single file, with the same content as in the full write
+        let single = MemoryFileSystem::new();
+        let options = ExpandOptions::new().filter(|path: &Path| path == Path::new("gamedata.json"));
+        write_fs(&vpx, &root, &options, &single)?;
+        assert_eq!(relative_files(&single, root), vec!["gamedata.json"]);
+        assert_eq!(
+            single.get_file("table/gamedata.json"),
+            unfiltered.get_file("table/gamedata.json")
+        );
+        Ok(())
+    }
+
+    /// Records the directories a writer asks for, to check that a filtered
+    /// write does not create folders it puts nothing in
+    struct DirRecordingFileSystem {
+        inner: MemoryFileSystem,
+        dirs: std::sync::Mutex<Vec<std::path::PathBuf>>,
+    }
+
+    impl FileSystem for DirRecordingFileSystem {
+        fn create_file(&self, path: &Path) -> io::Result<Box<dyn Write>> {
+            self.inner.create_file(path)
+        }
+        fn open_file(&self, path: &Path) -> io::Result<Box<dyn Read>> {
+            self.inner.open_file(path)
+        }
+        fn read_file(&self, path: &Path) -> io::Result<Vec<u8>> {
+            self.inner.read_file(path)
+        }
+        fn write_file(&self, path: &Path, data: &[u8]) -> io::Result<()> {
+            self.inner.write_file(path, data)
+        }
+        fn create_dir_all(&self, path: &Path) -> io::Result<()> {
+            let mut dirs = self
+                .dirs
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if !dirs.contains(&path.to_path_buf()) {
+                dirs.push(path.to_path_buf());
+            }
+            self.inner.create_dir_all(path)
+        }
+        fn exists(&self, path: &Path) -> bool {
+            self.inner.exists(path)
+        }
+    }
+
+    #[test]
+    #[cfg(not(target_family = "wasm"))]
+    fn test_write_filter_keeps_derived_meshes_it_asks_for() -> TestResult {
+        // the guard in front of the mesh builders must name the files the
+        // way the writers do, or wanted meshes would never be built
+        let vpx = crate::vpx::read(Path::new("testdata/completely_blank_table_10_7_4.vpx"))?;
+        let root = Path::new("table");
+
+        let all = MemoryFileSystem::new();
+        let options = ExpandOptions::new().generate_derived_meshes(true);
+        write_fs(&vpx, &root, &options, &all)?;
+        let generated: Vec<String> = relative_files(&all, root)
+            .into_iter()
+            .filter(|file| file.contains("-generated"))
+            .collect();
+        assert!(!generated.is_empty());
+
+        let only_generated = MemoryFileSystem::new();
+        let options = ExpandOptions::new()
+            .generate_derived_meshes(true)
+            .filter(|path: &Path| path.to_string_lossy().contains("-generated"));
+        write_fs(&vpx, &root, &options, &only_generated)?;
+        assert_eq!(relative_files(&only_generated, root), generated);
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_filter_creates_no_empty_directories() -> TestResult {
+        let vpx = small_table();
+        let root = Path::new("table");
+
+        let fs = DirRecordingFileSystem {
+            inner: MemoryFileSystem::new(),
+            dirs: std::sync::Mutex::new(Vec::new()),
+        };
+        let options = ExpandOptions::new().filter(|path: &Path| path.starts_with("gameitems"));
+        write_fs(&vpx, &root, &options, &fs)?;
+
+        let dirs = fs
+            .dirs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        // only the game item folder: gameitems.json is not below gameitems/, and nothing asks for images/
+        assert_eq!(dirs, vec![root.join("gameitems")]);
+        Ok(())
     }
 
     #[test]

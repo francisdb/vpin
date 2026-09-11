@@ -69,6 +69,23 @@ let options = ExpandOptions::new()
 .generate_derived_meshes(true);
 ```
 
+### Writing Part of a Table
+
+`ExpandOptions::filter` takes a predicate over each file's path relative to the expanded directory. Rejected files
+are not written and the work to produce them (decoding bitmaps, decompressing meshes) is skipped, which makes
+extracting only the JSON files of a large table fast. Index files such as `images.json` still list every entry, so a
+partial directory documents what was left out; it cannot be read back as a table.
+
+```rust
+use std::path::Path;
+use vpin::vpx::expanded::ExpandOptions;
+
+// everything except the image and sound data
+let options = ExpandOptions::new().filter(|path: &Path| {
+    !path.starts_with("images") && !path.starts_with("sounds")
+});
+```
+
 ## Whole-Table Export (OBJ / glTF)
 
 The library can export a complete table - generated meshes for every part type, materials, and textures - for use in

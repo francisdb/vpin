@@ -1,7 +1,8 @@
 //! Primitive mesh reading and writing for expanded VPX format
 
 use super::{
-    ExpandOptions, PrimitiveMeshFormat, WriteError, generated_mesh_file_name, write_mesh_to_file,
+    GAMEITEMS_DIR, Output, PrimitiveMeshFormat, WriteError, generated_mesh_file_name,
+    mesh_file_extension,
 };
 use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::GameItemEnum;
@@ -10,10 +11,10 @@ use crate::vpx::gameitem::primitive::{
     MAX_VERTICES_FOR_2_BYTE_INDEX, ReadMesh, VertData, VertexWrapper, read_vpx_animation_frame,
     write_animation_vertex_data,
 };
-use crate::vpx::gltf::{GltfContainer, read_gltf, write_gltf};
+use crate::vpx::gltf::{GltfContainer, read_gltf};
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::{
-    ObjData, ReadObjResult, VpxFace, read_obj as obj_read_obj, read_obj_from_reader, write_obj,
+    ObjData, ReadObjResult, VpxFace, read_obj as obj_read_obj, read_obj_from_reader,
     write_vertex_index_for_vpx,
 };
 use log::warn;
@@ -24,6 +25,7 @@ use crate::vpx::gameitem::flasher::Flasher;
 use crate::vpx::gameitem::flipper::Flipper;
 use crate::vpx::gameitem::gate::Gate;
 use crate::vpx::gameitem::hittarget::HitTarget;
+use crate::vpx::gameitem::light::Light;
 use crate::vpx::gameitem::plunger::Plunger;
 use crate::vpx::gameitem::ramp::Ramp;
 use crate::vpx::gameitem::rubber::Rubber;
@@ -35,7 +37,7 @@ use crate::vpx::mesh::flashers::build_flasher_mesh;
 use crate::vpx::mesh::flippers::build_flipper_mesh;
 use crate::vpx::mesh::gates::build_gate_meshes;
 use crate::vpx::mesh::hittargets::build_hit_target_mesh;
-use crate::vpx::mesh::lights::write_light_meshes;
+use crate::vpx::mesh::lights::build_light_meshes;
 use crate::vpx::mesh::plungers::build_plunger_meshes;
 use crate::vpx::mesh::ramps::build_ramp_mesh;
 use crate::vpx::mesh::rubbers::build_rubber_mesh;
@@ -45,7 +47,7 @@ use crate::vpx::mesh::walls::build_wall_mesh;
 use bytes::{BufMut, BytesMut};
 use std::io;
 use std::iter::Zip;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::slice::Iter;
 use tracing::instrument;
 
@@ -57,61 +59,44 @@ struct MeshReadResult {
 }
 
 pub(super) fn write_gameitem_binaries(
-    gameitems_dir: &Path,
     gameitem: &GameItemEnum,
     json_file_name: &str,
-    options: &ExpandOptions,
     table_dims: &TableDimensions,
-    fs: &dyn FileSystem,
+    out: &Output,
 ) -> Result<(), WriteError> {
+    let options = out.options();
     let mesh_format = options.get_mesh_format();
-    if let GameItemEnum::Primitive(primitive) = gameitem
-        && let Some(ReadMesh { vertices, indices }) = &primitive.read_mesh()?
-    {
-        match mesh_format {
-            PrimitiveMeshFormat::Obj => {
-                let obj_path = gameitems_dir.join(format!("{json_file_name}.obj"));
-                write_obj(gameitem.name(), vertices, indices, &obj_path, fs)
-                    .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
-            }
-            PrimitiveMeshFormat::Glb => {
-                let glb_path = gameitems_dir.join(format!("{json_file_name}.glb"));
-                let name = gameitem.name();
-                write_gltf(name, vertices, indices, &glb_path, GltfContainer::Glb, fs)
-                    .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
-            }
-            PrimitiveMeshFormat::Gltf => {
-                let gltf_path = gameitems_dir.join(format!("{json_file_name}.gltf"));
-                write_gltf(
-                    gameitem.name(),
-                    vertices,
-                    indices,
-                    &gltf_path,
-                    GltfContainer::Gltf,
-                    fs,
-                )
-                .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
-            }
-        }
+    if let GameItemEnum::Primitive(primitive) = gameitem {
+        let mesh_path = Path::new(GAMEITEMS_DIR).join(format!(
+            "{json_file_name}.{}",
+            mesh_file_extension(mesh_format)
+        ));
+        // checked before the mesh is decompressed so a filtered out mesh costs nothing
+        if out.wants(&mesh_path)
+            && let Some(ReadMesh { vertices, indices }) = &primitive.read_mesh()?
+        {
+            out.write_mesh(&mesh_path, gameitem.name(), vertices, indices)?;
 
-        if let Some(animation_frames) = &primitive.compressed_animation_vertices_data {
-            if let Some(compressed_lengths) = &primitive.compressed_animation_vertices_len {
-                let zipped = animation_frames.iter().zip(compressed_lengths.iter());
-                write_animation_frames_to_meshes(
-                    gameitems_dir,
-                    gameitem.name(),
-                    json_file_name,
-                    vertices,
-                    indices,
-                    zipped,
-                    mesh_format,
-                    fs,
-                )?;
-            } else {
-                return Err(WriteError::Io(io::Error::new(
-                    io::ErrorKind::NotFound,
-                    format!("Animation frames should always come with counts: {json_file_name}"),
-                )));
+            if let Some(animation_frames) = &primitive.compressed_animation_vertices_data {
+                if let Some(compressed_lengths) = &primitive.compressed_animation_vertices_len {
+                    let zipped = animation_frames.iter().zip(compressed_lengths.iter());
+                    write_animation_frames_to_meshes(
+                        out,
+                        gameitem.name(),
+                        json_file_name,
+                        vertices,
+                        indices,
+                        zipped,
+                        mesh_format,
+                    )?;
+                } else {
+                    return Err(WriteError::Io(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        format!(
+                            "Animation frames should always come with counts: {json_file_name}"
+                        ),
+                    )));
+                }
             }
         }
     }
@@ -119,60 +104,40 @@ pub(super) fn write_gameitem_binaries(
     if options.should_generate_derived_meshes() {
         match gameitem {
             GameItemEnum::Wall(wall) => {
-                write_wall_meshes(gameitems_dir, wall, json_file_name, mesh_format, fs)?;
+                write_wall_meshes(out, wall, json_file_name, mesh_format)?;
             }
             GameItemEnum::Ramp(ramp) => {
-                write_ramp_meshes(
-                    gameitems_dir,
-                    ramp,
-                    json_file_name,
-                    mesh_format,
-                    table_dims,
-                    fs,
-                )?;
+                write_ramp_meshes(out, ramp, json_file_name, mesh_format, table_dims)?;
             }
             GameItemEnum::Rubber(rubber) => {
-                write_rubber_meshes(gameitems_dir, rubber, json_file_name, mesh_format, fs)?;
+                write_rubber_meshes(out, rubber, json_file_name, mesh_format)?;
             }
             GameItemEnum::Flasher(flasher) => {
-                write_flasher_meshes(
-                    gameitems_dir,
-                    flasher,
-                    json_file_name,
-                    mesh_format,
-                    table_dims,
-                    fs,
-                )?;
+                write_flasher_meshes(out, flasher, json_file_name, mesh_format, table_dims)?;
             }
             GameItemEnum::Flipper(flipper) => {
-                write_flipper_meshes(gameitems_dir, flipper, json_file_name, mesh_format, fs)?;
+                write_flipper_meshes(out, flipper, json_file_name, mesh_format)?;
             }
             GameItemEnum::Spinner(spinner) => {
-                write_spinner_meshes(gameitems_dir, spinner, json_file_name, mesh_format, fs)?;
+                write_spinner_meshes(out, spinner, json_file_name, mesh_format)?;
             }
             GameItemEnum::Bumper(bumper) => {
-                write_bumper_meshes(gameitems_dir, bumper, json_file_name, mesh_format, fs)?;
+                write_bumper_meshes(out, bumper, json_file_name, mesh_format)?;
             }
             GameItemEnum::HitTarget(hit_target) => {
-                write_hit_target_meshes(
-                    gameitems_dir,
-                    hit_target,
-                    json_file_name,
-                    mesh_format,
-                    fs,
-                )?;
+                write_hit_target_meshes(out, hit_target, json_file_name, mesh_format)?;
             }
             GameItemEnum::Gate(gate) => {
-                write_gate_meshes(gameitems_dir, gate, json_file_name, mesh_format, fs)?;
+                write_gate_meshes(out, gate, json_file_name, mesh_format)?;
             }
             GameItemEnum::Trigger(trigger) => {
-                write_trigger_mesh(gameitems_dir, trigger, json_file_name, mesh_format, fs)?;
+                write_trigger_mesh(out, trigger, json_file_name, mesh_format)?;
             }
             GameItemEnum::Plunger(plunger) => {
-                write_plunger_meshes(gameitems_dir, plunger, json_file_name, mesh_format, fs)?;
+                write_plunger_meshes(out, plunger, json_file_name, mesh_format)?;
             }
             GameItemEnum::Light(light) => {
-                write_light_meshes(gameitems_dir, light, json_file_name, mesh_format, fs)?;
+                write_light_meshes(out, light, json_file_name, mesh_format)?;
             }
             _ => {}
         }
@@ -180,337 +145,267 @@ pub(super) fn write_gameitem_binaries(
     Ok(())
 }
 
+/// The mesh files one item's derived geometry can produce, named once:
+/// the writer asks whether any of them is wanted before building the
+/// geometry, and writes through the same list, so the two cannot drift
+struct DerivedMeshFiles<'a> {
+    out: &'a Output<'a>,
+    files: Vec<(&'static str, PathBuf)>,
+}
+
+impl<'a> DerivedMeshFiles<'a> {
+    /// Files named `<stem>-generated.<ext>`, or `<stem>-<part>.json-generated.<ext>`
+    /// for the named parts of a multi part item
+    fn generated(
+        out: &'a Output<'a>,
+        json_file_name: &str,
+        parts: &[&'static str],
+        mesh_format: PrimitiveMeshFormat,
+    ) -> Self {
+        let base = json_file_name.trim_end_matches(".json");
+        let files = parts
+            .iter()
+            .map(|part| {
+                let name = if part.is_empty() {
+                    json_file_name.to_string()
+                } else {
+                    format!("{base}-{part}.json")
+                };
+                let path =
+                    Path::new(GAMEITEMS_DIR).join(generated_mesh_file_name(&name, mesh_format));
+                (*part, path)
+            })
+            .collect();
+        Self { out, files }
+    }
+
+    /// Files named `<stem>-<part>.<ext>`, the light mesh convention
+    fn plain(
+        out: &'a Output<'a>,
+        json_file_name: &str,
+        parts: &[&'static str],
+        mesh_format: PrimitiveMeshFormat,
+    ) -> Self {
+        let base = json_file_name.trim_end_matches(".json");
+        let extension = mesh_file_extension(mesh_format);
+        let files = parts
+            .iter()
+            .map(|part| {
+                let path = Path::new(GAMEITEMS_DIR).join(format!("{base}-{part}.{extension}"));
+                (*part, path)
+            })
+            .collect();
+        Self { out, files }
+    }
+
+    /// Whether any of the files is wanted; asked before the geometry is
+    /// built so filtered out meshes cost nothing
+    fn wanted(&self) -> bool {
+        self.files.iter().any(|(_, path)| self.out.wants(path))
+    }
+
+    /// Writes one part, `""` for the single mesh of an item
+    fn write(
+        &self,
+        part: &str,
+        name: &str,
+        vertices: &[VertexWrapper],
+        indices: &[VpxFace],
+    ) -> Result<(), WriteError> {
+        let Some((_, path)) = self.files.iter().find(|(known, _)| *known == part) else {
+            return Err(WriteError::Io(io::Error::other(format!(
+                "derived mesh part {part:?} was not named up front"
+            ))));
+        };
+        self.out.write_mesh(path, name, vertices, indices)
+    }
+}
+
 fn write_gate_meshes(
-    gameitems_dir: &Path,
+    out: &Output,
     gate: &Gate,
     json_file_name: &str,
     mesh_format: PrimitiveMeshFormat,
-    fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
+    let files = DerivedMeshFiles::generated(out, json_file_name, &["bracket", "wire"], mesh_format);
+    if !files.wanted() {
+        return Ok(());
+    }
     let Some(gate_meshes) = build_gate_meshes(gate) else {
         return Ok(());
     };
-
-    let file_name_base = json_file_name.trim_end_matches(".json");
-
-    // Write bracket mesh if visible
     if let Some((vertices, indices)) = gate_meshes.bracket {
-        let mesh_path = gameitems_dir.join(generated_mesh_file_name(
-            &format!("{file_name_base}-bracket.json"),
-            mesh_format,
-        ));
-        write_mesh_to_file(
-            &mesh_path,
+        files.write(
+            "bracket",
             &format!("{}Bracket", gate.name),
             &vertices,
             &indices,
-            mesh_format,
-            fs,
         )?;
     }
-
-    // Write wire/plate mesh
     let (vertices, indices) = gate_meshes.wire;
-    let mesh_path = gameitems_dir.join(generated_mesh_file_name(
-        &format!("{file_name_base}-wire.json"),
-        mesh_format,
-    ));
-    write_mesh_to_file(
-        &mesh_path,
-        &format!("{}Wire", gate.name),
-        &vertices,
-        &indices,
-        mesh_format,
-        fs,
-    )?;
-
-    Ok(())
+    files.write("wire", &format!("{}Wire", gate.name), &vertices, &indices)
 }
 
 fn write_bumper_meshes(
-    gameitems_dir: &Path,
+    out: &Output,
     bumper: &Bumper,
     json_file_name: &str,
     mesh_format: PrimitiveMeshFormat,
-    fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
-    let bumper_meshes = build_bumper_meshes(bumper);
-    let file_name_base = json_file_name.trim_end_matches(".json");
-
-    // Write base mesh
-    if let Some((vertices, indices)) = bumper_meshes.base {
-        let mesh_path = gameitems_dir.join(generated_mesh_file_name(
-            &format!("{file_name_base}-base.json"),
-            mesh_format,
-        ));
-        write_mesh_to_file(
-            &mesh_path,
-            &format!("{}Base", bumper.name),
-            &vertices,
-            &indices,
-            mesh_format,
-            fs,
-        )?;
+    let files = DerivedMeshFiles::generated(
+        out,
+        json_file_name,
+        &["base", "socket", "ring", "cap"],
+        mesh_format,
+    );
+    if !files.wanted() {
+        return Ok(());
     }
-
-    // Write socket mesh
-    if let Some((vertices, indices)) = bumper_meshes.socket {
-        let mesh_path = gameitems_dir.join(generated_mesh_file_name(
-            &format!("{file_name_base}-socket.json"),
-            mesh_format,
-        ));
-        write_mesh_to_file(
-            &mesh_path,
-            &format!("{}Socket", bumper.name),
-            &vertices,
-            &indices,
-            mesh_format,
-            fs,
-        )?;
+    let meshes = build_bumper_meshes(bumper);
+    let parts = [
+        ("base", "Base", meshes.base),
+        ("socket", "Socket", meshes.socket),
+        ("ring", "Ring", meshes.ring),
+        ("cap", "Cap", meshes.cap),
+    ];
+    for (part, suffix, mesh) in parts {
+        if let Some((vertices, indices)) = mesh {
+            files.write(
+                part,
+                &format!("{}{suffix}", bumper.name),
+                &vertices,
+                &indices,
+            )?;
+        }
     }
-
-    // Write ring mesh
-    if let Some((vertices, indices)) = bumper_meshes.ring {
-        let mesh_path = gameitems_dir.join(generated_mesh_file_name(
-            &format!("{file_name_base}-ring.json"),
-            mesh_format,
-        ));
-        write_mesh_to_file(
-            &mesh_path,
-            &format!("{}Ring", bumper.name),
-            &vertices,
-            &indices,
-            mesh_format,
-            fs,
-        )?;
-    }
-
-    // Write cap mesh
-    if let Some((vertices, indices)) = bumper_meshes.cap {
-        let mesh_path = gameitems_dir.join(generated_mesh_file_name(
-            &format!("{file_name_base}-cap.json"),
-            mesh_format,
-        ));
-        write_mesh_to_file(
-            &mesh_path,
-            &format!("{}Cap", bumper.name),
-            &vertices,
-            &indices,
-            mesh_format,
-            fs,
-        )?;
-    }
-
     Ok(())
 }
+
 fn write_flipper_meshes(
-    gameitems_dir: &Path,
+    out: &Output,
     flipper: &Flipper,
     json_file_name: &str,
     mesh_format: PrimitiveMeshFormat,
-    fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
+    let files = DerivedMeshFiles::generated(out, json_file_name, &[""], mesh_format);
+    if !files.wanted() {
+        return Ok(());
+    }
     let Some((vertices, indices)) = build_flipper_mesh(flipper, 0.0) else {
         return Ok(());
     };
-
-    let mesh_path = gameitems_dir.join(generated_mesh_file_name(json_file_name, mesh_format));
-    write_mesh_to_file(
-        &mesh_path,
-        &flipper.name,
-        &vertices,
-        &indices,
-        mesh_format,
-        fs,
-    )
+    files.write("", &flipper.name, &vertices, &indices)
 }
+
 fn write_hit_target_meshes(
-    gameitems_dir: &Path,
+    out: &Output,
     hit_target: &HitTarget,
     json_file_name: &str,
     mesh_format: PrimitiveMeshFormat,
-    fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
+    let files = DerivedMeshFiles::generated(out, json_file_name, &[""], mesh_format);
+    if !files.wanted() {
+        return Ok(());
+    }
     let Some((vertices, indices)) = build_hit_target_mesh(hit_target) else {
         return Ok(());
     };
-
-    let mesh_path = gameitems_dir.join(generated_mesh_file_name(json_file_name, mesh_format));
-    write_mesh_to_file(
-        &mesh_path,
-        &hit_target.name,
-        &vertices,
-        &indices,
-        mesh_format,
-        fs,
-    )
+    files.write("", &hit_target.name, &vertices, &indices)
 }
 
 fn write_plunger_meshes(
-    gameitems_dir: &Path,
+    out: &Output,
     plunger: &Plunger,
     json_file_name: &str,
     mesh_format: PrimitiveMeshFormat,
-    fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
-    let plunger_meshes = build_plunger_meshes(plunger);
-    let file_name_base = json_file_name.trim_end_matches(".json");
-
-    // Write flat rod mesh
-    if let Some((vertices, indices)) = plunger_meshes.flat_rod {
-        let mesh_path = gameitems_dir.join(generated_mesh_file_name(
-            &format!("{file_name_base}-flat.json"),
-            mesh_format,
-        ));
-        write_mesh_to_file(
-            &mesh_path,
-            &format!("{}Flat", plunger.name),
-            &vertices,
-            &indices,
-            mesh_format,
-            fs,
-        )?;
+    let files = DerivedMeshFiles::generated(
+        out,
+        json_file_name,
+        &["flat", "rod", "spring", "ring", "tip"],
+        mesh_format,
+    );
+    if !files.wanted() {
+        return Ok(());
     }
-
-    // Write rod mesh
-    if let Some((vertices, indices)) = plunger_meshes.rod {
-        let mesh_path = gameitems_dir.join(generated_mesh_file_name(
-            &format!("{file_name_base}-rod.json"),
-            mesh_format,
-        ));
-        write_mesh_to_file(
-            &mesh_path,
-            &format!("{}Rod", plunger.name),
-            &vertices,
-            &indices,
-            mesh_format,
-            fs,
-        )?;
+    let meshes = build_plunger_meshes(plunger);
+    let parts = [
+        ("flat", "Flat", meshes.flat_rod),
+        ("rod", "Rod", meshes.rod),
+        ("spring", "Spring", meshes.spring),
+        ("ring", "Ring", meshes.ring),
+        ("tip", "Tip", meshes.tip),
+    ];
+    for (part, suffix, mesh) in parts {
+        if let Some((vertices, indices)) = mesh {
+            files.write(
+                part,
+                &format!("{}{suffix}", plunger.name),
+                &vertices,
+                &indices,
+            )?;
+        }
     }
-
-    // Write spring mesh
-    if let Some((vertices, indices)) = plunger_meshes.spring {
-        let mesh_path = gameitems_dir.join(generated_mesh_file_name(
-            &format!("{file_name_base}-spring.json"),
-            mesh_format,
-        ));
-        write_mesh_to_file(
-            &mesh_path,
-            &format!("{}Spring", plunger.name),
-            &vertices,
-            &indices,
-            mesh_format,
-            fs,
-        )?;
-    }
-
-    // Write ring mesh
-    if let Some((vertices, indices)) = plunger_meshes.ring {
-        let mesh_path = gameitems_dir.join(generated_mesh_file_name(
-            &format!("{file_name_base}-ring.json"),
-            mesh_format,
-        ));
-        write_mesh_to_file(
-            &mesh_path,
-            &format!("{}Ring", plunger.name),
-            &vertices,
-            &indices,
-            mesh_format,
-            fs,
-        )?;
-    }
-
-    // Write tip mesh
-    if let Some((vertices, indices)) = plunger_meshes.tip {
-        let mesh_path = gameitems_dir.join(generated_mesh_file_name(
-            &format!("{file_name_base}-tip.json"),
-            mesh_format,
-        ));
-        write_mesh_to_file(
-            &mesh_path,
-            &format!("{}Tip", plunger.name),
-            &vertices,
-            &indices,
-            mesh_format,
-            fs,
-        )?;
-    }
-
     Ok(())
 }
 
 fn write_spinner_meshes(
-    gameitems_dir: &Path,
+    out: &Output,
     spinner: &Spinner,
     json_file_name: &str,
     mesh_format: PrimitiveMeshFormat,
-    fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
+    let files =
+        DerivedMeshFiles::generated(out, json_file_name, &["bracket", "plate"], mesh_format);
+    if !files.wanted() {
+        return Ok(());
+    }
     // TODO: get surface height from the table
     let meshes = build_spinner_meshes(spinner);
-
-    // Write bracket mesh if present
-    if let Some((bracket_vertices, bracket_indices)) = meshes.bracket {
-        let bracket_mesh_name = format!("{}-bracket", json_file_name.trim_end_matches(".json"));
-        let bracket_mesh_path =
-            gameitems_dir.join(generated_mesh_file_name(&bracket_mesh_name, mesh_format));
-        write_mesh_to_file(
-            &bracket_mesh_path,
+    if let Some((vertices, indices)) = meshes.bracket {
+        files.write(
+            "bracket",
             &format!("{}Bracket", spinner.name),
-            &bracket_vertices,
-            &bracket_indices,
-            mesh_format,
-            fs,
+            &vertices,
+            &indices,
         )?;
     }
-
-    // Write plate mesh
-    let (plate_vertices, plate_indices) = meshes.plate;
-    let plate_mesh_name = format!("{}-plate", json_file_name.trim_end_matches(".json"));
-    let plate_mesh_path =
-        gameitems_dir.join(generated_mesh_file_name(&plate_mesh_name, mesh_format));
-    write_mesh_to_file(
-        &plate_mesh_path,
+    let (vertices, indices) = meshes.plate;
+    files.write(
+        "plate",
         &format!("{}Plate", spinner.name),
-        &plate_vertices,
-        &plate_indices,
-        mesh_format,
-        fs,
+        &vertices,
+        &indices,
     )
 }
 
 fn write_trigger_mesh(
-    gameitems_dir: &Path,
+    out: &Output,
     trigger: &Trigger,
     json_file_name: &str,
     mesh_format: PrimitiveMeshFormat,
-    fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
+    let files = DerivedMeshFiles::generated(out, json_file_name, &[""], mesh_format);
+    if !files.wanted() {
+        return Ok(());
+    }
     let Some((vertices, indices)) = build_trigger_mesh(trigger) else {
         return Ok(());
     };
-
-    let mesh_path = gameitems_dir.join(generated_mesh_file_name(json_file_name, mesh_format));
-    write_mesh_to_file(
-        &mesh_path,
-        &trigger.name,
-        &vertices,
-        &indices,
-        mesh_format,
-        fs,
-    )?;
-
-    Ok(())
+    files.write("", &trigger.name, &vertices, &indices)
 }
 
 fn write_ramp_meshes(
-    gameitems_dir: &Path,
+    out: &Output,
     ramp: &Ramp,
     json_file_name: &str,
     mesh_format: PrimitiveMeshFormat,
     table_dims: &TableDimensions,
-    fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
+    let files = DerivedMeshFiles::generated(out, json_file_name, &[""], mesh_format);
+    if !files.wanted() {
+        return Ok(());
+    }
     // The expanded format is a portable representation - it doesn't
     // have access to the table's `user_detail_level` or the ramp's
     // material here, so we use the editor default for detail level
@@ -524,120 +419,104 @@ fn write_ramp_meshes(
     ) else {
         return Ok(());
     };
-
-    let mesh_path = gameitems_dir.join(generated_mesh_file_name(json_file_name, mesh_format));
-    write_mesh_to_file(&mesh_path, &ramp.name, &vertices, &indices, mesh_format, fs)
+    files.write("", &ramp.name, &vertices, &indices)
 }
 
 fn write_rubber_meshes(
-    gameitems_dir: &Path,
+    out: &Output,
     rubber: &Rubber,
     json_file_name: &str,
     mesh_format: PrimitiveMeshFormat,
-    fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
+    let files = DerivedMeshFiles::generated(out, json_file_name, &[""], mesh_format);
+    if !files.wanted() {
+        return Ok(());
+    }
     let Some((vertices, indices, _center)) =
         build_rubber_mesh(rubber, crate::vpx::gamedata::DEFAULT_DETAIL_LEVEL)
     else {
         return Ok(());
     };
-
-    let mesh_path = gameitems_dir.join(generated_mesh_file_name(json_file_name, mesh_format));
-    write_mesh_to_file(
-        &mesh_path,
-        &rubber.name,
-        &vertices,
-        &indices,
-        mesh_format,
-        fs,
-    )
+    files.write("", &rubber.name, &vertices, &indices)
 }
 
 fn write_wall_meshes(
-    gameitems_dir: &Path,
+    out: &Output,
     wall: &Wall,
     json_file_name: &str,
     mesh_format: PrimitiveMeshFormat,
-    fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
+    let files = DerivedMeshFiles::generated(out, json_file_name, &[""], mesh_format);
+    if !files.wanted() {
+        return Ok(());
+    }
     let Some((vertices, indices)) = build_wall_mesh(wall) else {
         return Ok(());
     };
-
-    let mesh_path = gameitems_dir.join(generated_mesh_file_name(json_file_name, mesh_format));
-    write_mesh_to_file(&mesh_path, &wall.name, &vertices, &indices, mesh_format, fs)
+    files.write("", &wall.name, &vertices, &indices)
 }
 
 fn write_flasher_meshes(
-    gameitems_dir: &Path,
+    out: &Output,
     flasher: &Flasher,
     json_file_name: &str,
     mesh_format: PrimitiveMeshFormat,
     table_dims: &TableDimensions,
-    fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
+    let files = DerivedMeshFiles::generated(out, json_file_name, &[""], mesh_format);
+    if !files.wanted() {
+        return Ok(());
+    }
     let Some((vertices, indices, _center)) = build_flasher_mesh(flasher, table_dims) else {
         return Ok(());
     };
+    files.write("", &flasher.name, &vertices, &indices)
+}
 
-    let mesh_path = gameitems_dir.join(generated_mesh_file_name(json_file_name, mesh_format));
-    write_mesh_to_file(
-        &mesh_path,
-        &flasher.name,
-        &vertices,
-        &indices,
-        mesh_format,
-        fs,
-    )
+fn write_light_meshes(
+    out: &Output,
+    light: &Light,
+    json_file_name: &str,
+    mesh_format: PrimitiveMeshFormat,
+) -> Result<(), WriteError> {
+    let files = DerivedMeshFiles::plain(out, json_file_name, &["bulb", "socket"], mesh_format);
+    if !files.wanted() {
+        return Ok(());
+    }
+    let Some(meshes) = build_light_meshes(light) else {
+        return Ok(());
+    };
+    let base = json_file_name.trim_end_matches(".json");
+    for (part, mesh) in [("bulb", meshes.bulb), ("socket", meshes.socket)] {
+        if let Some((vertices, indices)) = mesh {
+            files.write(part, &format!("{base}-{part}"), &vertices, &indices)?;
+        }
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
 fn write_animation_frames_to_meshes(
-    gameitems_dir: &Path,
+    out: &Output,
     name: &str,
     json_file_name: &str,
     vertices: &[VertexWrapper],
     vpx_indices: &[VpxFace],
     zipped: Zip<Iter<Vec<u8>>, Iter<u32>>,
     mesh_format: PrimitiveMeshFormat,
-    fs: &dyn FileSystem,
 ) -> Result<(), WriteError> {
     for (i, (compressed_frame, compressed_length)) in zipped.enumerate() {
+        let file_name_without_ext = json_file_name.trim_end_matches(".json");
+        let file_name = animation_frame_file_name(file_name_without_ext, i, mesh_format);
+        let mesh_path = Path::new(GAMEITEMS_DIR).join(&file_name);
+        // checked before the frame is decompressed so a filtered out frame costs nothing
+        if !out.wants(&mesh_path) {
+            continue;
+        }
         let animation_frame_vertices =
             read_vpx_animation_frame(compressed_frame, compressed_length);
         let full_vertices = replace_vertices(vertices, animation_frame_vertices)?;
-        let file_name_without_ext = json_file_name.trim_end_matches(".json");
-        let file_name = animation_frame_file_name(file_name_without_ext, i, mesh_format);
-        let mesh_path = gameitems_dir.join(&file_name);
-
-        match mesh_format {
-            PrimitiveMeshFormat::Obj => {
-                write_obj(name, &full_vertices, vpx_indices, &mesh_path, fs)
-                    .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
-            }
-            PrimitiveMeshFormat::Glb => {
-                write_gltf(
-                    name,
-                    &full_vertices,
-                    vpx_indices,
-                    &mesh_path,
-                    GltfContainer::Glb,
-                    fs,
-                )
-                .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
-            }
-            PrimitiveMeshFormat::Gltf => {
-                write_gltf(
-                    name,
-                    &full_vertices,
-                    vpx_indices,
-                    &mesh_path,
-                    GltfContainer::Gltf,
-                    fs,
-                )
-                .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))?;
-            }
-        }
+        out.write_mesh(&mesh_path, name, &full_vertices, vpx_indices)?;
     }
     Ok(())
 }
