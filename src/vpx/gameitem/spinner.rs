@@ -91,6 +91,13 @@ pub struct Spinner {
     ///
     /// BIFF tag: SSUP
     pub show_bracket: bool,
+    /// The overhang of the spinner plate, which vpinball wrote until
+    /// commit 62076b1d9 of 2015-10-23 removed it and adjusted the bracket
+    /// hit shape, while the file version stayed 1000. Only files saved
+    /// before that carry it, and vpinball ignores it now
+    ///
+    /// BIFF tag: `OVRH`
+    pub legacy_overhang: Option<f32>,
     /// Material name for the spinner plate.
     ///
     /// References a material defined in the table's material list.
@@ -170,6 +177,8 @@ struct SpinnerJson {
     elasticity: f32,
     is_visible: bool,
     show_bracket: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    legacy_overhang: Option<f32>,
     material: String,
     image: String,
     surface: String,
@@ -193,6 +202,7 @@ impl SpinnerJson {
             elasticity: spinner.elasticity,
             is_visible: spinner.is_visible,
             show_bracket: spinner.show_bracket,
+            legacy_overhang: spinner.legacy_overhang,
             material: spinner.material.clone(),
             image: spinner.image.clone(),
             surface: spinner.surface.clone(),
@@ -215,6 +225,7 @@ impl SpinnerJson {
             elasticity: self.elasticity,
             is_visible: self.is_visible,
             show_bracket: self.show_bracket,
+            legacy_overhang: self.legacy_overhang,
             material: self.material.clone(),
             image: self.image.clone(),
             surface: self.surface.clone(),
@@ -247,6 +258,7 @@ impl Default for Spinner {
             elasticity: 0.3,
             is_visible: true,
             show_bracket: true,
+            legacy_overhang: None,
             material: Default::default(),
             image: Default::default(),
             surface: Default::default(),
@@ -316,6 +328,9 @@ impl BiffRead for Spinner {
                 "SSUP" => {
                     spinner.show_bracket = reader.get_bool()?;
                 }
+                "OVRH" => {
+                    spinner.legacy_overhang = Some(reader.get_f32()?);
+                }
                 "MATR" => {
                     spinner.material = reader.get_string()?;
                 }
@@ -362,6 +377,9 @@ impl BiffWrite for Spinner {
         writer.write_tagged_f32("SELA", self.elasticity);
         writer.write_tagged_bool("SVIS", self.is_visible);
         writer.write_tagged_bool("SSUP", self.show_bracket);
+        if let Some(legacy_overhang) = self.legacy_overhang {
+            writer.write_tagged_f32("OVRH", legacy_overhang);
+        }
         writer.write_tagged_string("MATR", &self.material);
         writer.write_tagged_string("IMGF", &self.image);
         writer.write_tagged_string("SURF", &self.surface);
@@ -386,6 +404,36 @@ mod tests {
     use rand::RngExt;
 
     #[test]
+    fn a_spinner_from_before_october_2015_keeps_its_overhang() {
+        let spinner = Spinner {
+            name: "Spinner".to_string(),
+            legacy_overhang: Some(5.0),
+            ..Default::default()
+        };
+        let mut writer = BiffWriter::new();
+        Spinner::biff_write(&spinner, &mut writer);
+        let data = writer.get_data().to_vec();
+        let text = String::from_utf8_lossy(&data);
+        let (ssup, ovrh, matr) = (
+            text.find("SSUP").unwrap(),
+            text.find("OVRH").unwrap(),
+            text.find("MATR").unwrap(),
+        );
+        assert!(ssup < ovrh && ovrh < matr);
+        let read = Spinner::biff_read(&mut BiffReader::new(&data)).unwrap();
+        assert_eq!(read, spinner);
+
+        let mut writer = BiffWriter::new();
+        Spinner::biff_write(&Spinner::default(), &mut writer);
+        assert!(!String::from_utf8_lossy(writer.get_data()).contains("OVRH"));
+        assert!(
+            !serde_json::to_string(&Spinner::default())
+                .unwrap()
+                .contains("legacy")
+        );
+    }
+
+    #[test]
     fn test_write_read() {
         let mut rng = rand::rng();
         // values not equal to the defaults
@@ -404,6 +452,7 @@ mod tests {
             elasticity: rng.random(),
             is_visible: rng.random(),
             show_bracket: rng.random(),
+            legacy_overhang: Some(2.5),
             material: "test material".to_string(),
             image: "test image".to_string(),
             surface: "test surface".to_string(),
