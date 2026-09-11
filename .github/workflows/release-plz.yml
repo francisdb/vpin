@@ -23,6 +23,10 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt, clippy
+      - name: Install cargo-semver-checks
+        # release-plz runs it when present and bumps the version by what it
+        # finds instead of by the commit prefixes alone
+        uses: taiki-e/install-action@cargo-semver-checks
       - name: Run release-plz
         uses: MarcoIeni/release-plz-action@v0.5
         env:
