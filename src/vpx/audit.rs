@@ -795,8 +795,7 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
         check_mesh_size(item, &mut findings);
     }
     for sound in &vpx.sounds {
-        // a sound without the byte plays on the table in vpinball
-        if sound.output_target != Some(crate::vpx::sound::OutputTarget::Backglass)
+        if sound.output_target == crate::vpx::sound::OutputTarget::Table
             && sound.wave_form.channels > 1
         {
             findings.push(Finding::StereoTableSound {
@@ -3017,7 +3016,7 @@ mod tests {
             fade: 0,
             volume: 0,
             balance: 0,
-            output_target: Some(OutputTarget::Table),
+            output_target: OutputTarget::Table,
         }];
         vpx.gamedata.sounds_size = 1;
         vpx.gamedata.set_code(
@@ -3065,7 +3064,7 @@ mod tests {
             fade: 0,
             volume: 0,
             balance: 0,
-            output_target: Some(OutputTarget::Table),
+            output_target: OutputTarget::Table,
         };
         let mut vpx = clean_vpx();
         vpx.images = vec![
