@@ -45,7 +45,10 @@ todo = "warn"
 unimplemented = "warn"
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+# "lib" rather than "rlib": both build the same Rust library, but only
+# "lib" makes cargo report the target as a library, which release-plz
+# needs to run cargo-semver-checks before a release
+crate-type = ["cdylib", "lib"]
 
 [dependencies]
 bytes = "1.11.0"
