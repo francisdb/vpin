@@ -99,18 +99,21 @@ pub struct Bumper {
     ///
     /// BIFF tag: `CAVI`
     pub is_cap_visible: bool,
-    /// The light state a bumper had until June 2015, when vpinball
-    /// dropped the bumper's own light: 0 off, 1 on, 2 blinking. Only
-    /// files from before that carry it, and vpinball ignores it now.
+    /// The state of the light a bumper used to have: 0 off, 1 on, 2
+    /// blinking. vpinball removed the bumper's light, and with it this
+    /// record and the two below, in commit 4f9bdc87c of 2015-06-09,
+    /// while the file version stayed 1000. Files saved before that carry
+    /// them and vpinball now ignores them
     ///
     /// BIFF tag: `STAT`
     pub legacy_state: Option<u32>,
-    /// The blink pattern of that light, dropped with it in June 2015
+    /// The blink pattern of that light, a string of `0` and `1`, removed
+    /// together with [`legacy_state`](Self::legacy_state)
     ///
     /// BIFF tag: `BPAT`
     pub legacy_blink_pattern: Option<String>,
-    /// The blink interval of that light in milliseconds, dropped with it
-    /// in June 2015
+    /// The blink interval of that light in milliseconds, removed together
+    /// with [`legacy_state`](Self::legacy_state)
     ///
     /// BIFF tag: `BINT`
     pub legacy_blink_interval: Option<u32>,
