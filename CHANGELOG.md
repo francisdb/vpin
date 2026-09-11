@@ -6,6 +6,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.0](https://github.com/francisdb/vpin/compare/v0.32.1...v0.33.0) - 2026-09-11
+
+### Added
+
+- audit images and sounds that hold the same data under different names ([#457](https://github.com/francisdb/vpin/pull/457))
+- keep the overhang record of spinners saved before October 2015 ([#455](https://github.com/francisdb/vpin/pull/455))
+- keep the table elasticity records absent when the file has none ([#451](https://github.com/francisdb/vpin/pull/451))
+- keep primitive meshes that early vpinball builds stored uncompressed ([#450](https://github.com/francisdb/vpin/pull/450))
+- filter which files an expanded write produces ([#445](https://github.com/francisdb/vpin/pull/445))
+- warn about name conflicts vpinball resolves when reading an expanded directory ([#446](https://github.com/francisdb/vpin/pull/446))
+- audit lights whose fade speed cannot move the intensity ([#424](https://github.com/francisdb/vpin/pull/424))
+- audit game items and collections named like a script keyword, builtin or table global ([#443](https://github.com/francisdb/vpin/pull/443))
+- apply vpinball's 31 character name limit when reading an expanded directory ([#440](https://github.com/francisdb/vpin/pull/440))
+- reject material names vpinball cannot store when reading an expanded directory ([#437](https://github.com/francisdb/vpin/pull/437))
+- warn about game items without a name ([#439](https://github.com/francisdb/vpin/pull/439))
+- audit materials that share a name ([#436](https://github.com/francisdb/vpin/pull/436))
+
+### Fixed
+
+- read a sound without the output target byte, as files before April 2015 store it ([#449](https://github.com/francisdb/vpin/pull/449))
+- write the material record only when there are materials
+- match collection items and part groups by exact name like vpinball ([#444](https://github.com/francisdb/vpin/pull/444))
+- keep long material names and references vpinball loads ([#442](https://github.com/francisdb/vpin/pull/442))
+- encode strings outside Latin-1 with question marks instead of undefined bytes ([#441](https://github.com/francisdb/vpin/pull/441))
+
+### Other
+
+- set the version to 0.33.0 for the API changes in this release ([#461](https://github.com/francisdb/vpin/pull/461))
+- declare the library as lib so release-plz sees a library and checks its API ([#460](https://github.com/francisdb/vpin/pull/460))
+- let release-plz check the API against the last release ([#459](https://github.com/francisdb/vpin/pull/459))
+- Revert "fix: read a sound without the output target byte, as files before April 2015 store it ([#449](https://github.com/francisdb/vpin/pull/449))"
+- Revert "feat: keep the table elasticity records absent when the file has none ([#451](https://github.com/francisdb/vpin/pull/451))"
+- round trip one table per file format version from the vpinball history ([#454](https://github.com/francisdb/vpin/pull/454))
+- run the integration tests over the freely available tables on every pull request
+
 ## [0.32.1](https://github.com/francisdb/vpin/compare/v0.32.0...v0.32.1) - 2026-09-10
 
 ### Fixed
