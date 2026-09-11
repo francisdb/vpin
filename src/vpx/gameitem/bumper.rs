@@ -99,6 +99,21 @@ pub struct Bumper {
     ///
     /// BIFF tag: `CAVI`
     pub is_cap_visible: bool,
+    /// The light state a bumper had until June 2015, when vpinball
+    /// dropped the bumper's own light: 0 off, 1 on, 2 blinking. Only
+    /// files from before that carry it, and vpinball ignores it now.
+    ///
+    /// BIFF tag: `STAT`
+    pub legacy_state: Option<u32>,
+    /// The blink pattern of that light, dropped with it in June 2015
+    ///
+    /// BIFF tag: `BPAT`
+    pub legacy_blink_pattern: Option<String>,
+    /// The blink interval of that light in milliseconds, dropped with it
+    /// in June 2015
+    ///
+    /// BIFF tag: `BINT`
+    pub legacy_blink_interval: Option<u32>,
     /// Whether the base mesh is rendered. Default `true`.
     ///
     /// For backward compatibility, loading a pre-10.2 `BSVS` tag also copies
@@ -190,6 +205,12 @@ struct BumperJson {
     surface: String,
     name: String,
     is_cap_visible: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    legacy_state: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    legacy_blink_pattern: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    legacy_blink_interval: Option<u32>,
     is_base_visible: bool,
     is_ring_visible: Option<bool>,
     is_socket_visible: Option<bool>,
@@ -220,6 +241,9 @@ impl From<&Bumper> for BumperJson {
             surface: bumper.surface.clone(),
             name: bumper.name.clone(),
             is_cap_visible: bumper.is_cap_visible,
+            legacy_state: bumper.legacy_state,
+            legacy_blink_pattern: bumper.legacy_blink_pattern.clone(),
+            legacy_blink_interval: bumper.legacy_blink_interval,
             is_base_visible: bumper.is_base_visible,
             is_ring_visible: bumper.is_ring_visible,
             is_socket_visible: bumper.is_socket_visible,
@@ -251,6 +275,9 @@ impl Default for Bumper {
             surface: Default::default(),
             name: Default::default(),
             is_cap_visible: true,
+            legacy_state: None,
+            legacy_blink_pattern: None,
+            legacy_blink_interval: None,
             is_base_visible: true,
             is_ring_visible: None,       //true
             is_socket_visible: None,     //true
@@ -300,6 +327,9 @@ impl<'de> Deserialize<'de> for Bumper {
             surface: bumper_json.surface,
             name: bumper_json.name,
             is_cap_visible: bumper_json.is_cap_visible,
+            legacy_state: bumper_json.legacy_state,
+            legacy_blink_pattern: bumper_json.legacy_blink_pattern,
+            legacy_blink_interval: bumper_json.legacy_blink_interval,
             is_base_visible: bumper_json.is_base_visible,
             is_ring_visible: bumper_json.is_ring_visible,
             is_socket_visible: bumper_json.is_socket_visible,
@@ -378,6 +408,15 @@ impl BiffRead for Bumper {
                 "NAME" => {
                     bumper.name = reader.get_wide_string()?;
                 }
+                "STAT" => {
+                    bumper.legacy_state = Some(reader.get_u32()?);
+                }
+                "BPAT" => {
+                    bumper.legacy_blink_pattern = Some(reader.get_string()?);
+                }
+                "BINT" => {
+                    bumper.legacy_blink_interval = Some(reader.get_u32()?);
+                }
                 "CAVI" => {
                     bumper.is_cap_visible = reader.get_bool()?;
                 }
@@ -441,6 +480,15 @@ impl BiffWrite for Bumper {
         }
         writer.write_tagged_string("SURF", &self.surface);
         writer.write_tagged_wide_string("NAME", &self.name);
+        if let Some(state) = self.legacy_state {
+            writer.write_tagged_u32("STAT", state);
+        }
+        if let Some(blink_pattern) = &self.legacy_blink_pattern {
+            writer.write_tagged_string("BPAT", blink_pattern);
+        }
+        if let Some(blink_interval) = self.legacy_blink_interval {
+            writer.write_tagged_u32("BINT", blink_interval);
+        }
         writer.write_tagged_bool("CAVI", self.is_cap_visible);
         writer.write_tagged_bool("BSVS", self.is_base_visible);
         if let Some(is_ring_visible) = self.is_ring_visible {
@@ -473,6 +521,39 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     #[test]
+    fn the_light_records_of_an_old_bumper_keep_their_place() {
+        let bumper = Bumper {
+            name: "Bumper1".to_string(),
+            legacy_state: Some(1),
+            legacy_blink_pattern: Some("10".to_string()),
+            legacy_blink_interval: Some(125),
+            ..Default::default()
+        };
+        let mut writer = BiffWriter::new();
+        Bumper::biff_write(&bumper, &mut writer);
+        let data = writer.get_data().to_vec();
+        let text = String::from_utf8_lossy(&data);
+        let (name, stat, bpat, bint, cavi) = (
+            text.find("NAME").unwrap(),
+            text.find("STAT").unwrap(),
+            text.find("BPAT").unwrap(),
+            text.find("BINT").unwrap(),
+            text.find("CAVI").unwrap(),
+        );
+        assert!(name < stat && stat < bpat && bpat < bint && bint < cavi);
+        let read = Bumper::biff_read(&mut BiffReader::new(&data)).unwrap();
+        assert_eq!(read, bumper);
+
+        // a bumper vpinball writes today has none of them
+        let mut writer = BiffWriter::new();
+        Bumper::biff_write(&Bumper::default(), &mut writer);
+        let text = String::from_utf8_lossy(writer.get_data());
+        assert!(!text.contains("STAT") && !text.contains("BPAT") && !text.contains("BINT"));
+        let json = serde_json::to_string(&Bumper::default()).unwrap();
+        assert!(!json.contains("legacy"));
+    }
+
+    #[test]
     fn test_write_read() {
         // random data not same as default data above
         let bumper = Bumper {
@@ -496,6 +577,9 @@ mod tests {
             surface: "test surface".to_string(),
             name: "test bumper".to_string(),
             is_cap_visible: true,
+            legacy_state: Some(2),
+            legacy_blink_pattern: Some("10".to_string()),
+            legacy_blink_interval: Some(125),
             is_base_visible: true,
             is_ring_visible: Some(true),
             is_socket_visible: Some(true),
