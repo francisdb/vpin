@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.1](https://github.com/francisdb/vpin/compare/v0.33.0...v0.33.1) - 2026-09-11
+
+### Other
+
+- compare same data audit assets by length before bytes ([#464](https://github.com/francisdb/vpin/pull/464))
+- release v0.33.0 ([#438](https://github.com/francisdb/vpin/pull/438))
+
 ## [0.33.0](https://github.com/francisdb/vpin/compare/v0.32.1...v0.33.0) - 2026-09-11
 
 ### Added
