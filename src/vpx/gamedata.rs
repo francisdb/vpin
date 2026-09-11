@@ -627,14 +627,9 @@ pub struct GameData {
     pub override_physics_flipper: Option<bool>, // ORPF 37 added in ?
     pub gravity: f32,                           // GAVT 38
     pub friction: f32,                          // FRCT 39
-    /// Table wide ball elasticity, `None` for a file from before June
-    /// 2015, when vpinball added the record without changing the file
-    /// version; vpinball then keeps its default
-    pub elasticity: Option<f32>, // ELAS 40
-    /// Table wide elasticity falloff, `None` like [`elasticity`](Self::elasticity)
-    pub elastic_falloff: Option<f32>, // ELFA 41
-    /// Table wide scatter angle, `None` like [`elasticity`](Self::elasticity)
-    pub scatter: Option<f32>, // PFSC 42
+    pub elasticity: f32,                        // ELAS 40
+    pub elastic_falloff: f32,                   // ELFA 41
+    pub scatter: f32,                           // PFSC 42
     pub default_scatter: f32,                   // SCAT 43
     pub nudge_time: f32,                        // NDGT 44
     pub plunger_normalize: Option<u32>,         // MPGC 45
@@ -1139,9 +1134,9 @@ pub(crate) struct GameDataJson {
     pub override_physics_flipper: Option<bool>,
     pub gravity: f32,
     pub friction: f32,
-    pub elasticity: Option<f32>,
-    pub elastic_falloff: Option<f32>,
-    pub scatter: Option<f32>,
+    pub elasticity: f32,
+    pub elastic_falloff: f32,
+    pub scatter: f32,
     pub default_scatter: f32,
     pub nudge_time: f32,
     pub plunger_normalize: Option<u32>,
@@ -1639,9 +1634,9 @@ impl Default for GameData {
             override_physics_flipper: None, //false,
             gravity: 1.762985,
             friction: 0.075,
-            elasticity: Some(0.25),
-            elastic_falloff: Some(0.0),
-            scatter: Some(0.0),
+            elasticity: 0.25,
+            elastic_falloff: 0.0,
+            scatter: 0.0,
             default_scatter: 0.0,
             nudge_time: 5.0,
             plunger_normalize: None, // 100
@@ -1925,15 +1920,9 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
     }
     writer.write_tagged_f32("GAVT", gamedata.gravity);
     writer.write_tagged_f32("FRCT", gamedata.friction);
-    if let Some(elasticity) = gamedata.elasticity {
-        writer.write_tagged_f32("ELAS", elasticity);
-    }
-    if let Some(elastic_falloff) = gamedata.elastic_falloff {
-        writer.write_tagged_f32("ELFA", elastic_falloff);
-    }
-    if let Some(scatter) = gamedata.scatter {
-        writer.write_tagged_f32("PFSC", scatter);
-    }
+    writer.write_tagged_f32("ELAS", gamedata.elasticity);
+    writer.write_tagged_f32("ELFA", gamedata.elastic_falloff);
+    writer.write_tagged_f32("PFSC", gamedata.scatter);
     writer.write_tagged_f32("SCAT", gamedata.default_scatter);
     writer.write_tagged_f32("NDGT", gamedata.nudge_time);
     if let Some(mpgc) = gamedata.plunger_normalize {
@@ -2128,13 +2117,7 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
 /// structurally invalid instead of panicking.
 pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> io::Result<GameData> {
     let mut reader = BiffReader::new(input);
-    let mut gamedata = GameData {
-        // present only from June 2015 on, absent stays absent
-        elasticity: None,
-        elastic_falloff: None,
-        scatter: None,
-        ..GameData::default()
-    };
+    let mut gamedata = GameData::default();
     let mut previous_tag = String::new();
     while let Some(tag) = reader.next(biff::WARN)? {
         let reader: &mut BiffReader<'_> = &mut reader;
@@ -2220,9 +2203,9 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> io::Result<
             "ORPF" => gamedata.override_physics_flipper = Some(reader.get_bool()?),
             "GAVT" => gamedata.gravity = reader.get_f32()?,
             "FRCT" => gamedata.friction = reader.get_f32()?,
-            "ELAS" => gamedata.elasticity = Some(reader.get_f32()?),
-            "ELFA" => gamedata.elastic_falloff = Some(reader.get_f32()?),
-            "PFSC" => gamedata.scatter = Some(reader.get_f32()?),
+            "ELAS" => gamedata.elasticity = reader.get_f32()?,
+            "ELFA" => gamedata.elastic_falloff = reader.get_f32()?,
+            "PFSC" => gamedata.scatter = reader.get_f32()?,
             "SCAT" => gamedata.default_scatter = reader.get_f32()?,
             "NDGT" => gamedata.nudge_time = reader.get_f32()?,
             "MPGC" => gamedata.plunger_normalize = Some(reader.get_u32()?),
@@ -2411,29 +2394,6 @@ mod tests {
     }
 
     #[test]
-    fn a_table_without_the_elasticity_records_round_trips_without_them() {
-        // files from before June 2015 have no ELAS, ELFA and PFSC records
-        let version = Version::new(1000);
-        let gamedata = GameData {
-            elasticity: None,
-            elastic_falloff: None,
-            scatter: None,
-            ..GameData::default()
-        };
-        let bytes = write_all_gamedata_records(&gamedata, &version);
-        let text = String::from_utf8_lossy(&bytes);
-        assert!(!text.contains("ELAS") && !text.contains("ELFA") && !text.contains("PFSC"));
-        let read = read_all_gamedata_records(&bytes, &version).unwrap();
-        assert_eq!(read.elasticity, None);
-        assert_eq!(read.elastic_falloff, None);
-        assert_eq!(read.scatter, None);
-
-        let bytes = write_all_gamedata_records(&GameData::default(), &version);
-        let read = read_all_gamedata_records(&bytes, &version).unwrap();
-        assert_eq!(read.elasticity, Some(0.25));
-    }
-
-    #[test]
     fn effective_detail_level_uses_table_value_when_override_on() {
         let g = GameData {
             user_detail_level: Some(7),
@@ -2509,9 +2469,9 @@ mod tests {
             override_physics_flipper: Some(true),
             gravity: 1.0,
             friction: 0.1,
-            elasticity: Some(0.2),
-            elastic_falloff: Some(0.3),
-            scatter: Some(0.2),
+            elasticity: 0.2,
+            elastic_falloff: 0.3,
+            scatter: 0.2,
             default_scatter: 0.1,
             nudge_time: 3.0,
             plunger_normalize: Some(105),
