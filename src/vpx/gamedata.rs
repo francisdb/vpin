@@ -2058,11 +2058,14 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
     }
     writer.write_tagged_f32("BLST", gamedata.bloom_strength);
     writer.write_tagged_u32("MASI", gamedata.materials_size);
-    let mut bytes = BytesMut::new();
-    for mat in &gamedata.materials_old {
-        mat.write(&mut bytes);
+    // vpinball writes the material records only when there are materials
+    if !gamedata.materials_old.is_empty() {
+        let mut bytes = BytesMut::new();
+        for mat in &gamedata.materials_old {
+            mat.write(&mut bytes);
+        }
+        writer.write_tagged_data("MATE", &bytes);
     }
-    writer.write_tagged_data("MATE", &bytes);
     if let Some(phma) = &gamedata.materials_physics_old {
         let mut bytes = BytesMut::new();
         for mat in phma {
