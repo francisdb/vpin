@@ -159,7 +159,12 @@ pub struct SoundData {
     pub fade: u32,
     pub volume: u32,
     pub balance: u32,
-    pub output_target: OutputTarget,
+    /// Where the sound plays. `None` when the file predates the byte:
+    /// vpinball added it in April 2015 without changing the file version,
+    /// so the VP10 beta files (version 601) and the earliest version 1000
+    /// files do not have it, and vpinball plays such a sound on the table.
+    /// Files from version 1031 on always have it.
+    pub output_target: Option<OutputTarget>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -173,7 +178,9 @@ pub(crate) struct SoundDataJson {
     fade: u32,
     volume: u32,
     balance: u32,
-    output_target: OutputTarget,
+    /// Absent for a sound from a file that predates the output target byte
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    output_target: Option<OutputTarget>,
     /// In case we have a duplicate name or the file name is not simply derived from the name
     /// because of special characters etc.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -371,7 +378,7 @@ pub(crate) fn read(
     let mut fade: u32 = 0;
     let mut volume: u32 = 0;
     let mut balance: u32 = 0;
-    let mut output_target: OutputTarget = OutputTarget::Table;
+    let mut output_target: Option<OutputTarget> = None;
     let mut data: Vec<u8> = Vec::new();
     let mut wave_form: WaveForm = WaveForm::new();
 
@@ -411,7 +418,13 @@ pub(crate) fn read(
                 data = reader.get_data_no_remaining_update()?;
             }
             5 => {
-                output_target = reader.get_u8_no_remaining_update()?.into();
+                // added in April 2015 without a version bump, so a file
+                // below 1031 may or may not have it; vpinball reads it only
+                // from 1031 on and ignores it in older files
+                if file_version.u32() < NEW_SOUND_FORMAT_VERSION && reader.is_eof() {
+                    break;
+                }
+                output_target = Some(reader.get_u8_no_remaining_update()?.into());
             }
             6 => {
                 volume = reader.get_u32_no_remaining_update()?;
@@ -473,7 +486,14 @@ pub(crate) fn write(file_version: &Version, sound: &SoundData, writer: &mut Biff
     }
 
     writer.write_length_prefixed_data(&sound.data);
-    writer.write_u8((&sound.output_target).into());
+    match &sound.output_target {
+        Some(output_target) => writer.write_u8(output_target.into()),
+        // the byte is part of the format from 1031 on
+        None if file_version.u32() >= NEW_SOUND_FORMAT_VERSION => {
+            writer.write_u8((&OutputTarget::Table).into())
+        }
+        None => {}
+    }
     if file_version.u32() >= NEW_SOUND_FORMAT_VERSION {
         writer.write_u32(sound.volume);
         writer.write_u32(sound.balance);
@@ -538,7 +558,7 @@ mod test {
             fade: 1,
             volume: 2,
             balance: 3,
-            output_target: Faker.fake(),
+            output_target: Some(Faker.fake()),
         };
         let mut writer = BiffWriter::new();
         write(&Version::new(1074), &sound, &mut writer);
@@ -559,13 +579,59 @@ mod test {
             fade: 1,
             volume: 2,
             balance: 3,
-            output_target: Faker.fake(),
+            output_target: Some(Faker.fake()),
         };
         let mut writer = BiffWriter::new();
         write(&Version::new(1083), &sound, &mut writer);
         let sound_read =
             read(&Version::new(1083), &mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(sound, sound_read);
+    }
+
+    /// The sound of a file that predates the output target byte, as the
+    /// VP10 beta and the version 1000 files from before April 2015 store it
+    fn legacy_sound(output_target: Option<OutputTarget>) -> SoundData {
+        SoundData {
+            name: "ball drop".to_string(),
+            path: "ball drop.mp3".to_string(),
+            data: vec![9, 8, 7],
+            wave_form: WaveForm::default(),
+            internal_name: "ball drop".to_string(),
+            fade: 0,
+            volume: 0,
+            balance: 0,
+            output_target,
+        }
+    }
+
+    #[test]
+    fn a_sound_without_the_output_target_byte_round_trips() {
+        // five fields, nothing after the data
+        let sound = legacy_sound(None);
+        let mut writer = BiffWriter::new();
+        write(&Version::new(1000), &sound, &mut writer);
+        let bytes = writer.get_data();
+        assert_eq!(bytes.len(), 4 + 9 + 4 + 13 + 4 + 9 + 4 + 3);
+        let read_back = read(&Version::new(1000), &mut BiffReader::new(bytes)).unwrap();
+        assert_eq!(read_back, sound);
+
+        // six fields, the byte vpinball appended in April 2015 at the same
+        // file version
+        let sound = legacy_sound(Some(OutputTarget::Backglass));
+        let mut writer = BiffWriter::new();
+        write(&Version::new(1000), &sound, &mut writer);
+        let bytes = writer.get_data();
+        assert_eq!(bytes.len(), 4 + 9 + 4 + 13 + 4 + 9 + 4 + 3 + 1);
+        let read_back = read(&Version::new(1000), &mut BiffReader::new(bytes)).unwrap();
+        assert_eq!(read_back, sound);
+    }
+
+    #[test]
+    fn the_output_target_byte_is_always_written_from_1031_on() {
+        let mut writer = BiffWriter::new();
+        write(&Version::new(1031), &legacy_sound(None), &mut writer);
+        let read_back = read(&Version::new(1031), &mut BiffReader::new(writer.get_data())).unwrap();
+        assert_eq!(read_back.output_target, Some(OutputTarget::Table));
     }
 
     #[test]
@@ -583,7 +649,7 @@ mod test {
             fade: 1,
             volume: 2,
             balance: 3,
-            output_target: OutputTarget::Backglass,
+            output_target: Some(OutputTarget::Backglass),
         };
         let sound_data = write_sound(&sound);
         let mut sound_read = SoundData {
@@ -595,7 +661,7 @@ mod test {
             fade: 1,
             volume: 2,
             balance: 3,
-            output_target: OutputTarget::Backglass,
+            output_target: Some(OutputTarget::Backglass),
         };
         read_sound(&sound_data, &mut sound_read).unwrap();
         assert_eq!(sound, sound_read);
@@ -632,7 +698,7 @@ mod test {
             fade: 0,
             volume: 0,
             balance: 0,
-            output_target: OutputTarget::Table,
+            output_target: Some(OutputTarget::Table),
         };
         read_sound(&wav, &mut sound).unwrap();
         assert_eq!(sound.wave_form.format_tag, 1);
@@ -652,7 +718,7 @@ mod test {
             fade: 0,
             volume: 0,
             balance: 0,
-            output_target: OutputTarget::Table,
+            output_target: Some(OutputTarget::Table),
         };
         let error = read_sound(b"not a wav file at all", &mut sound).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
@@ -672,7 +738,7 @@ mod test {
             fade: 0,
             volume: 0,
             balance: 0,
-            output_target: OutputTarget::Table,
+            output_target: Some(OutputTarget::Table),
         };
         assert_eq!(sound.ext(), "wav".to_string());
         assert!(is_wav(&sound.path));
@@ -689,7 +755,7 @@ mod test {
             fade: 0,
             volume: 0,
             balance: 0,
-            output_target: OutputTarget::Table,
+            output_target: Some(OutputTarget::Table),
         };
         assert_eq!(sound.ext(), "wav".to_string());
         assert!(is_wav(&sound.path));

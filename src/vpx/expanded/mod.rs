@@ -978,7 +978,7 @@ mod tests {
                     fade: 0,
                     volume: 0,
                     balance: 0,
-                    output_target: OutputTarget::Table,
+                    output_target: Some(OutputTarget::Table),
                 },
                 SoundData {
                     name: "test sound2".to_string(),
@@ -989,7 +989,7 @@ mod tests {
                     fade: 1,
                     volume: 2,
                     balance: 3,
-                    output_target: OutputTarget::Backglass,
+                    output_target: Some(OutputTarget::Backglass),
                 },
             ],
             fonts: vec![
@@ -1105,7 +1105,7 @@ mod tests {
                 fade: 0,
                 volume: 0,
                 balance: 0,
-                output_target: OutputTarget::Table,
+                output_target: Some(OutputTarget::Table),
             }],
             fonts: vec![FontData {
                 name: "L\u{00F6}cher font".to_string(),

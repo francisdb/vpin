@@ -1345,7 +1345,7 @@ mod tests {
             fade: 0,
             volume: 0,
             balance: 0,
-            output_target: OutputTarget::Table,
+            output_target: Some(OutputTarget::Table),
         }
     }
 
