@@ -1,6 +1,13 @@
 name: Integration Tests
 
+# Runs the corpus round trip tests over the tables that are freely
+# available: the ones the vpinball repository ships, and the per item
+# test fixtures of the Visual Pinball Engine and vpx-js projects. About
+# sixty tables in under 30 MB, written by vpinball 10.6 and 10.8.
 on:
+  push:
+    branches: [main]
+  pull_request:
   schedule:
     - cron: '0 0 * * 0' # Runs weekly on Sunday at 00:00 UTC
   workflow_dispatch:
@@ -23,10 +30,37 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2.9.2
-      - name: Check out vpinball repository inside the project folder
+      - name: Check out the tables the vpinball repository ships
         uses: actions/checkout@v7
         with:
           repository: vpinball/vpinball
-          path: vpinball
+          path: tables/vpinball
+          sparse-checkout: |
+            src/assets
+            tests/assets
+            docs
+      - name: Check out the Visual Pinball Engine test fixtures
+        uses: actions/checkout@v7
+        with:
+          repository: freezy/VisualPinball.Engine
+          path: tables/vpe
+          sparse-checkout: |
+            VisualPinball.Engine.Test/Fixtures~
+      - name: Check out the vpx-js test fixtures
+        uses: actions/checkout@v7
+        with:
+          repository: vpdb/vpx-js
+          path: tables/vpx-js
+          sparse-checkout: |
+            test/fixtures
+      - name: Drop the fixtures the Visual Pinball Engine wrote itself
+        # These four carry VPE's own records (a Mappings storage, an empty
+        # material record, extra kicker and flipper fields) that vpinball
+        # does not write, so they cannot round trip byte for byte, and
+        # their compound file fails strict validation. The other fixtures
+        # were saved by vpinball.
+        run: |
+          cd "tables/vpe/VisualPinball.Engine.Test/Fixtures~"
+          rm -f TroughTest.vpx MappingsTest.vpx KickerTest.vpx MetalWireGuideTest.vpx
       - name: Run the integration tests
-        run: TABLES_DIR="vpinball" cargo test --release -- --ignored --nocapture
+        run: TABLES_DIR="tables" cargo test --release --all-features -- --ignored --nocapture
