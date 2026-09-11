@@ -3,31 +3,24 @@
 use crate::filesystem::FileSystem;
 use crate::vpx::font::{FontData, FontDataJson};
 use log::info;
-use std::io::{self, Write};
+use std::io;
 use std::path::Path;
 
-use super::WriteError;
 use super::util::{read_json, sanitize_filename};
+use super::{FONTS_DIR, Output, WriteError};
 
-pub(super) fn write_fonts<P: AsRef<Path>>(
-    fonts: &[FontData],
-    expanded_dir: &P,
-    fs: &dyn FileSystem,
-) -> Result<(), WriteError> {
-    let fonts_json_path = expanded_dir.as_ref().join("fonts.json");
-    let mut fonts_index_file = fs.create_buffered_file(&fonts_json_path)?;
-    let fonts_index: Vec<FontDataJson> = fonts.iter().map(FontDataJson::from_font_data).collect();
-    serde_json::to_writer_pretty(&mut fonts_index_file, &fonts_index)?;
-    fonts_index_file.flush()?;
+pub(super) fn write_fonts(fonts: &[FontData], out: &Output) -> Result<(), WriteError> {
+    out.write_json(Path::new("fonts.json"), || {
+        fonts
+            .iter()
+            .map(FontDataJson::from_font_data)
+            .collect::<Vec<_>>()
+    })?;
 
-    let fonts_dir = expanded_dir.as_ref().join("fonts");
-    fs.create_dir_all(&fonts_dir)?;
     fonts.iter().try_for_each(|font| {
         let sanitized_name = sanitize_filename(&font.name);
         let file_name = format!("{}.{}", sanitized_name, font.ext());
-        let font_path = fonts_dir.join(file_name);
-        let mut file = fs.create_file(&font_path)?;
-        file.write_all(&font.data)
+        out.write(&Path::new(FONTS_DIR).join(file_name), &font.data)
     })?;
     Ok(())
 }
@@ -73,6 +66,7 @@ mod tests {
 
     use super::*;
     use crate::filesystem::MemoryFileSystem;
+    use crate::vpx::expanded::{ExpandOptions, Output};
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -93,7 +87,9 @@ mod tests {
             },
         ];
 
-        write_fonts(&fonts, &expanded_dir, &fs).unwrap();
+        let options = ExpandOptions::default();
+        let out = Output::new(expanded_dir, &fs, &options);
+        write_fonts(&fonts, &out).unwrap();
         let read_fonts = read_fonts(&expanded_dir, &fs).unwrap();
 
         assert_eq!(fonts.len(), read_fonts.len());

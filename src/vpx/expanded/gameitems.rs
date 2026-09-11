@@ -5,15 +5,16 @@ use crate::vpx::gameitem::{GameItemEnum, MAX_NAME_LENGTH};
 use log::{info, warn};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashSet};
-use std::io::{self, Write};
+use std::io;
 use std::path::Path;
 use tracing::instrument;
 use unicode_normalization::UnicodeNormalization;
 
 use super::primitives::{read_gameitem_binaries, write_gameitem_binaries};
 use super::util::read_json;
-use super::{ExpandOptions, WriteError};
+use super::{GAMEITEMS_DIR, Output, WriteError};
 
 /// Since it's common to change layer visibility we don't want that to cause a
 /// difference in the item json, therefore we write this info in the index.
@@ -63,15 +64,11 @@ impl FileNameGen {
     }
 }
 
-pub(super) fn write_gameitems<P: AsRef<Path>>(
+pub(super) fn write_gameitems(
     gameitems: &[GameItemEnum],
-    expanded_dir: &P,
-    options: &ExpandOptions,
     table_dims: &crate::vpx::TableDimensions,
-    fs: &dyn FileSystem,
+    out: &Output,
 ) -> Result<(), WriteError> {
-    let gameitems_dir = expanded_dir.as_ref().join("gameitems");
-    fs.create_dir_all(&gameitems_dir)?;
     let mut file_name_gen = FileNameGen::default();
     let mut files: Vec<GameItemInfoJson> = Vec::with_capacity(gameitems.len());
     let mut files_to_write: Vec<(String, usize)> = Vec::with_capacity(gameitems.len());
@@ -88,41 +85,33 @@ pub(super) fn write_gameitems<P: AsRef<Path>>(
         };
         files.push(gameitem_info);
 
-        let gameitem_path = gameitems_dir.join(&file_name_json);
-        if fs.exists(&gameitem_path) {
+        let gameitem_path = Path::new(GAMEITEMS_DIR).join(&file_name_json);
+        if out.exists(&gameitem_path) {
             return Err(WriteError::Io(io::Error::new(
                 io::ErrorKind::AlreadyExists,
-                format!("GameItem file already exists: {}", gameitem_path.display()),
+                format!(
+                    "GameItem file already exists: {}",
+                    out.path(&gameitem_path).display()
+                ),
             )));
         }
 
         files_to_write.push((file_name, idx));
     }
 
-    let gameitems_index_path = expanded_dir.as_ref().join("gameitems.json");
-    let mut gameitems_index_file = fs.create_buffered_file(&gameitems_index_path)?;
-    serde_json::to_writer_pretty(&mut gameitems_index_file, &files)?;
-    gameitems_index_file.flush()?;
-
-    let gameitems_ref = gameitems;
-    let gameitems_dir_clone = gameitems_dir.clone();
+    out.write_json(Path::new("gameitems.json"), || files)?;
 
     let write_item = |(file_name, idx): &(String, usize)| -> Result<(), WriteError> {
-        let file_name_json = format!("{}.json", file_name);
-        let path = gameitems_dir_clone.join(&file_name_json);
-        let gameitem = &gameitems_ref[*idx];
+        let path = Path::new(GAMEITEMS_DIR).join(format!("{}.json", file_name));
+        let gameitem = &gameitems[*idx];
 
-        let json_bytes = serde_json::to_vec_pretty(gameitem).map_err(WriteError::Json)?;
-        fs.write_file(&path, &json_bytes)?;
+        out.write_with(&path, || {
+            serde_json::to_vec_pretty(gameitem)
+                .map(Cow::Owned)
+                .map_err(WriteError::Json)
+        })?;
 
-        write_gameitem_binaries(
-            &gameitems_dir_clone,
-            gameitem,
-            file_name,
-            options,
-            table_dims,
-            fs,
-        )?;
+        write_gameitem_binaries(gameitem, file_name, table_dims, out)?;
 
         Ok(())
     };

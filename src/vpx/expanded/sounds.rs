@@ -3,20 +3,15 @@
 use crate::filesystem::FileSystem;
 use crate::vpx::sound::{SoundData, SoundDataJson, read_sound, write_sound};
 use log::info;
+use std::borrow::Cow;
 use std::collections::HashSet;
-use std::io::{self, Write};
+use std::io;
 use std::path::Path;
 
-use super::WriteError;
 use super::util::{read_json, sanitize_filename};
+use super::{Output, SOUNDS_DIR, WriteError};
 
-pub(super) fn write_sounds<P: AsRef<Path>>(
-    sounds: &[SoundData],
-    expanded_dir: &P,
-    fs: &dyn FileSystem,
-) -> Result<(), WriteError> {
-    let sounds_index_path = expanded_dir.as_ref().join("sounds.json");
-    let mut sounds_index_file = fs.create_buffered_file(&sounds_index_path)?;
+pub(super) fn write_sounds(sounds: &[SoundData], out: &Output) -> Result<(), WriteError> {
     let mut sound_names_lower: HashSet<String> = HashSet::new();
     let mut sound_names_dupe_counter = 0;
     let mut json_sounds = Vec::with_capacity(sounds.len());
@@ -50,25 +45,22 @@ pub(super) fn write_sounds<P: AsRef<Path>>(
             (file_name, sound)
         })
         .collect();
-    serde_json::to_writer_pretty(&mut sounds_index_file, &json_sounds)?;
-    sounds_index_file.flush()?;
+    out.write_json(Path::new("sounds.json"), || json_sounds)?;
 
-    let sounds_dir = expanded_dir.as_ref().join("sounds");
-    fs.create_dir_all(&sounds_dir)?;
     sounds.iter().try_for_each(|(sound_file_name, sound)| {
-        let sound_path = sounds_dir.join(sound_file_name);
-        if !fs.exists(&sound_path) {
-            let mut file = fs.create_file(&sound_path)?;
-            file.write_all(&write_sound(sound))
-        } else {
-            Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                format!(
-                    "Two sounds with the same name detected, should not happen: {}",
-                    sound_path.display()
-                ),
-            ))
-        }
+        let sound_path = Path::new(SOUNDS_DIR).join(sound_file_name);
+        out.write_with(&sound_path, || {
+            if out.exists(&sound_path) {
+                return Err(WriteError::Io(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    format!(
+                        "Two sounds with the same name detected, should not happen: {}",
+                        out.path(&sound_path).display()
+                    ),
+                )));
+            }
+            Ok(Cow::Owned(write_sound(sound)))
+        })
     })?;
     Ok(())
 }
