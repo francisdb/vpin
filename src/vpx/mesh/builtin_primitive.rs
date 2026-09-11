@@ -63,7 +63,7 @@ pub fn effective_primitive_mesh(primitive: &Primitive) -> Result<Option<ReadMesh
             }
         }
     } else {
-        if primitive.compressed_vertices_data.is_some() {
+        if primitive.compressed_vertices_data.is_some() || primitive.vertices_data.is_some() {
             warn!(
                 "Primitive '{}' has use_3d_mesh=false but stale mesh data is present; using builtin",
                 primitive.name

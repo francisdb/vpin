@@ -1001,6 +1001,8 @@ fn mesh_change(original: &Primitive, modified: &Primitive) -> Option<Leaf> {
 fn same_mesh(original: &Primitive, modified: &Primitive) -> bool {
     if original.compressed_vertices_data == modified.compressed_vertices_data
         && original.compressed_indices_data == modified.compressed_indices_data
+        && original.vertices_data == modified.vertices_data
+        && original.indices_data == modified.indices_data
     {
         return true;
     }

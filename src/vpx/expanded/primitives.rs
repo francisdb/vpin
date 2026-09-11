@@ -54,6 +54,9 @@ use tracing::instrument;
 struct MeshReadResult {
     vertices_len: usize,
     indices_len: usize,
+    /// The vertices and indices as the vpx stores them, uncompressed
+    vertices: Vec<u8>,
+    indices: Vec<u8>,
     compressed_vertices: Vec<u8>,
     compressed_indices: Vec<u8>,
 }
@@ -629,11 +632,17 @@ pub(super) fn read_gameitem_binaries(
                 );
             }
             primitive.num_vertices = Some(vertices_from_file);
-            primitive.compressed_vertices_len = Some(result.compressed_vertices.len() as u32);
-            primitive.compressed_vertices_data = Some(result.compressed_vertices);
             primitive.num_indices = Some(indices_from_file);
-            primitive.compressed_indices_len = Some(result.compressed_indices.len() as u32);
-            primitive.compressed_indices_data = Some(result.compressed_indices);
+            if primitive.vertices_data.is_some() {
+                // the json marked a mesh the file stored uncompressed
+                primitive.vertices_data = Some(result.vertices);
+                primitive.indices_data = Some(result.indices);
+            } else {
+                primitive.compressed_vertices_len = Some(result.compressed_vertices.len() as u32);
+                primitive.compressed_vertices_data = Some(result.compressed_vertices);
+                primitive.compressed_indices_len = Some(result.compressed_indices.len() as u32);
+                primitive.compressed_indices_data = Some(result.compressed_indices);
+            }
         }
 
         // Check for animation frames - try OBJ first, then GLB
@@ -724,6 +733,8 @@ fn read_obj_and_compress(fs: &dyn FileSystem, obj_path: &Path) -> io::Result<Mes
     Ok(MeshReadResult {
         vertices_len,
         indices_len,
+        vertices: read_result.vpx_encoded_vertices.to_vec(),
+        indices: vpx_encoded_indices.to_vec(),
         compressed_vertices,
         compressed_indices,
     })
@@ -764,6 +775,8 @@ fn read_gltf_and_compress(
     Ok(MeshReadResult {
         vertices_len,
         indices_len,
+        vertices: vpx_vertices.to_vec(),
+        indices: vpx_indices.to_vec(),
         compressed_vertices,
         compressed_indices,
     })

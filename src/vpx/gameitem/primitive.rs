@@ -310,6 +310,14 @@ pub struct Primitive {
     ///
     /// BIFF tag: `M3CI`
     pub compressed_indices_data: Option<Vec<u8>>,
+    /// The vertices as vpinball builds from before 2015 stored them:
+    /// uncompressed, 32 bytes each (`M3DX`). Later builds write
+    /// [`compressed_vertices_data`](Self::compressed_vertices_data) instead,
+    /// and a primitive carries one of the two
+    pub vertices_data: Option<Vec<u8>>,
+    /// The indices as those builds stored them: uncompressed (`M3DI`), two
+    /// bytes each, or four when there are more than 65535 vertices
+    pub indices_data: Option<Vec<u8>>,
 
     /// Per-frame compressed lengths for animation sequences. The
     /// outer `Vec` is one entry per frame; matching tags appear
@@ -467,6 +475,8 @@ impl Default for Primitive {
             num_indices: None,
             compressed_indices_len: None,
             compressed_indices_data: None,
+            vertices_data: None,
+            indices_data: None,
             compressed_animation_vertices_len: None,
             compressed_animation_vertices_data: None,
             depth_bias: 0.0,
@@ -525,6 +535,10 @@ struct PrimitiveJson {
     min_aa_bound: Option<Vertex3D>,
     max_aa_bound: Option<Vertex3D>,
     mesh_file_name: Option<String>,
+    /// The file stored the mesh uncompressed, as vpinball builds from
+    /// before 2015 did, and assembling writes it back that way
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mesh_uncompressed: Option<bool>,
     depth_bias: f32,
     add_blend: Option<bool>,
     use_depth_mask: Option<bool>,
@@ -573,10 +587,28 @@ pub struct ReadMesh {
 
 impl Primitive {
     pub fn read_mesh(&self) -> Result<Option<ReadMesh>, WriteError> {
-        if let Some(vertices_data) = &self.compressed_vertices_data {
-            if let Some(indices_data) = &self.compressed_indices_data {
-                let raw_vertices = decompress_mesh_data(vertices_data)?;
-                let indices = decompress_mesh_data(indices_data)?;
+        let (raw_vertices, indices) = match (
+            &self.compressed_vertices_data,
+            &self.compressed_indices_data,
+            &self.vertices_data,
+            &self.indices_data,
+        ) {
+            (Some(vertices), Some(indices), _, _) => (
+                decompress_mesh_data(vertices)?,
+                decompress_mesh_data(indices)?,
+            ),
+            // stored uncompressed by builds from before 2015
+            (None, None, Some(vertices), Some(indices)) => (vertices.clone(), indices.clone()),
+            (None, None, None, None) => return Ok(None),
+            _ => {
+                return Err(WriteError::Io(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("Primitive {} has vertices but no indices", self.name),
+                )));
+            }
+        };
+        {
+            {
                 let calculated_num_vertices = raw_vertices.len() / BYTES_PER_VERTEX;
                 let expected_vertices = self.num_vertices.unwrap_or(0) as usize;
                 if calculated_num_vertices != expected_vertices {
@@ -617,14 +649,7 @@ impl Primitive {
                 let indices = raw_indices_to_indices(indices, bytes_per_index);
 
                 Ok(Some(ReadMesh { vertices, indices }))
-            } else {
-                Err(WriteError::Io(io::Error::new(
-                    io::ErrorKind::NotFound,
-                    format!("Primitive {} has vertices but no indices", self.name),
-                )))
             }
-        } else {
-            Ok(None)
         }
     }
 
@@ -683,6 +708,7 @@ impl PrimitiveJson {
             min_aa_bound: primitive.min_aa_bound,
             max_aa_bound: primitive.max_aa_bound,
             mesh_file_name: primitive.mesh_file_name.clone(),
+            mesh_uncompressed: primitive.vertices_data.is_some().then_some(true),
             // num_vertices: primitive.num_vertices,
             // compressed_vertices: primitive.compressed_vertices_len,
             //compressed_vertices_data: primitive.m3cx.clone(),
@@ -743,13 +769,17 @@ impl PrimitiveJson {
             min_aa_bound: self.min_aa_bound,
             max_aa_bound: self.max_aa_bound,
             mesh_file_name: self.mesh_file_name.clone(),
-            num_vertices: None,                       //self.num_vertices,
-            compressed_vertices_len: None,            //self.compressed_vertices,
-            compressed_vertices_data: None,           //self.m3cx.clone(),
-            num_indices: None,                        //self.num_indices,
-            compressed_indices_len: None,             //self.compressed_indices,
-            compressed_indices_data: None,            //self.m3ci.clone(),
-            compressed_animation_vertices_len: None,  //self.compressed_animation_vertices.clone(),
+            num_vertices: None,             //self.num_vertices,
+            compressed_vertices_len: None,  //self.compressed_vertices,
+            compressed_vertices_data: None, //self.m3cx.clone(),
+            num_indices: None,              //self.num_indices,
+            compressed_indices_len: None,   //self.compressed_indices,
+            compressed_indices_data: None,  //self.m3ci.clone(),
+            // an empty vector marks a mesh the file stored uncompressed; the
+            // expanded reader fills it from the mesh file
+            vertices_data: self.mesh_uncompressed.unwrap_or(false).then(Vec::new),
+            indices_data: self.mesh_uncompressed.unwrap_or(false).then(Vec::new),
+            compressed_animation_vertices_len: None, //self.compressed_animation_vertices.clone(),
             compressed_animation_vertices_data: None, //self.compressed_animation_vertices_data.clone(),
             depth_bias: self.depth_bias,
             add_blend: self.add_blend,
@@ -952,6 +982,9 @@ impl BiffRead for Primitive {
                 // [BiffIndices("M3CI", IsCompressed = true, Pos = 45)]
                 // [BiffAnimation("M3AX", IsCompressed = true, Pos = 47 )]
                 // public Mesh Mesh = new Mesh();
+                "M3DX" => {
+                    primitive.vertices_data = Some(reader.get_record_data(false)?);
+                }
                 "M3CX" => {
                     primitive.compressed_vertices_data = Some(reader.get_record_data(false)?);
                 }
@@ -960,6 +993,9 @@ impl BiffRead for Primitive {
                 }
                 "M3CJ" => {
                     primitive.compressed_indices_len = Some(reader.get_u32()?);
+                }
+                "M3DI" => {
+                    primitive.indices_data = Some(reader.get_record_data(false)?);
                 }
                 "M3CI" => {
                     primitive.compressed_indices_data = Some(reader.get_record_data(false)?);
@@ -1124,6 +1160,9 @@ impl BiffWrite for Primitive {
         if let Some(m3cx) = &self.compressed_vertices_data {
             writer.write_tagged_data("M3CX", m3cx);
         }
+        if let Some(m3dx) = &self.vertices_data {
+            writer.write_tagged_data("M3DX", m3dx);
+        }
         if let Some(num_indices) = &self.num_indices {
             writer.write_tagged_u32("M3FN", *num_indices);
         }
@@ -1132,6 +1171,9 @@ impl BiffWrite for Primitive {
         }
         if let Some(m3ci) = &self.compressed_indices_data {
             writer.write_tagged_data("M3CI", m3ci);
+        }
+        if let Some(m3di) = &self.indices_data {
+            writer.write_tagged_data("M3DI", m3di);
         }
 
         // these should come in pairs
@@ -1360,6 +1402,69 @@ mod tests {
     use pretty_assertions::assert_eq;
     use rand::RngExt;
 
+    /// A triangle as a build from before 2015 stored it: raw vertices and
+    /// raw two byte indices, no compression
+    fn uncompressed_triangle() -> Primitive {
+        let mut vertices = Vec::new();
+        for (x, y) in [(0.0f32, 0.0f32), (1.0, 0.0), (0.0, 1.0)] {
+            let mut vertex = [0u8; 32];
+            vertex[0..4].copy_from_slice(&x.to_le_bytes());
+            vertex[4..8].copy_from_slice(&y.to_le_bytes());
+            // a unit normal so the decoded vertex is finite
+            vertex[20..24].copy_from_slice(&1.0f32.to_le_bytes());
+            vertices.extend_from_slice(&vertex);
+        }
+        let indices: Vec<u8> = [0u16, 1, 2].iter().flat_map(|i| i.to_le_bytes()).collect();
+        Primitive {
+            name: "Old".to_string(),
+            use_3d_mesh: true,
+            num_vertices: Some(3),
+            vertices_data: Some(vertices),
+            num_indices: Some(3),
+            indices_data: Some(indices),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn an_uncompressed_mesh_round_trips_as_stored() {
+        let primitive = uncompressed_triangle();
+        let mut writer = BiffWriter::new();
+        Primitive::biff_write(&primitive, &mut writer);
+        let data = writer.get_data().to_vec();
+        let mut reader = BiffReader::new(&data);
+        let read = Primitive::biff_read(&mut reader).unwrap();
+        assert_eq!(read, primitive);
+        assert!(read.compressed_vertices_data.is_none());
+        // the records keep vpinball's order, the vertices before the index count
+        let text = String::from_utf8_lossy(&data);
+        let m3dx = text.find("M3DX").unwrap();
+        let m3fn = text.find("M3FN").unwrap();
+        let m3di = text.find("M3DI").unwrap();
+        assert!(m3dx < m3fn && m3fn < m3di);
+    }
+
+    #[test]
+    fn an_uncompressed_mesh_decodes() {
+        let mesh = uncompressed_triangle().read_mesh().unwrap().unwrap();
+        assert_eq!(mesh.vertices.len(), 3);
+        assert_eq!(mesh.indices.len(), 1);
+        assert_eq!(mesh.vertices[1].vertex.x, 1.0);
+    }
+
+    #[test]
+    fn the_json_marks_an_uncompressed_mesh() {
+        let json = PrimitiveJson::from_primitive(&uncompressed_triangle());
+        assert_eq!(json.mesh_uncompressed, Some(true));
+        let back = json.to_primitive();
+        assert_eq!(back.vertices_data, Some(Vec::new()));
+        assert_eq!(back.indices_data, Some(Vec::new()));
+
+        let json = PrimitiveJson::from_primitive(&Primitive::default());
+        assert_eq!(json.mesh_uncompressed, None);
+        assert_eq!(json.to_primitive().vertices_data, None);
+    }
+
     #[test]
     fn test_write_read() {
         let mut rng = rand::rng();
@@ -1407,6 +1512,8 @@ mod tests {
             num_indices: Some(10),
             compressed_indices_len: Some(11),
             compressed_indices_data: Some(vec![2, 3, 4, 5, 6, 7, 8, 9, 10]),
+            vertices_data: None,
+            indices_data: None,
             compressed_animation_vertices_len: Some(vec![9, 8]),
             compressed_animation_vertices_data: Some(vec![
                 vec![4, 5, 6, 7, 8, 9, 10, 11, 12],
