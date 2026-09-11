@@ -151,6 +151,18 @@ pub enum Finding {
     UnusedImage { image: String, bytes: usize },
     /// A sound the script never names; it only adds to the file
     UnusedSound { sound: String, bytes: usize },
+    /// Images or sounds whose stored bytes are identical under different
+    /// names, one finding per group in the order the table lists them.
+    /// For images the parts and the script can point at one name and the
+    /// copies go. For sounds that is only true when the script does not
+    /// rely on the names: `PlaySound` with `usesame` updates the instance
+    /// playing under that name, so a rolling ball sound needs one name
+    /// per ball that can roll at once. The common case, one sample stored
+    /// once per ball slot, is by design up to that number, and tables
+    /// often carry many more copies than balls they can have in play.
+    /// Sharing one sample between names is asked of vpinball in
+    /// <https://github.com/vpinball/vpinball/issues/3939>
+    SameAssetData { kind: NameKind, names: Vec<String> },
     /// Materials no game item or the playfield uses and the script never
     /// names. They cost nothing in the file, but they clutter the material
     /// list; reported once per table since most tables carry dozens
@@ -279,7 +291,9 @@ impl Finding {
             Finding::DeprecatedControllerProperty { .. } | Finding::HugeMesh { .. } => {
                 Severity::Info
             }
-            Finding::UnusedImage { .. } | Finding::UnusedSound { .. } => Severity::Suggestion,
+            Finding::UnusedImage { .. }
+            | Finding::UnusedSound { .. }
+            | Finding::SameAssetData { .. } => Severity::Suggestion,
             Finding::UnusedMaterials { .. } => Severity::Info,
             Finding::ImageDimensionMismatch { .. } => Severity::Info,
             Finding::NegativeLightIntensity { .. } | Finding::StereoTableSound { .. } => {
@@ -498,6 +512,16 @@ impl fmt::Display for Finding {
             Finding::MissingSound { sound } => {
                 write!(f, "script names missing sound {sound:?}")
             }
+            Finding::SameAssetData { kind, names } => write!(
+                f,
+                "{} {kind}s hold the same data: {}",
+                names.len(),
+                names
+                    .iter()
+                    .map(|name| format!("{name:?}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
             Finding::UnusedSound { sound, bytes } => write!(
                 f,
                 "sound {sound:?} ({} KB) is not named in the script",
@@ -706,6 +730,7 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
     check_deprecated_properties(vpx, &mut findings);
     check_deprecated_controller_properties(vpx, &mut findings);
     check_unused_assets(vpx, &mut findings);
+    check_same_asset_data(vpx, &mut findings);
     check_sound_calls(vpx, &mut findings);
 
     check_duplicates(
@@ -1707,6 +1732,65 @@ fn check_sound_calls(vpx: &VPX, findings: &mut Vec<Finding>) {
 /// from parts the scan cannot follow escapes this, so images and sounds
 /// are suggestions; materials, which only clutter, are one informational
 /// finding per table.
+/// Images and sounds stored more than once under different names, by
+/// their encoded bytes; a copy under the same name is a duplicate name
+fn check_same_asset_data(vpx: &VPX, findings: &mut Vec<Finding>) {
+    fn report<'a>(
+        kind: NameKind,
+        assets: impl Iterator<Item = (&'a str, &'a [u8])>,
+        findings: &mut Vec<Finding>,
+    ) {
+        // the names per content, in the order the table lists them
+        let mut by_data: Vec<Vec<&str>> = Vec::new();
+        let mut index: HashMap<&[u8], usize> = HashMap::new();
+        for (name, data) in assets {
+            if data.is_empty() {
+                continue;
+            }
+            match index.get(data) {
+                Some(&at) => by_data[at].push(name),
+                None => {
+                    index.insert(data, by_data.len());
+                    by_data.push(vec![name]);
+                }
+            }
+        }
+        for names in by_data {
+            let mut distinct: Vec<String> = Vec::new();
+            for name in names {
+                if !distinct.iter().any(|seen| seen.eq_ignore_ascii_case(name)) {
+                    distinct.push(name.to_string());
+                }
+            }
+            if distinct.len() > 1 {
+                findings.push(Finding::SameAssetData {
+                    kind,
+                    names: distinct,
+                });
+            }
+        }
+    }
+    report(
+        NameKind::Image,
+        vpx.images.iter().map(|image| {
+            let data: &[u8] = match (&image.jpeg, &image.bits) {
+                (Some(jpeg), _) => &jpeg.data,
+                (None, Some(bits)) => &bits.lzw_compressed_data,
+                (None, None) => &[],
+            };
+            (image.name.as_str(), data)
+        }),
+        findings,
+    );
+    report(
+        NameKind::Sound,
+        vpx.sounds
+            .iter()
+            .map(|sound| (sound.name.as_str(), sound.data.as_slice())),
+        findings,
+    );
+}
+
 fn check_unused_assets(vpx: &VPX, findings: &mut Vec<Finding>) {
     let literals = script_literals(&vpx.gamedata.code.string);
     let gamedata = &vpx.gamedata;
@@ -2447,6 +2531,45 @@ mod tests {
     }
 
     #[test]
+    fn identical_assets_under_different_names_are_a_suggestion() {
+        let mut vpx = clean_vpx();
+        let png = |name: &str, data: &[u8]| crate::vpx::image::ImageData {
+            name: name.to_string(),
+            jpeg: Some(crate::vpx::image::ImageDataJpeg {
+                path: format!("C:\\{name}.png"),
+                name: name.to_string(),
+                internal_name: None,
+                data: data.to_vec(),
+            }),
+            ..Default::default()
+        };
+        // two copies of one image, a case only duplicate name, one different
+        vpx.images.push(png("flash_a", b"AAAA"));
+        vpx.images.push(png("flash_b", b"AAAA"));
+        vpx.images.push(png("FLASH_A", b"AAAA"));
+        vpx.images.push(png("other", b"BBBB"));
+        // the script names them so nothing is unused
+        vpx.gamedata.code.string =
+            "PlaySound \"x\": a = \"flash_a\" & \"flash_b\" & \"other\"".to_string();
+        let findings: Vec<Finding> = audit(&vpx)
+            .into_iter()
+            .filter(|finding| matches!(finding, Finding::SameAssetData { .. }))
+            .collect();
+        assert_eq!(
+            findings,
+            vec![Finding::SameAssetData {
+                kind: NameKind::Image,
+                names: vec!["flash_a".to_string(), "flash_b".to_string()],
+            }]
+        );
+        assert_eq!(findings[0].severity(), Severity::Suggestion);
+        assert_eq!(
+            findings[0].to_string(),
+            "2 images hold the same data: \"flash_a\", \"flash_b\""
+        );
+    }
+
+    #[test]
     fn duplicate_names_are_reported_case_insensitively() {
         let mut vpx = clean_vpx();
         for name in ["ding", "DING", "Ding"] {
@@ -2702,7 +2825,11 @@ mod tests {
         vpx.gamedata.images_size = 2;
         vpx.gamedata.image = "right".to_string();
         vpx.gamedata.ball_image = "resized".to_string();
-        let findings = audit(&vpx);
+        let findings = audit(&vpx)
+            .into_iter()
+            // the fixtures reuse one payload for several names
+            .filter(|finding| !matches!(finding, Finding::SameAssetData { .. }))
+            .collect::<Vec<_>>();
         assert_eq!(
             findings,
             vec![Finding::ImageDimensionMismatch {
@@ -3096,7 +3223,11 @@ mod tests {
                 .to_string(),
         );
 
-        let findings = audit(&vpx);
+        let findings = audit(&vpx)
+            .into_iter()
+            // the fixtures reuse one payload for several names
+            .filter(|finding| !matches!(finding, Finding::SameAssetData { .. }))
+            .collect::<Vec<_>>();
         assert_eq!(
             findings,
             vec![
