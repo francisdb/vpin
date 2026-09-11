@@ -785,6 +785,45 @@ mod tests {
     }
 
     #[test]
+    fn an_uncompressed_mesh_is_assembled_uncompressed() -> TestResult {
+        // a triangle as builds from before 2015 stored it: raw records
+        let mut vertices = Vec::new();
+        for (x, y) in [(0.0f32, 0.0f32), (1.0, 0.0), (0.0, 1.0)] {
+            let mut vertex = [0u8; 32];
+            vertex[0..4].copy_from_slice(&x.to_le_bytes());
+            vertex[4..8].copy_from_slice(&y.to_le_bytes());
+            vertex[20..24].copy_from_slice(&1.0f32.to_le_bytes());
+            vertices.extend_from_slice(&vertex);
+        }
+        let indices: Vec<u8> = [0u16, 1, 2].iter().flat_map(|i| i.to_le_bytes()).collect();
+        let primitive = Primitive {
+            name: "Old".to_string(),
+            use_3d_mesh: true,
+            num_vertices: Some(3),
+            vertices_data: Some(vertices.clone()),
+            num_indices: Some(3),
+            indices_data: Some(indices.clone()),
+            ..Default::default()
+        };
+        let vpx = VPX {
+            gameitems: vec![GameItemEnum::Primitive(Box::new(primitive))],
+            ..Default::default()
+        };
+        let fs = MemoryFileSystem::default();
+        write_fs(&vpx, &"/vpx".to_string(), &ExpandOptions::new(), &fs)?;
+
+        let read = read_fs(&"/vpx".to_string(), &fs)?;
+        let GameItemEnum::Primitive(back) = &read.gameitems[0] else {
+            panic!("expected a primitive");
+        };
+        assert_eq!(back.vertices_data, Some(vertices));
+        assert_eq!(back.indices_data, Some(indices));
+        assert_eq!(back.compressed_vertices_data, None);
+        assert_eq!(back.compressed_indices_data, None);
+        Ok(())
+    }
+
+    #[test]
     fn test_read_write() -> TestResult {
         let fs = MemoryFileSystem::default();
         let version = Version::new(1074);
@@ -820,6 +859,8 @@ mod tests {
         primitive.compressed_vertices_data = None;
         primitive.compressed_indices_len = None;
         primitive.compressed_indices_data = None;
+        primitive.vertices_data = None;
+        primitive.indices_data = None;
         primitive.compressed_animation_vertices_len = None;
         primitive.compressed_animation_vertices_data = None;
         let mut ramp: gameitem::ramp::Ramp = Faker.fake();
@@ -1053,6 +1094,8 @@ mod tests {
         primitive.compressed_vertices_data = None;
         primitive.compressed_indices_len = None;
         primitive.compressed_indices_data = None;
+        primitive.vertices_data = None;
+        primitive.indices_data = None;
         primitive.compressed_animation_vertices_len = None;
         primitive.compressed_animation_vertices_data = None;
         primitive
