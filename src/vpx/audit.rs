@@ -1740,22 +1740,27 @@ fn check_same_asset_data(vpx: &VPX, findings: &mut Vec<Finding>) {
         assets: impl Iterator<Item = (&'a str, &'a [u8])>,
         findings: &mut Vec<Finding>,
     ) {
-        // the names per content, in the order the table lists them
-        let mut by_data: Vec<Vec<&str>> = Vec::new();
-        let mut index: HashMap<&[u8], usize> = HashMap::new();
+        // The names per content, in the order the table lists them. Equal
+        // data has equal length and almost every asset in a table has a
+        // unique length, so assets are grouped by length first and the bytes
+        // are only compared within a group. Hashing every payload in full
+        // was the largest item in the audit profile on big tables.
+        let mut by_data: Vec<(&[u8], Vec<&str>)> = Vec::new();
+        let mut by_len: HashMap<usize, Vec<usize>> = HashMap::new();
         for (name, data) in assets {
             if data.is_empty() {
                 continue;
             }
-            match index.get(data) {
-                Some(&at) => by_data[at].push(name),
+            let candidates = by_len.entry(data.len()).or_default();
+            match candidates.iter().find(|&&at| by_data[at].0 == data) {
+                Some(&at) => by_data[at].1.push(name),
                 None => {
-                    index.insert(data, by_data.len());
-                    by_data.push(vec![name]);
+                    candidates.push(by_data.len());
+                    by_data.push((data, vec![name]));
                 }
             }
         }
-        for names in by_data {
+        for (_, names) in by_data {
             let mut distinct: Vec<String> = Vec::new();
             for name in names {
                 if !distinct.iter().any(|seen| seen.eq_ignore_ascii_case(name)) {
@@ -2543,14 +2548,16 @@ mod tests {
             }),
             ..Default::default()
         };
-        // two copies of one image, a case only duplicate name, one different
+        // two copies of one image, a case only duplicate name, one of the
+        // same length and one that only shares the prefix
         vpx.images.push(png("flash_a", b"AAAA"));
         vpx.images.push(png("flash_b", b"AAAA"));
         vpx.images.push(png("FLASH_A", b"AAAA"));
         vpx.images.push(png("other", b"BBBB"));
+        vpx.images.push(png("longer", b"AAAAA"));
         // the script names them so nothing is unused
         vpx.gamedata.code.string =
-            "PlaySound \"x\": a = \"flash_a\" & \"flash_b\" & \"other\"".to_string();
+            "PlaySound \"x\": a = \"flash_a\" & \"flash_b\" & \"other\" & \"longer\"".to_string();
         let findings: Vec<Finding> = audit(&vpx)
             .into_iter()
             .filter(|finding| matches!(finding, Finding::SameAssetData { .. }))
