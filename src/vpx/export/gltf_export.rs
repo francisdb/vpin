@@ -602,11 +602,14 @@ fn lookup_material_opacity(vpx: &VPX, name: &str) -> Option<(bool, f32)> {
         return None;
     }
     if let Some(mats) = &vpx.gamedata.materials
-        && let Some(m) = mats.iter().find(|m| m.name.eq_ignore_ascii_case(name))
+        && let Some(m) = mats
+            .iter()
+            .rev()
+            .find(|m| m.name.eq_ignore_ascii_case(name))
     {
         return Some((m.opacity_active, m.opacity));
     }
-    for m in &vpx.gamedata.materials_old {
+    for m in vpx.gamedata.materials_old.iter().rev() {
         if m.name.eq_ignore_ascii_case(name) {
             let opacity_active = (m.opacity_active_edge_alpha & 1) != 0;
             return Some((opacity_active, m.opacity));
@@ -980,6 +983,7 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                     .as_ref()
                     .and_then(|mats| {
                         mats.iter()
+                            .rev()
                             .find(|m| m.name.eq_ignore_ascii_case(&ramp.material))
                     })
                     .is_some_and(|m| m.opacity_active);
