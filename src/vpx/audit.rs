@@ -70,8 +70,10 @@ pub enum Finding {
     /// or sound is ever found: vpinball drops an exact duplicate when it
     /// loads the table and its lookups stop at the first match for one
     /// that differs in case only. A duplicate part is renamed at load,
-    /// which breaks the script's reference to it. Duplicate materials are
-    /// kept, but the editor resolves a reference by its exact name while
+    /// which breaks the script's reference to it. vpinball keeps only
+    /// the last material of a name since September 2026 and drops the
+    /// others at load, so a resave loses them. Older builds keep all of
+    /// them, but the editor resolves a reference by its exact name while
     /// the player looks it up case insensitively and takes the last one
     /// loaded, so the two render it differently
     DuplicateName {
@@ -394,7 +396,7 @@ impl fmt::Display for Finding {
                     }
                     NameKind::Collection => "the script reaches only one of them",
                     NameKind::Material => {
-                        "the editor uses the exact match and the player the last one"
+                        "vpinball keeps only the last one, older builds render it differently in the editor and the player"
                     }
                 };
                 write!(f, "{count} {kind}s share the name {name:?}, {consequence}")
@@ -2640,7 +2642,7 @@ mod tests {
         );
         assert_eq!(
             findings[0].to_string(),
-            "2 materials share the name \"Apron\", the editor uses the exact match and the player the last one"
+            "2 materials share the name \"Apron\", vpinball keeps only the last one, older builds render it differently in the editor and the player"
         );
 
         // a table from before 10.8 only has the old list

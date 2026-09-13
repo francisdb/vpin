@@ -342,13 +342,17 @@ impl<'a> WriterState<'a> {
     /// tables. Without the legacy fallback, pre-10.8 VPX files appear to
     /// have no materials at all and every `Kd`/`Ks` ends up at the
     /// "material missing" defaults (white / black) instead of the
-    /// authored colours.
+    /// authored colours. Like vpinball, the last material of a name wins
+    /// when several differ in case only.
     fn material_view_by_name(&self, name: &str) -> Option<MaterialView> {
         if name.is_empty() {
             return None;
         }
         if let Some(ref mats) = self.vpx.gamedata.materials
-            && let Some(m) = mats.iter().find(|m| m.name.eq_ignore_ascii_case(name))
+            && let Some(m) = mats
+                .iter()
+                .rev()
+                .find(|m| m.name.eq_ignore_ascii_case(name))
         {
             return Some(MaterialView {
                 base_color: m.base_color,
@@ -358,7 +362,7 @@ impl<'a> WriterState<'a> {
                 is_metal: m.type_ == MaterialType::Metal,
             });
         }
-        for m in &self.vpx.gamedata.materials_old {
+        for m in self.vpx.gamedata.materials_old.iter().rev() {
             if m.name.eq_ignore_ascii_case(name) {
                 return Some(MaterialView {
                     base_color: m.base_color,
