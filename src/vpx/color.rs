@@ -3,6 +3,15 @@ use serde::{Deserialize, Serialize};
 
 use super::biff::BiffWriter;
 
+/// An RGB color as vpinball stores it.
+///
+/// vpinball keeps colors as Windows GDI `COLORREF` values, `0x00BBGGRR`
+/// with red in the low byte, and writes them little endian, so a color
+/// record holds the bytes R, G, B and one unused byte, in that order.
+/// The unused byte should be 0 but files in the wild carry other values
+/// (255 and 128 are seen); this library keeps it so that a table round
+/// trips unchanged, and its JSON form is `#rrggbb`, or `xx#rrggbb` when
+/// the unused byte is not 0.
 #[derive(Debug, PartialEq, Clone, Copy)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Color {
@@ -11,24 +20,30 @@ pub struct Color {
     /// And since we want to round-trip the data, we need to store it in the json format as well.
     /// Seems to contain 255 or 128 in the wild.
     unused: u8,
+    /// Red component, 0 to 255; the low byte of the `COLORREF`.
     pub r: u8,
+    /// Green component, 0 to 255; the second byte of the `COLORREF`.
     pub g: u8,
+    /// Blue component, 0 to 255; the third byte of the `COLORREF`.
     pub b: u8,
 }
 
 impl Color {
+    /// Pure red, `#ff0000`, with the unused byte 0.
     pub const RED: Color = Color {
         r: 255,
         g: 0,
         b: 0,
         unused: 0,
     };
+    /// Black, `#000000`, with the unused byte 0.
     pub const BLACK: Color = Color {
         r: 0,
         g: 0,
         b: 0,
         unused: 0,
     };
+    /// White, `#ffffff`, with the unused byte 0.
     pub const WHITE: Color = Color {
         r: 255,
         g: 255,
@@ -100,6 +115,9 @@ impl<'de> Deserialize<'de> for Color {
 }
 
 impl Color {
+    /// A color from a `0xRRGGBB` value with red in the high byte, the
+    /// order of HTML colors; the inverse of [`Color::to_rgb`]. The unused
+    /// byte is 0.
     pub fn from_rgb(arg: u32) -> Self {
         let r = ((arg >> 16) & 0xff) as u8;
         let g = ((arg >> 8) & 0xff) as u8;
@@ -107,6 +125,8 @@ impl Color {
         Color { r, g, b, unused: 0 }
     }
 
+    /// The color as `0xRRGGBB` with red in the high byte, the order of
+    /// HTML colors. The unused byte is dropped.
     pub fn to_rgb(&self) -> u32 {
         let r = (self.r as u32) << 16;
         let g = (self.g as u32) << 8;
@@ -114,9 +134,12 @@ impl Color {
         r | g | b
     }
 
-    // Representation used in vpinball is Windows GDI COLORREF
-    // https://learn.microsoft.com/en-us/windows/win32/gdi/colorref
-    // 0x00bbggrr
+    /// The color as the Windows GDI `COLORREF` vpinball uses:
+    /// `0xXXBBGGRR` with red in the low byte and the unused byte as the
+    /// high byte `XX`, which is 0 for a well formed color. This is the
+    /// value vpinball's scripting interface exposes and the little endian
+    /// `u32` of a color record. See
+    /// <https://learn.microsoft.com/en-us/windows/win32/gdi/colorref>.
     pub fn to_win_color(&self) -> u32 {
         let unused = (self.unused as u32) << 24;
         let r = self.r as u32;
@@ -125,6 +148,9 @@ impl Color {
         unused | r | g | b
     }
 
+    /// A color from a Windows GDI `COLORREF` (`0xXXBBGGRR`, red in the low
+    /// byte); the inverse of [`Color::to_win_color`]. The high byte is
+    /// kept as the unused byte.
     pub fn from_win_color(arg: u32) -> Self {
         let unused = ((arg >> 24) & 0xff) as u8;
         let r = (arg & 0xff) as u8;
@@ -133,6 +159,8 @@ impl Color {
         Color { r, g, b, unused }
     }
 
+    /// A color from its red, green and blue components, with the unused
+    /// byte 0.
     pub fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b, unused: 0 }
     }

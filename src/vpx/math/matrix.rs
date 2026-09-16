@@ -15,16 +15,24 @@ use std::ops::Mul;
 /// 3D vector for positions and directions
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Vertex3D {
+    /// X component.
     pub x: f32,
+    /// Y component.
     pub y: f32,
+    /// Z component.
     pub z: f32,
 }
 
 impl Vertex3D {
+    /// Build a vertex from its three components.
     pub const fn new(x: f32, y: f32, z: f32) -> Self {
         Self { x, y, z }
     }
 
+    /// Scale in place to unit length. A zero vector is left untouched
+    /// instead of dividing by zero, like vpinball's
+    /// `Vertex3Ds::NormalizeSafe` (which also skips lengths below
+    /// `FLT_MIN`; this one only guards against an exact zero).
     pub fn normalize(&mut self) {
         let len = (self.x * self.x + self.y * self.y + self.z * self.z).sqrt();
         if len > 0.0 {
@@ -35,11 +43,15 @@ impl Vertex3D {
         }
     }
 
+    /// By-value form of [`Self::normalize`]: returns the unit-length copy,
+    /// or the input unchanged when it is zero.
     pub fn normalized(mut self) -> Self {
         self.normalize();
         self
     }
 
+    /// Euclidean length, `sqrt(x*x + y*y + z*z)`; vpinball's
+    /// `Vertex3Ds::Length`.
     pub fn length(&self) -> f32 {
         (self.x * self.x + self.y * self.y + self.z * self.z).sqrt()
     }

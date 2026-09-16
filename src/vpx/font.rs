@@ -6,10 +6,35 @@ use std::io;
 
 // TODO comment here a vpx file that contains font data
 
+/// A font file embedded in the table, mirroring vpinball's `PinFont`.
+///
+/// vpinball stores every font as its own `Font<n>` stream in the table
+/// storage, written as a `PinBinary`: the records `NAME`, `PATH`, `SIZE`
+/// and `DATA` followed by `ENDB` (`PinBinary::Save` and `PinBinary::Load`
+/// in `src/parts/pinbinary.cpp`). On load vpinball writes the data to a
+/// temporary `.ttf` file and registers it with Windows
+/// (`PinFont::Register`, `AddFontResource`) so that textboxes and decals
+/// can use the font by one of its [`face_names`](FontData::face_names).
 #[derive(PartialEq)]
 pub struct FontData {
+    /// Name of the font binary (`PinBinary::m_name`): the file name,
+    /// without extension, of the file it was imported from.
+    ///
+    /// BIFF tag `NAME`
     pub name: String,
-    pub path: String, // patho of original file for easy re-importing
+    /// Path of the file the font was imported from (`PinBinary::m_path`),
+    /// kept for re-importing; this library uses its extension when
+    /// extracting the font.
+    ///
+    /// BIFF tag `PATH`
+    pub path: String,
+    /// The bytes of the font file, unchanged.
+    ///
+    /// Stored as a `SIZE` record holding the length followed by a `DATA`
+    /// record holding the raw bytes; vpinball needs `SIZE` first to
+    /// allocate the buffer.
+    ///
+    /// BIFF tags `SIZE` and `DATA`
     pub data: Vec<u8>,
 }
 
@@ -94,6 +119,7 @@ pub fn read(input: &[u8]) -> io::Result<FontData> {
     Ok(FontData { name, path, data })
 }
 
+/// Writes a font as the bytes of a `Font<n>` stream.
 pub fn write(font_data: &FontData) -> Vec<u8> {
     let mut writer = BiffWriter::new();
     writer.write_tagged_string("NAME", &font_data.name);

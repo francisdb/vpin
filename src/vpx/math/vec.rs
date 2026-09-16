@@ -9,11 +9,14 @@ use std::f32::consts::PI;
 /// A 2D vector helper used for geometry calculations
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Vec2 {
+    /// X component.
     pub x: f32,
+    /// Y component.
     pub y: f32,
 }
 
 impl Vec2 {
+    /// Build a vector from its two components.
     pub fn new(x: f32, y: f32) -> Self {
         Vec2 { x, y }
     }
@@ -50,10 +53,15 @@ impl std::ops::Mul<f32> for Vec2 {
 }
 
 impl Vec2 {
+    /// Euclidean length, `sqrt(x*x + y*y)`; vpinball's `Vertex2D::Length`.
     pub fn length(&self) -> f32 {
         (self.x * self.x + self.y * self.y).sqrt()
     }
 
+    /// Scale to unit length. A zero vector comes back as zero instead of
+    /// dividing by zero, like vpinball's `Vertex2D::NormalizeSafe` (which
+    /// also leaves lengths below `FLT_MIN` untouched; this one only guards
+    /// against an exact zero).
     pub fn normalize(self) -> Self {
         let len = self.length();
         if len == 0.0 {
@@ -70,12 +78,16 @@ impl Vec2 {
 /// A 3D vector helper used for geometry calculations
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Vec3 {
+    /// X component.
     pub x: f32,
+    /// Y component.
     pub y: f32,
+    /// Z component.
     pub z: f32,
 }
 
 impl Vec3 {
+    /// Build a vector from its three components.
     pub fn new(x: f32, y: f32, z: f32) -> Self {
         Vec3 { x, y, z }
     }
@@ -115,10 +127,16 @@ impl std::ops::Mul<f32> for Vec3 {
 }
 
 impl Vec3 {
+    /// Euclidean length, `sqrt(x*x + y*y + z*z)`; vpinball's
+    /// `Vertex3Ds::Length`.
     pub fn length(&self) -> f32 {
         (self.x * self.x + self.y * self.y + self.z * self.z).sqrt()
     }
 
+    /// Scale to unit length. A zero vector comes back as zero instead of
+    /// dividing by zero, like vpinball's `Vertex3Ds::NormalizeSafe` (which
+    /// also leaves lengths below `FLT_MIN` untouched; this one only guards
+    /// against an exact zero).
     pub fn normalize(self) -> Self {
         let len = self.length();
         if len == 0.0 {
@@ -136,6 +154,11 @@ impl Vec3 {
         }
     }
 
+    /// Cross product `a x b`, the same component formula as vpinball's
+    /// `CrossProduct` in `src/math/vector.h`. The result is perpendicular to
+    /// both inputs; which side it points to follows the handedness of the
+    /// frame the inputs live in (left-handed for raw VPX coordinates, see
+    /// [`AxisConvention`](crate::vpx::units::AxisConvention)).
     pub fn cross(a: &Vec3, b: &Vec3) -> Vec3 {
         Vec3 {
             x: a.y * b.z - a.z * b.y,
@@ -149,6 +172,11 @@ impl Vec3 {
 /// Used for flipper and other mesh transformations
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Mat3 {
+    /// Row-major cells, `m[row][column]`, for the column-vector convention
+    /// [`Self::multiply_vector`] uses (`result[row] = m[row] . v`). This is
+    /// the transpose of vpinball's row-vector `Matrix3D` layout, so
+    /// [`Self::rotate_z`] stores `-sin` at `m[0][1]` where vpinball's
+    /// `SetRotateZ` stores it at `_21`; both rotate a vector the same way.
     pub m: [[f32; 3]; 3],
 }
 

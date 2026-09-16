@@ -10,16 +10,36 @@ use std::{
 use crate::vpx::le::{ReadLe, WriteLe};
 use cfb::{CompoundFile, Stream};
 
+/// The file format version of a table.
+///
+/// vpinball writes its `CURRENT_FILE_FORMAT_VERSION`
+/// (`src/core/vpversion.h`) as a little endian `u32` when it saves a
+/// table, and reads it back before anything else to know how to parse
+/// the rest. The number is the release version with the dots removed:
+/// 10.7.2 is 1072 and 10.8.1 is 1081. Versions 601 and 1000 were written
+/// by the VP10 beta builds of 2013 to 2015. vpinball refuses files
+/// below 100 (Tech Beta 3 and older) and warns when a file is newer
+/// than itself. Displays as `10.81`. Default: 1080.
+///
+/// Stream `GameStg/Version`
 #[derive(Debug, Clone, PartialEq)]
 pub struct Version(u32);
 
 impl Version {
+    /// Parses the number form of a version, for example `1080`; the
+    /// inverse of [`Version::to_u32_string`].
+    ///
+    /// # Errors
+    ///
+    /// Fails when `version` is not an unsigned decimal integer.
     pub fn parse(version: &str) -> Result<Version, ParseIntError> {
         // TODO can we make more precise assumptions about the format?
         let version = version.parse::<u32>()?;
         Ok(Version(version))
     }
 
+    /// The version as its decimal number, for example `1080`, as opposed
+    /// to the `10.8` of `Display`.
     pub fn to_u32_string(&self) -> String {
         self.0.to_string()
     }
@@ -32,10 +52,12 @@ impl Default for Version {
 }
 
 impl Version {
+    /// A version from its number, for example 1081 for 10.8.1.
     pub fn new(version: u32) -> Self {
         Version(version)
     }
 
+    /// The version number as stored in the file, for example 1081.
     pub fn u32(&self) -> u32 {
         self.0
     }

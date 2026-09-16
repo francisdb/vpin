@@ -2,19 +2,33 @@ use encoding_rs::mem::decode_latin1;
 use log::warn;
 use std::borrow::Cow;
 
-/// The enum used inside vpinball to represent a vertex in the vpx format (Vertex3D_NoTex2).
-/// <https://github.com/vpinball/vpinball/blob/9bb99ca92ff7e7eb37c9fb42dd4dcc206b814132/def.h#L165C7-L181>
+/// A mesh vertex with position, normal and one set of texture
+/// coordinates, mirroring vpinball's `Vertex3D_NoTex2` (`src/core/def.h`).
 ///
-/// This struct is used for serializing and deserializing in the vpinball C++ code
+/// This is the vertex layout of a primitive mesh: vpinball writes the
+/// struct as is, eight little endian `f32` in field order (32 bytes per
+/// vertex), into the `M3CX` (compressed) or `M3DX` (older, uncompressed)
+/// record. The mesh readers, the OBJ and glTF exporters and the wasm
+/// build all exchange vertices in this form; see
+/// [`VertexWrapper`](crate::vpx::gameitem::primitive::VertexWrapper) for
+/// the byte-exact wrapper used when reading.
 #[derive(Debug, PartialEq, Clone)]
 pub struct Vertex3dNoTex2 {
+    /// X coordinate of the position.
     pub x: f32,
+    /// Y coordinate of the position.
     pub y: f32,
+    /// Z coordinate of the position.
     pub z: f32,
+    /// X component of the vertex normal.
     pub nx: f32,
+    /// Y component of the vertex normal.
     pub ny: f32,
+    /// Z component of the vertex normal.
     pub nz: f32,
+    /// Horizontal texture coordinate (u), 0 to 1 across the texture.
     pub tu: f32,
+    /// Vertical texture coordinate (v), 0 to 1 down the texture.
     pub tv: f32,
 }
 
@@ -51,20 +65,42 @@ impl Vertex3dNoTex2 {
     }
 }
 
+/// The byte encoding a string had in the file, kept so that it can be
+/// written back with the same bytes. See [`StringWithEncoding`].
 #[derive(Debug, PartialEq, Clone)]
 pub enum StringEncoding {
+    /// One byte per character (ISO-8859-1), as older vpinball versions
+    /// wrote strings. Picked when the bytes in the file are not valid
+    /// UTF-8. Characters outside Latin-1 cannot be stored and are written
+    /// as `?`.
     Latin1,
+    /// UTF-8, as current vpinball writes strings. Picked when the bytes in
+    /// the file are valid UTF-8, and the encoding of every string created
+    /// from Rust.
     Utf8,
 }
 
-/// Because we want to have a exact copy after reading/writing a vpx file we need to
-/// keep old latin1 encoding if we read that from a file.
+/// A string together with the encoding it had in the file.
+///
+/// vpinball wrote strings as Latin-1 before it switched to UTF-8, and a
+/// table must round trip byte for byte, so a string read from a file
+/// remembers which of the two it was and is written back the same way.
+/// Used for the table script ([`GameData::code`]) and by the BIFF reader
+/// for any string whose encoding must be preserved.
+///
+/// [`GameData::code`]: crate::vpx::gamedata::GameData::code
 #[derive(Debug, PartialEq, Clone)]
 pub struct StringWithEncoding {
+    /// How the bytes were, or will be, stored in the file:
+    /// [`StringEncoding::Latin1`] when the bytes read were not valid UTF-8,
+    /// [`StringEncoding::Utf8`] otherwise and for strings created from
+    /// Rust.
     pub encoding: StringEncoding,
+    /// The decoded text.
     pub string: String,
 }
 impl StringWithEncoding {
+    /// A UTF-8 string from anything that converts into a `String`.
     pub fn new(string: impl Into<String>) -> StringWithEncoding {
         StringWithEncoding {
             encoding: StringEncoding::Utf8,
@@ -72,6 +108,7 @@ impl StringWithEncoding {
         }
     }
 
+    /// A UTF-8 string copied from `s`.
     pub fn from(s: &str) -> StringWithEncoding {
         StringWithEncoding {
             encoding: StringEncoding::Utf8,
@@ -79,6 +116,7 @@ impl StringWithEncoding {
         }
     }
 
+    /// An empty UTF-8 string, the script of a new table.
     pub fn empty() -> StringWithEncoding {
         StringWithEncoding {
             encoding: StringEncoding::Utf8,

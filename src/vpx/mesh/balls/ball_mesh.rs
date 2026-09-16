@@ -7,10 +7,28 @@
 
 use crate::vpx::model::Vertex3dNoTex2;
 
+/// Number of vertices in [`BALL_VERTICES`]: 181, vpinball's
+/// `basicBallMidNumVertices`. This is the medium-detail ball vpinball
+/// renders by default; its 108-vertex low-detail variant is not carried.
 pub const BALL_NUM_VERTICES: usize = 181;
+/// Number of indices in [`BALL_INDICES`]: 960, or 320 triangles x 3,
+/// vpinball's `basicBallMidNumFaces`.
 pub const BALL_NUM_INDICES: usize = 960;
 #[rustfmt::skip]
 #[allow(clippy::approx_constant)]
+/// Vertices of the unit ball sphere, vpinball's `basicBallMid` from
+/// `src/meshes/ballMesh.h`, in the same order.
+///
+/// Positions lie on a sphere of radius 1.0 around the origin, with vertex 0
+/// at the top pole `(0, 0, 1)` and the bottom pole at `(0, 0, -1)`; scale
+/// them by the ball radius and translate to the ball position (the crate's
+/// ball mesh builder scales only and leaves the position to the node
+/// transform). Normals are unit length and point outwards. The `tu`/`tv`
+/// pairs cover roughly `0.005..0.993` by `0.079..0.921` and are the
+/// coordinates vpinball's ball shader uses to sample the ball decal
+/// texture (`tex_ball_decal` in `fs_ball.sc`); the ball image itself is
+/// applied as an equirectangular reflection map from the normal, not from
+/// these UVs.
 pub static BALL_VERTICES: [Vertex3dNoTex2; BALL_NUM_VERTICES] = [
     Vertex3dNoTex2 { x: 0.000000, y: 0.000000, z: 1.000000, nx: -0.000000, ny: -0.000000, nz: 1.000000, tu: 0.677600, tv: 0.920600 },
     Vertex3dNoTex2 { x: 0.273267, y: 0.000000, z: 0.961938, nx: 0.271300, ny: 0.000000, nz: 0.962500, tu: 0.593500, tv: 0.846500 },
@@ -195,6 +213,9 @@ pub static BALL_VERTICES: [Vertex3dNoTex2; BALL_NUM_VERTICES] = [
     Vertex3dNoTex2 { x: 0.655436, y: -0.149044, z: -0.740398, nx: 0.658900, ny: -0.147400, nz: -0.737600, tu: 0.563500, tv: 0.276800 },
 ];
 
+/// Triangle list for [`BALL_VERTICES`]: 320 triangles of three indices
+/// each, vpinball's `basicBallMidIndices` in the same order, so the
+/// winding is the one vpinball renders in its left-handed frame.
 pub static BALL_INDICES: [u16; BALL_NUM_INDICES] = [
     153, 154, 155, 154, 157, 155, 154, 156, 157, 156, 160, 157, 163, 164, 154, 156, 159, 160, 159,
     99, 160, 154, 166, 156, 164, 166, 154, 159, 100, 99, 98, 99, 100, 156, 169, 159, 166, 169, 156,

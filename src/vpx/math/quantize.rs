@@ -49,12 +49,23 @@ fn precise_divide(a: f32, b: f32) -> f32 {
     (a as f64 / b as f64) as f32
 }
 
+/// Turn a stored percentage back into a fraction: `min(i / 100, 1.0)`.
+///
+/// vpinball's `dequantizeUnsignedPercent`. Values above 100 clamp to 1.0.
+/// Inverse of [`quantize_unsigned_percent`] for the 101 integers it can
+/// produce; for an arbitrary fraction the round trip is lossy.
 #[inline]
 pub fn dequantize_unsigned_percent(i: u32) -> f32 {
     const N: f32 = 100.0;
     precise_divide(i as f32, N).min(1.0)
 }
 
+/// Store a fraction as a percentage: `min(trunc(x * 101), 100)`.
+///
+/// vpinball's `quantizeUnsignedPercent`. The multiplier is 101 rather than
+/// 100 so that 1.0 lands on 100 after truncation instead of needing a
+/// rounding step; the `min` keeps anything above 1.0 at 100. `x` must not
+/// be negative: debug builds assert on it, release builds saturate it to 0.
 #[inline]
 pub fn quantize_unsigned_percent(x: f32) -> u32 {
     const N: f32 = 100.0;
@@ -65,6 +76,16 @@ pub fn quantize_unsigned_percent(x: f32) -> u32 {
     (x * NP1).min(N) as u32
 }
 
+/// Store a fraction in `bits` bits, chosen at run time:
+/// `min(trunc(x * 2^bits), 2^bits - 1)`.
+///
+/// Same formula as [`quantize_unsigned`] but with the width as a value, for
+/// records that pack several fields of different widths into one byte, such
+/// as the material `edge_alpha` (7 bits, shifted next to the opacity flag)
+/// and `thickness` and `glossy_image_lerp` (8 bits). `bits` must be at most
+/// 8 for the result to fit; `x` must not be negative (debug assert, release
+/// builds saturate to 0). Only 2^bits distinct fractions survive the
+/// round trip through [`dequantize_u8`].
 #[inline]
 pub fn quantize_u8(bits: u8, x: f32) -> u8 {
     let n = (1 << bits) - 1;
@@ -73,18 +94,45 @@ pub fn quantize_u8(bits: u8, x: f32) -> u8 {
     ((x * (np1 as f32)).min(n as f32)) as u8
 }
 
+/// Turn a `bits`-wide stored value back into a fraction:
+/// `min(i / (2^bits - 1), 1.0)`.
+///
+/// Inverse of [`quantize_u8`] for the values it produces (that direction of
+/// the round trip is exact); see there for which records use it. `bits`
+/// must be at most 8 for `i` to hold the full range.
 #[inline]
 pub fn dequantize_u8(bits: u8, i: u8) -> f32 {
     let n = (1 << bits) - 1;
     precise_divide(i as f32, n as f32).min(1.0)
 }
 
+/// Turn a `BITS`-wide stored value back into a fraction:
+/// `min(i / (2^BITS - 1), 1.0)`.
+///
+/// vpinball's `dequantizeUnsigned<bits>` from `src/math/math.h`. Values at
+/// or above `2^BITS - 1` come back as 1.0. `BITS` must be below 32. Inverse
+/// of [`quantize_unsigned`] for the integers it produces; that direction of
+/// the round trip is exact (`i / (2^BITS - 1) * 2^BITS` truncates back to
+/// `i`), while a fraction that did not come out of a dequantize does not
+/// survive quantizing in general.
 #[inline]
 pub fn dequantize_unsigned<const BITS: u8>(i: u32) -> f32 {
     let n = (1u32 << BITS) - 1;
     precise_divide(i as f32, n as f32).min(1.0)
 }
 
+/// Store a fraction in `BITS` bits: `min(trunc(x * 2^BITS), 2^BITS - 1)`.
+///
+/// vpinball's `quantizeUnsigned<bits>` from `src/math/math.h`. The
+/// multiplier is `2^BITS` rather than `2^BITS - 1` so that 1.0 lands on the
+/// maximum after truncation (0.5 gives 128 for 8 bits, not 127); the `min`
+/// keeps anything at or above 1.0 at the maximum. `BITS` must be below 32
+/// and `x` must not be negative: debug builds assert on it, release builds
+/// saturate it to 0. Only `2^BITS` distinct fractions survive the round trip
+/// through [`dequantize_unsigned`].
+///
+/// Used with 8 bits for the `DILI` (disable lighting top) record of walls,
+/// primitives and hit targets and for the playfield reflection strength.
 #[inline]
 pub fn quantize_unsigned<const BITS: u8>(x: f32) -> u32 {
     let n = (1u32 << BITS) - 1;
@@ -93,11 +141,16 @@ pub fn quantize_unsigned<const BITS: u8>(x: f32) -> u32 {
     (x * (np1 as f32)).min(n as f32) as u32
 }
 
+/// [`dequantize_unsigned`] fixed at 8 bits: `min(i / 255, 1.0)`, so 255 is
+/// 1.0 and 0 is 0.0.
 #[inline]
 pub fn dequantize_unsigned_8(i: u8) -> f32 {
     dequantize_unsigned::<8>(i as u32)
 }
 
+/// [`quantize_unsigned`] fixed at 8 bits: `min(trunc(x * 256), 255)`, so
+/// 1.0 is 255, 0.5 is 128 and 0.0 is 0. `x` must not be negative (debug
+/// assert, release builds saturate to 0).
 #[inline]
 pub fn quantize_unsigned_8(x: f32) -> u8 {
     quantize_unsigned::<8>(x) as u8

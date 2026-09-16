@@ -2,6 +2,17 @@ use super::biff::{self, BiffReader, BiffWriter};
 use log::warn;
 use std::io;
 
+/// The names of the custom table info properties, in file order.
+///
+/// A table author can add their own name/value pairs to the table info.
+/// vpinball stores the names as one `CUST` record each in the
+/// `GameStg/CustomInfoTags` stream, and each value as a
+/// `TableInfo/<name>` stream next to the standard ones
+/// (`PinTable::SaveCustomInfo` and `PinTable::LoadCustomInfo` in
+/// `src/parts/pintable.cpp`). The values live in
+/// [`TableInfo::properties`](crate::vpx::tableinfo::TableInfo::properties).
+///
+/// Stream `GameStg/CustomInfoTags`
 pub type CustomInfoTags = Vec<String>;
 
 /// Read the `CustomInfoTags` stream.
@@ -31,6 +42,8 @@ pub fn read_custominfotags(tags_data: &[u8]) -> io::Result<CustomInfoTags> {
     Ok(tags)
 }
 
+/// Writes the tag names as the bytes of the `GameStg/CustomInfoTags`
+/// stream, one `CUST` record each.
 pub fn write_custominfotags(tags: &CustomInfoTags) -> Vec<u8> {
     let mut writer = BiffWriter::new();
     for tag in tags {

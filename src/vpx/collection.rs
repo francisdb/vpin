@@ -3,13 +3,51 @@ use log::warn;
 use std::io;
 // TODO comment here a vpx file that contains font data
 
+/// A named group of parts, mirroring vpinball's `Collection`.
+///
+/// A script addresses a collection by name to act on all of its parts at
+/// once, and a collection can receive the events of its parts. vpinball
+/// stores every collection as its own `Collection<n>` stream in the table
+/// storage (`Collection::Save` and `Collection::Load` in
+/// `src/parts/Collection.cpp`); the parts are stored by name and resolved
+/// after the whole table is loaded.
 #[derive(PartialEq, Debug)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Collection {
+    /// Name of the collection, the identifier a script uses for it
+    /// (`Collection::m_wzName`). Stored as a wide string.
+    ///
+    /// BIFF tag `NAME`
     pub name: String,
+    /// Names of the parts in the collection, in collection order. vpinball
+    /// writes one record per part and looks the parts up by name once the
+    /// table is loaded. Stored as wide strings.
+    ///
+    /// BIFF tag `ITEM`, one per part
     pub items: Vec<String>,
+    /// Whether the events of the parts are also raised on the collection
+    /// (`Collection::m_fireEvents`), so a script can handle them in one
+    /// `<collection>_<event>` handler that receives the part index. The
+    /// "fire events for this collection" checkbox of the collection
+    /// manager. Default: `false`.
+    ///
+    /// BIFF tag `EVNT`
     pub fire_events: bool,
+    /// Whether the parts stop raising their own events
+    /// (`Collection::m_stopSingleEvents`), so that only the collection
+    /// event fires; vpinball clears the part's `m_singleEvents` when any
+    /// of its collections has this set. The "suppress single events"
+    /// checkbox of the collection manager. Default: `false`.
+    ///
+    /// BIFF tag `SSNG`
     pub stop_single_events: bool,
+    /// Whether the parts are treated as one group
+    /// (`Collection::m_groupElements`): the editor selects them together,
+    /// and the renderer draws grouped primitives as a single mesh when
+    /// they share material and texture. Default: the editor setting
+    /// "group elements in collection", which vpinball ships as `true`.
+    ///
+    /// BIFF tag `GREL`
     pub group_elements: bool,
 }
 
@@ -58,6 +96,7 @@ pub fn read(input: &[u8]) -> io::Result<Collection> {
     })
 }
 
+/// Writes a collection as the bytes of a `Collection<n>` stream.
 pub fn write(collection: &Collection) -> Vec<u8> {
     let mut writer = BiffWriter::new();
     writer.write_tagged_wide_string("NAME", &collection.name);

@@ -203,7 +203,11 @@ impl AxisConvention {
 /// Handedness of a 3D coordinate frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Handedness {
+    /// Left-handed, as VPX's own frame ([`AxisConvention::ZUpLeftHanded`]).
     Left,
+    /// Right-handed, as the OBJ and glTF frames
+    /// ([`AxisConvention::ZDownRightHanded`] and
+    /// [`AxisConvention::YUpRightHanded`]).
     Right,
 }
 

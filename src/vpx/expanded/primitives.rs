@@ -547,7 +547,15 @@ fn replace_vertices(
     Ok(full_vertices)
 }
 
+/// Extra [`BytesMut`] writer used when packing vertex data into the binary
+/// form primitives store.
 pub trait BytesMutExt {
+    /// Append `value` as a little-endian `f32`, writing `0.0` in place of a
+    /// NaN.
+    ///
+    /// Some tables carry NaN normals (the `BM_pAirDuctGate` primitive of
+    /// DieHard_272.vpx has one for `nx`); vpinball on Windows writes those
+    /// out as `0.0`, and this keeps the crate's output identical.
     fn put_f32_le_nan_as_zero(&mut self, value: f32);
 }
 
