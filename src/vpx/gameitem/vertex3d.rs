@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 /// The records vpinball writes as a plain `vec3` (12 bytes), such as the
 /// ball position, are read and written by the items themselves.
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Copy)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Vertex3D {
     /// X coordinate in VP units.
     pub x: f32,

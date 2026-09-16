@@ -16,7 +16,7 @@ use tracing::instrument;
 /// Values this library does not know are kept in [`OutputTarget::Other`] so the
 /// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum OutputTarget {
     /// `SNDOUT_TABLE`: the table (playfield) audio device.
     Table,
@@ -28,9 +28,9 @@ pub enum OutputTarget {
     /// (0 or 1): it would write the same bytes as the named variant and
     /// read back as it, breaking round-trip equality. The library itself
     /// never does (`From` normalizes known values to their named
-    /// variants), and the test faker is constrained to the genuinely
+    /// variants), and the test strategy is constrained to the genuinely
     /// unknown range for the same reason.
-    Other(#[cfg_attr(test, dummy(faker = "2..=u8::MAX"))] u8),
+    Other(#[cfg_attr(test, proptest(strategy = "2..=u8::MAX"))] u8),
 }
 impl From<u8> for OutputTarget {
     fn from(value: u8) -> Self {
@@ -612,10 +612,94 @@ fn write_wave_form(writer: &mut BiffWriter, wave_form: &WaveForm) {
 #[cfg(test)]
 mod test {
     use super::*;
-    use fake::{Fake, Faker};
+    use crate::vpx::test_support::latin1_string;
     use pretty_assertions::assert_eq;
+    use proptest::prelude::*;
 
-    // TODO add test for non-wav sound
+    fn any_wave_form() -> impl Strategy<Value = WaveForm> {
+        (
+            any::<u16>(),
+            any::<u16>(),
+            any::<u32>(),
+            any::<u32>(),
+            any::<u16>(),
+            any::<u16>(),
+            any::<u16>(),
+        )
+            .prop_map(
+                |(
+                    format_tag,
+                    channels,
+                    samples_per_sec,
+                    avg_bytes_per_sec,
+                    block_align,
+                    bits_per_sample,
+                    cb_size,
+                )| WaveForm {
+                    format_tag,
+                    channels,
+                    samples_per_sec,
+                    avg_bytes_per_sec,
+                    block_align,
+                    bits_per_sample,
+                    cb_size,
+                },
+            )
+    }
+
+    /// A sound as the stream can hold it: the strings are stored as
+    /// Latin-1, and only a wav sound carries a wave form, any other format
+    /// reads back the default one.
+    fn any_sound_data() -> impl Strategy<Value = SoundData> {
+        let wav = (latin1_string(), any_wave_form())
+            .prop_map(|(stem, wave_form)| (format!("{stem}.wav"), wave_form));
+        let other = latin1_string().prop_map(|stem| (format!("{stem}.mp3"), WaveForm::default()));
+        (
+            latin1_string(),
+            prop_oneof![wav, other],
+            proptest::collection::vec(any::<u8>(), 0..64),
+            latin1_string(),
+            any::<u32>(),
+            any::<u32>(),
+            any::<u32>(),
+            any::<OutputTarget>(),
+        )
+            .prop_map(
+                |(
+                    name,
+                    (path, wave_form),
+                    data,
+                    internal_name,
+                    fade,
+                    volume,
+                    balance,
+                    output_target,
+                )| {
+                    SoundData {
+                        name,
+                        path,
+                        wave_form,
+                        data,
+                        internal_name,
+                        fade,
+                        volume,
+                        balance,
+                        output_target,
+                    }
+                },
+            )
+    }
+
+    proptest! {
+        #[test]
+        fn any_sound_round_trips_through_its_stream(sound in any_sound_data()) {
+            let version = Version::new(1074);
+            let mut writer = BiffWriter::new();
+            write(&version, &sound, &mut writer);
+            let read = read(&version, &mut BiffReader::new(writer.get_data())).unwrap();
+            prop_assert_eq!(sound, read);
+        }
+    }
 
     #[test]
     fn test_write_read_biff_wav() {
@@ -636,7 +720,7 @@ mod test {
             fade: 1,
             volume: 2,
             balance: 3,
-            output_target: Faker.fake(),
+            output_target: OutputTarget::Table,
         };
         let mut writer = BiffWriter::new();
         write(&Version::new(1074), &sound, &mut writer);
@@ -657,7 +741,7 @@ mod test {
             fade: 1,
             volume: 2,
             balance: 3,
-            output_target: Faker.fake(),
+            output_target: OutputTarget::Backglass,
         };
         let mut writer = BiffWriter::new();
         write(&Version::new(1083), &sound, &mut writer);

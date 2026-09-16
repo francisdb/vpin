@@ -13,7 +13,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// Values this library does not know are kept in [`DecalType::Other`] so the
 /// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum DecalType {
     /// `DecalText`: renders the decal text with its font.
     Text,
@@ -25,7 +25,7 @@ pub enum DecalType {
     /// it would write the same bytes as the named variant and read back as
     /// it, breaking round-trip equality. The library itself never does
     /// (`From` normalizes known values to their named variants).
-    Other(u32),
+    Other(#[cfg_attr(test, proptest(strategy = "2..=u32::MAX"))] u32),
 }
 impl From<u32> for DecalType {
     fn from(value: u32) -> Self {
@@ -121,7 +121,7 @@ mod decal_type_open_enum_tests {
 /// Values this library does not know are kept in [`SizingType::Other`] so the
 /// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum SizingType {
     /// `AutoSize`: width and height follow the content.
     AutoSize,
@@ -135,7 +135,7 @@ pub enum SizingType {
     /// it would write the same bytes as the named variant and read back as
     /// it, breaking round-trip equality. The library itself never does
     /// (`From` normalizes known values to their named variants).
-    Other(u32),
+    Other(#[cfg_attr(test, proptest(strategy = "3..=u32::MAX"))] u32),
 }
 impl From<u32> for SizingType {
     fn from(value: u32) -> Self {
@@ -249,7 +249,7 @@ mod sizing_type_open_enum_tests {
 /// The record is written by `Decal::Save` and read by `Decal::Load` in
 /// vpinball's `src/parts/decal.cpp`.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Decal {
     /// Position of the decal center in table coordinates (VPU).
     ///
@@ -289,12 +289,14 @@ pub struct Decal {
     /// material only. Default: empty.
     ///
     /// BIFF tag `IMAG`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub image: String,
     /// The name of the surface (wall, ramp, or empty for playfield) that this decal sits on.
     /// Used to determine the Z height of the decal via `GetSurfaceHeight()`.
     /// The decal is rendered at surface_height + 0.2 units.
     ///
     /// BIFF tag: `SURF`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub surface: String,
     /// Name of the decal, its identifier in the editor and in scripts.
     /// Stored as a wide string.
@@ -308,6 +310,7 @@ pub struct Decal {
     /// empty.
     ///
     /// BIFF tag `TEXT`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub text: String,
     /// Whether the decal shows its [`text`](Self::text) or its
     /// [`image`](Self::image), see [`DecalType`]. Default:
@@ -322,6 +325,7 @@ pub struct Decal {
     /// the dynamic pass. Default: empty (the default material).
     ///
     /// BIFF tag `MATR`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub material: String,
     /// Color of the text of a text decal (`FontColor` in script); ignored
     /// for image decals.
@@ -388,6 +392,10 @@ pub struct Decal {
     /// follows. `None` when the record is absent.
     ///
     /// BIFF tag `LANR`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub editor_layer_name: Option<String>,
     /// Whether the item is shown in the editor (the 10.7 layer visibility,
     /// stored per item). Editor-only; has no runtime effect. `None` when
@@ -403,6 +411,10 @@ pub struct Decal {
     /// is not in a group).
     ///
     /// BIFF tag `GRUP`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub part_group_name: Option<String>,
 }
 impl_shared_attributes!(Decal);
@@ -628,59 +640,45 @@ impl BiffWrite for Decal {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
-    use fake::{Fake, Faker};
+    use crate::vpx::test_support::debug;
+    use proptest::prelude::*;
 
     use super::*;
     use pretty_assertions::assert_eq;
     use serde_json::Value;
 
-    #[test]
-    fn test_write_read() {
-        // values not equal to the defaults
-        let decal = Decal {
-            center: Vertex2D::new(1.0, 2.0),
-            width: 3.0,
-            height: 4.0,
-            rotation: 5.0,
-            image: "image".to_owned(),
-            surface: "surface".to_owned(),
-            name: "name".to_owned(),
-            text: "text".to_owned(),
-            decal_type: Faker.fake(),
-            material: "material".to_owned(),
-            color: Faker.fake(),
-            sizing_type: Faker.fake(),
-            vertical_text: true,
-            backglass: true,
-            font: Font::default(),
-            is_locked: true,
-            editor_layer: Some(3),
-            editor_layer_name: Some("editor_layer_name".to_owned()),
-            editor_layer_visibility: Some(false),
-            part_group_name: Some("part_group_name".to_owned()),
-        };
-        let mut writer = BiffWriter::new();
-        Decal::biff_write(&decal, &mut writer);
-        let decal_read = Decal::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
-        assert_eq!(decal, decal_read);
+    proptest! {
+        #[test]
+        fn any_decal_round_trips_through_its_records(decal in any::<Decal>()) {
+            let mut writer = BiffWriter::new();
+            Decal::biff_write(&decal, &mut writer);
+            let read = Decal::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
+            prop_assert_eq!(debug(&decal), debug(&read));
+        }
     }
 
-    #[test]
-    fn test_write_read_json() {
-        // values not equal to the defaults
-        let decal: Decal = Faker.fake();
-        let decal_json = DecalJson::from_decal(&decal);
-        let json = serde_json::to_string(&decal_json).unwrap();
-        let decal_read_json: DecalJson = serde_json::from_str(&json).unwrap();
-        let mut decal_read = decal_read_json.to_decal();
-        // json does not store the shared fields
-        decal_read.is_locked = decal.is_locked;
-        decal_read.editor_layer = decal.editor_layer;
-        decal_read
-            .editor_layer_name
-            .clone_from(&decal.editor_layer_name);
-        decal_read.editor_layer_visibility = decal.editor_layer_visibility;
-        assert_eq!(decal, decal_read);
+    proptest! {
+        #[test]
+        fn any_decal_round_trips_through_json(
+            decal in any::<Decal>().prop_filter("json cannot carry NaN or infinity", |decal| {
+                [decal.center.x, decal.center.y, decal.width, decal.height, decal.rotation]
+                    .iter()
+                    .all(|value| value.is_finite())
+            })
+        ) {
+            let decal_json = DecalJson::from_decal(&decal);
+            let json = serde_json::to_string(&decal_json).unwrap();
+            let decal_read_json: DecalJson = serde_json::from_str(&json).unwrap();
+            let mut decal_read = decal_read_json.to_decal();
+            // json does not store the shared fields
+            decal_read.is_locked = decal.is_locked;
+            decal_read.editor_layer = decal.editor_layer;
+            decal_read
+                .editor_layer_name
+                .clone_from(&decal.editor_layer_name);
+            decal_read.editor_layer_visibility = decal.editor_layer_visibility;
+            prop_assert_eq!(debug(&decal), debug(&decal_read));
+        }
     }
 
     #[test]

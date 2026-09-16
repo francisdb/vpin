@@ -85,7 +85,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// Values this library does not know are kept in [`ShadowMode::Other`] so the
 /// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum ShadowMode {
     /// No shadow casting. Uses the `bulb_light` shader technique.
     None,
@@ -98,7 +98,7 @@ pub enum ShadowMode {
     /// it would write the same bytes as the named variant and read back as
     /// it, breaking round-trip equality. The library itself never does
     /// (`From` normalizes known values to their named variants).
-    Other(u32),
+    Other(#[cfg_attr(test, proptest(strategy = "2..=u32::MAX"))] u32),
 }
 impl From<u32> for ShadowMode {
     fn from(value: u32) -> Self {
@@ -202,7 +202,7 @@ mod shadow_mode_open_enum_tests {
 /// Values this library does not know are kept in [`Fader::Other`] so the
 /// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum Fader {
     /// Instant on/off - intensity jumps directly to the target value.
     None,
@@ -230,7 +230,7 @@ pub enum Fader {
     /// it would write the same bytes as the named variant and read back as
     /// it, breaking round-trip equality. The library itself never does
     /// (`From` normalizes known values to their named variants).
-    Other(u32),
+    Other(#[cfg_attr(test, proptest(strategy = "3..=u32::MAX"))] u32),
 }
 impl From<u32> for Fader {
     fn from(value: u32) -> Self {
@@ -339,7 +339,7 @@ mod fader_open_enum_tests {
 /// The record is written by `Light::Save` and read by `Light::Load` in
 /// vpinball's `src/parts/light.cpp`.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Light {
     /// The name of the light, used for identification and referencing in scripts.
     /// BIFF tag: `NAME` (wide string)
@@ -429,6 +429,7 @@ pub struct Light {
     /// `"10"` (alternating on/off)
     ///
     /// BIFF tag: `BPAT`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub blink_pattern: String,
     /// Texture image name displayed on the light's polygon mesh (Classic mode only).
     ///
@@ -465,6 +466,7 @@ pub struct Light {
     /// Empty string (no image)
     ///
     /// BIFF tag: `IMG1`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub image: String,
     /// Time in milliseconds between each step of the blink pattern.
     ///
@@ -547,6 +549,7 @@ pub struct Light {
     /// Used to determine the light's base height (z position).
     /// If empty, the light sits on the playfield.
     /// BIFF tag: SURF
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub surface: String,
     /// Whether the light is part of the desktop backdrop (the 2D backglass
     /// area of desktop mode) instead of the playfield.
@@ -787,6 +790,10 @@ pub struct Light {
     /// follows. `None` when the record is absent.
     ///
     /// BIFF tag `LANR`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub editor_layer_name: Option<String>,
     /// Whether the item is shown in the editor (the 10.7 layer visibility,
     /// stored per item). Editor-only; has no runtime effect. `None` when
@@ -802,6 +809,10 @@ pub struct Light {
     /// is not in a group).
     ///
     /// BIFF tag `GRUP`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub part_group_name: Option<String>,
 
     /// Control points of the polygon that forms the lit area, in table
@@ -1166,60 +1177,20 @@ impl BiffWrite for Light {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
-    use fake::{Fake, Faker};
+    use crate::vpx::test_support::debug;
+    use proptest::prelude::*;
 
     use super::*;
     use pretty_assertions::assert_eq;
 
-    #[test]
-    fn test_write_read() {
-        // values not equal to the defaults
-        let light = Light {
-            center: Vertex2D::new(1.0, 2.0),
-            height: Some(3.0),
-            falloff_radius: 25.0,
-            falloff_power: 3.0,
-            state_u32: 4,
-            state: Some(5.0),
-            color: Faker.fake(),
-            color2: Faker.fake(),
-            timer: TimerData {
-                is_enabled: true,
-                interval: 7,
-            },
-            blink_pattern: "test pattern".to_string(),
-            image: "test image".to_string(),
-            blink_interval: 8,
-            intensity: 9.0,
-            transmission_scale: 10.0,
-            surface: "test surface".to_string(),
-            name: "test name".to_string(),
-            is_backglass: false,
-            depth_bias: 11.0,
-            fade_speed_up: 12.0,
-            fade_speed_down: 13.0,
-            is_bulb_light: true,
-            is_image_mode: true,
-            show_bulb_mesh: false,
-            has_static_bulb_mesh: Some(false),
-            show_reflection_on_ball: false,
-            mesh_radius: 14.0,
-            bulb_modulate_vs_add: 15.0,
-            bulb_halo_height: 16.0,
-            shadows: Faker.fake(),
-            fader: Faker.fake(),
-            visible: Some(true),
-            is_locked: false,
-            editor_layer: Some(17),
-            editor_layer_name: Some("test layer".to_string()),
-            editor_layer_visibility: Some(true),
-            part_group_name: Some("test group".to_string()),
-            drag_points: vec![DragPoint::default()],
-        };
-        let mut writer = BiffWriter::new();
-        Light::biff_write(&light, &mut writer);
-        let light_read = Light::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
-        assert_eq!(light, light_read);
+    proptest! {
+        #[test]
+        fn any_light_round_trips_through_its_records(light in any::<Light>()) {
+            let mut writer = BiffWriter::new();
+            Light::biff_write(&light, &mut writer);
+            let read = Light::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
+            prop_assert_eq!(debug(&light), debug(&read));
+        }
     }
 
     #[test]

@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 /// constants below is a legitimate value, and bits this library does not
 /// know are simply kept, so the table round-trips unchanged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct VisibilityMask(pub u32);
 
 impl VisibilityMask {
@@ -85,7 +85,7 @@ mod visibility_mask_tests {
 /// Values this library does not know are kept in [`SpaceReference::Other`] so the
 /// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum SpaceReference {
     /// Relative to cabinet with playfield inclination and local coordinate system applied (usual local playfield coordinate system tailored for table design)
     Playfield,
@@ -103,7 +103,7 @@ pub enum SpaceReference {
     /// it would write the same bytes as the named variant and read back as
     /// it, breaking round-trip equality. The library itself never does
     /// (`From` normalizes known values to their named variants).
-    Other(u32),
+    Other(#[cfg_attr(test, proptest(strategy = "5..=u32::MAX"))] u32),
 }
 impl From<u32> for SpaceReference {
     fn from(value: u32) -> Self {
@@ -232,7 +232,7 @@ mod space_reference_open_enum_tests {
 /// The record is written by `PartGroup::Save` and read by
 /// `PartGroup::Load` in vpinball's `src/parts/PartGroup.cpp`.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct PartGroup {
     /// Name of the group; items reference it through their `GRUP` record.
     /// Stored as a wide string.
@@ -303,6 +303,10 @@ pub struct PartGroup {
     /// the file. Editor-only. `None` when the record is absent.
     ///
     /// BIFF tag `LANR`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub editor_layer_name: Option<String>,
     /// Whether the group is shown in the editor (the 10.7 layer
     /// visibility, stored per item). Editor-only; has no runtime effect.

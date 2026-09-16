@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 /// [`force`](Self::force) when it hits the collision circle of
 /// [`radius`](Self::radius) fast enough.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Bumper {
     /// The name of the bumper. This is used for scripting and identifying the bumper in the editor.
     /// Must be unique across all bumpers in the playfield.
@@ -77,28 +77,36 @@ pub struct Bumper {
     /// a material in the table's material list.
     ///
     /// BIFF tag: `MATR`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub cap_material: String,
     /// Material name for the base mesh (the fixed disc the bumper sits on).
     /// References a material in the table's material list.
     ///
     /// BIFF tag: `BAMA`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub base_material: String,
     /// Material name for the skirt mesh (the collar around the base that tilts
     /// toward the ball on a hit). Named "socket" here but maps to VPinball's
     /// skirt material (`m_szSkirtMaterial`).
     ///
     /// BIFF tag: `SKMA`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub socket_material: String,
     /// Material name for the ring mesh (the ring that drops on a hit). Optional
     /// (added later); an empty/absent value falls back to a default ring
     /// material.
     ///
     /// BIFF tag: `RIMA`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub ring_material: Option<String>,
     /// The name of the surface (wall, ramp, or empty for playfield) that this bumper sits on.
     /// Used to determine the Z height of the bumper via `GetSurfaceHeight()`.
     ///
     /// BIFF tag: `SURF`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub surface: String,
     /// Whether the cap mesh (the dome on top) is rendered. Default `true`.
     ///
@@ -161,6 +169,10 @@ pub struct Bumper {
     /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
     ///
     /// BIFF tag: `LANR`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub editor_layer_name: Option<String>,
     /// Whether the legacy editor layer is shown in the editor.
     /// Editor-only; has no runtime effect. `None` when absent.
@@ -168,6 +180,10 @@ pub struct Bumper {
     /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub part_group_name: Option<String>,
 }
 impl_shared_attributes!(Bumper);
@@ -470,9 +486,21 @@ impl BiffWrite for Bumper {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
+    use crate::vpx::test_support::debug;
+    use proptest::prelude::*;
 
     use super::*;
     use pretty_assertions::assert_eq;
+
+    proptest! {
+        #[test]
+        fn any_bumper_round_trips_through_its_records(bumper in any::<Bumper>()) {
+            let mut writer = BiffWriter::new();
+            Bumper::biff_write(&bumper, &mut writer);
+            let read = Bumper::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
+            prop_assert_eq!(debug(&bumper), debug(&read));
+        }
+    }
 
     #[test]
     fn test_write_read() {

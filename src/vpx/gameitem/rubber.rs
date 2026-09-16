@@ -10,7 +10,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// [`drag_points`](Self::drag_points) at [`height`](Self::height), with
 /// its own elasticity, friction and scatter.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Rubber {
     /// Top surface height of the rubber above its base, in VP units.
     /// Used for the visual mesh (the rendered rubber sits at this height);
@@ -44,6 +44,7 @@ pub struct Rubber {
     /// Name of the material used to render the rubber.
     ///
     /// BIFF tag: `MATR`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub material: String,
     /// Name of the rubber, used for referencing in scripts.
     /// Stored as a wide (UTF-16) string.
@@ -54,6 +55,7 @@ pub struct Rubber {
     /// HDR images (.exr/.hdr) are rejected by the editor for this slot.
     ///
     /// BIFF tag: `IMAG`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub image: String,
     /// Bounciness of the rubber. Only applied when `overwrite_physics` is true;
     /// otherwise the value from `physics_material` is used instead.
@@ -141,6 +143,10 @@ pub struct Rubber {
     /// is true (the rubber's own values are used instead).
     ///
     /// BIFF tag: `MAPH`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub physics_material: Option<String>,
     /// Whether to use this rubber's own `elasticity`, `elasticity_falloff`,
     /// `friction` and `scatter` instead of those from `physics_material`.
@@ -166,6 +172,10 @@ pub struct Rubber {
     /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
     ///
     /// BIFF tag: `LANR`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub editor_layer_name: Option<String>,
     /// Whether the legacy editor layer is shown in the editor.
     /// Editor-only; has no runtime effect. `None` when absent.
@@ -173,6 +183,10 @@ pub struct Rubber {
     /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub part_group_name: Option<String>,
 
     /// Control points defining the shape's path as a sequence of
@@ -520,53 +534,18 @@ impl BiffWrite for Rubber {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
+    use crate::vpx::test_support::debug;
+    use proptest::prelude::*;
 
     use super::*;
-    use crate::vpx::gameitem::tests::RandomOption;
-    use pretty_assertions::assert_eq;
-    use rand::RngExt;
 
-    #[test]
-    fn test_write_read() {
-        let mut rng = rand::rng();
-        // values not equal to the defaults
-        let rubber: Rubber = Rubber {
-            height: 1.0,
-            hit_height: Some(2.0),
-            thickness: 3,
-            hit_event: rng.random(),
-            material: "material".to_string(),
-            timer: TimerData {
-                is_enabled: rng.random(),
-                interval: rng.random(),
-            },
-            name: "name".to_string(),
-            image: "image".to_string(),
-            elasticity: 5.0,
-            elasticity_falloff: 6.0,
-            friction: 7.0,
-            scatter: 8.0,
-            is_collidable: rng.random(),
-            is_visible: rng.random(),
-            radb: Some(9.0),
-            static_rendering: rng.random(),
-            show_in_editor: rng.random(),
-            rot_x: 9.0,
-            rot_y: 10.0,
-            rot_z: 11.0,
-            is_reflection_enabled: rng.random_option(),
-            physics_material: Some("physics_material".to_string()),
-            overwrite_physics: rng.random_option(),
-            is_locked: rng.random(),
-            editor_layer: Some(12),
-            editor_layer_name: Some("editor_layer_name".to_string()),
-            editor_layer_visibility: rng.random_option(),
-            part_group_name: Some("part_group_name".to_string()),
-            drag_points: vec![DragPoint::default()],
-        };
-        let mut writer = BiffWriter::new();
-        Rubber::biff_write(&rubber, &mut writer);
-        let rubber_read = Rubber::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
-        assert_eq!(rubber, rubber_read);
+    proptest! {
+        #[test]
+        fn any_rubber_round_trips_through_its_records(rubber in any::<Rubber>()) {
+            let mut writer = BiffWriter::new();
+            Rubber::biff_write(&rubber, &mut writer);
+            let read = Rubber::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
+            prop_assert_eq!(debug(&rubber), debug(&read));
+        }
     }
 }

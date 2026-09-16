@@ -11,7 +11,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// Values this library does not know are kept in [`RampType::Other`] so the
 /// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum RampType {
     /// `RampTypeFlat`: solid ramp with a floor and walls.
     Flat,
@@ -31,7 +31,7 @@ pub enum RampType {
     /// it would write the same bytes as the named variant and read back as
     /// it, breaking round-trip equality. The library itself never does
     /// (`From` normalizes known values to their named variants).
-    Other(u32),
+    Other(#[cfg_attr(test, proptest(strategy = "6..=u32::MAX"))] u32),
 }
 impl From<u32> for RampType {
     fn from(value: u32) -> Self {
@@ -164,7 +164,7 @@ mod ramp_type_open_enum_tests {
 /// [`wire_distance_y`](Self::wire_distance_y) and gets fixed collision
 /// walls. Physically every ramp is a flat floor with two side walls.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Ramp {
     /// Height of the ramp floor at its start (the first drag point), in VPU
     /// above the playfield.
@@ -198,6 +198,7 @@ pub struct Ramp {
     /// material.
     ///
     /// BIFF tag `MATR`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub material: String,
     /// Shape of the ramp, see [`RampType`]: a flat ramp or one of the wire
     /// ramps. vpinball default [`RampType::Flat`].
@@ -214,6 +215,7 @@ pub struct Ramp {
     /// Mapped as chosen by [`image_alignment`](Self::image_alignment).
     ///
     /// BIFF tag `IMAG`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub image: String,
     /// Controls how the texture is mapped onto the ramp surface.
     /// - [`World`](RampImageAlignment::World): UVs are based on table coordinates.
@@ -358,6 +360,10 @@ pub struct Ramp {
     /// materials existed).
     ///
     /// BIFF tag `MAPH`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub physics_material: Option<String>,
     /// Whether the ramp's own [`elasticity`](Self::elasticity),
     /// [`friction`](Self::friction) and [`scatter`](Self::scatter) are used
@@ -396,6 +402,10 @@ pub struct Ramp {
     /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
     ///
     /// BIFF tag `LANR`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub editor_layer_name: Option<String>,
     /// Whether the legacy editor layer is shown in the editor.
     /// Editor-only; has no runtime effect. `None` when absent.
@@ -403,6 +413,10 @@ pub struct Ramp {
     /// BIFF tag `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub part_group_name: Option<String>,
 }
 impl_shared_attributes!(Ramp);
@@ -760,60 +774,20 @@ impl BiffWrite for Ramp {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
+    use crate::vpx::test_support::debug;
+    use proptest::prelude::*;
 
     use super::*;
-    use crate::vpx::gameitem::tests::RandomOption;
-    use fake::{Fake, Faker};
     use pretty_assertions::assert_eq;
-    use rand::RngExt;
 
-    #[test]
-    fn test_write_read() {
-        let mut rng = rand::rng();
-        let ramp = Ramp {
-            height_bottom: 1.0,
-            height_top: 2.0,
-            width_bottom: 3.0,
-            width_top: 4.0,
-            material: "material".to_string(),
-            timer: TimerData {
-                is_enabled: rng.random(),
-                interval: rng.random(),
-            },
-            ramp_type: Faker.fake(),
-            name: "name".to_string(),
-            image: "image".to_string(),
-            image_alignment: Faker.fake(),
-            image_walls: rng.random(),
-            left_wall_height: 8.0,
-            right_wall_height: 9.0,
-            left_wall_height_visible: 10.0,
-            right_wall_height_visible: 11.0,
-            hit_event: rng.random_option(),
-            threshold: rng.random_option(),
-            elasticity: 13.0,
-            friction: 14.0,
-            scatter: 15.0,
-            is_collidable: rng.random(),
-            is_visible: rng.random(),
-            depth_bias: 16.0,
-            wire_diameter: 17.0,
-            wire_distance_x: 18.0,
-            wire_distance_y: 19.0,
-            is_reflection_enabled: rng.random_option(),
-            physics_material: Some("physics_material".to_string()),
-            overwrite_physics: rng.random_option(),
-            drag_points: vec![DragPoint::default()],
-            is_locked: true,
-            editor_layer: Some(22),
-            editor_layer_name: Some("editor_layer_name".to_string()),
-            editor_layer_visibility: Some(true),
-            part_group_name: Some("part_group_name".to_string()),
-        };
-        let mut writer = BiffWriter::new();
-        Ramp::biff_write(&ramp, &mut writer);
-        let ramp_read = Ramp::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
-        assert_eq!(ramp, ramp_read);
+    proptest! {
+        #[test]
+        fn any_ramp_round_trips_through_its_records(ramp in any::<Ramp>()) {
+            let mut writer = BiffWriter::new();
+            Ramp::biff_write(&ramp, &mut writer);
+            let read = Ramp::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
+            prop_assert_eq!(debug(&ramp), debug(&read));
+        }
     }
 
     #[test]

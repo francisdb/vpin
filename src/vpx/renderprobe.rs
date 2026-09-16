@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 /// Values this library does not know are kept in [`RenderProbeType::Other`] so the
 /// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
 pub(crate) enum RenderProbeType {
     /// Planar reflection of the scene on a plane, for example the playfield mirror.
     PlaneReflection,
@@ -125,7 +124,6 @@ mod render_probe_type_open_enum_tests {
 /// Values this library does not know are kept in [`ReflectionMode::Other`] so the
 /// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
 enum ReflectionMode {
     /// No reflections
     None,
@@ -292,7 +290,6 @@ mod reflection_mode_open_enum_tests {
 /// `src/renderer/RenderProbe.cpp` and
 /// [`GameData::render_probes`](crate::vpx::gamedata::GameData::render_probes).
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
 pub struct RenderProbe {
     pub(crate) type_: RenderProbeType,
     pub(crate) name: String,
@@ -313,7 +310,6 @@ pub struct RenderProbe {
 ///    because size calculation is done wrong.
 ///  * empty for some tables created during a specific period of 10.8.0 development
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
 pub struct RenderProbeWithGarbage {
     /// The probe itself.
     pub render_probe: RenderProbe,
@@ -451,23 +447,146 @@ impl BiffWrite for RenderProbeWithGarbage {
     }
 }
 
+/// Strategies for the round trip tests, written by hand: a derived
+/// `Arbitrary` on the public `RenderProbe` would expose the private enums
+/// through the generated strategy types.
+#[cfg(test)]
+mod arbitrary {
+    use super::{ReflectionMode, RenderProbe, RenderProbeType, RenderProbeWithGarbage};
+    use crate::vpx::gameitem::vertex4d::Vertex4D;
+    use crate::vpx::test_support::latin1_string;
+    use proptest::prelude::*;
+
+    impl Arbitrary for RenderProbeType {
+        type Parameters = ();
+        type Strategy = BoxedStrategy<Self>;
+
+        fn arbitrary_with(_: ()) -> Self::Strategy {
+            prop_oneof![
+                Just(RenderProbeType::PlaneReflection),
+                Just(RenderProbeType::ScreenSpaceTransparency),
+                // above the known values, which would read back as their named variant
+                (2..=u32::MAX).prop_map(RenderProbeType::Other),
+            ]
+            .boxed()
+        }
+    }
+
+    impl Arbitrary for ReflectionMode {
+        type Parameters = ();
+        type Strategy = BoxedStrategy<Self>;
+
+        fn arbitrary_with(_: ()) -> Self::Strategy {
+            prop_oneof![
+                Just(ReflectionMode::None),
+                Just(ReflectionMode::Balls),
+                Just(ReflectionMode::Static),
+                Just(ReflectionMode::StaticNBalls),
+                Just(ReflectionMode::StaticNDynamic),
+                Just(ReflectionMode::Dynamic),
+                Just(ReflectionMode::Unknown),
+                // above the known values, which would read back as their named variant
+                (7..=u32::MAX).prop_map(ReflectionMode::Other),
+            ]
+            .boxed()
+        }
+    }
+
+    impl Arbitrary for RenderProbe {
+        type Parameters = ();
+        type Strategy = BoxedStrategy<Self>;
+
+        fn arbitrary_with(_: ()) -> Self::Strategy {
+            (
+                any::<RenderProbeType>(),
+                // the name is stored as Latin-1
+                latin1_string(),
+                any::<u32>(),
+                proptest::option::of(any::<u32>()),
+                any::<Vertex4D>(),
+                any::<ReflectionMode>(),
+                proptest::option::of(any::<bool>()),
+            )
+                .prop_map(
+                    |(
+                        type_,
+                        name,
+                        roughness,
+                        roughness_clear,
+                        reflection_plane,
+                        reflection_mode,
+                        disable_light_reflection,
+                    )| RenderProbe {
+                        type_,
+                        name,
+                        roughness,
+                        roughness_clear,
+                        reflection_plane,
+                        reflection_mode,
+                        disable_light_reflection,
+                    },
+                )
+                .boxed()
+        }
+    }
+
+    impl Arbitrary for RenderProbeWithGarbage {
+        type Parameters = ();
+        type Strategy = BoxedStrategy<Self>;
+
+        fn arbitrary_with(_: ()) -> Self::Strategy {
+            (
+                any::<RenderProbe>(),
+                proptest::collection::vec(any::<u8>(), 0..16),
+            )
+                .prop_map(|(render_probe, trailing_data)| RenderProbeWithGarbage {
+                    render_probe,
+                    trailing_data,
+                })
+                .boxed()
+        }
+    }
+}
+
 // tests
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::vpx::biff::BiffReader;
-    use fake::{Fake, Faker};
+    use crate::vpx::test_support::debug;
     use pretty_assertions::assert_eq;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn any_render_probe_round_trips_through_its_records(render_probe in any::<RenderProbe>()) {
+            let mut writer = BiffWriter::new();
+            RenderProbe::biff_write(&render_probe, &mut writer);
+            let read = RenderProbe::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
+            prop_assert_eq!(debug(&render_probe), debug(&read));
+        }
+
+        #[test]
+        fn any_render_probe_with_garbage_round_trips_through_its_records(
+            render_probe in any::<RenderProbeWithGarbage>()
+        ) {
+            let mut writer = BiffWriter::new();
+            RenderProbeWithGarbage::biff_write(&render_probe, &mut writer);
+            let read =
+                RenderProbeWithGarbage::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
+            prop_assert_eq!(debug(&render_probe), debug(&read));
+        }
+    }
 
     #[test]
     fn test_write_read() {
         let render_probe = RenderProbe {
-            type_: Faker.fake(),
+            type_: RenderProbeType::PlaneReflection,
             name: "test".to_string(),
             roughness: 1,
             roughness_clear: Some(2),
             reflection_plane: Vertex4D::new(1.0, 2.0, 3.0, 4.0),
-            reflection_mode: Faker.fake(),
+            reflection_mode: ReflectionMode::StaticNBalls,
             disable_light_reflection: Some(false),
         };
         let mut writer = BiffWriter::new();

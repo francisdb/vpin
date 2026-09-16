@@ -15,7 +15,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// Values this library does not know are kept in [`TextAlignment::Other`] so the
 /// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone, Default)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum TextAlignment {
     /// `TextAlignLeft`
     #[default]
@@ -30,7 +30,7 @@ pub enum TextAlignment {
     /// it would write the same bytes as the named variant and read back as
     /// it, breaking round-trip equality. The library itself never does
     /// (`From` normalizes known values to their named variants).
-    Other(u32),
+    Other(#[cfg_attr(test, proptest(strategy = "3..=u32::MAX"))] u32),
 }
 impl From<u32> for TextAlignment {
     fn from(value: u32) -> Self {
@@ -142,7 +142,7 @@ mod text_alignment_open_enum_tests {
 /// The record is written by `Textbox::Save` and read by `Textbox::Load` in
 /// vpinball's `src/parts/textbox.cpp`.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct TextBox {
     /// One corner of the rectangle, in the 1000 x 750 backdrop editor
     /// space.
@@ -181,6 +181,7 @@ pub struct TextBox {
     /// box into a DMD, like [`is_dmd`](Self::is_dmd). Default: empty.
     ///
     /// BIFF tag `TEXT`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub text: String,
     /// Name of the text box, its identifier in the editor and in scripts.
     /// Stored as a wide string.
@@ -241,6 +242,10 @@ pub struct TextBox {
     /// follows. `None` when the record is absent.
     ///
     /// BIFF tag `LANR`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub editor_layer_name: Option<String>,
     /// Whether the item is shown in the editor (the 10.7 layer visibility,
     /// stored per item). Editor-only; has no runtime effect. `None` when
@@ -256,6 +261,10 @@ pub struct TextBox {
     /// is not in a group).
     ///
     /// BIFF tag `GRUP`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub part_group_name: Option<String>,
 }
 impl_shared_attributes!(TextBox);
@@ -454,47 +463,20 @@ impl BiffWrite for TextBox {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
-    use fake::{Fake, Faker};
-    use std::collections::HashSet;
+    use crate::vpx::test_support::debug;
+    use proptest::prelude::*;
 
     use super::*;
-    use crate::vpx::gameitem::font::{CHARSET_ANSI, FontStyle};
     use pretty_assertions::assert_eq;
 
-    #[test]
-    fn test_write_read() {
-        let textbox = TextBox {
-            ver1: Vertex2D::new(1.0, 2.0),
-            ver2: Vertex2D::new(3.0, 4.0),
-            back_color: Faker.fake(),
-            font_color: Faker.fake(),
-            intensity_scale: 1.0,
-            text: "test text".to_string(),
-            timer: TimerData {
-                is_enabled: true,
-                interval: 3,
-            },
-            name: "test timer".to_string(),
-            align: Faker.fake(),
-            is_transparent: false,
-            is_dmd: Some(false),
-            font: Font::new(
-                CHARSET_ANSI,
-                HashSet::from([FontStyle::Italic, FontStyle::Underline]),
-                123,
-                456,
-                "test font".to_string(),
-            ),
-            is_locked: false,
-            editor_layer: Some(1),
-            editor_layer_name: Some("test layer".to_string()),
-            editor_layer_visibility: Some(true),
-            part_group_name: Some("test group".to_string()),
-        };
-        let mut writer = BiffWriter::new();
-        TextBox::biff_write(&textbox, &mut writer);
-        let textbox_read = TextBox::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
-        assert_eq!(textbox, textbox_read);
+    proptest! {
+        #[test]
+        fn any_textbox_round_trips_through_its_records(textbox in any::<TextBox>()) {
+            let mut writer = BiffWriter::new();
+            TextBox::biff_write(&textbox, &mut writer);
+            let read = TextBox::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
+            prop_assert_eq!(debug(&textbox), debug(&read));
+        }
     }
 
     #[test]

@@ -11,7 +11,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// with its own rubber and a full set of physics parameters that the
 /// table's flipper physics override can replace.
 #[derive(Debug, PartialEq, Clone)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Flipper {
     /// The name of the flipper, used for referencing in scripts and animations.
     /// Must be unique across all game items. Not used for display purposes.
@@ -118,18 +118,21 @@ pub struct Flipper {
     /// VPinball: `m_szSurface` (COM: `Surface`)
     ///
     /// BIFF tag: `SURF`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub surface: String,
     /// Name of the material applied to the flipper body.
     ///
     /// VPinball: `m_szMaterial` (COM: `Material`)
     ///
     /// BIFF tag: `MATR`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub material: String,
     /// Name of the material applied to the rubber ring on the flipper.
     ///
     /// VPinball: `m_szRubberMaterial` (COM: `RubberMaterial`)
     ///
     /// BIFF tag: `RUMA`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub rubber_material: String,
     /// Rubber thickness as integer. Deprecated in favor of `rubber_thickness` (float).
     /// Kept for backwards compatibility with older table files.
@@ -310,6 +313,10 @@ pub struct Flipper {
     /// VPinball: `m_szImage` inherited from `BaseProperty` (COM: `Image`)
     ///
     /// BIFF tag: `IMAG` (was missing in 10.01)
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub image: Option<String>,
     /// Whether this flipper appears in playfield reflections.
     ///
@@ -341,6 +348,10 @@ pub struct Flipper {
     /// `"Layer_{editor_layer + 1}"` when unset. `None` when absent.
     ///
     /// BIFF tag: `LANR`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub editor_layer_name: Option<String>,
     /// Whether the legacy editor layer is visible in the editor. `None` when
     /// absent. Editor-only; has no effect at runtime.
@@ -348,6 +359,10 @@ pub struct Flipper {
     /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub part_group_name: Option<String>,
 }
 impl_shared_attributes!(Flipper);

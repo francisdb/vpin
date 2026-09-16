@@ -3,3 +3,6 @@ runner = "wasmtime"
 
 [target.wasm32-unknown-unknown]
 runner = "wasm-bindgen-test-runner"
+# proptest pulls in getrandom, which needs to be told which backend a
+# browser-style wasm target has; see the dev-dependency in Cargo.toml
+rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]

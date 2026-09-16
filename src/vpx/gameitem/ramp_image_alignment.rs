@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 /// Values this library does not know are kept in [`RampImageAlignment::Other`] so the
 /// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum RampImageAlignment {
     /// `ImageAlignWorld`: the image is projected in table space.
     World,
@@ -26,7 +26,7 @@ pub enum RampImageAlignment {
     /// it would write the same bytes as the named variant and read back as
     /// it, breaking round-trip equality. The library itself never does
     /// (`From` normalizes known values to their named variants).
-    Other(u32),
+    Other(#[cfg_attr(test, proptest(strategy = "3..=u32::MAX"))] u32),
 }
 impl From<u32> for RampImageAlignment {
     fn from(value: u32) -> Self {

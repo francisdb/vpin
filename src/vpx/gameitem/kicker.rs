@@ -10,7 +10,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// Values this library does not know are kept in [`KickerType::Other`] so the
 /// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum KickerType {
     /// `KickerInvisible`: no mesh, only the hit area.
     Invisible,
@@ -32,7 +32,7 @@ pub enum KickerType {
     /// it would write the same bytes as the named variant and read back as
     /// it, breaking round-trip equality. The library itself never does
     /// (`From` normalizes known values to their named variants).
-    Other(u32),
+    Other(#[cfg_attr(test, proptest(strategy = "7..=u32::MAX"))] u32),
 }
 impl From<u32> for KickerType {
     fn from(value: u32) -> Self {
@@ -172,7 +172,7 @@ mod kicker_type_open_enum_tests {
 /// vpinball's `src/parts/kicker.cpp`; the physics is `KickerHitCircle` in
 /// the same file.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Kicker {
     /// Position of the kicker in table coordinates (VPU); both the hit
     /// circle and the mesh are centered here.
@@ -193,11 +193,13 @@ pub struct Kicker {
     /// selects the default material.
     ///
     /// BIFF tag `MATR`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub material: String,
     /// Name of the surface (ramp or wall top) this kicker sits on.
     /// Used to determine the kicker's base height (z position).
     /// If empty, the kicker sits on the playfield.
     /// BIFF tag: SURF
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub surface: String,
     /// Whether the kicker's collider is active at table start (`Enabled`
     /// in script). A disabled kicker neither captures the ball nor fires
@@ -295,6 +297,10 @@ pub struct Kicker {
     /// follows. `None` when the record is absent.
     ///
     /// BIFF tag `LANR`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub editor_layer_name: Option<String>,
     /// Whether the item is shown in the editor (the 10.7 layer visibility,
     /// stored per item). Editor-only; has no runtime effect. `None` when
@@ -310,6 +316,10 @@ pub struct Kicker {
     /// is not in a group).
     ///
     /// BIFF tag `GRUP`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub part_group_name: Option<String>,
 }
 impl_shared_attributes!(Kicker);
@@ -522,42 +532,20 @@ impl BiffWrite for Kicker {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
-    use fake::{Fake, Faker};
+    use crate::vpx::test_support::debug;
+    use proptest::prelude::*;
 
     use super::*;
     use pretty_assertions::assert_eq;
 
-    #[test]
-    fn test_write_read() {
-        // values not equal to the defaults
-        let kicker = Kicker {
-            center: Vertex2D::new(1.0, 2.0),
-            radius: 3.0,
-            timer: TimerData {
-                is_enabled: true,
-                interval: 4,
-            },
-            material: "material".to_string(),
-            surface: "surface".to_string(),
-            is_enabled: false,
-            name: "name".to_string(),
-            kicker_type: Faker.fake(),
-            scatter: 6.0,
-            hit_accuracy: 7.0,
-            hit_height: Some(8.0),
-            orientation: 9.0,
-            fall_through: true,
-            legacy_mode: false,
-            is_locked: true,
-            editor_layer: Some(10),
-            editor_layer_name: Some("editor_layer_name".to_string()),
-            editor_layer_visibility: Some(false),
-            part_group_name: Some("part_group_name".to_string()),
-        };
-        let mut writer = BiffWriter::new();
-        Kicker::biff_write(&kicker, &mut writer);
-        let kicker_read = Kicker::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
-        assert_eq!(kicker, kicker_read);
+    proptest! {
+        #[test]
+        fn any_kicker_round_trips_through_its_records(kicker in any::<Kicker>()) {
+            let mut writer = BiffWriter::new();
+            Kicker::biff_write(&kicker, &mut writer);
+            let read = Kicker::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
+            prop_assert_eq!(debug(&kicker), debug(&read));
+        }
     }
 
     #[test]

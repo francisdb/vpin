@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// record: `x`, `y` and `z` are the plane normal and `w` the distance of
 /// the plane along that normal, vpinball's plane equation.
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Copy)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Vertex4D {
     /// X coordinate in VP units.
     pub x: f32,

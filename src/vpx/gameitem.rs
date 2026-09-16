@@ -1171,32 +1171,7 @@ mod tests {
     use super::*;
 
     use pretty_assertions::assert_eq;
-    use rand::RngExt;
-    use rand::distr::{Distribution, StandardUniform};
-    use rand::prelude::ThreadRng;
     use std::default::Default;
-
-    /// see https://github.com/rust-random/rand/issues/1573
-    pub(crate) trait RandomOption {
-        fn random_option<T>(&mut self) -> Option<T>
-        where
-            StandardUniform: Distribution<T>;
-    }
-
-    impl RandomOption for ThreadRng {
-        fn random_option<T>(&mut self) -> Option<T>
-        where
-            StandardUniform: Distribution<T>,
-        {
-            // generate a value with only a 70% chance of being Some
-            // that's a bit arbitrary, but it's just for testing
-            if self.random_bool(0.7) {
-                Some(self.random::<T>())
-            } else {
-                None
-            }
-        }
-    }
 
     #[test]
     fn test_read_write_unknown_item_type() {
@@ -1562,47 +1537,56 @@ mod tests {
 #[cfg(test)]
 mod corrupt_input_tests {
     use super::*;
-    use fake::{Fake, Faker};
+    use proptest::prelude::*;
 
-    #[test]
-    fn truncated_gameitems_fail_without_panicking() {
-        let items: Vec<GameItemEnum> = vec![
-            GameItemEnum::Wall(Faker.fake()),
-            GameItemEnum::Flipper(Faker.fake()),
-            GameItemEnum::Light(Faker.fake()),
-            GameItemEnum::Ramp(Faker.fake()),
-            GameItemEnum::Rubber(Faker.fake()),
-            GameItemEnum::Primitive(Faker.fake()),
-            GameItemEnum::HitTarget(Faker.fake()),
-            GameItemEnum::Kicker(Faker.fake()),
-            GameItemEnum::Timer(Faker.fake()),
-            GameItemEnum::Bumper(Faker.fake()),
-            GameItemEnum::Flasher(Faker.fake()),
-            GameItemEnum::Decal(Faker.fake()),
-            GameItemEnum::Gate(Faker.fake()),
-            GameItemEnum::Spinner(Faker.fake()),
-            GameItemEnum::Trigger(Faker.fake()),
-            GameItemEnum::Plunger(Faker.fake()),
-            GameItemEnum::TextBox(Faker.fake()),
-            GameItemEnum::Reel(Faker.fake()),
-            GameItemEnum::LightSequencer(Faker.fake()),
-            GameItemEnum::PartGroup(Faker.fake()),
-        ];
-        for item in items {
+    /// One of the stored item types, filled in at random
+    fn any_game_item() -> impl Strategy<Value = GameItemEnum> {
+        prop_oneof![
+            any::<wall::Wall>().prop_map(GameItemEnum::Wall),
+            any::<flipper::Flipper>().prop_map(GameItemEnum::Flipper),
+            any::<light::Light>().prop_map(GameItemEnum::Light),
+            any::<ramp::Ramp>().prop_map(GameItemEnum::Ramp),
+            any::<rubber::Rubber>().prop_map(GameItemEnum::Rubber),
+            any::<Box<primitive::Primitive>>().prop_map(GameItemEnum::Primitive),
+            any::<hittarget::HitTarget>().prop_map(GameItemEnum::HitTarget),
+            any::<kicker::Kicker>().prop_map(GameItemEnum::Kicker),
+            any::<timer::Timer>().prop_map(GameItemEnum::Timer),
+            any::<bumper::Bumper>().prop_map(GameItemEnum::Bumper),
+            any::<flasher::Flasher>().prop_map(GameItemEnum::Flasher),
+            any::<decal::Decal>().prop_map(GameItemEnum::Decal),
+            any::<gate::Gate>().prop_map(GameItemEnum::Gate),
+            any::<spinner::Spinner>().prop_map(GameItemEnum::Spinner),
+            any::<trigger::Trigger>().prop_map(GameItemEnum::Trigger),
+            any::<plunger::Plunger>().prop_map(GameItemEnum::Plunger),
+            any::<textbox::TextBox>().prop_map(GameItemEnum::TextBox),
+            any::<reel::Reel>().prop_map(GameItemEnum::Reel),
+            any::<lightsequencer::LightSequencer>().prop_map(GameItemEnum::LightSequencer),
+            any::<ball::Ball>().prop_map(GameItemEnum::Ball),
+            any::<partgroup::PartGroup>().prop_map(GameItemEnum::PartGroup),
+        ]
+    }
+
+    proptest! {
+        // every case parses every prefix of the item, so fewer cases than usual
+        #![proptest_config(ProptestConfig::with_cases(64))]
+
+        #[test]
+        fn truncated_gameitems_fail_without_panicking(item in any_game_item()) {
             let bytes = write(&item);
             let full = read(&bytes).unwrap();
-            assert_eq!(full.type_name(), item.type_name());
+            prop_assert_eq!(full.type_name(), item.type_name());
             for len in 0..bytes.len() {
-                let result = read(&bytes[..len]);
-                let err = match result {
-                    Ok(_) => panic!(
-                        "{} truncated to {len}/{} bytes should fail",
-                        item.type_name(),
-                        bytes.len()
-                    ),
+                let err = match read(&bytes[..len]) {
+                    Ok(_) => {
+                        return Err(TestCaseError::fail(format!(
+                            "{} truncated to {len}/{} bytes should fail",
+                            item.type_name(),
+                            bytes.len()
+                        )));
+                    }
                     Err(e) => e,
                 };
-                assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+                prop_assert_eq!(err.kind(), io::ErrorKind::InvalidData);
             }
         }
     }

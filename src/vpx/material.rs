@@ -20,6 +20,15 @@ const MAX_NAME_BUFFER: usize = 32;
 /// length
 pub const MAX_NAME_LENGTH: usize = MAX_NAME_BUFFER - 1;
 
+/// A name the fixed buffers of the legacy records carry unchanged: printable
+/// Latin-1, at most [`MAX_NAME_LENGTH`] characters. The buffers hold one
+/// byte per character plus the terminator, so this is shorter than
+/// `test_support::latin1_string`.
+#[cfg(test)]
+fn legacy_name_string() -> impl proptest::strategy::Strategy<Value = String> {
+    proptest::string::string_regex(&format!("[ -~\u{A0}-\u{FF}]{{0,{MAX_NAME_LENGTH}}}")).unwrap()
+}
+
 /// Why a material name cannot be stored as it is
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NameError {
@@ -69,7 +78,7 @@ pub fn check_name(name: &str) -> Result<(), NameError> {
 /// Values this library does not know are kept in [`MaterialType::Other`] so the
 /// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum MaterialType {
     /// Value -1, outside vpinball's enum, found in "Hot Line (Williams 1966) SG1bsoN.vpx".
     /// Kept as a named variant for compatibility with existing expanded tables.
@@ -84,7 +93,7 @@ pub enum MaterialType {
     /// it would write the same bytes as the named variant and read back as
     /// it, breaking round-trip equality. The library itself never does
     /// (`From` normalizes known values to their named variants).
-    Other(i32),
+    Other(#[cfg_attr(test, proptest(strategy = "2..=i32::MAX"))] i32),
 }
 impl From<i32> for MaterialType {
     fn from(value: i32) -> Self {
@@ -208,7 +217,7 @@ mod material_type_open_enum_tests {
  * Only used for backward compatibility loading and saving (VPX version < 10.8)
 */
 #[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct SaveMaterial {
     /// Name of the material, by which parts reference it and by which
     /// vpinball can match the [`SavePhysicsMaterial`] saved next to it.
@@ -216,6 +225,7 @@ pub struct SaveMaterial {
     /// Stored as a NUL terminated Latin-1 string in a fixed buffer of 32
     /// bytes, so at most [`MAX_NAME_LENGTH`] characters; a longer name is
     /// truncated on write. See [`check_name`].
+    #[cfg_attr(test, proptest(strategy = "legacy_name_string()"))]
     pub name: String,
     /**
      * Base color of the material
@@ -465,7 +475,7 @@ impl SaveMaterial {
  * Only used for backward compatibility loading and saving (VPX version < 10.8)
  */
 #[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct SavePhysicsMaterial {
     /// Name of the material these physics values belong to, the same as
     /// [`SaveMaterial::name`].
@@ -475,6 +485,7 @@ pub struct SavePhysicsMaterial {
     /// case sensitive name match otherwise. Stored as a NUL terminated
     /// Latin-1 string in a fixed buffer of 32 bytes, so at most
     /// [`MAX_NAME_LENGTH`] characters; a longer name is truncated on write.
+    #[cfg_attr(test, proptest(strategy = "legacy_name_string()"))]
     pub name: String,
     /// Coefficient of restitution of the ball against a part using this
     /// material, see [`Material::elasticity`].
@@ -619,7 +630,7 @@ fn get_padding_3_validate(bytes: &mut BytesMut) {
 ///
 /// BIFF tag `MATR`
 #[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Material {
     /// Name of the material, by which parts reference it for shading
     /// (`m_szMaterial`) and for physics (`m_szPhysicsMaterial`).
@@ -630,6 +641,7 @@ pub struct Material {
     /// Default: `dummyMaterial`.
     ///
     /// BIFF tag `NAME`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub name: String,
 
     // shading properties
@@ -983,40 +995,37 @@ mod tests {
         );
     }
 
+    use crate::vpx::test_support::debug;
     use bytes::BytesMut;
-    use fake::{Fake, Faker};
     use pretty_assertions::assert_eq;
+    use proptest::prelude::*;
 
-    #[test]
-    fn test_save_material_write_read() {
-        let save_material: SaveMaterial = Faker.fake();
-        let mut bytes = BytesMut::new();
-        save_material.write(&mut bytes);
-        // is there a better way to reset the cursor?
-        bytes = BytesMut::from(bytes.to_vec().as_slice());
-        let read_save_material = SaveMaterial::read(&mut bytes).unwrap();
-        assert_eq!(save_material, read_save_material);
-    }
+    proptest! {
+        #[test]
+        fn any_save_material_round_trips_through_its_record(save_material in any::<SaveMaterial>()) {
+            let mut bytes = BytesMut::new();
+            save_material.write(&mut bytes);
+            let read = SaveMaterial::read(&mut bytes).unwrap();
+            prop_assert_eq!(debug(&save_material), debug(&read));
+        }
 
-    #[test]
-    fn test_save_physics_material_write_read() {
-        let save_physics_material: SavePhysicsMaterial = Faker.fake();
-        let mut bytes = BytesMut::new();
-        save_physics_material.write(&mut bytes);
-        // is there a better way to reset the cursor?
-        bytes = BytesMut::from(bytes.to_vec().as_slice());
-        let read_save_physics_material = SavePhysicsMaterial::read(&mut bytes).unwrap();
-        assert_eq!(save_physics_material, read_save_physics_material);
-    }
+        #[test]
+        fn any_save_physics_material_round_trips_through_its_record(
+            save_physics_material in any::<SavePhysicsMaterial>()
+        ) {
+            let mut bytes = BytesMut::new();
+            save_physics_material.write(&mut bytes);
+            let read = SavePhysicsMaterial::read(&mut bytes).unwrap();
+            prop_assert_eq!(debug(&save_physics_material), debug(&read));
+        }
 
-    #[test]
-    fn test_material_biff_write_read() {
-        let material: Material = Faker.fake();
-        let mut writer = BiffWriter::new();
-        material.biff_write(&mut writer);
-        let mut reader = BiffReader::new(writer.get_data());
-        let read_material = Material::biff_read(&mut reader).unwrap();
-        assert_eq!(material, read_material);
+        #[test]
+        fn any_material_round_trips_through_its_records(material in any::<Material>()) {
+            let mut writer = BiffWriter::new();
+            material.biff_write(&mut writer);
+            let read = Material::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
+            prop_assert_eq!(debug(&material), debug(&read));
+        }
     }
 
     #[test]
@@ -1049,15 +1058,15 @@ mod tests {
             edge: 0.5,
             edge_alpha: 0.9,
             opacity: 0.5,
-            base_color: Faker.fake(),
-            glossy_color: Faker.fake(),
-            clearcoat_color: Faker.fake(),
+            base_color: Color::rgb(0x11, 0x22, 0x33),
+            glossy_color: Color::rgb(0x44, 0x55, 0x66),
+            clearcoat_color: Color::rgb(0x77, 0x88, 0x99),
             opacity_active: true,
             elasticity: 0.5,
             elasticity_falloff: 0.5,
             friction: 0.5,
             scatter_angle: 0.5,
-            refraction_tint: Faker.fake(),
+            refraction_tint: Color::rgb(0xaa, 0xbb, 0xcc),
         };
         let save_material: SaveMaterial = (&material).into();
         assert_eq!(save_material.name, "test");

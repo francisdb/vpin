@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Stored as 8 bytes, `x` then `y`, in records such as `VCEN`.
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Copy)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Vertex2D {
     /// X coordinate in VP units.
     pub x: f32,

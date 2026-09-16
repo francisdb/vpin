@@ -31,7 +31,7 @@ pub const MAX_VERTICES_FOR_2_BYTE_INDEX: usize = 65535;
 /// The mesh is kept in its compressed form as vpinball stores it; use
 /// [`read_mesh`](Self::read_mesh) to decode it.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Primitive {
     /// Item name. Stored as CSTRING with null terminator (max 32
     /// bytes including null).
@@ -76,12 +76,17 @@ pub struct Primitive {
     /// name (case-insensitive). Empty string means "no image".
     ///
     /// BIFF tag: `IMAG`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub image: String,
 
     /// Normal-map texture name; references an entry in `vpx.images`.
     /// `None` for tables saved before normal maps were added.
     ///
     /// BIFF tag: `NRMA`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub normal_map: Option<String>,
 
     /// Polygon side count for the procedural mesh used when
@@ -97,6 +102,7 @@ pub struct Primitive {
     /// dummy material.
     ///
     /// BIFF tag: `MATR`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub material: String,
 
     /// Side colour shown in the vpinball editor preview only -
@@ -198,6 +204,10 @@ pub struct Primitive {
     /// Replaced by `disable_lighting_top` in VPX 10.8.
     ///
     /// BIFF tag: `DILI` (removed in 10.8)
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::quantized_u8())")
+    )]
     pub disable_lighting_top_old: Option<f32>,
 
     /// Controls how much lighting is disabled on the top surface.
@@ -241,6 +251,10 @@ pub struct Primitive {
     /// `None` means "no override".
     ///
     /// BIFF tag: `MAPH`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub physics_material: Option<String>,
 
     /// Switch between the in-place physics fields (`elasticity`,
@@ -281,6 +295,10 @@ pub struct Primitive {
     /// the actual geometry lives in the M3CX/M3CI chunks below.
     ///
     /// BIFF tag: `M3DN`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub mesh_file_name: Option<String>,
 
     /// Vertex count of the loaded 3D mesh. Should equal
@@ -331,6 +349,9 @@ pub struct Primitive {
     /// repeated in the BIFF stream.
     ///
     /// BIFF tag: `M3AY` (repeats)
+    // the writer pairs the frames with the data below, so the round trip
+    // test fills both from one strategy
+    #[cfg_attr(test, proptest(value = "None"))]
     pub compressed_animation_vertices_len: Option<Vec<u32>>,
 
     /// Per-frame zlib-compressed vertex buffers for animation. Frame
@@ -338,6 +359,7 @@ pub struct Primitive {
     /// from the base mesh).
     ///
     /// BIFF tag: `M3AX` (repeats)
+    #[cfg_attr(test, proptest(value = "None"))]
     pub compressed_animation_vertices_data: Option<Vec<Vec<u8>>>,
 
     /// Offset applied when depth-sorting transparent and overlapping
@@ -376,12 +398,20 @@ pub struct Primitive {
     /// `vpx.images`.
     ///
     /// BIFF tag: `LMAP` (added in 10.8)
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub light_map: Option<String>,
 
     /// Name of a reflection probe defined in the table; see
     /// `vpx.gamedata.reflection_probes`.
     ///
     /// BIFF tag: `REFL` (added in 10.8)
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub reflection_probe: Option<String>,
 
     /// Reflection probe contribution, 0..1.
@@ -392,6 +422,10 @@ pub struct Primitive {
     /// Name of a refraction probe defined in the table.
     ///
     /// BIFF tag: `REFR` (added in 10.8)
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub refraction_probe: Option<String>,
 
     /// Effective refraction thickness in VPU; controls how much the
@@ -420,6 +454,10 @@ pub struct Primitive {
     /// only; no runtime effect.
     ///
     /// BIFF tag: `LANR`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub editor_layer_name: Option<String>,
 
     /// Editor-only visibility toggle for this item's layer. Controls
@@ -434,6 +472,10 @@ pub struct Primitive {
     /// organization only; no runtime effect. Added in 10.8.1.
     ///
     /// BIFF tag: `GRUP`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub part_group_name: Option<String>,
 }
 impl_shared_attributes!(Primitive);
@@ -1414,12 +1456,11 @@ pub(crate) fn write_animation_vertex_data(buff: &mut BytesMut, vertex: &VertData
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
-    use fake::{Fake, Faker};
+    use crate::vpx::test_support::debug;
+    use proptest::prelude::*;
 
     use super::*;
-    use crate::vpx::gameitem::tests::RandomOption;
     use pretty_assertions::assert_eq;
-    use rand::RngExt;
 
     /// A triangle as a build from before 2015 stored it: raw vertices and
     /// raw two byte indices, no compression
@@ -1484,80 +1525,31 @@ mod tests {
         assert_eq!(json.to_primitive().vertices_data, None);
     }
 
-    #[test]
-    fn test_write_read() {
-        let mut rng = rand::rng();
-        let primitive: Primitive = Primitive {
-            position: Vertex3D::new(1.0, 2.0, 3.0),
-            size: Vertex3D::new(4.0, 5.0, 6.0),
-            rot_and_tra: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9],
-            image: "image".to_string(),
-            normal_map: Some("normal_map".to_string()),
-            sides: 1,
-            name: "name".to_string(),
-            material: "material".to_string(),
-            side_color: Faker.fake(),
-            is_visible: rng.random(),
-            // random bool
-            draw_textures_inside: rng.random(),
-            hit_event: rng.random(),
-            threshold: 1.0,
-            elasticity: 2.0,
-            elasticity_falloff: 3.0,
-            friction: 4.0,
-            scatter: 5.0,
-            edge_factor_ui: 6.0,
-            collision_reduction_factor: Some(7.0),
-            is_collidable: rng.random(),
-            is_toy: rng.random(),
-            use_3d_mesh: rng.random(),
-            static_rendering: rng.random(),
-            // we need a value that is supported when quantized to 8 bits, since the old `DILI` tag uses 8-bit quantization.
-            disable_lighting_top_old: Some(1.0),
-            disable_lighting_top: Some(rng.random()),
-            disable_lighting_below: rng.random_option(),
-            is_reflection_enabled: rng.random_option(),
-            backfaces_enabled: rng.random_option(),
-            physics_material: Some("physics_material".to_string()),
-            overwrite_physics: rng.random_option(),
-            display_texture: rng.random_option(),
-            object_space_normal_map: rng.random_option(),
-            min_aa_bound: Some(Vertex3D::new(-1.5, -2.5, -3.5)),
-            max_aa_bound: Some(Vertex3D::new(1.5, 2.5, 3.5)),
-            mesh_file_name: Some("mesh_file_name".to_string()),
-            num_vertices: Some(8),
-            compressed_vertices_len: Some(9),
-            compressed_vertices_data: Some(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]),
-            num_indices: Some(10),
-            compressed_indices_len: Some(11),
-            compressed_indices_data: Some(vec![2, 3, 4, 5, 6, 7, 8, 9, 10]),
-            vertices_data: None,
-            indices_data: None,
-            compressed_animation_vertices_len: Some(vec![9, 8]),
-            compressed_animation_vertices_data: Some(vec![
-                vec![4, 5, 6, 7, 8, 9, 10, 11, 12],
-                vec![5, 6, 7, 8, 9, 10, 11, 12],
-            ]),
-            depth_bias: 12.0,
-            add_blend: rng.random_option(),
-            use_depth_mask: rng.random_option(),
-            alpha: Some(13.0),
-            color: Faker.fake(),
-            light_map: Some("light_map".to_string()),
-            reflection_probe: Some("reflection_probe".to_string()),
-            reflection_strength: Some(14.0),
-            refraction_probe: Some("refraction_probe".to_string()),
-            refraction_thickness: Some(15.0),
-            is_locked: rng.random(),
-            editor_layer: Some(17),
-            editor_layer_name: Some("editor_layer_name".to_string()),
-            editor_layer_visibility: rng.random_option(),
-            part_group_name: Some("part_group_name".to_string()),
-        };
-        let mut writer = BiffWriter::new();
-        Primitive::biff_write(&primitive, &mut writer);
-        let primitive_read = Primitive::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
-        assert_eq!(primitive, primitive_read);
+    /// The animation frames as the writer stores them: a length record and
+    /// a data record per frame, only when there is at least one frame
+    fn animation_frames() -> impl Strategy<Value = Option<Vec<(u32, Vec<u8>)>>> {
+        proptest::option::of(proptest::collection::vec(
+            (any::<u32>(), proptest::collection::vec(any::<u8>(), 0..16)),
+            1..4,
+        ))
+    }
+
+    proptest! {
+        #[test]
+        fn any_primitive_round_trips_through_its_records(
+            mut primitive in any::<Primitive>(),
+            animation in animation_frames(),
+        ) {
+            if let Some(frames) = animation {
+                let (lens, data) = frames.into_iter().unzip();
+                primitive.compressed_animation_vertices_len = Some(lens);
+                primitive.compressed_animation_vertices_data = Some(data);
+            }
+            let mut writer = BiffWriter::new();
+            Primitive::biff_write(&primitive, &mut writer);
+            let read = Primitive::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
+            prop_assert_eq!(debug(&primitive), debug(&read));
+        }
     }
 
     #[test]

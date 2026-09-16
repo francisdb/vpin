@@ -14,7 +14,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// digit strip [`image`](Self::image), stepped from script with a motor
 /// animation.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Reel {
     /// Top-left corner of the reel group's bounding box, in editor
     /// background coordinates. This is the object's anchor position (what
@@ -46,11 +46,13 @@ pub struct Reel {
     /// editor.
     ///
     /// BIFF tag: `IMAG`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub image: String,
     /// Name of the sound to play for each single-digit click as a reel turns.
     /// Empty or `<None>` means no sound.
     ///
     /// BIFF tag: `SOUN`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub sound: String,
     /// Name of this game item.
     ///
@@ -131,6 +133,10 @@ pub struct Reel {
     /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
     ///
     /// BIFF tag: `LANR`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub editor_layer_name: Option<String>,
     /// Whether the legacy editor layer is shown in the editor.
     /// Editor-only; has no runtime effect. `None` when absent.
@@ -138,6 +144,10 @@ pub struct Reel {
     /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub part_group_name: Option<String>,
 }
 impl_shared_attributes!(Reel);
@@ -381,48 +391,18 @@ impl BiffWrite for Reel {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
-    use fake::{Fake, Faker};
+    use crate::vpx::test_support::debug;
+    use proptest::prelude::*;
 
     use super::*;
-    use crate::vpx::gameitem::tests::RandomOption;
-    use pretty_assertions::assert_eq;
-    use rand::RngExt;
 
-    #[test]
-    fn test_write_read() {
-        let mut rng = rand::rng();
-        // values not equal to the defaults
-        let reel = Reel {
-            ver1: Vertex2D::new(rng.random(), rng.random()),
-            ver2: Vertex2D::new(rng.random(), rng.random()),
-            back_color: Faker.fake(),
-            timer: TimerData {
-                is_enabled: rng.random(),
-                interval: rng.random(),
-            },
-            is_transparent: rng.random(),
-            image: "test image".to_string(),
-            sound: "test sound".to_string(),
-            name: "test name".to_string(),
-            width: rng.random(),
-            height: rng.random(),
-            reel_count: rng.random(),
-            reel_spacing: rng.random(),
-            motor_steps: rng.random(),
-            digit_range: rng.random(),
-            update_interval: rng.random(),
-            use_image_grid: rng.random(),
-            is_visible: rng.random(),
-            images_per_grid_row: rng.random(),
-            is_locked: rng.random(),
-            editor_layer: Some(rng.random()),
-            editor_layer_name: Some("test layer name".to_string()),
-            editor_layer_visibility: rng.random_option(),
-            part_group_name: Some("test part group name".to_string()),
-        };
-        let mut writer = BiffWriter::new();
-        Reel::biff_write(&reel, &mut writer);
-        let reel_read = Reel::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
-        assert_eq!(reel, reel_read);
+    proptest! {
+        #[test]
+        fn any_reel_round_trips_through_its_records(reel in any::<Reel>()) {
+            let mut writer = BiffWriter::new();
+            Reel::biff_write(&reel, &mut writer);
+            let read = Reel::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
+            prop_assert_eq!(debug(&reel), debug(&read));
+        }
     }
 }
