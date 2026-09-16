@@ -24,9 +24,15 @@ pub const MAX_NAME_LENGTH: usize = MAX_NAME_BUFFER - 1;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NameError {
     /// The name takes more than [`MAX_NAME_LENGTH`] bytes in Latin-1
-    TooLong { bytes: usize },
+    TooLong {
+        /// Length of the name in Latin-1 bytes
+        bytes: usize,
+    },
     /// The name has a character Latin-1 cannot encode
-    NotLatin1 { character: char },
+    NotLatin1 {
+        /// The first character of the name that Latin-1 cannot encode
+        character: char,
+    },
 }
 
 impl fmt::Display for NameError {
@@ -204,6 +210,12 @@ mod material_type_open_enum_tests {
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct SaveMaterial {
+    /// Name of the material, by which parts reference it and by which
+    /// vpinball can match the [`SavePhysicsMaterial`] saved next to it.
+    ///
+    /// Stored as a NUL terminated Latin-1 string in a fixed buffer of 32
+    /// bytes, so at most [`MAX_NAME_LENGTH`] characters; a longer name is
+    /// truncated on write. See [`check_name`].
     pub name: String,
     /**
      * Base color of the material
@@ -455,10 +467,25 @@ impl SaveMaterial {
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct SavePhysicsMaterial {
+    /// Name of the material these physics values belong to, the same as
+    /// [`SaveMaterial::name`].
+    ///
+    /// `MATE` and `PHMA` are parallel arrays: vpinball applies the physics
+    /// values by index when both counts match and falls back to an exact,
+    /// case sensitive name match otherwise. Stored as a NUL terminated
+    /// Latin-1 string in a fixed buffer of 32 bytes, so at most
+    /// [`MAX_NAME_LENGTH`] characters; a longer name is truncated on write.
     pub name: String,
+    /// Coefficient of restitution of the ball against a part using this
+    /// material, see [`Material::elasticity`].
     pub elasticity: f32,
+    /// Speed dependent loss of elasticity, see
+    /// [`Material::elasticity_falloff`].
     pub elasticity_falloff: f32,
+    /// Coulomb friction coefficient, see [`Material::friction`].
     pub friction: f32,
+    /// Maximum random deflection after a hit in degrees, see
+    /// [`Material::scatter_angle`].
     pub scatter_angle: f32,
 }
 
@@ -581,12 +608,40 @@ fn get_padding_3_validate(bytes: &mut BytesMut) {
     //assert_eq!(padding.to_vec(), [0, 0, 0]);
 }
 
+/// A material of the table, mirroring vpinball's `Material` class.
+///
+/// Since 10.8 vpinball stores every material as a `MATR` record in the game
+/// data: a nested BIFF record with one tagged field per property, without
+/// the quantization of the older format. For older readers it also writes
+/// the legacy [`SaveMaterial`] and [`SavePhysicsMaterial`] arrays (`MATE`
+/// and `PHMA`); vpinball 10.8 and later discard those again once the `MATR`
+/// records have been read (`PinTable::LoadToken` in `src/parts/pintable.cpp`).
+///
+/// BIFF tag `MATR`
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Material {
+    /// Name of the material, by which parts reference it for shading
+    /// (`m_szMaterial`) and for physics (`m_szPhysicsMaterial`).
+    ///
+    /// The `MATR` record stores it as a normal string, but the legacy `MATE`
+    /// and `PHMA` records written next to it hold at most
+    /// [`MAX_NAME_LENGTH`] Latin-1 characters; see [`check_name`].
+    /// Default: `dummyMaterial`.
+    ///
+    /// BIFF tag `NAME`
     pub name: String,
 
     // shading properties
+    /// Shading model of the material.
+    ///
+    /// For [`MaterialType::Metal`] the glossy layer reflects the base color
+    /// and [`Material::glossy_color`] and [`Material::glossy_image_lerp`]
+    /// are ignored; see `Shader::SetMaterial` in `src/renderer/Shader.cpp`.
+    /// Replaces the `is_metal` flag of [`SaveMaterial`]. Default:
+    /// [`MaterialType::Basic`].
+    ///
+    /// BIFF tag `TYPE`
     pub type_: MaterialType,
     /// Wrap/rim lighting factor (0(off)..1(full))
     ///
@@ -644,13 +699,60 @@ pub struct Material {
     pub glossy_color: Color,
     /// Specular of clearcoat layer
     pub clearcoat_color: Color,
-    // Transparency active in the UI
+    /// Whether transparency is enabled for the material ("Active" next to
+    /// opacity in the material editor).
+    ///
+    /// When `false` the material renders fully opaque and
+    /// [`Material::opacity`] and [`Material::edge_alpha`] are ignored (the
+    /// shader gets an alpha of 1); when `true` parts using it are rendered
+    /// as transparent, in the dynamic pass. In [`SaveMaterial`] this is the
+    /// lowest bit of `opacity_active_edge_alpha`. Default: `false`.
+    ///
+    /// BIFF tag `EOPA`
     pub opacity_active: bool,
 
     // physic properties
+    /// Coefficient of restitution of the ball bouncing off a part that uses
+    /// this material for physics: the fraction of the velocity along the
+    /// hit normal that is kept, 0 for no bounce and 1 for a fully elastic
+    /// hit.
+    ///
+    /// Applied in `HitBall::Collide3DWall` (`src/physics/hitball.cpp`) for
+    /// parts that do not override the material physics, for example
+    /// surfaces, rubbers, primitives and hit targets. Default: `0.0`.
+    ///
+    /// BIFF tag `ELAS`
     pub elasticity: f32,
+    /// How much [`Material::elasticity`] decreases with the impact speed.
+    ///
+    /// vpinball uses `elasticity / (1 + falloff * |v| / 18.53)` with `v` the
+    /// velocity along the hit normal, so 0 means no falloff and 1 halves the
+    /// elasticity at 1 m/s (18.53 speed units); see `ElasticityWithFalloff`
+    /// in `src/physics/collide.h`. Default: `0.0`.
+    ///
+    /// BIFF tag `ELFO`
     pub elasticity_falloff: f32,
+    /// Coulomb friction coefficient between the ball and a part that uses
+    /// this material for physics.
+    ///
+    /// The friction impulse of a hit is capped at this value times the
+    /// normal (reaction) impulse; see `HitBall::Collide3DWall` in
+    /// `src/physics/hitball.cpp`. Default: `0.0`.
+    ///
+    /// BIFF tag `FRIC`
     pub friction: f32,
+    /// Maximum random deflection of the ball direction after a hit, in
+    /// degrees.
+    ///
+    /// vpinball converts it to radians when it sets up the hit object,
+    /// scales it by the table difficulty and, for all but the slowest hits,
+    /// rotates the ball velocity in the playfield plane by a random angle
+    /// within plus or minus this value, with small angles more likely
+    /// (`HitBall::Collide3DWall` in `src/physics/hitball.cpp`). A negative
+    /// value means use the table default scatter angle. Default: `0.0`, no
+    /// scatter.
+    ///
+    /// BIFF tag `SCAT`
     pub scatter_angle: f32,
 
     refraction_tint: Color, // 10.8+ only

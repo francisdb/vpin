@@ -173,6 +173,14 @@ mod view_layout_mode_open_enum_tests {
 }
 
 // TODO switch to a array of 3 view modes like in the original code
+/// One of the three camera / view setups of a table, mirroring vpinball's
+/// `ViewSetup` class (`src/renderer/ViewSetup.h`).
+///
+/// vpinball keeps an array of three of these: desktop, fullscreen (cabinet)
+/// and full single screen. This crate does not use the struct for the file
+/// format yet; the per-view values live as flat `bg_*` fields on
+/// [`GameData`]. The commented-out members below list the remaining vpinball
+/// fields and their defaults for reference.
 #[derive(Debug, PartialEq)]
 pub struct ViewSetup {
     // ViewLayoutMode mMode = VLM_LEGACY;
@@ -204,10 +212,17 @@ pub struct ViewSetup {
     // float mWindowBottomXOfs = 0.0f; // Lower window border offset from left and right table bounds
     // float mWindowBottomYOfs = 0.0f; // Lower window border Y coordinate, relative to table bottom
     // float mWindowBottomZOfs = CMTOVPU(7.5f); // Lower window border Z coordinate, relative to table playfield Z
+    /// The view layout mode: how the viewer position and the projection are
+    /// interpreted (legacy, camera or window).
+    ///
+    /// Default: [`ViewLayoutMode::Legacy`].
+    ///
+    /// BIFF tag `VSM0`, `VSM1` or `VSM2`, depending on the view set
     pub mode: ViewLayoutMode,
 }
 
 impl ViewSetup {
+    /// Creates a view setup with vpinball's defaults (legacy layout mode).
     pub fn new() -> Self {
         ViewSetup {
             mode: ViewLayoutMode::Legacy,
@@ -221,6 +236,13 @@ impl Default for ViewSetup {
     }
 }
 
+/// Tone mapping operator used to convert the HDR render buffer to the
+/// display range, mirroring vpinball's `ToneMapper` enum
+/// (`src/renderer/typedefs3D.h`).
+///
+/// Stored per table in [`GameData::tone_mapper`]. The numeric values follow
+/// the vpinball enum: `0` Reinhard, `1` AgX, `2` Filmic, `3` Neutral,
+/// `4` AgX punchy.
 #[derive(Debug, PartialEq, Clone, Copy)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum ToneMapper {
@@ -234,6 +256,9 @@ pub enum ToneMapper {
     Neutral,
     /// AgX tonemapper, punchy look curve (more contrast/saturation)
     AgXPunchy,
+    /// Any value this crate does not know, kept as is so the table round
+    /// trips. vpinball master also defines `5` (`TM_WCG_SPLINE`), a spline
+    /// curve for HDR to HDR display mapping that is not exposed to the user.
     Other(u32),
 }
 
@@ -338,16 +363,51 @@ impl<'de> Deserialize<'de> for ToneMapper {
     }
 }
 
+/// The table-level data of a `.vpx` file: the contents of the `GameData`
+/// stream.
+///
+/// It holds everything that is not a game item, image, sound, font or
+/// collection: table bounds, the three view setups, physics, lighting,
+/// rendering options, the table script, and the counters that say how many
+/// items of each kind follow in the file. It corresponds to the members of
+/// vpinball's `PinTable` class that `PinTable::Save` writes and
+/// `PinTable::Load` reads (`src/parts/pintable.cpp`).
+///
+/// `Option` fields correspond to records that only some vpinball versions
+/// write; `None` means the record was absent from the file. Values are in
+/// VPU (Visual Pinball units) unless stated otherwise.
 #[derive(Debug, PartialEq)]
 pub struct GameData {
     /// Table name
     /// BIFF tag: `NAME`
     pub name: String,
 
-    pub left: f32,   // LEFT 1
-    pub top: f32,    // TOPX 2
-    pub right: f32,  // RGHT 3
-    pub bottom: f32, // BOTM 4
+    /// Left edge of the playfield in VPU.
+    ///
+    /// Always `0.0` in practice; vpinball comments the member as "always
+    /// zero for now". Default: `0.0`.
+    ///
+    /// BIFF tag `LEFT`
+    pub left: f32,
+    /// Top edge of the playfield in VPU.
+    ///
+    /// Always `0.0` in practice, see [`left`](Self::left). Default: `0.0`.
+    ///
+    /// BIFF tag `TOPX`
+    pub top: f32,
+    /// Right edge of the playfield in VPU, so the table width.
+    ///
+    /// vpinball's `GetTableWidth()` is `right - left`. Default: `952.0`.
+    ///
+    /// BIFF tag `RGHT`
+    pub right: f32,
+    /// Bottom edge of the playfield in VPU, so the table length.
+    ///
+    /// vpinball's `GetHeight()` (the `Height` script property) is
+    /// `bottom - top`. Default: `2162.0`.
+    ///
+    /// BIFF tag `BOTM`
+    pub bottom: f32,
     /// CLMO
     /// During the 10.8.0 development cycle, this field was added but later again removed
     /// Has meanwhile been replaced by the new [`GameData::bg_view_mode_desktop`],
@@ -623,22 +683,146 @@ pub struct GameData {
     // =====================================================================================
     // END OF VIEW SETTINGS
     // =====================================================================================
-    pub override_physics: u32,                  // ORRP 36
-    pub override_physics_flipper: Option<bool>, // ORPF 37 added in ?
-    pub gravity: f32,                           // GAVT 38
-    pub friction: f32,                          // FRCT 39
-    pub elasticity: f32,                        // ELAS 40
-    pub elastic_falloff: f32,                   // ELFA 41
-    pub scatter: f32,                           // PFSC 42
-    pub default_scatter: f32,                   // SCAT 43
-    pub nudge_time: f32,                        // NDGT 44
-    pub plunger_normalize: Option<u32>,         // MPGC 45
-    pub plunger_filter: Option<bool>,           // MPDF 46
-    pub physics_max_loops: u32,                 // PHML 47
-    pub render_em_reels: bool,                  // REEL 48
-    pub render_decals: bool,                    // DECL 49
-    pub offset_x: f32,                          // OFFX 50
-    pub offset_y: f32,                          // OFFY 51
+    /// Which of the user's physics override sets applies to this table.
+    ///
+    /// `0` disables the override and the table's own physics values are
+    /// used. `1` to `8` select physics set `N - 1` from the player settings
+    /// (`TablePhysics*N` in `VPinballX.ini`), which then replaces the
+    /// gravity, friction, elasticity, elasticity falloff, scatter angle and
+    /// min/max slope stored in the table. Default: `0`.
+    ///
+    /// BIFF tag `ORRP`
+    pub override_physics: u32,
+    /// Whether the physics override set also applies to the flippers.
+    ///
+    /// Only has an effect when [`override_physics`](Self::override_physics)
+    /// is non-zero; flippers with their own `OverridePhysics` setting always
+    /// use that. `None` when the record is absent (older tables); vpinball
+    /// then defaults to `false`.
+    ///
+    /// BIFF tag `ORPF`
+    pub override_physics_flipper: Option<bool>,
+    /// Gravity strength of the table physics, in internal units.
+    ///
+    /// The value is the `Gravity` script property multiplied by vpinball's
+    /// `GRAVITYCONST` (`1.81751`); the script value is clamped to `>= 0`.
+    /// The effective acceleration also depends on the playfield slope, see
+    /// [`angle_tilt_min`](Self::angle_tilt_min). Default:
+    /// `0.97 x GRAVITYCONST = 1.762985`.
+    ///
+    /// BIFF tag `GAVT`
+    pub gravity: f32,
+    /// Contact friction of the playfield and of the table's outer walls.
+    ///
+    /// Range `0.0` to `1.0` (vpinball saturates the script value). Parts
+    /// with their own physics material use that instead. Default: `0.075`
+    /// (`DEFAULT_TABLE_CONTACTFRICTION`).
+    ///
+    /// BIFF tag `FRCT`
+    pub friction: f32,
+    /// Elasticity (bounciness) of the playfield and of the table's outer
+    /// walls.
+    ///
+    /// Default: `0.25` (`DEFAULT_TABLE_ELASTICITY`).
+    ///
+    /// BIFF tag `ELAS`
+    pub elasticity: f32,
+    /// Elasticity falloff of the playfield and of the table's outer walls:
+    /// how much the elasticity decreases with the ball's impact speed.
+    ///
+    /// Default: `0.0` (`DEFAULT_TABLE_ELASTICITY_FALLOFF`, no falloff).
+    ///
+    /// BIFF tag `ELFA`
+    pub elastic_falloff: f32,
+    /// Playfield scatter angle in degrees.
+    ///
+    /// Random deviation added to the ball direction when it collides with
+    /// the playfield or the table's outer walls; converted to radians at
+    /// play time. Default: `0.0` (`DEFAULT_TABLE_PFSCATTERANGLE`).
+    ///
+    /// BIFF tag `PFSC`
+    pub scatter: f32,
+    /// Default scatter angle in degrees for collisions with parts that do
+    /// not set their own scatter angle (a negative part scatter means "use
+    /// the table value").
+    ///
+    /// vpinball loads it into the global `c_hardScatter`, scaled by the
+    /// difficulty at collision time. Default: `0.0`.
+    ///
+    /// BIFF tag `SCAT`
+    pub default_scatter: f32,
+    /// Nudge time: the half period of the table's nudge swing.
+    ///
+    /// vpinball models the table displacement on a nudge as a damped
+    /// mass-spring system and derives the spring constant from this value
+    /// (`KeyboardNudge`). Default: `5.0`.
+    ///
+    /// BIFF tag `NDGT`
+    pub nudge_time: f32,
+    /// Mechanical plunger normalisation in percent (deprecated).
+    ///
+    /// An adjustment for a mechanical plunger with a weak spring or an aging
+    /// component, as vpinball described it. Written up to 10.7, where the
+    /// user's `PlungerNormalize` registry setting could override it. 10.8+
+    /// reads and ignores the record and the `PlungerNormalize` script
+    /// property always returns `100`. `None` when the record is absent
+    /// (10.8+ tables). vpinball 10.7 defaulted to `100`.
+    ///
+    /// BIFF tag `MPGC`
+    pub plunger_normalize: Option<u32>,
+    /// Mechanical plunger input filter toggle (deprecated).
+    ///
+    /// Written up to 10.7, where the user's `PlungerFilter` registry setting
+    /// could override it. 10.8+ reads and ignores the record and the
+    /// `PlungerFilter` script property is a no-op. `None` when the record is
+    /// absent (10.8+ tables). vpinball 10.7 defaulted to `false`.
+    ///
+    /// BIFF tag `MPDF`
+    pub plunger_filter: Option<bool>,
+    /// Maximum number of physics iterations per frame above which the
+    /// physics engine skips ahead to stay playable.
+    ///
+    /// `0xFFFFFFFF` means "use the player's `PhysicsMaxLoops` setting"
+    /// (itself `0xFFFFFFFF` by default). At play time any other value is
+    /// multiplied by `10000 / PHYSICS_STEPTIME` (so by 10), and `0` means
+    /// no limit. vpinball documents the setting as hacky and not to be used
+    /// any more. Exposed as `PhysicsLoopTime` in VBScript. Default: `0`.
+    ///
+    /// BIFF tag `PHML`
+    pub physics_max_loops: u32,
+    /// Whether EM reels (`DispReel` parts) are rendered on the backdrop.
+    ///
+    /// Exposed as `EnableEMReels` in VBScript (vpinball's
+    /// `GetEMReelsEnabled()`). vpinball defaults to `true`; this crate's
+    /// [`Default`] uses `false`.
+    ///
+    /// BIFF tag `REEL`
+    pub render_em_reels: bool,
+    /// Whether the backdrop image, and the decals and lights placed on the
+    /// backdrop, are rendered.
+    ///
+    /// Exposed as `EnableDecals` in VBScript (vpinball's
+    /// `GetDecalsEnabled()`). When `false` the backglass image is not drawn
+    /// either. vpinball defaults to `true`; this crate's [`Default`] uses
+    /// `false`.
+    ///
+    /// BIFF tag `DECL`
+    pub render_decals: bool,
+    /// X scroll offset of the 2D editor view in VPU.
+    ///
+    /// Editor-only (`m_winEditorViewOffset`), it is the table position the
+    /// editor window is scrolled to; see [`zoom`](Self::zoom) for the screen
+    /// mapping. Default: `476.0` (half the default table width).
+    ///
+    /// BIFF tag `OFFX`
+    pub offset_x: f32,
+    /// Y scroll offset of the 2D editor view in VPU, see
+    /// [`offset_x`](Self::offset_x).
+    ///
+    /// Default: `1081.0` (half the default table length).
+    ///
+    /// BIFF tag `OFFY`
+    pub offset_y: f32,
     /// Editor zoom level — controls the scale factor for the 2D editor view.
     ///
     /// This is a display-only setting that determines how the table is rendered
@@ -653,12 +837,67 @@ pub struct GameData {
     ///
     /// BIFF tag `ZOOM`
     pub zoom: f32,
-    pub angle_tilt_max: f32,                            // SLPX 53
-    pub angle_tilt_min: f32,                            // SLOP 54
-    pub stereo_max_separation: Option<f32>,             // MAXS 55
-    pub stereo_zero_parallax_displacement: Option<f32>, // ZPD 56
-    pub stereo_offset: Option<f32>,                     // STO 57 (was missing in  10.01)
-    pub overwrite_global_stereo3d: Option<bool>,        // OGST 58
+    /// Maximum playfield slope in degrees.
+    ///
+    /// The slope used at play time is interpolated between
+    /// [`angle_tilt_min`](Self::angle_tilt_min) and this value by the
+    /// difficulty ([`global_difficulty`](Self::global_difficulty)), and can
+    /// be replaced by a physics override set. Exposed as `SlopeMax` in
+    /// VBScript. Default: `6.0` (`DEFAULT_TABLE_MAX_SLOPE`).
+    ///
+    /// BIFF tag `SLPX`
+    pub angle_tilt_max: f32,
+    /// Minimum playfield slope in degrees, see
+    /// [`angle_tilt_max`](Self::angle_tilt_max).
+    ///
+    /// Exposed as `SlopeMin` in VBScript. Default: `6.0`
+    /// (`DEFAULT_TABLE_MIN_SLOPE`); vpinball's load default for tables
+    /// without the record is `4.5`.
+    ///
+    /// BIFF tag `SLOP`
+    pub angle_tilt_min: f32,
+    /// Maximum eye separation of the fake (reprojected) stereo 3D modes
+    /// (deprecated).
+    ///
+    /// Only used up to 10.7, and only when
+    /// [`overwrite_global_stereo3d`](Self::overwrite_global_stereo3d) is
+    /// `true`. 10.8+ reads and ignores the record. `None` when the record
+    /// is absent (10.8+ tables). vpinball 10.7 defaulted to `0.03`.
+    ///
+    /// BIFF tag `MAXS`
+    pub stereo_max_separation: Option<f32>,
+    /// Zero parallax displacement (convergence distance) of the fake stereo
+    /// 3D modes (deprecated).
+    ///
+    /// Only used up to 10.7, and only when
+    /// [`overwrite_global_stereo3d`](Self::overwrite_global_stereo3d) is
+    /// `true`. 10.8+ reads and ignores the record. `None` when the record
+    /// is absent (10.8+ tables). vpinball 10.7 defaulted to `0.5`.
+    ///
+    /// BIFF tag `ZPD`
+    pub stereo_zero_parallax_displacement: Option<f32>,
+    /// Depth offset of the fake stereo 3D modes (deprecated).
+    ///
+    /// Only used up to 10.7, and only when
+    /// [`overwrite_global_stereo3d`](Self::overwrite_global_stereo3d) is
+    /// `true`. 10.8+ reads and ignores the record. `None` when the record
+    /// is absent: 10.8+ tables, and 10.01 era tables which lack it too.
+    /// vpinball 10.7 defaulted to `0.0`.
+    ///
+    /// BIFF tag `STO`
+    pub stereo_offset: Option<f32>,
+    /// Whether the table's stereo 3D values replace the user's global stereo
+    /// settings (deprecated).
+    ///
+    /// Up to 10.7 this selected between the table's
+    /// [`stereo_max_separation`](Self::stereo_max_separation),
+    /// [`stereo_zero_parallax_displacement`](Self::stereo_zero_parallax_displacement)
+    /// and [`stereo_offset`](Self::stereo_offset) and the global values.
+    /// 10.8+ reads and ignores the record. `None` when the record is absent
+    /// (10.8+ tables). vpinball 10.7 defaulted to `false`.
+    ///
+    /// BIFF tag `OGST`
+    pub overwrite_global_stereo3d: Option<bool>,
     /// Playfield image — the name of the texture used for the playfield surface.
     ///
     /// This references an image from the table's texture collection by name.
@@ -684,10 +923,43 @@ pub struct GameData {
     ///
     /// BIFF tag `IMAG`
     pub image: String,
-    pub backglass_image_full_desktop: String,    // BIMG 60
-    pub backglass_image_full_fullscreen: String, // BIMF 61
-    pub backglass_image_full_single_screen: Option<String>, // BIMS 62 (added in 10.?)
-    pub image_backdrop_night_day: bool,          // BIMN 63
+    /// Name of the backglass image for the desktop view.
+    ///
+    /// References an image of the table by name. vpinball draws the image
+    /// of the active view set (`m_BG_image[view mode]`) as the backdrop of
+    /// the 3D scene when [`render_decals`](Self::render_decals) is enabled,
+    /// and shows it in the editor's backglass view. Default: `""` (no
+    /// image).
+    ///
+    /// BIFF tag `BIMG`
+    pub backglass_image_full_desktop: String,
+    /// Name of the backglass image for the fullscreen (cabinet) view, see
+    /// [`backglass_image_full_desktop`](Self::backglass_image_full_desktop).
+    ///
+    /// Default: `""` (no image).
+    ///
+    /// BIFF tag `BIMF`
+    pub backglass_image_full_fullscreen: String,
+    /// Name of the backglass image for the full single screen (FSS) view,
+    /// see
+    /// [`backglass_image_full_desktop`](Self::backglass_image_full_desktop).
+    ///
+    /// Written since the FSS view set was added in 10.x; `None` when the
+    /// record is absent (older tables). Default: `""` (no image).
+    ///
+    /// BIFF tag `BIMS`
+    pub backglass_image_full_single_screen: Option<String>,
+    /// Whether the day/night level is applied to the backglass image.
+    ///
+    /// When `true` vpinball multiplies the brightness of the backdrop image
+    /// by the square root of the global emission scale
+    /// ([`global_emission_scale`](Self::global_emission_scale)), so the
+    /// backglass dims together with the playfield at night. Set by the
+    /// "apply night/day" checkbox of the editor's Backglass Visuals
+    /// properties. Default: `false`.
+    ///
+    /// BIFF tag `BIMN`
+    pub image_backdrop_night_day: bool,
     /// Color grading LUT image — the name of a 256×16 texture used as a 3D color
     /// lookup table (LUT) for post-processing color grading.
     ///
@@ -758,12 +1030,61 @@ pub struct GameData {
     ///
     /// BIFF tag: `EIMG` (was missing in 10.01)
     pub env_image: Option<String>,
-    pub notes: Option<String>,            // NOTX 67.5 (added in 10.7)
-    pub screen_shot: String,              // SSHT 68
-    pub display_backdrop: bool,           // FBCK 69
-    pub glass_top_height: f32,            // GLAS 70
-    pub glass_bottom_height: Option<f32>, // GLAB 70.5 (added in 10.8)
-    pub table_height: Option<f32>,        // TBLH 71 (optional in 10.8)
+    /// Free-form notes about the table, edited in the editor's notes
+    /// dialog.
+    ///
+    /// Added in 10.7; `None` when the record is absent (older tables).
+    ///
+    /// BIFF tag `NOTX`
+    pub notes: Option<String>,
+    /// Name of the image used as the table's screenshot (preview).
+    ///
+    /// References an image of the table by name. It is chosen in vpinball's
+    /// Table Info dialog, and its data is also saved as the
+    /// `TableInfo/Screenshot` stream of the file. Default: `""` (no
+    /// screenshot).
+    ///
+    /// BIFF tag `SSHT`
+    pub screen_shot: String,
+    /// Whether the 2D editor draws the playfield image (or the backglass
+    /// image in the backglass view) behind the parts.
+    ///
+    /// Editor-only (`m_winEditorBackdrop`), no effect on gameplay. vpinball
+    /// defaults to `true`; this crate's [`Default`] uses `false`.
+    ///
+    /// BIFF tag `FBCK`
+    pub display_backdrop: bool,
+    /// Height of the glass above the playfield at the top (far end) of the
+    /// table, in VPU.
+    ///
+    /// Together with [`glass_bottom_height`](Self::glass_bottom_height) it
+    /// defines the sloped glass plane the ball collides with, and the
+    /// default window position of the window view mode. Before 10.8 this
+    /// was the single glass height of the whole table (the glass was
+    /// horizontal). Exposed as `GlassHeight` in VBScript. vpinball defaults
+    /// to `210.0`; this crate's [`Default`] uses `400.0`.
+    ///
+    /// BIFF tag `GLAS`
+    pub glass_top_height: f32,
+    /// Height of the glass above the playfield at the bottom (player end)
+    /// of the table, in VPU.
+    ///
+    /// Added in 10.8; `None` when the record is absent (older tables), in
+    /// which case vpinball uses [`glass_top_height`](Self::glass_top_height)
+    /// for both ends. vpinball defaults to `210.0`.
+    ///
+    /// BIFF tag `GLAB`
+    pub glass_bottom_height: Option<f32>,
+    /// Height of the playfield plane in VPU (deprecated).
+    ///
+    /// Up to 10.7 this was the Z coordinate of the playfield surface, the
+    /// base height of the table's bounding box. 10.8 removed the member; it
+    /// reads and ignores the record and the `TableHeight` script property is
+    /// a no-op. `None` when the record is absent (10.8+ tables). vpinball
+    /// 10.7 defaulted to `0.0`.
+    ///
+    /// BIFF tag `TBLH`
+    pub table_height: Option<f32>,
     /// Name of the material applied to the playfield surface.
     ///
     /// References a [`Material`] by name from the table's material list.
@@ -794,16 +1115,77 @@ pub struct GameData {
     ///
     /// BIFF tag: `BCLR`
     pub backdrop_color: Color,
-    pub global_difficulty: f32, // TDFT 74
+    /// Table difficulty, `0.0` (easiest) to `1.0` (hardest).
+    ///
+    /// It interpolates the playfield slope between
+    /// [`angle_tilt_min`](Self::angle_tilt_min) and
+    /// [`angle_tilt_max`](Self::angle_tilt_max), scales the scatter of
+    /// ball, kicker and plunger collisions, and shrinks the flipper radius
+    /// towards its minimum. The player can override it in the ini
+    /// (`TableOverride Difficulty`); vpinball keeps the table value in
+    /// `m_difficulty` and the effective one in `m_globalDifficulty`.
+    /// Exposed as `GlobalDifficulty` in VBScript, as a percentage.
+    /// Default: `0.2`.
+    ///
+    /// BIFF tag `TDFT`
+    pub global_difficulty: f32,
     /// changes the ambient light contribution for each material, please always try to keep this at full Black
-    pub light_ambient: Color, // LZAM 75 (color)
+    ///
+    /// BIFF tag `LZAM`
+    pub light_ambient: Color,
     /// changes the light contribution for each material (currently light0 emission is copied to light1, too)
-    pub light0_emission: Color, // LZDI 76 (color)
-    pub light_height: f32,      // LZHI 77
-    pub light_range: f32,       // LZRA 78
-    pub light_emission_scale: f32, // LIES 79
-    pub env_emission_scale: f32, // ENES 80
-    pub global_emission_scale: f32, // GLES 81
+    ///
+    /// BIFF tag `LZDI`
+    pub light0_emission: Color,
+    /// Height in VPU of the two built-in scene lights above the playfield.
+    ///
+    /// vpinball places the two lights at 1/3 and 2/3 of the table length,
+    /// centred horizontally, at this Z. Exposed as `LightHeight` in
+    /// VBScript. vpinball's load default is `1000.0`; this crate's
+    /// [`Default`] uses `5000.0`.
+    ///
+    /// BIFF tag `LZHI`
+    pub light_height: f32,
+    /// Range in VPU of the two built-in scene lights.
+    ///
+    /// Passed to the shaders as the light range part of
+    /// `cAmbient_LightRange`. Exposed as `LightRange` in VBScript.
+    /// vpinball's load default is `3000.0`; this crate's [`Default`] uses
+    /// `4000000.0`.
+    ///
+    /// BIFF tag `LZRA`
+    pub light_range: f32,
+    /// Emission scale of the two built-in scene lights.
+    ///
+    /// Multiplies [`light0_emission`](Self::light0_emission) (together with
+    /// the global emission scale) before it is sent to the shaders. Exposed
+    /// as `LightEmissionScale` in VBScript. vpinball's load default is
+    /// `1000000.0`; this crate's [`Default`] uses `4000000.0`.
+    ///
+    /// BIFF tag `LIES`
+    pub light_emission_scale: f32,
+    /// Emission scale of the environment map (image based lighting).
+    ///
+    /// Multiplies the contribution of [`env_image`](Self::env_image)
+    /// (together with the global emission scale); the editor shows it as a
+    /// percentage. Exposed as `EnvironmentEmissionScale` in VBScript.
+    /// vpinball's load default is `10.0`; this crate's [`Default`] uses
+    /// `2.0`.
+    ///
+    /// BIFF tag `ENES`
+    pub env_emission_scale: f32,
+    /// Global emission scale: the table's day/night level.
+    ///
+    /// `0.0` is night and `1.0` is full day. It scales all scene lighting
+    /// (ambient, scene lights, environment, and the backglass when
+    /// [`image_backdrop_night_day`](Self::image_backdrop_night_day) is
+    /// set). The player can replace it with a user light level or a time
+    /// based day/night cycle. Exposed as `NightDay` in VBScript, as a
+    /// percentage. vpinball's default is `1.0`; this crate's [`Default`]
+    /// uses `0.52`.
+    ///
+    /// BIFF tag `GLES`
+    pub global_emission_scale: f32,
     /// Intensity scale for the screen-space ambient occlusion (SSAO) effect.
     ///
     /// Controls how strongly ambient occlusion darkens creases and contact
@@ -843,12 +1225,66 @@ pub struct GameData {
     ///
     /// BIFF tag: `SSSC` (added in 10.?)
     pub ssr_scale: Option<f32>,
-    pub ground_to_lockbar_height: Option<f32>, // CLBH (added in 10.8.x)
-    pub table_sound_volume: f32,               // SVOL 84
-    pub table_music_volume: f32,               // MVOL 85
-    pub table_adaptive_vsync: Option<i32>,     // AVSY 86 (became optional in 10.8)
-    pub use_reflection_for_balls: Option<i32>, // BREF 87 (became optional in 10.8)
-    pub brst: Option<i32>,                     // BRST (in use in 10.01)
+    /// Height in VPU of the cabinet lockbar above the ground, matching the
+    /// cabinet model used for VR.
+    ///
+    /// vpinball uses it, together with
+    /// [`glass_bottom_height`](Self::glass_bottom_height), to place the
+    /// table in the VR player space. Added in 10.8.x; `None` when the
+    /// record is absent (older tables). vpinball defaults to
+    /// `CMTOVPU(91)`, about `1686` VPU.
+    ///
+    /// BIFF tag `CLBH`
+    pub ground_to_lockbar_height: Option<f32>,
+    /// Volume of the table's sound effects, `0.0` to `1.0`.
+    ///
+    /// Exposed as `TableSoundVolume` in VBScript and in the editor's Audio
+    /// properties, as a percentage. Default: `1.0`.
+    ///
+    /// BIFF tag `SVOL`
+    pub table_sound_volume: f32,
+    /// Volume of the table's music, `0.0` to `1.0`.
+    ///
+    /// Multiplied with the volume passed to the script's music playback
+    /// (`ScriptGlobalTable`). Exposed as `TableMusicVolume` in VBScript and
+    /// in the editor's Audio properties, as a percentage. Default: `1.0`.
+    ///
+    /// BIFF tag `MVOL`
+    pub table_music_volume: f32,
+    /// Per-table video sync override (deprecated).
+    ///
+    /// Up to 10.7: `-1` uses the player's `AdaptiveVSync` setting, `0` is
+    /// off, `1` enables vsync for every frame, `2` is adaptive vsync (only
+    /// waits for fast frames), and any larger value limits the frame rate
+    /// to that many fps. 10.8 reads and ignores the record and the
+    /// `TableAdaptiveVSync` script property is a no-op. `None` when the
+    /// record is absent (10.8+ tables). vpinball 10.7 defaulted to `-1`.
+    ///
+    /// BIFF tag `AVSY`
+    pub table_adaptive_vsync: Option<i32>,
+    /// Per-table ball reflection override (deprecated).
+    ///
+    /// Up to 10.7: `-1` uses the player's ball reflection setting, `0`
+    /// disables and `1` forces the reflection of balls on the playfield.
+    /// Since 10.8 reflections are handled by render probes; the record is
+    /// read and ignored and the `BallReflection` script property always
+    /// returns "on". `None` when the record is absent (10.8+ tables).
+    /// vpinball 10.7 defaulted to `-1`.
+    ///
+    /// BIFF tag `BREF`
+    pub use_reflection_for_balls: Option<i32>,
+    /// Ball reflection strength of the VP10 beta years (removed).
+    ///
+    /// An integer percentage, default `50`, exposed to scripts as
+    /// `BallReflection` and later `ReflectionStrength`. vpinball wrote it
+    /// from August 2013 (file version 601, the first playfield ball
+    /// reflection) until October 2015 (file version 1001), when it was
+    /// removed as unused; no release from 10.0 on reads it. Kept only so
+    /// that tables saved by those builds round trip. `None` when the
+    /// record is absent (almost all tables).
+    ///
+    /// BIFF tag `BRST`
+    pub brst: Option<i32>,
     /// Default playfield reflection strength for objects.
     ///
     /// Controls how strongly objects reflect on the playfield surface.
@@ -861,7 +1297,17 @@ pub struct GameData {
     ///
     /// BIFF tag: `PLST`
     pub playfield_reflection_strength: f32,
-    pub use_trail_for_balls: Option<i32>, // BTRA 89 (became optional in 10.8)
+    /// Per-table ball trail override.
+    ///
+    /// Up to 10.7: `-1` uses the player's ball trail setting, `0` disables
+    /// and `1` forces ball trails. Since 10.8 the record is no longer
+    /// written; when loading an old table without a user ini, vpinball
+    /// imports a non-`-1` value into the `BallTrail` player setting. `None`
+    /// when the record is absent (10.8+ tables). vpinball 10.7 defaulted to
+    /// `-1`.
+    ///
+    /// BIFF tag `BTRA`
+    pub use_trail_for_balls: Option<i32>,
     /// Default decal mode for all balls.
     ///
     /// Controls how `ball_image_front` is blended onto balls:
@@ -892,7 +1338,16 @@ pub struct GameData {
     pub default_bulb_intensity_scale_on_ball: Option<f32>,
     /// this has a special quantization,
     /// See [`Self::get_ball_trail_strength`] and [`Self::set_ball_trail_strength`]
-    pub ball_trail_strength: Option<u32>, // BTST 93 (became optional in 10.8)
+    ///
+    /// Strength (alpha) of the ball trail, a `0.0` to `1.0` value quantized
+    /// to 8 bits. Up to 10.7 the renderer used it directly; since 10.8 the
+    /// record is no longer written and, when loading an old table without a
+    /// user ini, vpinball imports it into the `BallTrailStrength` player
+    /// setting. `None` when the record is absent (10.8+ tables). vpinball
+    /// 10.7 defaulted to `0.4`.
+    ///
+    /// BIFF tag `BTST`
+    pub ball_trail_strength: Option<u32>,
     /// Per-table detail level override (range `1..=10`, where 10 is the
     /// highest detail). VPinball declares the underlying property as
     /// `(min = 1, max = 10, default = 10)` in `Settings_properties.inl`.
@@ -915,12 +1370,27 @@ pub struct GameData {
     /// (which a `.vpx` doesn't carry); callers should fall back to
     /// [`DEFAULT_DETAIL_LEVEL`] in that case - see
     /// [`Self::effective_detail_level`].
-    pub user_detail_level: Option<u32>, // ARAC 94 (became optional in 10.8)
+    ///
+    /// BIFF tag `ARAC` (became optional in 10.8)
+    pub user_detail_level: Option<u32>,
     /// Whether the table's [`Self::user_detail_level`] should override
     /// vpinball's editor-global detail level. When `Some(false)` or
     /// `None`, vpinball ignores the per-table value entirely.
-    pub overwrite_global_detail_level: Option<bool>, // OGAC 95 (became optional in 10.8)
-    pub overwrite_global_day_night: Option<bool>, // OGDN 96 (became optional in 10.8)
+    ///
+    /// BIFF tag `OGAC` (became optional in 10.8)
+    pub overwrite_global_detail_level: Option<bool>,
+    /// Whether the table's day/night level overrides the player's dynamic
+    /// day/night setting (deprecated).
+    ///
+    /// Up to 10.7, when `false` and the player had enabled
+    /// `DynamicDayNight`, the global emission scale was derived from the
+    /// local time of day instead of
+    /// [`global_emission_scale`](Self::global_emission_scale). 10.8 reads
+    /// and ignores the record. `None` when the record is absent (10.8+
+    /// tables). vpinball 10.7 defaulted to `true`.
+    ///
+    /// BIFF tag `OGDN`
+    pub overwrite_global_day_night: Option<bool>,
     /// Whether to display the editor grid overlay in the 2D table editor.
     ///
     /// When `true`, VPinball draws a grid on top of the playfield in the editor
@@ -1013,7 +1483,15 @@ pub struct GameData {
     ///
     /// BIFF tag: `USSR` (added in 10.?)
     pub use_ssr: Option<i32>,
-    pub tone_mapper: Option<ToneMapper>, // TMAP 102.5 (added in 10.8)
+    /// Tone mapping operator used when rendering this table, see
+    /// [`ToneMapper`].
+    ///
+    /// Added in 10.8; `None` when the record is absent (older tables), in
+    /// which case vpinball uses Reinhard, the pre-10.8 behaviour. New tables
+    /// default to AgX.
+    ///
+    /// BIFF tag `TMAP`
+    pub tone_mapper: Option<ToneMapper>,
     /// Strength of the bloom post-processing effect.
     ///
     /// Controls how intensely bright areas of the scene bleed light into
@@ -1032,35 +1510,115 @@ pub struct GameData {
     ///
     /// BIFF tag: `BLST`
     pub bloom_strength: f32,
-    pub materials_size: u32, // MASI 104
+    /// Number of materials in the table.
+    ///
+    /// It is the number of entries in the legacy `MATE` and `PHMA` arrays
+    /// ([`materials_old`](Self::materials_old) and
+    /// [`materials_physics_old`](Self::materials_physics_old)) that follow,
+    /// and vpinball also compares it with the number of 10.8+ `MATR`
+    /// records to decide whether those replace the legacy ones. Default:
+    /// `0`.
+    ///
+    /// BIFF tag `MASI`
+    pub materials_size: u32,
     /// Legacy material saving for backward compatibility
-    pub materials_old: Vec<SaveMaterial>, // MATE 105 (only for <10.8)
+    ///
+    /// BIFF tag `MATE` (only for <10.8)
+    pub materials_old: Vec<SaveMaterial>,
     /// Legacy material saving for backward compatibility
-    pub materials_physics_old: Option<Vec<SavePhysicsMaterial>>, // PHMA 106 (only for <10.8, added in 10.?)
+    ///
+    /// BIFF tag `PHMA` (only for <10.8, added in 10.?)
+    pub materials_physics_old: Option<Vec<SavePhysicsMaterial>>,
     /// 10.8+ material saving (this format supports new properties, and can be extended in future versions, and does not perform quantizations)
-    pub materials: Option<Vec<Material>>, // MATR (added in 10.8)
-    pub render_probes: Option<Vec<RenderProbeWithGarbage>>, // RPRB (added in 10.8)
-    pub gameitems_size: u32,                                // SEDT 107
-    pub sounds_size: u32,                                   // SSND 108
-    pub images_size: u32,                                   // SIMG 109
-    pub fonts_size: u32,                                    // SFNT 110
-    pub collections_size: u32,                              // SCOL 111
-    pub custom_colors: [Color; 16],                         //[Color; 16], // CCUS 113
-    pub protection_data: Option<Vec<u8>>,                   // SECB (removed in ?)
-    pub code: StringWithEncoding,                           // CODE 114
+    ///
+    /// BIFF tag `MATR` (added in 10.8)
+    pub materials: Option<Vec<Material>>,
+    /// Render probes of the table: the reflection and refraction probes that
+    /// replaced the fixed playfield reflection in 10.8.
+    ///
+    /// One record per probe, see [`RenderProbeWithGarbage`]. `None` when
+    /// the file has no probe records (pre-10.8 tables).
+    ///
+    /// BIFF tag `RPRB` (added in 10.8)
+    pub render_probes: Option<Vec<RenderProbeWithGarbage>>,
+    /// Number of game items (parts) in the table: the number of `GameItemN`
+    /// streams that follow in the file.
+    ///
+    /// vpinball reads the five counters into `m_loadTemp` to know how many
+    /// streams of each kind to load. Default: `0`.
+    ///
+    /// BIFF tag `SEDT`
+    pub gameitems_size: u32,
+    /// Number of sounds in the table: the number of `SoundN` streams that
+    /// follow in the file. Default: `0`.
+    ///
+    /// BIFF tag `SSND`
+    pub sounds_size: u32,
+    /// Number of images in the table: the number of `ImageN` streams that
+    /// follow in the file. Default: `0`.
+    ///
+    /// BIFF tag `SIMG`
+    pub images_size: u32,
+    /// Number of fonts in the table: the number of `FontN` streams that
+    /// follow in the file. Default: `0`.
+    ///
+    /// BIFF tag `SFNT`
+    pub fonts_size: u32,
+    /// Number of collections in the table: the number of `CollectionN`
+    /// streams that follow in the file. Default: `0`.
+    ///
+    /// BIFF tag `SCOL`
+    pub collections_size: u32,
+    /// The editor's 16 custom colour slots.
+    ///
+    /// These are the "custom colors" of the Windows colour picker used by
+    /// the property browser, saved with the table so they survive between
+    /// editing sessions. They have no effect on rendering. Stored as 16
+    /// `COLORREF` (BGR) values. Default: all black.
+    ///
+    /// BIFF tag `CCUS`
+    pub custom_colors: [Color; 16],
+    /// The old table protection blob, which vpinball no longer honours.
+    ///
+    /// Older vpinball versions could lock a table (disable script editing or
+    /// viewing, and so on). The record holds the raw `ProtectionData`
+    /// struct: file version, size, a 24 byte paraphrase, the protection
+    /// flags, key version and two spare ints. Current vpinball only looks at
+    /// the flags to know whether the script has to be decrypted, and never
+    /// writes the record. `None` when the record is absent (unprotected
+    /// tables). Kept as raw bytes so protected tables round trip.
+    ///
+    /// BIFF tag `SECB`
+    pub protection_data: Option<Vec<u8>>,
+    /// The table's VBScript source.
+    ///
+    /// The whole script that runs the table. It is kept as a
+    /// [`StringWithEncoding`] because old tables store it as Latin-1 and
+    /// newer ones as UTF-8, and a round trip must keep the original bytes.
+    /// Use [`Self::set_code`] to replace it from a Rust string.
+    ///
+    /// BIFF tag `CODE`
+    pub code: StringWithEncoding,
     /// TLCK (added in 10.8 for tournament mode?)
     /// Flag that disables all table edition. Lock toggles are counted to identify
     /// version changes in a table (for example to guarantee untouched table for tournament)
     /// Used to be a boolean for a while in the 10.8 dev cycle but now is a lock counter.
-    pub locked: Option<u32>, // TLCK (added in 10.8 for tournament mode?)
+    ///
+    /// BIFF tag `TLCK`
+    pub locked: Option<u32>,
 
     /// Exposure value for the table (EXPO)
     /// Added in 10.8.1, defaults to 1.0
     pub exposure: Option<f32>,
-    // This is a bit of a hack because we want reproducible builds.
-    // 10.8.0 beta 1-4 had EFSS at the old location, but it was moved to the new location in beta 5
-    // Some tables were released with these old betas, so we need to support both locations to be 100% reproducing the orignal table
-    // and it's MAC hash.
+    /// Whether the table was written by vpinball 10.8.0 beta 1 to beta 4,
+    /// which still stored the `EFSS` record at its pre-10.8 position
+    /// (between the desktop and fullscreen view records) instead of before
+    /// the view setups, where beta 5 and later put it.
+    ///
+    /// Not a BIFF record itself: the reader derives it from the position of
+    /// `EFSS` in the file and the writer reproduces that position, so that
+    /// tables released with those betas round trip byte for byte and keep
+    /// their MAC hash. Default: `false`.
     pub is_10_8_0_beta1_to_beta4: bool,
 }
 
@@ -1559,14 +2117,23 @@ impl GameDataJson {
 }
 
 impl GameData {
+    /// Replaces the table script with `script`, stored as UTF-8.
+    ///
+    /// See [`code`](Self::code) for the encoding of scripts read from a file.
     pub fn set_code(&mut self, script: String) {
         self.code = StringWithEncoding::new(script);
     }
 
+    /// The ball trail strength as a `0.0` to `1.0` value, dequantized from
+    /// the 8 bit [`ball_trail_strength`](Self::ball_trail_strength) record.
+    ///
+    /// `None` when the file has no `BTST` record.
     pub fn get_ball_trail_strength(&self) -> Option<f32> {
         self.ball_trail_strength.map(|v| dequantize_u8(8, v as u8))
     }
 
+    /// Sets the ball trail strength from a `0.0` to `1.0` value, quantizing
+    /// it to 8 bits like vpinball does when writing the `BTST` record.
     pub fn set_ball_trail_strength(&mut self, value: f32) {
         self.ball_trail_strength = Some(quantize_u8(8, value) as u32);
     }
@@ -1750,12 +2317,23 @@ impl Default for GameData {
     }
 }
 
+/// A raw BIFF record: a four character tag name and its payload bytes.
+///
+/// Currently unused by the reader and writer, which work on the typed
+/// [`GameData`] fields.
 #[derive(Debug, PartialEq)]
 pub struct Record {
     name: String,
     data: Vec<u8>,
 }
 
+/// Serializes `gamedata` to the bytes of the `GameData` stream.
+///
+/// Records are written in the order vpinball writes them, which matters for
+/// byte for byte round trips and for the MAC hash. `version` is the file
+/// format version from the `GameStg/Version` stream: some records are only
+/// written from 10.8 on, or at a different position depending on it (see
+/// [`GameData::is_10_8_0_beta1_to_beta4`]).
 pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec<u8> {
     let mut writer = BiffWriter::new();
     // order is important
