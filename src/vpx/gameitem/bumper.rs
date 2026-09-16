@@ -6,6 +6,11 @@ use crate::vpx::json::F32WithNanInf;
 use log::warn;
 use serde::{Deserialize, Serialize};
 
+/// The bumper game item, vpinball's `Bumper` (`src/parts/bumper.cpp`): a pop
+/// bumper made of a base, a cap, a ring and a skirt (socket), each with its
+/// own material and visibility, that kicks the ball away with
+/// [`force`](Self::force) when it hits the collision circle of
+/// [`radius`](Self::radius) fast enough.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Bumper {

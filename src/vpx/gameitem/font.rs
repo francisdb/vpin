@@ -25,23 +25,33 @@ use std::collections::HashSet;
  * 0x000B   String name            Name of the font (ASCII, no nul character)
  */
 
-/**
- * The style of the font.
- * This is serialized as a bitfield, so multiple styles can be combined.
- * The styles are:
- * - 0x00: normal
- * - 0x01: bold
- * - 0x02: italic
- * - 0x04: underline
- * - 0x08: strikethrough
- */
+/// One style flag of a [`Font`], kept as a set since several combine.
+///
+/// The `StdFont` stream stores the styles in a single attribute byte, which
+/// this crate maps to its variants bit by bit (see each variant) and writes
+/// back unchanged, so any byte round-trips. Note that vpinball's `FontDesc`
+/// (`src/utils/fileio.h`) reads that byte as the OLE format defines it:
+/// `0x02` italic, `0x04` underline and `0x08` strikethrough, and takes bold
+/// from a weight above 550 rather than from a flag. The bits
+/// this crate assigns are shifted one position up from that, so the bit it
+/// calls `Bold` is the one vpinball renders as italic.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Hash, Eq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum FontStyle {
+    /// Bit `0x01` of the attribute byte; the OLE format defines no meaning
+    /// for it.
     Normal,
+    /// Bit `0x02` of the attribute byte; the bit the OLE format and
+    /// vpinball read as italic.
     Bold,
+    /// Bit `0x04` of the attribute byte; the bit the OLE format and
+    /// vpinball read as underline.
     Italic,
+    /// Bit `0x08` of the attribute byte; the bit the OLE format and
+    /// vpinball read as strikethrough.
     Underline,
+    /// Bit `0x10` of the attribute byte; the OLE format defines no meaning
+    /// for it.
     Strikethrough,
 }
 impl FontStyle {
@@ -54,6 +64,8 @@ impl FontStyle {
             FontStyle::Strikethrough => 1 << 4,
         }
     }
+    /// The set of styles whose bits are set in an attribute byte as read
+    /// from the `StdFont` stream; bits above `0x10` are dropped.
     pub fn flags_to_styles(style: u8) -> HashSet<Self> {
         let mut styles = HashSet::with_capacity(5);
         if style & (1 << 0) != 0 {
@@ -74,6 +86,9 @@ impl FontStyle {
         styles
     }
 
+    /// The attribute byte to write to the `StdFont` stream for a set of
+    /// styles: the bitwise or of the bit of each style, `0` for the empty
+    /// set.
     pub fn styles_to_flags(flags: &HashSet<Self>) -> u8 {
         let mut bitflags = 0u8;
         for flag in flags {
@@ -190,6 +205,13 @@ impl Font {
         &self.name
     }
 
+    /// A font with the standard stream version `1`.
+    ///
+    /// `charset` is one of the `CHARSET_*` constants of this module,
+    /// `weight` the Windows font weight where `400` is normal and `700`
+    /// bold (vpinball treats anything above 550 as bold), `size` the low
+    /// 32 bits of the OLE `cySize` currency value (the point size times
+    /// 10000) and `name` the face name.
     pub fn new(
         charset: u16,
         style: HashSet<FontStyle>,

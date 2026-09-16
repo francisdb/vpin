@@ -173,24 +173,136 @@ mod target_type_open_enum_tests {
     }
 }
 
+/// A stand-up hit target or a drop target.
+///
+/// [`target_type`](Self::target_type) picks the mesh and the kind. Drop
+/// targets (the `DropTarget*` variants) sink `52.0` VPU into the playfield
+/// when hit, stop colliding while down and are raised again by the script;
+/// [`is_dropped`](Self::is_dropped), [`raise_delay`](Self::raise_delay) and
+/// [`is_legacy`](Self::is_legacy) only apply to them. Stand-up hit targets
+/// (the `Hit*` variants) tilt back briefly when hit and stay collidable.
+/// [`drop_speed`](Self::drop_speed) drives both animations, which start
+/// when a ball hits the target at least as fast as
+/// [`threshold`](Self::threshold) while
+/// [`use_hit_event`](Self::use_hit_event) is set.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct HitTarget {
+    /// Name of the target, the identifier used from VBScript. Stored as a
+    /// UTF-16 string.
+    ///
+    /// BIFF tag `NAME`
     pub name: String,
+    /// Position of the target's base, in VPU: `x` and `y` on the playfield,
+    /// `z` above it (vpinball default `0.0`).
+    ///
+    /// Stored as a four-float vector with an unused fourth component.
+    ///
+    /// BIFF tag `VPOS`
     pub position: Vertex3D,
+    /// Scale of the target mesh along x, y and z, in VPU (the built-in
+    /// meshes are unit sized). vpinball default `(32.0, 32.0, 32.0)`.
+    ///
+    /// Stored as a four-float vector with an unused fourth component.
+    ///
+    /// BIFF tag `VSIZ`
     pub size: Vertex3D,
+    /// Rotation of the target around the vertical axis, in degrees
+    /// (`Orientation` in the editor). vpinball default `0.0`.
+    ///
+    /// BIFF tag `ROTZ`
     pub rot_z: f32,
+    /// Name of the texture rendered on the target; empty for none.
+    ///
+    /// BIFF tag `IMAG`
     pub image: String,
+    /// Shape and kind of the target, see [`TargetType`].
+    ///
+    /// vpinball default [`TargetType::DropTargetSimple`], which it also
+    /// falls back to for values it does not know.
+    ///
+    /// BIFF tag `TRTY`
     pub target_type: TargetType,
+    /// Name of the material rendered on the target; empty for the default
+    /// material.
+    ///
+    /// BIFF tag `MATR`
     pub material: String,
+    /// Whether the target is rendered.
+    ///
+    /// An invisible target is not animated either, so a hidden drop target
+    /// never drops; old tables rely on this. vpinball default `true`.
+    ///
+    /// BIFF tag `TVIS`
     pub is_visible: bool,
+    /// Legacy collision mode of a drop target, `LegacyMode` in VBScript.
+    ///
+    /// When `false` the drop target mesh collides without firing hit
+    /// events and a separate thin hit plane right in front of the target
+    /// fires them, so a ball hitting it from behind or from the side does
+    /// not drop it. When `true` every face of the mesh fires hit events,
+    /// as before that hit plane existed. Stand-up hit targets ignore it.
+    /// vpinball default `false`.
+    ///
+    /// BIFF tag `LEMO`
     pub is_legacy: bool,
+    /// Whether the target reacts to ball hits: fires `Hit` events to the
+    /// script (and `Dropped` and `Raised` for a drop target) and plays its
+    /// animation.
+    ///
+    /// Hits slower than [`threshold`](Self::threshold) are ignored. When
+    /// `false` the target is a static obstacle. vpinball default `true`.
+    ///
+    /// BIFF tag `HTEV`
     pub use_hit_event: bool,
+    /// Minimum ball speed into the target surface to count as a hit, in
+    /// vpinball velocity units. vpinball default `2.0`.
+    ///
+    /// BIFF tag `THRS`
     pub threshold: f32,
+    /// Elasticity of the target, the fraction of the ball speed kept on a
+    /// bounce (`0.0` to `1.0`).
+    ///
+    /// Used when [`overwrite_physics`](Self::overwrite_physics) is `true`
+    /// (or absent); otherwise the elasticity of
+    /// [`physics_material`](Self::physics_material) applies. vpinball
+    /// default `0.35`.
+    ///
+    /// BIFF tag `ELAS`
     pub elasticity: f32,
+    /// How much the elasticity drops with the ball speed.
+    ///
+    /// vpinball divides [`elasticity`](Self::elasticity) by
+    /// `1 + elasticity_falloff x speed / 18.53`; `0.0` keeps it constant.
+    /// Used when [`overwrite_physics`](Self::overwrite_physics) is `true`
+    /// (or absent); otherwise the falloff of
+    /// [`physics_material`](Self::physics_material) applies. vpinball
+    /// default `0.5`.
+    ///
+    /// BIFF tag `ELFO`
     pub elasticity_falloff: f32,
+    /// Friction of the target surface, `0.0` (none) to `1.0`.
+    ///
+    /// Used when [`overwrite_physics`](Self::overwrite_physics) is `true`
+    /// (or absent); otherwise the friction of
+    /// [`physics_material`](Self::physics_material) applies. vpinball
+    /// default `0.2`.
+    ///
+    /// BIFF tag `RFCT`
     pub friction: f32,
+    /// Scatter angle in degrees, the maximum random deviation of the ball's
+    /// bounce direction off the target.
+    ///
+    /// Used when [`overwrite_physics`](Self::overwrite_physics) is `true`
+    /// (or absent); otherwise the scatter angle of
+    /// [`physics_material`](Self::physics_material) applies. vpinball
+    /// default `5.0`.
+    ///
+    /// BIFF tag `RSCT`
     pub scatter: f32,
+    /// Whether the ball collides with the target. vpinball default `true`.
+    ///
+    /// BIFF tag `CLDR`
     pub is_collidable: bool,
     /// Legacy field for disabling lighting on top surface.
     /// Replaced by `disable_lighting_top` in VPX 10.8.
@@ -232,23 +344,81 @@ pub struct HitTarget {
     ///
     /// BIFF tag: `REEN`
     pub is_reflection_enabled: bool,
+    /// Whether a drop target is in its dropped position.
+    ///
+    /// A target saved as dropped starts the game `52.0` VPU below its
+    /// raised position without animating, and does not collide while down.
+    /// The script toggles the `IsDropped` property to animate the drop or
+    /// the raise (see [`drop_speed`](Self::drop_speed) and
+    /// [`raise_delay`](Self::raise_delay)). Stand-up hit targets ignore
+    /// it. vpinball default `false`.
+    ///
+    /// BIFF tag `ISDR`
     pub is_dropped: bool,
+    /// Speed of the target animation per millisecond.
+    ///
+    /// A drop target moves `drop_speed` VPU per millisecond, down `52.0`
+    /// VPU when hit and back up when raised. A stand-up hit target tilts
+    /// back `drop_speed` degrees per millisecond up to `13` degrees when
+    /// hit, then returns at the same rate. Default `0.5`.
+    ///
+    /// BIFF tag `DRSP`
     pub drop_speed: f32,
+    /// Delay in milliseconds before a drop target starts rising after the
+    /// script sets `IsDropped` to `False`. Stand-up hit targets ignore it.
+    ///
+    /// `None` when the record is absent: it was added in February 2016
+    /// (10.2), older tables lack it and vpinball then keeps its default
+    /// `100`.
+    ///
+    /// BIFF tag `RADE`
     pub raise_delay: Option<u32>,
-    // RADE (added in 10.?)
+    /// Name of the material whose elasticity, elasticity falloff, friction
+    /// and scatter angle apply when
+    /// [`overwrite_physics`](Self::overwrite_physics) is `false`; empty
+    /// for none.
+    ///
+    /// `None` when the record is absent: physics materials came to hit
+    /// targets in June 2016 (10.2), older tables lack it.
+    ///
+    /// BIFF tag `MAPH`
     pub physics_material: Option<String>,
-    // MAPH (added in 10.?)
-    pub overwrite_physics: Option<bool>, // OVPH (added in 10.?)
+    /// Whether the target's own [`elasticity`](Self::elasticity),
+    /// [`elasticity_falloff`](Self::elasticity_falloff),
+    /// [`friction`](Self::friction) and [`scatter`](Self::scatter) are used
+    /// instead of those of [`physics_material`](Self::physics_material).
+    ///
+    /// `None` when the record is absent: physics materials came to hit
+    /// targets in June 2016 (10.2), older tables lack it and vpinball then
+    /// keeps its default `true`.
+    ///
+    /// BIFF tag `OVPH`
+    pub overwrite_physics: Option<bool>,
 
     /// Timer data for scripting (shared across all game items).
     /// See [`TimerData`] for details.
     pub timer: TimerData,
 
     // these are shared between all items
+    /// Whether the item is locked in the editor to prevent accidental
+    /// moving or editing. Editor-only; has no runtime effect.
+    ///
+    /// BIFF tag `LOCK`
     pub is_locked: bool,
+    /// Legacy editor layer index. Removed in 10.8.1, superseded by part
+    /// groups (see `part_group_name`). `None` when absent.
+    ///
+    /// BIFF tag `LAYR`
     pub editor_layer: Option<u32>,
+    /// Display name of the legacy editor layer; defaults to
+    /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
+    ///
+    /// BIFF tag `LANR`
     pub editor_layer_name: Option<String>,
-    // default "Layer_{editor_layer + 1}"
+    /// Whether the legacy editor layer is shown in the editor.
+    /// Editor-only; has no runtime effect. `None` when absent.
+    ///
+    /// BIFF tag `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
     pub part_group_name: Option<String>,

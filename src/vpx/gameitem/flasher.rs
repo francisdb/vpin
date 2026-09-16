@@ -563,6 +563,17 @@ mod seg_family_open_enum_tests {
     }
 }
 
+/// A flasher: a flat, optionally transparent polygon floating above the
+/// playfield that shows one or two blended images, a DMD or display frame,
+/// or an alphanumeric segment display; used for flash lamps, inserts, GI
+/// overlays and video displays.
+///
+/// The shape is the polygon of [`drag_points`](Self::drag_points), lifted
+/// to [`height`](Self::height) and rotated around its center. Flashers
+/// have no physics.
+///
+/// The record is written by `Flasher::Save` and read by `Flasher::Load` in
+/// vpinball's `src/parts/flasher.cpp`.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Flasher {
@@ -587,7 +598,18 @@ pub struct Flasher {
     /// Rotation around the Z axis in degrees.
     /// BIFF tag: `FROZ`
     pub rot_z: f32,
+    /// Tint color of the flasher: the textures (or the plain quad) are
+    /// multiplied by it, with the alpha from [`alpha`](Self::alpha).
+    ///
+    /// A pure black color makes vpinball skip rendering the flasher.
+    /// Default: `RGB(50, 200, 50)`.
+    ///
+    /// BIFF tag `COLR`
     pub color: Color,
+    /// Name of the flasher, its identifier in the editor and in scripts.
+    /// Stored as a wide string.
+    ///
+    /// BIFF tag `NAME`
     pub name: String,
     /// Primary texture for the flasher.
     /// When only image_a is set (no image_b), this texture is displayed directly.
@@ -610,7 +632,17 @@ pub struct Flasher {
     /// Clamped internally to avoid 0 (disables blend) and 1 (looks bad with day/night changes).
     /// BIFF tag: `MOVA`
     pub modulate_vs_add: f32,
+    /// Whether the flasher is rendered at table start; scripts toggle it
+    /// through `Visible` to flash. Default: `true`.
+    ///
+    /// BIFF tag `FVIS`
     pub is_visible: bool,
+    /// Additive blending: the flasher is added to the frame buffer instead
+    /// of alpha blended over it, giving the glow of a flash lamp. In the
+    /// display render modes it also darkens (modulates) the background.
+    /// Default: `false`.
+    ///
+    /// BIFF tag `ADDB`
     pub add_blend: bool,
     /// Indicates if this flasher is a DMD (dot matrix display).
     /// BIFF tag: `IDMD` added in 10.2? Since 10.8.1 no longer written and replaced by RDMD
@@ -711,12 +743,43 @@ pub struct Flasher {
     pub timer: TimerData,
 
     // these are shared between all items
+    /// Whether the item is locked in the editor to prevent accidental
+    /// moving or editing. Editor-only; has no runtime effect.
+    ///
+    /// BIFF tag `LOCK`
     pub is_locked: bool,
+    /// Legacy editor layer index (0-based, at most 11). Editor-only.
+    ///
+    /// Superseded by part groups in 10.8.1, see
+    /// [`part_group_name`](Self::part_group_name); vpinball still writes
+    /// it, as the index of the item's root group among the root groups, so
+    /// older versions can open the file. `None` when the record is absent.
+    ///
+    /// BIFF tag `LAYR`
     pub editor_layer: Option<u32>,
+    /// Name of the editor layer (10.7 named layers). Editor-only.
+    ///
+    /// Defaults to `"Layer_{editor_layer + 1}"`. Since 10.8.1 vpinball
+    /// writes the name of the item's root part group here, for older
+    /// versions, and on read maps it to a group when no `GRUP` record
+    /// follows. `None` when the record is absent.
+    ///
+    /// BIFF tag `LANR`
     pub editor_layer_name: Option<String>,
-    // default "Layer_{editor_layer + 1}"
+    /// Whether the item is shown in the editor (the 10.7 layer visibility,
+    /// stored per item). Editor-only; has no runtime effect. `None` when
+    /// the record is absent.
+    ///
+    /// BIFF tag `LVIS`
     pub editor_layer_visibility: Option<bool>,
-    /// Added in 10.8.1
+    /// Name of the part group the item belongs to. Added in 10.8.1.
+    ///
+    /// Part groups replace the editor layers; see
+    /// [`PartGroup`](crate::vpx::gameitem::partgroup::PartGroup). `None`
+    /// when the record is absent (file older than 10.8.1, or an item that
+    /// is not in a group).
+    ///
+    /// BIFF tag `GRUP`
     pub part_group_name: Option<String>,
 }
 impl_shared_attributes!(Flasher);

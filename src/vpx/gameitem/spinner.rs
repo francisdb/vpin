@@ -5,6 +5,10 @@ use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// The spinner game item, vpinball's `Spinner` (`src/parts/spinner.cpp`): a
+/// plate of [`length`](Self::length) hanging from a bracket at
+/// [`center`](Self::center) that spins around its horizontal axis when the
+/// ball passes through, slowing down with [`damping`](Self::damping).
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Spinner {

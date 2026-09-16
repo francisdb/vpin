@@ -8,6 +8,11 @@ use crate::vpx::{
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// The display reel game item, vpinball's `DispReel`
+/// (`src/parts/dispreel.cpp`): a row of [`reel_count`](Self::reel_count)
+/// electro-mechanical style score reels drawn on the backglass from a
+/// digit strip [`image`](Self::image), stepped from script with a motor
+/// animation.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Reel {

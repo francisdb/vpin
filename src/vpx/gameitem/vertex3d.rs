@@ -1,6 +1,15 @@
 use crate::vpx::biff::{BiffError, BiffRead, BiffReader, BiffWrite, BiffWriter};
 use serde::{Deserialize, Serialize};
 
+/// A point in table space, mirroring vpinball's `Vertex3Ds`
+/// (`src/math/vector.h`): three `f32` components, `x`, `y` and `z`, in VP
+/// units.
+///
+/// The BIFF read and write of this type use 16 bytes, `x`, `y`, `z` and a
+/// fourth float written as `0.0` and ignored on read, since vpinball stores
+/// records such as the primitive `VPOS` and `VSIZ` as a `vec4` with `w = 0`.
+/// The records vpinball writes as a plain `vec3` (12 bytes), such as the
+/// ball position, are read and written by the items themselves.
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Copy)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Vertex3D {
@@ -13,6 +22,7 @@ pub struct Vertex3D {
 }
 
 impl Vertex3D {
+    /// A vertex from its components.
     pub fn new(x: f32, y: f32, z: f32) -> Self {
         Self { x, y, z }
     }

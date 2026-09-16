@@ -130,34 +130,132 @@ mod text_alignment_open_enum_tests {
     }
 }
 
+/// A text box: a 2D rectangle on the desktop backdrop that shows a text
+/// the script can change (`Text`), or, when marked as a DMD, the dot matrix
+/// display frame of the controller.
+///
+/// vpinball rasterizes the text with GDI into a texture the size of the
+/// rectangle and draws it as a sprite over the backdrop. It is not part of
+/// the 3D playfield and has no physics; text boxes are always backdrop
+/// items and are skipped in cabinet and VR modes.
+///
+/// The record is written by `Textbox::Save` and read by `Textbox::Load` in
+/// vpinball's `src/parts/textbox.cpp`.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct TextBox {
-    pub ver1: Vertex2D,       // VER1
-    pub ver2: Vertex2D,       // VER2
-    pub back_color: Color,    // CLRB
-    pub font_color: Color,    // CLRF
-    pub intensity_scale: f32, // INSC
-    pub text: String,         // TEXT
-    pub name: String,         // NAME
-    pub align: TextAlignment, // ALGN
-    pub is_transparent: bool, // TRNS
-    pub is_dmd: Option<bool>, // IDMD added in 10.2?
-    pub font: Font,           // FONT
+    /// One corner of the rectangle, in the 1000 x 750 backdrop editor
+    /// space.
+    ///
+    /// vpinball takes the min and max of `ver1` and `ver2` for each axis,
+    /// so the order of the two corners does not matter. Default: the
+    /// position the box was created at.
+    ///
+    /// BIFF tag `VER1`
+    pub ver1: Vertex2D,
+    /// The opposite corner of the rectangle, see [`ver1`](Self::ver1).
+    /// Default: `ver1 + (100, 50)`.
+    ///
+    /// BIFF tag `VER2`
+    pub ver2: Vertex2D,
+    /// Background color of the rectangle.
+    ///
+    /// With [`is_transparent`](Self::is_transparent) every pixel of exactly
+    /// this color is made fully transparent. Default: black.
+    ///
+    /// BIFF tag `CLRB`
+    pub back_color: Color,
+    /// Color of the text. For a DMD text box it tints the dots of a
+    /// luminance-only frame. Default: white.
+    ///
+    /// BIFF tag `CLRF`
+    pub font_color: Color,
+    /// Brightness multiplier applied when the sprite or the DMD frame is
+    /// drawn (`IntensityScale` in script). Default: `1.0`.
+    ///
+    /// BIFF tag `INSC`
+    pub intensity_scale: f32,
+    /// Text shown in the box; the script can change it through `Text`.
+    ///
+    /// For 10.0 compatibility a text containing `DMD` (any case) turns the
+    /// box into a DMD, like [`is_dmd`](Self::is_dmd). Default: empty.
+    ///
+    /// BIFF tag `TEXT`
+    pub text: String,
+    /// Name of the text box, its identifier in the editor and in scripts.
+    /// Stored as a wide string.
+    ///
+    /// BIFF tag `NAME`
+    pub name: String,
+    /// Horizontal alignment of the text within the rectangle, see
+    /// [`TextAlignment`]. vpinball's default for a new text box is
+    /// [`TextAlignment::Right`].
+    ///
+    /// BIFF tag `ALGN`
+    pub align: TextAlignment,
+    /// Whether pixels matching [`back_color`](Self::back_color) are made
+    /// transparent, so only the glyphs are drawn over the backdrop.
+    /// Default: `false`.
+    ///
+    /// BIFF tag `TRNS`
+    pub is_transparent: bool,
+    /// Whether the box shows the controller's DMD frame instead of its
+    /// text (compatibility style, the 10.8 flasher DMD modes replace it).
+    ///
+    /// `None` when the record is absent (file older than 10.2); vpinball
+    /// then uses `false`, but a [`text`](Self::text) containing `DMD` still
+    /// enables DMD mode. Default: `false`.
+    ///
+    /// BIFF tag `IDMD` (added in 10.2)
+    pub is_dmd: Option<bool>,
+    /// Font used to draw the text. Default: Arial Black, 14.25 pt, normal
+    /// weight.
+    ///
+    /// BIFF tag `FONT` (OLE font descriptor)
+    pub font: Font,
 
     /// Timer data for scripting (shared across all game items).
     /// See [`TimerData`] for details.
     pub timer: TimerData,
 
     // these are shared between all items
+    /// Whether the item is locked in the editor to prevent accidental
+    /// moving or editing. Editor-only; has no runtime effect.
+    ///
+    /// BIFF tag `LOCK`
     pub is_locked: bool,
-    // LOCK
+    /// Legacy editor layer index (0-based, at most 11). Editor-only.
+    ///
+    /// Superseded by part groups in 10.8.1, see
+    /// [`part_group_name`](Self::part_group_name); vpinball still writes
+    /// it, as the index of the item's root group among the root groups, so
+    /// older versions can open the file. `None` when the record is absent.
+    ///
+    /// BIFF tag `LAYR`
     pub editor_layer: Option<u32>,
-    // LAYR
+    /// Name of the editor layer (10.7 named layers). Editor-only.
+    ///
+    /// Defaults to `"Layer_{editor_layer + 1}"`. Since 10.8.1 vpinball
+    /// writes the name of the item's root part group here, for older
+    /// versions, and on read maps it to a group when no `GRUP` record
+    /// follows. `None` when the record is absent.
+    ///
+    /// BIFF tag `LANR`
     pub editor_layer_name: Option<String>,
-    // LANR default "Layer_{editor_layer + 1}"
-    pub editor_layer_visibility: Option<bool>, // LVIS
-    /// Added in 10.8.1
+    /// Whether the item is shown in the editor (the 10.7 layer visibility,
+    /// stored per item). Editor-only; has no runtime effect. `None` when
+    /// the record is absent.
+    ///
+    /// BIFF tag `LVIS`
+    pub editor_layer_visibility: Option<bool>,
+    /// Name of the part group the item belongs to. Added in 10.8.1.
+    ///
+    /// Part groups replace the editor layers; see
+    /// [`PartGroup`](crate::vpx::gameitem::partgroup::PartGroup). `None`
+    /// when the record is absent (file older than 10.8.1, or an item that
+    /// is not in a group).
+    ///
+    /// BIFF tag `GRUP`
     pub part_group_name: Option<String>,
 }
 impl_shared_attributes!(TextBox);

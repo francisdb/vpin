@@ -5,6 +5,11 @@ use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// The flipper game item, vpinball's `Flipper` (`src/parts/flipper.cpp`): a
+/// bat pivoting at [`center`](Self::center) between
+/// [`start_angle`](Self::start_angle) and [`end_angle`](Self::end_angle),
+/// with its own rubber and a full set of physics parameters that the
+/// table's flipper physics override can replace.
 #[derive(Debug, PartialEq, Clone)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Flipper {

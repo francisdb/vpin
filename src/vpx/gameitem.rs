@@ -1,31 +1,74 @@
+/// The ball game item, type 23, added in 10.8.1: a ball the table creates at
+/// load instead of from script.
 pub mod ball;
+/// The bumper game item, type 5: a pop bumper that kicks the ball away.
 pub mod bumper;
+/// The decal game item, type 9: an image or a text placed on the playfield.
 pub mod decal;
+/// The control point of the spline based parts: walls, ramps, rubbers,
+/// triggers and light shapes.
 pub mod dragpoint;
+/// The flasher game item, type 20: a flat, optionally animated, image quad.
 pub mod flasher;
+/// The flipper game item, type 1.
 pub mod flipper;
+/// The font descriptor a text box stores, in Microsoft's OLE `StdFont`
+/// stream format.
 pub mod font;
+/// The gate game item, type 10: a hinged wire or plate the ball pushes
+/// through.
 pub mod gate;
+/// The fallback for game items of a type this crate does not know, kept as
+/// raw records.
 pub mod generic;
+/// The hit target game item, type 22: a drop or stand-up target.
 pub mod hittarget;
+/// The kicker game item, type 8: a hole or saucer that captures and ejects
+/// the ball.
 pub mod kicker;
 pub mod light;
+/// The light sequencer game item, type 18: scripted animations over a
+/// collection of lights.
 pub mod lightsequencer;
+/// The part group game item, type 24, added in 10.8.1: the editor group
+/// that replaced layers.
 pub mod partgroup;
+/// The plunger game item, type 3.
 pub mod plunger;
+/// The primitive game item, type 19: a custom or generated 3D mesh.
 pub mod primitive;
+/// The ramp game item, type 12: a flat, wire or habitrail ramp along a
+/// spline.
 pub mod ramp;
+/// How a ramp image is mapped onto the ramp, the `ALGN` record.
 pub mod ramp_image_alignment;
+/// The display reel game item, type 17: electro-mechanical style score
+/// reels on the backglass.
 pub mod reel;
+/// The rubber game item, type 21: a rubber band along a spline.
 pub mod rubber;
+/// The attributes every game item shares: timer data, lock state, legacy
+/// editor layer and part group.
 pub mod select;
+/// The spinner game item, type 11: a plate that spins on a horizontal axis
+/// when the ball passes.
 pub mod spinner;
+/// The text box game item, type 4: a text field on the backglass or
+/// playfield.
 pub mod textbox;
+/// The timer game item, type 2: a script timer with no visual or physical
+/// presence.
 pub mod timer;
+/// The trigger game item, type 6: a switch area the ball rolls over.
 pub mod trigger;
+/// A 2D point, vpinball's `Vertex2D`.
 pub mod vertex2d;
+/// A 3D point, vpinball's `Vertex3Ds`.
 pub mod vertex3d;
+/// A 4 component vector, vpinball's `Vertex4D`.
 pub mod vertex4d;
+/// The wall game item, type 0, vpinball's `Surface`: a raised polygon with
+/// sides and a top.
 pub mod wall;
 
 use super::biff::{BiffReader, BiffWrite, BiffWriter};
@@ -49,36 +92,73 @@ trait GameItem: BiffRead {
 /// survives loading, but is cut the moment it is edited.
 pub const MAX_NAME_LENGTH: usize = 31;
 
+/// One game item of a table: the sum of all part types a `GameItemN` stream
+/// can hold.
+///
+/// Each stream starts with the item type as a `u32`, vpinball's
+/// `ItemTypeEnum` (`src/core/iselect.h`), followed by the item's BIFF
+/// records. The number on each variant is that item type. The types
+/// `13` (table), `14` (light center), `15` (drag point) and `16`
+/// (collection) exist in the enum but are never stored as a game item on
+/// their own, so they have no variant; any other unknown type is read as
+/// [`Generic`](Self::Generic).
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
 // #[serde(tag = "type")]
 pub enum GameItemEnum {
+    /// Item type `0`, vpinball's `eItemSurface`.
     Wall(wall::Wall),
+    /// Item type `1`, `eItemFlipper`.
     Flipper(flipper::Flipper),
+    /// Item type `2`, `eItemTimer`.
     Timer(timer::Timer),
+    /// Item type `3`, `eItemPlunger`.
     Plunger(plunger::Plunger),
+    /// Item type `4`, `eItemTextbox`.
     TextBox(textbox::TextBox),
+    /// Item type `5`, `eItemBumper`.
     Bumper(bumper::Bumper),
+    /// Item type `6`, `eItemTrigger`.
     Trigger(trigger::Trigger),
+    /// Item type `7`, `eItemLight`.
     Light(light::Light),
+    /// Item type `8`, `eItemKicker`.
     Kicker(kicker::Kicker),
+    /// Item type `9`, `eItemDecal`.
     Decal(decal::Decal),
+    /// Item type `10`, `eItemGate`.
     Gate(gate::Gate),
+    /// Item type `11`, `eItemSpinner`.
     Spinner(spinner::Spinner),
+    /// Item type `12`, `eItemRamp`.
     Ramp(ramp::Ramp),
+    /// Item type `17`, `eItemDispReel`.
     Reel(reel::Reel),
+    /// Item type `18`, `eItemLightSeq`.
     LightSequencer(lightsequencer::LightSequencer),
+    /// Item type `19`, `eItemPrimitive`. Boxed because the primitive
+    /// carries its mesh data and is far larger than the other items.
     Primitive(Box<primitive::Primitive>),
+    /// Item type `20`, `eItemFlasher`.
     Flasher(flasher::Flasher),
+    /// Item type `21`, `eItemRubber`.
     Rubber(rubber::Rubber),
+    /// Item type `22`, `eItemHitTarget`.
     HitTarget(hittarget::HitTarget),
+    /// Item type `23`, `eItemBall`, added in 10.8.1.
     Ball(ball::Ball),
+    /// Item type `24`, `eItemPartGroup`, added in 10.8.1.
     PartGroup(partgroup::PartGroup),
+    /// An item of a type this crate does not know, with its raw item type
+    /// and all its records kept as bytes so it is written back unchanged.
     Generic(u32, generic::Generic),
 }
 
 impl GameItemEnum {
     // TODO clean up this mess
 
+    /// Whether the legacy editor layer of this item is visible in the
+    /// editor, the `LVIS` record. `None` when the record is absent, or for
+    /// a [`Generic`](Self::Generic) item.
     pub fn editor_layer_visibility(&self) -> Option<bool> {
         match self {
             GameItemEnum::Wall(wall) => wall.editor_layer_visibility,
@@ -106,6 +186,9 @@ impl GameItemEnum {
         }
     }
 
+    /// The display name of the legacy editor layer of this item, the `LANR`
+    /// record. `None` when the record is absent, or for a
+    /// [`Generic`](Self::Generic) item.
     pub fn editor_layer_name(&self) -> &Option<String> {
         match self {
             GameItemEnum::Wall(wall) => &wall.editor_layer_name,
@@ -133,6 +216,10 @@ impl GameItemEnum {
         }
     }
 
+    /// The legacy editor layer index of this item, the `LAYR` record, which
+    /// 10.8.1 replaced by part groups. `None` when the record is absent and
+    /// for a [`PartGroup`](Self::PartGroup) or [`Generic`](Self::Generic)
+    /// item.
     pub fn editor_layer(&self) -> Option<u32> {
         match self {
             GameItemEnum::Wall(wall) => wall.editor_layer(),
@@ -160,6 +247,9 @@ impl GameItemEnum {
         }
     }
 
+    /// Whether this item is locked in the editor against selection and
+    /// moving, the `LOCK` record. `None` only for a
+    /// [`Generic`](Self::Generic) item.
     pub fn is_locked(&self) -> Option<bool> {
         match self {
             GameItemEnum::Wall(wall) => Some(wall.is_locked()),
@@ -447,6 +537,8 @@ impl GameItemEnum {
 }
 
 impl GameItemEnum {
+    /// The name of this item, the `NAME` record, which scripts and other
+    /// items use to refer to it.
     pub fn name(&self) -> &str {
         match self {
             GameItemEnum::Wall(wall) => &wall.name,
@@ -474,6 +566,10 @@ impl GameItemEnum {
         }
     }
 
+    /// The name of this item's type as this crate spells it, for example
+    /// `"Wall"` or `"LightSequencer"`; `"Generic_N"` with the raw item type
+    /// for a [`Generic`](Self::Generic) item. [`type_id`](Self::type_id) is
+    /// the inverse for the known names.
     pub fn type_name(&self) -> String {
         match self {
             GameItemEnum::Wall(_) => "Wall".to_string(),
@@ -501,7 +597,11 @@ impl GameItemEnum {
         }
     }
 
-    // from type name to type id
+    /// The item type number vpinball stores for a type name as
+    /// [`type_name`](Self::type_name) spells it, for example `0` for
+    /// `"Wall"`. Also accepts the names of the types that are never stored
+    /// as a game item (`"Table"`, `"LightCenter"`, `"DragPoint"`,
+    /// `"Collection"` and `"TypeCount"`). `None` for any other name.
     pub fn type_id(type_name: &str) -> Option<u32> {
         let id = match type_name {
             "Wall" => ITEM_TYPE_WALL,

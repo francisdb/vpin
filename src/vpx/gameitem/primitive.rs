@@ -23,6 +23,13 @@ const BYTES_PER_VERTEX: usize = 32;
 /// TODO make private
 pub const MAX_VERTICES_FOR_2_BYTE_INDEX: usize = 65535;
 
+/// The primitive game item, vpinball's `Primitive` (`src/parts/primitive.cpp`):
+/// a 3D mesh placed on the table, either generated (a box or a cylinder with
+/// `sides` faces) or imported from a Wavefront OBJ file and stored in the
+/// table with optional animation frames.
+///
+/// The mesh is kept in its compressed form as vpinball stores it; use
+/// [`read_mesh`](Self::read_mesh) to decode it.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Primitive {
@@ -569,6 +576,8 @@ pub struct VertexWrapper {
     pub vertex: Vertex3dNoTex2,
 }
 impl VertexWrapper {
+    /// A wrapper from the encoded bytes and the vertex they decode to; the
+    /// caller is responsible for the two agreeing.
     pub fn new(vpx_encoded_vertex: [u8; 32], vertex: Vertex3dNoTex2) -> Self {
         Self {
             vpx_encoded_vertex,
@@ -586,6 +595,14 @@ pub struct ReadMesh {
 }
 
 impl Primitive {
+    /// Decodes the stored mesh: the zlib compressed `M3CX` vertex and `M3CI`
+    /// index data, or the uncompressed `M3DX`/`M3DI` data written by builds
+    /// from before 2015.
+    ///
+    /// Returns `Ok(None)` for a primitive without mesh data (a generated
+    /// shape), and an `InvalidData` error when the vertex or index count
+    /// declared in `num_vertices`/`num_indices` does not match the data, or
+    /// a `NotFound` error when only one of the two buffers is present.
     pub fn read_mesh(&self) -> Result<Option<ReadMesh>, WriteError> {
         let (raw_vertices, indices) = match (
             &self.compressed_vertices_data,
@@ -1338,6 +1355,7 @@ pub struct VertData {
     pub nz: f32,
 }
 impl VertData {
+    /// The size of one vertex in an animation frame: six `f32` values.
     pub const SERIALIZED_SIZE: usize = 24;
 }
 

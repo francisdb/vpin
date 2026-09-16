@@ -139,26 +139,195 @@ mod plunger_type_open_enum_tests {
     }
 }
 
+/// A plunger: the spring-loaded rod that launches the ball from the shooter
+/// lane.
+///
+/// vpinball simulates it as a moving bar at the bottom of the lane that
+/// travels [`stroke`](Self::stroke) VPU up the table from
+/// [`center`](Self::center). Two inputs drive it. The script (digital)
+/// plunger is moved by the `PullBack` and `Fire` script methods, usually
+/// bound to a key, and tuned with [`speed_pull`](Self::speed_pull) and
+/// [`speed_fire`](Self::speed_fire). The mechanical plunger of a cabinet is
+/// enabled with [`is_mech_plunger`](Self::is_mech_plunger) and follows the
+/// analog sensor with the spring strength
+/// [`mech_strength`](Self::mech_strength);
+/// [`auto_plunger`](Self::auto_plunger) turns either input into a launch
+/// button. [`park_position`](Self::park_position),
+/// [`scatter_velocity`](Self::scatter_velocity) and
+/// [`momentum_xfer`](Self::momentum_xfer) apply to both.
+///
+/// The look is chosen by [`plunger_type`](Self::plunger_type):
+/// [`anim_frames`](Self::anim_frames) only applies to the flat plunger, and
+/// [`tip_shape`](Self::tip_shape) and the `rod_*`, `ring_*` and `spring_*`
+/// fields only to the custom plunger.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Plunger {
+    /// Position of the plunger tip when fully pulled back, in VPU.
+    ///
+    /// `x` is the center line of the rod; from `y` the tip travels up the
+    /// table (decreasing y) by [`stroke`](Self::stroke) VPU when released.
+    /// The plunger sits on [`surface`](Self::surface).
+    ///
+    /// BIFF tag `VCEN`
     pub center: Vertex2D,
+    /// Half width of the plunger, in VPU.
+    ///
+    /// The collision bar spans `center.x - width` to `center.x + width`.
+    /// The mesh uses it as the nominal radius scale: the custom rod, ring,
+    /// spring and tip diameters are fractions of it, and the flat plunger
+    /// image is placed `1.25 x width` above its surface. vpinball default
+    /// `25.0`.
+    ///
+    /// BIFF tag `WDTH`
     pub width: f32,
+    /// Length of the plunger body behind the tip, in VPU.
+    ///
+    /// The base of the rod, and the bottom edge of the flat plunger image,
+    /// sit at `center.y + height`; the collision box extends the same
+    /// distance. vpinball default `20.0`.
+    ///
+    /// BIFF tag `HIGH`
     pub height: f32,
+    /// Vertical offset of the rendered plunger, in VPU.
+    ///
+    /// Added to the height of [`surface`](Self::surface) when building the
+    /// mesh, to tune where the plunger appears; the collision shape stays
+    /// at the surface height. vpinball default `0.0`.
+    ///
+    /// BIFF tag `ZADJ`
     pub z_adjust: f32,
+    /// Travel length of the plunger, in VPU.
+    ///
+    /// The tip moves between `center.y` (fully retracted) and
+    /// `center.y - stroke` (fully forward). vpinball renders 25 animation
+    /// frames per 80 VPU of stroke. vpinball default `80.0`.
+    ///
+    /// BIFF tag `HPSL`
     pub stroke: f32,
+    /// Pull force of the script plunger, `PullSpeed` in VBScript.
+    ///
+    /// The `PullBack` and `PullBackandRetract` script methods (the keyboard
+    /// plunger) apply this force every physics step, so the plunger speed
+    /// grows by `speed_pull / mass` per step until it reaches the fully
+    /// retracted position. Internal force units. vpinball default `5.0`;
+    /// this crate's `Default` uses `0.5`.
+    ///
+    /// BIFF tag `SPDP`
     pub speed_pull: f32,
+    /// Release strength of the plunger, `ReleaseSpeed` in VBScript.
+    ///
+    /// A percentage-like scale where `100` is nominal. The `Fire` script
+    /// method releases the plunger at a speed proportional to
+    /// `speed_fire / 100` times the pull distance, and the same factor
+    /// scales the hit speed reported by a mechanical plunger sensor.
+    /// vpinball default `80.0`.
+    ///
+    /// BIFF tag `SPDF`
     pub speed_fire: f32,
+    /// Visual style of the plunger, see [`PlungerType`].
+    ///
+    /// Selects the mesh: the built-in modern lathe shape, a flat image
+    /// strip or a lathe shape built from the custom fields. It does not
+    /// change the physics. vpinball default [`PlungerType::Modern`].
+    ///
+    /// BIFF tag `TYPE`
     pub plunger_type: PlungerType,
+    /// Number of animation cells in the [`image`](Self::image) of a
+    /// [`PlungerType::Flat`] plunger.
+    ///
+    /// The image is split into `anim_frames` equally wide columns, the
+    /// fully extended plunger in the leftmost and the fully retracted one
+    /// in the rightmost; values below `1` count as `1`. Ignored by the
+    /// other plunger types. vpinball default `1`.
+    ///
+    /// BIFF tag `ANFR`
     pub anim_frames: u32,
+    /// Name of the material rendered on the plunger; empty for the default
+    /// material.
+    ///
+    /// BIFF tag `MATR`
     pub material: String,
+    /// Name of the texture rendered on the plunger; empty for none.
+    ///
+    /// A flat plunger draws it as an animation strip, see
+    /// [`anim_frames`](Self::anim_frames). The modern and custom plungers
+    /// wrap it around the lathed body, with the tip in the top quarter of
+    /// the image and the ring and rod in the quarters below it.
+    ///
+    /// BIFF tag `IMAG`
     pub image: String,
+    /// Spring strength tying the simulated plunger to a mechanical plunger.
+    ///
+    /// With [`is_mech_plunger`](Self::is_mech_plunger) set and no script
+    /// pull or fire in progress, every physics step accelerates the
+    /// simulated plunger toward the sensor position by
+    /// `mech_strength x distance x stroke / (mass x 13)`, with some
+    /// damping, so higher values track the real plunger more tightly.
+    /// Unused without a mechanical plunger. vpinball default `85.0`.
+    ///
+    /// BIFF tag `MEST`
     pub mech_strength: f32,
+    /// Whether the plunger follows the mechanical (analog) plunger input of
+    /// a cabinet.
+    ///
+    /// When `true` the simulated plunger tracks the sensor position (see
+    /// [`mech_strength`](Self::mech_strength)), uses the speed reported by
+    /// the sensor for the ball hit when available, and with
+    /// [`auto_plunger`](Self::auto_plunger) turns a pull-and-release
+    /// gesture into a Launch Ball key press. When `false` only the
+    /// `PullBack` and `Fire` script methods move it. vpinball default
+    /// `false`.
+    ///
+    /// BIFF tag `MECH`
     pub is_mech_plunger: bool,
+    /// Whether the plunger models a launch button or a ROM-controlled
+    /// kicker instead of a player-operated spring plunger.
+    ///
+    /// The `Fire` script method then always releases from the fully
+    /// retracted position for a constant launch strength,
+    /// `PullBackandRetract` skips the retract motion, and a mechanical
+    /// plunger no longer moves the simulated plunger (which stays at
+    /// [`park_position`](Self::park_position)); a pull-and-release gesture
+    /// on it instead sends a synthetic Launch Ball key press to the script
+    /// (key down, key up 100 ms later). vpinball default `false`.
+    ///
+    /// BIFF tag `APLG`
     pub auto_plunger: bool,
+    /// Rest position of the plunger as a fraction of the stroke, measured
+    /// from the fully forward end: `0.0` is fully forward, `1.0` fully
+    /// retracted.
+    ///
+    /// The plunger starts and settles here, `PullBack` retracts from here
+    /// and `Fire` releases from at least this position. vpinball default
+    /// `0.5 / 3.0`, a 0.5 inch rest on a 3 inch stroke.
+    ///
+    /// BIFF tag `MPRK`
     pub park_position: f32,
+    /// Random speed added to the ball along the lane when the plunger hits
+    /// it, in vpinball velocity units.
+    ///
+    /// Approximates the mechanical randomness of a real plunger. The value
+    /// is scaled by the table's global difficulty; when the ball leaves
+    /// faster than that, a random amount within `+/- scatter_velocity`
+    /// (quadratic distribution) is added to its speed. `0.0` disables it.
+    /// vpinball default `0.0`.
+    ///
+    /// BIFF tag `PSCV`
     pub scatter_velocity: f32,
+    /// Momentum transfer factor of the plunger hit, relative units where
+    /// `1.0` is nominal.
+    ///
+    /// The impulse given to the ball is the plunger speed times
+    /// `momentum_xfer / ball_mass` (ball mass clamped to at least `0.05`),
+    /// so tables written before this property existed keep the old
+    /// behaviour. vpinball default `1.0`.
+    ///
+    /// BIFF tag `MOMX`
     pub momentum_xfer: f32,
+    /// Whether the plunger is rendered. vpinball default `true`.
+    ///
+    /// BIFF tag `VSBL`
     pub is_visible: bool,
     /// Whether this plunger appears in playfield reflections.
     ///
@@ -172,15 +341,65 @@ pub struct Plunger {
     /// If empty, the plunger sits on the playfield.
     /// BIFF tag: SURF
     pub surface: String,
+    /// Name of the plunger, the identifier used from VBScript. Stored as a
+    /// UTF-16 string.
+    ///
+    /// BIFF tag `NAME`
     pub name: String,
+    /// Lathe profile of the tip of a [`PlungerType::Custom`] plunger.
+    ///
+    /// A semicolon separated list of `distance diameter` pairs: the
+    /// distance from the tip in VPU (each at least the previous one) and
+    /// the diameter at that point as a fraction of [`width`](Self::width),
+    /// so `1.0` is a tip as wide as the nominal plunger width. Ignored by
+    /// the other plunger types. vpinball default
+    /// `"0 .34; 2 .6; 3 .64; 5 .7; 7 .84; 8 .88; 9 .9; 11 .92; 14 .92; 39 .84"`.
+    ///
+    /// BIFF tag `TIPS`
     pub tip_shape: String,
+    /// Diameter of the rod of a custom plunger, as a fraction of
+    /// [`width`](Self::width). vpinball default `0.6`.
+    ///
+    /// BIFF tag `RODD`
     pub rod_diam: f32,
+    /// Distance between the tip and the ring of a custom plunger, in VPU.
+    /// vpinball default `2.0`.
+    ///
+    /// BIFF tag `RNGG`
     pub ring_gap: f32,
+    /// Diameter of the ring of a custom plunger, as a fraction of
+    /// [`width`](Self::width). vpinball default `0.94`.
+    ///
+    /// BIFF tag `RNGD`
     pub ring_diam: f32,
+    /// Length of the ring of a custom plunger along the rod, in VPU.
+    /// vpinball default `3.0`.
+    ///
+    /// BIFF tag `RNGW`
     pub ring_width: f32,
+    /// Diameter of the spring of a custom plunger, as a fraction of
+    /// [`width`](Self::width). vpinball default `0.77`.
+    ///
+    /// BIFF tag `SPRD`
     pub spring_diam: f32,
+    /// Wire thickness of the spring of a custom plunger, in VPU. vpinball
+    /// default `1.38`.
+    ///
+    /// BIFF tag `SPRG`
     pub spring_gauge: f32,
+    /// Number of coils in the spring of a custom plunger.
+    ///
+    /// Together with [`spring_end_loops`](Self::spring_end_loops) it sets
+    /// the compressed spring length (`2.2` VPU per coil) and so the length
+    /// of the rod. vpinball default `8.0`.
+    ///
+    /// BIFF tag `SPRL`
     pub spring_loops: f32,
+    /// Number of closely wound coils at the end of the spring of a custom
+    /// plunger, spaced at `2.2 x` the wire thickness instead of the
+    /// stretched spring pitch. vpinball default `2.5`.
+    ///
+    /// BIFF tag `SPRE`
     pub spring_end_loops: f32,
 
     /// Timer data for scripting (shared across all game items).
@@ -188,10 +407,25 @@ pub struct Plunger {
     pub timer: TimerData,
 
     // these are shared between all items
+    /// Whether the item is locked in the editor to prevent accidental
+    /// moving or editing. Editor-only; has no runtime effect.
+    ///
+    /// BIFF tag `LOCK`
     pub is_locked: bool,
+    /// Legacy editor layer index. Removed in 10.8.1, superseded by part
+    /// groups (see `part_group_name`). `None` when absent.
+    ///
+    /// BIFF tag `LAYR`
     pub editor_layer: Option<u32>,
+    /// Display name of the legacy editor layer; defaults to
+    /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
+    ///
+    /// BIFF tag `LANR`
     pub editor_layer_name: Option<String>,
-    // default "Layer_{editor_layer + 1}"
+    /// Whether the legacy editor layer is shown in the editor.
+    /// Editor-only; has no runtime effect. `None` when absent.
+    ///
+    /// BIFF tag `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
     pub part_group_name: Option<String>,
