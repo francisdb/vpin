@@ -47,35 +47,54 @@ use self::version::{read_version, write_version};
 /// Internal BIFF record reading and writing
 pub mod audit;
 pub(crate) mod biff;
+/// Collections: named groups of game items that share event handling.
 pub mod collection;
+/// The RGBA color value used by materials, lights and other items.
 pub mod color;
 pub(crate) mod compat;
+/// The custom info tag names stored in the `GameStg/CustomInfoTags` stream.
 pub mod custominfotags;
 pub mod diff;
 pub mod expanded;
+/// Font files embedded in a table.
 pub mod font;
 pub mod gamedata;
+/// The game items (walls, ramps, flippers, lights, ...) that make up a
+/// table, one submodule per item type.
 pub mod gameitem;
+/// Images embedded in a table, either as encoded files or as raw bitmaps.
 pub mod image;
+/// JSON conversions for table info, collections and game data, used by
+/// the exploded directory format.
 pub mod jsonmodel;
 pub(crate) mod le;
 pub mod math;
+/// Value types shared across the format: vertices and strings that
+/// remember their original encoding.
 pub mod model;
+/// Sounds embedded in a table and their playback settings.
 pub mod sound;
+/// The table metadata (name, author, rules, screenshot, ...) stored in
+/// the `TableInfo` storage.
 pub mod tableinfo;
 pub(crate) mod ttf;
 pub mod units;
+/// The file format version stored in the `GameStg/Version` stream.
 pub mod version;
 
 pub(crate) mod utf16;
 
+/// Materials and physics materials, stored as part of the game data.
 pub mod material;
 
+/// Render probes (reflection and refraction planes), stored as part of
+/// the game data.
 pub mod renderprobe;
 
 pub(crate) mod json;
 
 // we have to make this public for the integration tests
+/// Exporting table geometry to OBJ and glTF/GLB files.
 pub mod export;
 pub(crate) mod gltf;
 pub mod lzw;
@@ -104,33 +123,53 @@ pub(crate) mod wav;
 pub struct VPX {
     /// This is mainly here to have an ordering for custom info tags
     pub custominfotags: CustomInfoTags, // this is a bit redundant
+    /// Table metadata, read from the streams in the `TableInfo` storage.
     pub info: TableInfo,
+    /// File format version, read from the `GameStg/Version` stream.
     pub version: Version,
+    /// Table settings, materials, render probes and the script, read from
+    /// the `GameStg/GameData` stream.
     pub gamedata: GameData,
+    /// Game items in file order, read from the `GameStg/GameItemN` streams.
     pub gameitems: Vec<GameItemEnum>,
+    /// Images in file order, read from the `GameStg/ImageN` streams.
     pub images: Vec<ImageData>,
+    /// Sounds in file order, read from the `GameStg/SoundN` streams.
     pub sounds: Vec<SoundData>,
+    /// Fonts in file order, read from the `GameStg/FontN` streams.
     pub fonts: Vec<FontData>,
+    /// Collections in file order, read from the `GameStg/CollectionN`
+    /// streams.
     pub collections: Vec<Collection>,
 }
 
+/// Outcome of [`VPX::add_or_replace_image`].
 pub enum AddImageResult {
+    /// No image with that name existed; the image was appended.
     Added,
+    /// An image with the same name (compared ignoring ASCII case) existed and
+    /// was overwritten. The boxed value is the image that was replaced.
     Replaced(Box<ImageData>),
 }
 
 impl VPX {
+    /// Appends a game item and updates the game item count in the game data.
     pub fn add_game_item(&mut self, item: GameItemEnum) -> &Self {
         self.gameitems.push(item);
         self.gamedata.gameitems_size = self.gameitems.len() as u32;
         self
     }
 
+    /// Replaces the table script stored in the game data.
     pub fn set_script(&mut self, script: String) -> &Self {
         self.gamedata.set_code(script);
         self
     }
 
+    /// Adds an image, or replaces the existing image with the same name.
+    ///
+    /// Names are compared ignoring ASCII case, as vpinball does. The image
+    /// count in the game data is updated when an image is added.
     pub fn add_or_replace_image(&mut self, image: ImageData) -> AddImageResult {
         // make sure there is a unique name
         let existing_pos = self
@@ -152,15 +191,22 @@ impl VPX {
     }
 }
 
+/// Outcome of [`extractvbs`].
 #[derive(Debug)]
 pub enum ExtractResult {
+    /// The script was written to the sidecar `.vbs` file at this path.
     Extracted(PathBuf),
+    /// A sidecar `.vbs` file already existed at this path and was left as is.
     Existed(PathBuf),
 }
 
+/// Outcome of [`verify`].
 #[derive(Eq, PartialEq, Debug)]
 pub enum VerifyResult {
+    /// The MAC signature of the VPX file at this path matches its contents.
     Ok(PathBuf),
+    /// The VPX file at this path could not be read or its MAC signature does
+    /// not match; the string describes the failure.
     Failed(PathBuf, String),
 }
 
@@ -274,14 +320,29 @@ impl<F: Read + Seek + Write> VpxFile<F> {
 }
 
 impl<F: Read + Seek> VpxFile<F> {
+    /// Reads the file format version from the `GameStg/Version` stream.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the stream is missing or cannot be parsed.
     pub fn read_version(&mut self) -> io::Result<Version> {
         read_version(&mut self.compound_file)
     }
 
+    /// Reads the table metadata from the `TableInfo` storage.
+    ///
+    /// # Errors
+    ///
+    /// Fails when a stream in the storage cannot be read.
     pub fn read_tableinfo(&mut self) -> io::Result<TableInfo> {
         read_tableinfo(&mut self.compound_file)
     }
 
+    /// Reads the game data from the `GameStg/GameData` stream.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the version or game data stream is missing or invalid.
     pub fn read_gamedata(&mut self) -> io::Result<GameData> {
         let version = self.read_version()?;
         read_gamedata(&mut self.compound_file, &version)
@@ -295,32 +356,67 @@ impl<F: Read + Seek> VpxFile<F> {
         Ok(self.read_gamedata()?.locked.unwrap_or(0) & 1 != 0)
     }
 
+    /// Reads all game items from the `GameStg/GameItemN` streams, in
+    /// file order.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the game data or a game item stream is missing or
+    /// invalid.
     pub fn read_gameitems(&mut self) -> io::Result<Vec<GameItemEnum>> {
         let gamedata = self.read_gamedata()?;
         read_gameitems(&mut self.compound_file, &gamedata)
     }
 
+    /// Reads all images from the `GameStg/ImageN` streams, in file order.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the game data or an image stream is missing or invalid.
     pub fn read_images(&mut self) -> io::Result<Vec<ImageData>> {
         let gamedata = self.read_gamedata()?;
         read_images(&mut self.compound_file, &gamedata)
     }
 
+    /// Reads all sounds from the `GameStg/SoundN` streams, in file order.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the game data or a sound stream is missing or invalid.
     pub fn read_sounds(&mut self) -> io::Result<Vec<SoundData>> {
         let version = self.read_version()?;
         let gamedata = self.read_gamedata()?;
         read_sounds(&mut self.compound_file, &gamedata, &version)
     }
 
+    /// Reads all fonts from the `GameStg/FontN` streams, in file order.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the game data or a font stream is missing or invalid.
     pub fn read_fonts(&mut self) -> io::Result<Vec<FontData>> {
         let gamedata = self.read_gamedata()?;
         read_fonts(&mut self.compound_file, &gamedata)
     }
 
+    /// Reads all collections from the `GameStg/CollectionN` streams, in
+    /// file order.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the game data or a collection stream is missing or
+    /// invalid.
     pub fn read_collections(&mut self) -> io::Result<Vec<Collection>> {
         let gamedata = self.read_gamedata()?;
         read_collections(&mut self.compound_file, &gamedata)
     }
 
+    /// Reads the custom info tag names from the `GameStg/CustomInfoTags`
+    /// stream.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the stream is missing or invalid.
     pub fn read_custominfotags(&mut self) -> io::Result<CustomInfoTags> {
         read_custominfotags(&mut self.compound_file)
     }
@@ -413,6 +509,13 @@ pub fn from_bytes(slice: &[u8]) -> io::Result<VPX> {
     read_vpx(&mut comp)
 }
 
+/// Writes a VPX file from memory to an in-memory byte buffer.
+///
+/// see also [`from_bytes()`]
+///
+/// # Errors
+///
+/// Fails when the compound file or one of its streams cannot be written.
 #[instrument(skip(vpx))]
 pub fn to_bytes(vpx: &VPX) -> io::Result<Vec<u8>> {
     let buffer = std::io::Cursor::new(Vec::new());
@@ -1043,10 +1146,14 @@ fn write_image<F: Read + Write + Seek>(
     Ok(())
 }
 
+/// One image converted by [`VpxFile::images_to_webp`].
 #[derive(Debug, PartialEq, Clone)]
 pub struct ImageToWebpConversion {
+    /// Name of the image in the table.
     pub name: String,
+    /// File extension of the image before conversion, for example `png`.
     pub old_extension: String,
+    /// File extension of the image after conversion, `webp`.
     pub new_extension: String,
 }
 
@@ -1192,13 +1299,18 @@ fn write_custominfotags<F: Read + Write + Seek>(
 /// Used for world-space texture mapping in walls, ramps, and flashers
 #[derive(Debug, Clone, Copy)]
 pub struct TableDimensions {
+    /// Left edge of the playfield, in VPU.
     pub left: f32,
+    /// Top edge of the playfield, in VPU.
     pub top: f32,
+    /// Right edge of the playfield, in VPU.
     pub right: f32,
+    /// Bottom edge of the playfield, in VPU.
     pub bottom: f32,
 }
 
 impl TableDimensions {
+    /// Playfield bounds from the four edge coordinates, in VPU.
     pub fn new(left: f32, top: f32, right: f32, bottom: f32) -> Self {
         Self {
             left,

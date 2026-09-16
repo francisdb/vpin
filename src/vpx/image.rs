@@ -6,16 +6,45 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::io;
 
+/// The original image file of an [`ImageData`], as it was imported.
+///
+/// Despite the name this holds any format vpinball can decode (JPEG, PNG,
+/// WEBP, EXR, HDR, ...): the file bytes are stored unchanged. vpinball keeps
+/// them as a `PinBinary` and writes that as a nested record inside the
+/// image's `JPEG` record (`PinBinary::Save` in `src/parts/pinbinary.cpp`,
+/// `Texture::Save` in `src/renderer/Texture.cpp`).
+///
+/// BIFF tag `JPEG`
 #[derive(PartialEq, Clone)]
 pub struct ImageDataJpeg {
+    /// Path of the file the image was imported from (`PinBinary::m_path`).
+    ///
+    /// In files written by vpinball this is the same as [`ImageData::path`].
+    ///
+    /// BIFF tag `PATH`
     pub path: String,
+    /// Name of the binary (`PinBinary::m_name`).
+    ///
+    /// In files written by vpinball this is the same as [`ImageData::name`].
+    ///
+    /// BIFF tag `NAME`
     pub name: String,
-    // /**
-    //  * Lowercased name?
-    //  * No longer in use
-    //  */
+    /// Lowercased copy of the name that old vpinball versions wrote inside
+    /// the binary record. Current vpinball neither reads nor writes it; this
+    /// library keeps it so such files round-trip unchanged. `None` when the
+    /// record is absent, which is the case for every current file.
+    ///
+    /// BIFF tag `INME`
     pub internal_name: Option<String>,
     // alpha_test_value: f32,
+    /// The bytes of the original image file, in whatever format it was
+    /// imported in.
+    ///
+    /// Stored as a `SIZE` record holding the length followed by a `DATA`
+    /// record holding the raw bytes; vpinball needs `SIZE` first to allocate
+    /// the buffer.
+    ///
+    /// BIFF tags `SIZE` and `DATA`
     pub data: Vec<u8>,
 }
 
@@ -50,22 +79,62 @@ impl fmt::Debug for ImageDataBits {
     }
 }
 
+/// An image (texture) of the table, mirroring vpinball's `Texture`.
+///
+/// vpinball stores every image as its own `Image<n>` stream in the table
+/// storage and reads it back in `Texture::CreateFromObjectReader`
+/// (`src/renderer/Texture.cpp`). The pixel data comes from exactly one of
+/// three places: the original image file in [`ImageData::jpeg`], an LZW
+/// compressed raw bitmap in [`ImageData::bits`] (files older than 10.8.1
+/// only), or the table screenshot when [`ImageData::link`] is set.
 #[derive(PartialEq, Debug, Clone)]
 pub struct ImageData {
-    pub name: String, // NAME
-    // /**
-    //  * Lowercased name?
-    //  * INME
-    //  * No longer in use
-    //  */
+    /// Name of the image, as shown in the image manager and used by parts
+    /// and scripts to reference it (`Texture::m_name`). vpinball matches
+    /// image names case insensitively.
+    ///
+    /// BIFF tag `NAME`
+    pub name: String,
+    /// Lowercased copy of the name that old vpinball versions wrote. Current
+    /// vpinball neither reads nor writes it; this library keeps it so such
+    /// files round-trip unchanged. `None` when the record is absent, which
+    /// is the case for every current file.
+    ///
+    /// BIFF tag `INME`
     pub internal_name: Option<String>,
-    pub path: String, // PATH
-    pub width: u32,   // WDTH
-    pub height: u32,  // HGHT
-    // TODO seems to be 1 for some kind of link type img, related to screenshots.
-    // we only see this where a screenshot is set on the table info.
-    // https://github.com/vpinball/vpinball/blob/1a70aa35eb57ec7b5fbbb9727f6735e8ef3183e0/Texture.cpp#L588
-    pub link: Option<u32>, // LINK
+    /// Path of the file the image was imported from (`PinBinary::m_path`).
+    ///
+    /// vpinball only uses its extension, to pick the decoder and when the
+    /// image is exported again; see [`ImageData::ext`].
+    ///
+    /// BIFF tag `PATH`
+    pub path: String,
+    /// Width of the image in pixels (`Texture::m_width`).
+    ///
+    /// Some files carry a wrong size; vpinball corrects it from the decoded
+    /// image.
+    ///
+    /// BIFF tag `WDTH`
+    pub width: u32,
+    /// Height of the image in pixels (`Texture::m_height`).
+    ///
+    /// Some files carry a wrong size; vpinball corrects it from the decoded
+    /// image.
+    ///
+    /// BIFF tag `HGHT`
+    pub height: u32,
+    /// Reference to image data stored elsewhere in the table instead of
+    /// inline.
+    ///
+    /// The only value vpinball knows is `1`: the image data is the table
+    /// screenshot in the `TableInfo/Screenshot` stream
+    /// (`PinTable::GetImageLinkBinary`). vpinball writes this record for the
+    /// image whose name equals the screenshot name of the table info and then
+    /// omits the `JPEG` record. `None` when the record is absent, which is
+    /// the case for every other image. See [`ImageData::is_link`].
+    ///
+    /// BIFF tag `LINK`
+    pub link: Option<u32>,
     /// Alpha test value for transparency cutoff.
     ///
     /// ## File Storage
@@ -146,7 +215,26 @@ pub struct ImageData {
     // TODO we can probably only have one of jpeg or bits so we can make an enum
     /// This field is named jpeg, but it's actually used for any image that is not a bitmap
     pub jpeg: Option<ImageDataJpeg>,
+    /// LZW compressed raw 32-bit BGRA bitmap, the way vpinball older than
+    /// 10.8.1 stored imported BMP files.
+    ///
+    /// Current vpinball still reads this record (converting the bitmap to a
+    /// lossless WEBP) but never writes it; new files carry the original file
+    /// in [`ImageData::jpeg`] instead. The record has no length prefix: the
+    /// data runs up to the following `ALTV` record. `None` when the record
+    /// is absent.
+    ///
+    /// BIFF tag `BITS`
     pub bits: Option<ImageDataBits>,
+    /// MD5 hash of the original image file bytes.
+    ///
+    /// vpinball uses it as the identity of the image data
+    /// (`Texture::GetMD5Hash`); `Texture::UpdateMD5` hashes
+    /// `PinBinary::m_buffer`, the same bytes as [`ImageDataJpeg::data`].
+    /// vpinball 10.8 and later write it for every image so it need not be
+    /// recomputed on load. `None` when the record is absent (older files).
+    ///
+    /// BIFF tag `MD5H`
     pub md5_hash: Option<[u8; 16]>,
 }
 
@@ -171,10 +259,17 @@ impl ImageData {
         }
     }
 
+    /// Whether the image data is the table screenshot instead of inline
+    /// data: [`ImageData::link`] is `Some(1)`, the only link value vpinball
+    /// knows.
     pub fn is_link(&self) -> bool {
         self.link == Some(1)
     }
 
+    /// The part of [`ImageData::path`] after its last dot, used as the file
+    /// extension when the image is written out as a file.
+    ///
+    /// A path without a dot is returned whole.
     pub fn ext(&self) -> String {
         // TODO we might want to also check the jpeg fsPath
         match self.path.split('.').next_back() {

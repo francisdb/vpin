@@ -145,20 +145,82 @@ impl fmt::Debug for SoundData {
     }
 }
 
+/// A sound of the table, mirroring vpinball's `VPX::Sound`.
+///
+/// vpinball stores every sound as its own `Sound<n>` stream in the table
+/// storage. Unlike most of the file it is not a tagged BIFF record but a
+/// fixed sequence of fields (`Sound::CreateFromStream` and
+/// `Sound::SaveToStream` in `src/parts/Sound.cpp`): the length-prefixed
+/// [`SoundData::name`], [`SoundData::path`] and [`SoundData::internal_name`],
+/// for WAV files the [`WaveForm`] header, the length-prefixed
+/// [`SoundData::data`], one byte for [`SoundData::output_target`] and, in
+/// files of version 1031 (`NEW_SOUND_FORMAT_VERSION`) and newer, the volume,
+/// balance, fade and once more the volume as 32-bit integers.
 #[derive(PartialEq)]
 pub struct SoundData {
+    /// Name of the sound, as shown in the sound manager and passed to
+    /// `PlaySound` by table scripts (`Sound::m_name`).
+    ///
+    /// Stored as a length-prefixed string.
     pub name: String,
+    /// Path of the file the sound was imported from (`Sound::m_path`).
+    ///
+    /// vpinball only uses its extension: a `.wav` file is stored as a
+    /// [`WaveForm`] header plus the raw samples, any other format as the
+    /// unchanged file bytes. Stored as a length-prefixed string.
     pub path: String,
+    /// The `WAVEFORMATEX` header of a WAV sound.
+    ///
+    /// Only present in the file when [`SoundData::path`] has a `.wav`
+    /// extension (this library also assumes WAV for a path without
+    /// extension); vpinball rebuilds the 44-byte RIFF header from it on
+    /// load. For other formats nothing is stored and this holds
+    /// [`WaveForm::default`].
     pub wave_form: WaveForm,
+    /// The audio data.
+    ///
+    /// For WAV sounds the raw sample bytes without the RIFF header (vpinball
+    /// strips the header on save and rebuilds it on load); for any other
+    /// format the complete original file. Stored with a 32-bit length prefix.
     pub data: Vec<u8>,
     /// Removed: previously did write the same name again, but just in lower case
     /// This rudimentary version here needs to stay as otherwise problems when loading, as one field less
     /// Now just writes a short dummy/empty string.
     /// see <https://github.com/vpinball/vpinball/commit/3320dd11d66ecedba326197c7d4e85c48864cc19>
     pub internal_name: String,
+    /// Front/rear fade of the sound on the playfield speakers
+    /// (`Sound::m_frontRearFade`).
+    ///
+    /// Percent in the range -100 (rear) to 100 (front); vpinball maps it to
+    /// -1..1 and adds the fade passed to `PlaySound`. Only used for the
+    /// table output target. vpinball stores it as a signed 32-bit integer;
+    /// this library keeps the raw bits, so a negative setting shows as a
+    /// large value. Absent in files older than 1031, where vpinball uses 100
+    /// and this library reads 0.
     pub fade: u32,
+    /// Volume of the sound (`Sound::m_volume`).
+    ///
+    /// Percent in the range -100 to 100; vpinball maps it to -1..1 and adds
+    /// the volume passed to `PlaySound`. Stored twice in the stream, once
+    /// before the balance and once after the fade. vpinball stores it as a
+    /// signed 32-bit integer; this library keeps the raw bits, so a negative
+    /// setting shows as a large value. Absent in files older than 1031, where
+    /// vpinball uses 100 and this library reads 0.
     pub volume: u32,
+    /// Left/right balance, the pan of the sound (`Sound::m_pan`).
+    ///
+    /// Percent in the range -100 (left) to 100 (right); vpinball maps it to
+    /// -1..1 and adds the pan passed to `PlaySound`. vpinball stores it as a
+    /// signed 32-bit integer; this library keeps the raw bits, so a negative
+    /// setting shows as a large value. Absent in files older than 1031, where
+    /// vpinball uses 100 and this library reads 0.
     pub balance: u32,
+    /// The audio device the sound plays on (`Sound::m_outputTarget`).
+    ///
+    /// Stored as one byte. In files older than 1031 the same byte is a
+    /// "to backglass output" bool, and vpinball additionally treats a name
+    /// containing `bgout_` or the path `* Backglass Output *` as backglass.
+    /// Default: [`OutputTarget::Table`].
     pub output_target: OutputTarget,
 }
 
@@ -266,6 +328,12 @@ impl From<WavHeader> for WaveForm {
     }
 }
 
+/// Rebuilds the sound file as it was imported.
+///
+/// For a WAV sound (by the extension of [`SoundData::path`]) this is a
+/// 44-byte RIFF/WAVE header built from [`SoundData::wave_form`] followed by
+/// [`SoundData::data`], the way vpinball does on load. For any other format
+/// it is [`SoundData::data`] unchanged.
 pub fn write_sound(sound_data: &SoundData) -> Vec<u8> {
     if is_wav(&sound_data.path) {
         let mut buf = BytesMut::with_capacity(WAV_HEADER_SIZE + sound_data.data.len());
@@ -277,6 +345,13 @@ pub fn write_sound(sound_data: &SoundData) -> Vec<u8> {
     }
 }
 
+/// Fills `sound_data` from the bytes of a sound file, the inverse of
+/// [`write_sound`].
+///
+/// For a WAV sound (by the extension of [`SoundData::path`]) the RIFF header
+/// is parsed into [`SoundData::wave_form`] and the remaining bytes become
+/// [`SoundData::data`]; for any other format the whole file becomes
+/// [`SoundData::data`]. Fails when a WAV header cannot be parsed.
 pub fn read_sound(data: &[u8], sound_data: &mut SoundData) -> io::Result<()> {
     if is_wav(&sound_data.path) {
         let mut reader = bytes::BytesMut::from(data);
@@ -306,26 +381,49 @@ pub fn read_sound(data: &[u8], sound_data: &mut SoundData) -> io::Result<()> {
     Ok(())
 }
 
+/// Format of the samples of a WAV sound, mirroring the Windows `WAVEFORMATEX`
+/// struct.
+///
+/// vpinball, originally Windows only, stores a `.wav` sound as this 18-byte
+/// little-endian struct followed by the raw samples instead of the file's
+/// RIFF header (`Sound::SaveToStream` in `src/parts/Sound.cpp`). The fields
+/// are described as Microsoft defines them.
 #[derive(Debug, PartialEq)]
 pub struct WaveForm {
-    // Format type
+    /// `wFormatTag`: the waveform-audio format type. `1` is
+    /// `WAVE_FORMAT_PCM`, uncompressed PCM, the usual case.
     pub format_tag: u16,
-    // Number of channels (i.e. mono, stereo...)
+    /// `nChannels`: the number of channels; 1 for mono, 2 for stereo.
     pub channels: u16,
-    // Sample rate
+    /// `nSamplesPerSec`: the sample rate in samples per second (Hz), for
+    /// example 44100.
     pub samples_per_sec: u32,
-    // For buffer estimation
+    /// `nAvgBytesPerSec`: the required average data transfer rate in bytes
+    /// per second, used for buffer estimation. For PCM this is
+    /// [`WaveForm::samples_per_sec`] x [`WaveForm::block_align`].
     pub avg_bytes_per_sec: u32,
-    // Block size of data
+    /// `nBlockAlign`: the block alignment in bytes, the minimum atomic unit
+    /// of data. For PCM this is [`WaveForm::channels`] x
+    /// [`WaveForm::bits_per_sample`] / 8.
     pub block_align: u16,
-    // Number of bits per sample of mono data
+    /// `wBitsPerSample`: the bits per sample of one channel. For PCM this is
+    /// 8 or 16.
     pub bits_per_sample: u16,
-    // The count in bytes of the size of extra information (after cbSize)
-    // Seems to always be 0 in the vpx file if the format_tag is 1
+    /// `cbSize`: the size in bytes of extra format information that follows
+    /// the struct.
+    ///
+    /// vpinball always writes 0 and ignores the value on load. This library
+    /// reuses the field for non-PCM formats: [`read_sound`] stores the size
+    /// of the WAV `data` chunk here and [`write_sound`] writes it back, as
+    /// that size cannot be derived from the data length for such formats.
     pub cb_size: u16,
 }
 
 impl WaveForm {
+    /// A header for 16-bit mono PCM at 44100 Hz: block align 2, 88200 bytes
+    /// per second, no extra data.
+    ///
+    /// Used for sounds that are not WAV files, for which nothing is stored.
     pub fn new() -> WaveForm {
         WaveForm {
             format_tag: 1,
