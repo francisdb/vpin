@@ -1421,6 +1421,142 @@ mod tests {
         let item = GameItemEnum::Timer(timer);
         assert_eq!(item.is_visible(), None);
     }
+
+    /// One default item of every variant, so a test can run every match
+    /// arm of the helpers once.
+    fn one_of_each() -> Vec<GameItemEnum> {
+        vec![
+            GameItemEnum::Wall(wall::Wall::default()),
+            GameItemEnum::Flipper(flipper::Flipper::default()),
+            GameItemEnum::Timer(timer::Timer::default()),
+            GameItemEnum::Plunger(plunger::Plunger::default()),
+            GameItemEnum::TextBox(textbox::TextBox::default()),
+            GameItemEnum::Bumper(bumper::Bumper::default()),
+            GameItemEnum::Trigger(trigger::Trigger::default()),
+            GameItemEnum::Light(light::Light::default()),
+            GameItemEnum::Kicker(kicker::Kicker::default()),
+            GameItemEnum::Decal(decal::Decal::default()),
+            GameItemEnum::Gate(gate::Gate::default()),
+            GameItemEnum::Spinner(spinner::Spinner::default()),
+            GameItemEnum::Ramp(ramp::Ramp::default()),
+            GameItemEnum::Reel(reel::Reel::default()),
+            GameItemEnum::LightSequencer(lightsequencer::LightSequencer::default()),
+            GameItemEnum::Primitive(Box::default()),
+            GameItemEnum::Flasher(flasher::Flasher::default()),
+            GameItemEnum::Rubber(rubber::Rubber::default()),
+            GameItemEnum::HitTarget(hittarget::HitTarget::default()),
+            GameItemEnum::Ball(ball::Ball::default()),
+            GameItemEnum::PartGroup(partgroup::PartGroup::default()),
+            GameItemEnum::Generic(
+                0x7FFF_FFFF,
+                generic::Generic {
+                    name: "future item".to_string(),
+                    fields: vec![],
+                },
+            ),
+        ]
+    }
+
+    #[test]
+    fn every_stored_item_type_maps_between_its_id_and_name_both_ways() {
+        for item in one_of_each() {
+            let name = item.type_name();
+            if let GameItemEnum::Generic(id, _) = &item {
+                assert_eq!(GameItemEnum::type_id(&name), None, "{name}");
+                assert_eq!(GameItemEnum::type_name_for_id(*id), format!("Generic_{id}"));
+                continue;
+            }
+            let id = GameItemEnum::type_id(&name).unwrap_or_else(|| panic!("no id for {name}"));
+            assert_eq!(GameItemEnum::type_name_for_id(id), name);
+        }
+        // the types vpinball numbers but never stores as an item still map
+        for name in ["Table", "LightCenter", "DragPoint", "Collection"] {
+            let id = GameItemEnum::type_id(name).unwrap();
+            assert_eq!(GameItemEnum::type_name_for_id(id), name);
+        }
+        assert_eq!(
+            GameItemEnum::type_id("TypeCount"),
+            Some(ITEM_TYPE_TYPE_COUNT)
+        );
+        assert_eq!(GameItemEnum::type_id("Playfield"), None);
+    }
+
+    #[test]
+    fn timer_is_present_on_every_item_type_that_can_have_one() {
+        for item in one_of_each() {
+            let without_timer = matches!(
+                item,
+                GameItemEnum::Decal(_) | GameItemEnum::Primitive(_) | GameItemEnum::Generic(_, _)
+            );
+            assert_eq!(
+                item.timer().is_none(),
+                without_timer,
+                "{}",
+                item.type_name()
+            );
+        }
+    }
+
+    #[test]
+    fn editor_attributes_round_trip_through_the_setters_on_every_item_type() {
+        for mut item in one_of_each() {
+            let name = item.type_name();
+            let generic = matches!(item, GameItemEnum::Generic(_, _));
+            let part_group = matches!(item, GameItemEnum::PartGroup(_));
+
+            item.set_locked(Some(true));
+            let expected = if generic { None } else { Some(true) };
+            assert_eq!(item.is_locked(), expected, "{name} locked");
+
+            // part groups replaced the layers, so they carry no layer index
+            item.set_editor_layer(Some(7));
+            let expected = if generic || part_group { None } else { Some(7) };
+            assert_eq!(item.editor_layer(), expected, "{name} layer");
+
+            item.set_editor_layer_name(Some("Layer 7".to_string()));
+            let expected = if generic {
+                None
+            } else {
+                Some("Layer 7".to_string())
+            };
+            assert_eq!(*item.editor_layer_name(), expected, "{name} layer name");
+
+            item.set_editor_layer_visibility(Some(false));
+            let expected = if generic { None } else { Some(false) };
+            assert_eq!(
+                item.editor_layer_visibility(),
+                expected,
+                "{name} visibility"
+            );
+        }
+    }
+
+    #[test]
+    fn reference_helpers_answer_for_every_item_type() {
+        for mut item in one_of_each() {
+            let name = item.type_name();
+            // a default item references nothing, and every helper must have
+            // an arm for every variant rather than a catch-all that hides a
+            // new item type
+            assert!(item.images().is_empty(), "{name} images");
+            assert!(item.materials().is_empty(), "{name} materials");
+            assert!(item.physics_material().is_none(), "{name} physics material");
+            assert_eq!(item.part_group_name(), None, "{name} part group");
+            let refs = item.material_references_mut();
+            assert!(
+                refs.iter().all(|reference| reference.is_empty()),
+                "{name} material references"
+            );
+            let is_visible = item.is_visible();
+            if matches!(
+                item,
+                GameItemEnum::Generic(_, _) | GameItemEnum::PartGroup(_)
+            ) {
+                assert_eq!(is_visible, None, "{name} visibility");
+            }
+            assert_eq!(item.name(), item.name().to_string(), "{name} name");
+        }
+    }
 }
 
 #[cfg(test)]
