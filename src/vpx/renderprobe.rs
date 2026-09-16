@@ -280,6 +280,17 @@ mod reflection_mode_open_enum_tests {
     }
 }
 
+/// A render probe, mirroring vpinball's `RenderProbe`: a planar
+/// reflection or a screen space refraction pass that parts reference by
+/// name for their reflection or refraction.
+///
+/// Added in 10.8. Stored as a nested `RPRB` record of the game data
+/// holding the records `TYPE` (reflection or refraction), `NAME`, `RBAS`
+/// (roughness), `RPLA` (the reflection plane as a `Vertex4D`: normal and
+/// distance), `RMOD` (reflection mode) and `RLMP` (disable lightmap
+/// reflection), see `RenderProbe::Save` and `RenderProbe::Load` in
+/// `src/renderer/RenderProbe.cpp` and
+/// [`GameData::render_probes`](crate::vpx::gamedata::GameData::render_probes).
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct RenderProbe {
@@ -304,6 +315,7 @@ pub struct RenderProbe {
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct RenderProbeWithGarbage {
+    /// The probe itself.
     pub render_probe: RenderProbe,
     pub(crate) trailing_data: Vec<u8>,
 }

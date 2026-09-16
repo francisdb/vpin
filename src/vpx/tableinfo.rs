@@ -12,21 +12,86 @@ use crate::vpx::utf16::{decode_utf16le, encode_utf16le};
 // >    "/TableInfo/AuthorEmail",
 // >    "/TableInfo/ReleaseDate",
 
+/// The table metadata from the `TableInfo` storage, mirroring the info
+/// fields of vpinball's `PinTable`.
+///
+/// vpinball writes each property as its own stream in the `TableInfo`
+/// storage, as UTF-16LE text without a terminator, and does not write a
+/// stream for an empty value (`PinTable::SaveInfo` and `PinTable::LoadInfo`
+/// in `src/parts/pintable.cpp`). Every field is `None` when its stream is
+/// absent, which for a vpinball-written file means the value was empty.
+/// All of them are free text entered in the table info dialog unless
+/// noted otherwise.
 #[derive(PartialEq, Debug)]
 pub struct TableInfo {
+    /// Name of the table (`PinTable::m_tableName`).
+    ///
+    /// Stream `TableInfo/TableName`
     pub table_name: Option<String>,
+    /// Author of the table (`PinTable::m_author`).
+    ///
+    /// Stream `TableInfo/AuthorName`
     pub author_name: Option<String>,
+    /// The table screenshot as the bytes of its original image file.
+    ///
+    /// vpinball writes the file of the image the author picked as
+    /// screenshot (`PinTable::m_screenShot`, `Texture::GetFileRaw`), so the
+    /// format is whatever that image was imported in. On load the image
+    /// with [`ImageData::link`](crate::vpx::image::ImageData::link) set
+    /// takes its pixels from here.
+    ///
+    /// Stream `TableInfo/Screenshot`
     pub screenshot: Option<Vec<u8>>,
+    /// Short description of the table (`PinTable::m_blurb`).
+    ///
+    /// Stream `TableInfo/TableBlurb`
     pub table_blurb: Option<String>,
+    /// Rules of the game (`PinTable::m_rules`).
+    ///
+    /// Stream `TableInfo/TableRules`
     pub table_rules: Option<String>,
+    /// Email address of the author (`PinTable::m_authorEMail`).
+    ///
+    /// Stream `TableInfo/AuthorEmail`
     pub author_email: Option<String>,
+    /// Release date of the table (`PinTable::m_releaseDate`), in whatever
+    /// form the author typed it.
+    ///
+    /// Stream `TableInfo/ReleaseDate`
     pub release_date: Option<String>,
+    /// Number of times vpinball has saved the table, as a decimal string
+    /// (`PinTable::m_numTimesSaved`). vpinball increments it on every save
+    /// and leaves it out of the table hash.
+    ///
+    /// Stream `TableInfo/TableSaveRev`
     pub table_save_rev: Option<String>,
+    /// Version of the table as given by the author (`PinTable::m_version`).
+    /// vpinball also records it in its settings as the last played version
+    /// of the table.
+    ///
+    /// Stream `TableInfo/TableVersion`
     pub table_version: Option<String>,
+    /// Website of the author (`PinTable::m_webSite`).
+    ///
+    /// Stream `TableInfo/AuthorWebSite`
     pub author_website: Option<String>,
+    /// Local date and time of the last save by vpinball
+    /// (`PinTable::m_dateSaved`), in C `asctime` form such as
+    /// `Wed Sep 16 14:03:52 2026`. Written on every save and left out of
+    /// the table hash.
+    ///
+    /// Stream `TableInfo/TableSaveDate`
     pub table_save_date: Option<String>,
+    /// Long description of the table (`PinTable::m_description`).
+    ///
+    /// Stream `TableInfo/TableDescription`
     pub table_description: Option<String>,
-    // the keys (and ordering) for these are defined in "GameStg/CustomInfoTags"
+    /// The custom info properties, keyed by name. The names and their
+    /// order are stored separately in the `GameStg/CustomInfoTags` stream,
+    /// see [`CustomInfoTags`](crate::vpx::custominfotags::CustomInfoTags);
+    /// this library also puts any unknown stream of the storage here.
+    ///
+    /// Streams `TableInfo/<name>`
     pub properties: HashMap<String, String>,
 }
 

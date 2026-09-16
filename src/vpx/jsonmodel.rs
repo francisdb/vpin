@@ -43,6 +43,12 @@ fn infallible_to_value<T: serde::Serialize>(value: T) -> serde_json::Value {
     to_value(value).unwrap()
 }
 
+/// Converts a [`TableInfo`] and its [`CustomInfoTags`] to the JSON of
+/// `info.json` in an extracted table directory.
+///
+/// The custom tag names go into a `properties_order` array because a
+/// JSON object does not keep the order vpinball stores them in. The
+/// screenshot is not part of the JSON; it is written to its own file.
 pub fn info_to_json(
     table_info: &TableInfo,
     custom_info_tags: &CustomInfoTags,
@@ -66,6 +72,14 @@ pub fn info_to_json(
     infallible_to_value(info_json)
 }
 
+/// Converts the JSON of `info.json` in an extracted table directory back
+/// to a [`TableInfo`] and its [`CustomInfoTags`]; the inverse of
+/// [`info_to_json`]. The screenshot comes from its own file and is passed
+/// in as `screenshot`.
+///
+/// # Errors
+///
+/// Fails when the JSON does not have the shape [`info_to_json`] writes.
 pub fn json_to_info(
     json: serde_json::Value,
     screenshot: Option<Vec<u8>>,
@@ -90,6 +104,9 @@ pub fn json_to_info(
     Ok((table_info, custom_info_tags))
 }
 
+/// Converts the collections to the JSON of `collections.json` in an
+/// extracted table directory: an array with one object per
+/// [`Collection`], in table order.
 pub fn collections_json(collections: &[Collection]) -> serde_json::Value {
     let mut collections_json = Vec::new();
     for collection in collections {
@@ -105,6 +122,13 @@ pub fn collections_json(collections: &[Collection]) -> serde_json::Value {
     infallible_to_value(collections_json)
 }
 
+/// Converts the JSON of `collections.json` in an extracted table directory
+/// back to the collections; the inverse of [`collections_json`].
+///
+/// # Errors
+///
+/// Fails when the JSON does not have the shape [`collections_json`]
+/// writes.
 pub fn json_to_collections(json: serde_json::Value) -> Result<Vec<Collection>, serde_json::Error> {
     let collections_json: Vec<CollectionJson> = serde_json::from_value(json)?;
     let mut collections = Vec::new();
@@ -121,6 +145,9 @@ pub fn json_to_collections(json: serde_json::Value) -> Result<Vec<Collection>, s
     Ok(collections)
 }
 
+/// Converts a [`GameData`] to the JSON of `gamedata.json` in an extracted
+/// table directory, via the crate-private `GameDataJson`. Used by the
+/// semantic diff to compare two tables field by field.
 pub fn game_data_to_json(game_data: &GameData) -> serde_json::Value {
     let game_data_json = GameDataJson::from_game_data(game_data);
     infallible_to_value(game_data_json)

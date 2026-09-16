@@ -315,9 +315,14 @@ impl<'a> Output<'a> {
     }
 }
 
+/// Why writing a table to the expanded directory format ([`write()`],
+/// [`write_fs`]) failed.
 #[derive(Debug)]
 pub enum WriteError {
+    /// A file or directory could not be written, or a mesh could not be
+    /// encoded.
     Io(io::Error),
+    /// A JSON index or item file could not be serialized.
     Json(serde_json::Error),
 }
 
@@ -463,10 +468,35 @@ fn validate_material_conversion(vpx: &&VPX, materials: &Vec<Material>) {
     }
 }
 
+/// Read a table back from an expanded directory on disk; the inverse of
+/// [`write()`].
+///
+/// The directory must be complete: one written with an
+/// [`ExpandOptions::filter`] that dropped files cannot be read back, since
+/// the index files name files that are not there.
+///
+/// # Errors
+///
+/// [`io::ErrorKind::NotFound`] when `version.txt` is missing,
+/// [`io::ErrorKind::InvalidData`] when it or a JSON, image, sound or mesh
+/// file cannot be parsed, and any other error the file system reports.
 pub fn read<P: AsRef<Path>>(expanded_dir: &P) -> io::Result<VPX> {
     read_fs(expanded_dir, &RealFileSystem)
 }
 
+/// Read a table back from an expanded directory through the given file
+/// system; [`read`] with the real file system.
+///
+/// File names recorded in the index files are matched byte for byte, with
+/// a retry in NFC and NFD Unicode normalization for storage layers that
+/// change the form of a name between write and lookup. The directory must
+/// be complete, see [`read`].
+///
+/// # Errors
+///
+/// [`io::ErrorKind::NotFound`] when `version.txt` is missing,
+/// [`io::ErrorKind::InvalidData`] when it or a JSON, image, sound or mesh
+/// file cannot be parsed, and any other error `fs` reports.
 pub fn read_fs<P: AsRef<Path>>(expanded_dir: &P, fs: &dyn FileSystem) -> io::Result<VPX> {
     info!("=== Starting VPX assembly process ===");
     // Storage layers like Safari/WebKit OPFS or macOS HFS+ can change the
@@ -592,6 +622,18 @@ pub fn read_fs<P: AsRef<Path>>(expanded_dir: &P, fs: &dyn FileSystem) -> io::Res
     Ok(vpx)
 }
 
+/// List the files [`write()`] would produce for a table, without touching
+/// the disk.
+///
+/// Reads the table, writes it into an in-memory file system with the
+/// default options (OBJ meshes, no derived meshes) and returns the paths
+/// sorted, each starting with the directory name, which is the file stem of
+/// `vpx_file_path` (or `expanded` when it has none).
+///
+/// # Errors
+///
+/// Whatever [`crate::vpx::read`] reports for the table, or a [`WriteError`]
+/// from the in-memory write wrapped as an [`io::Error`].
 pub fn extract_directory_list(vpx_file_path: &Path) -> io::Result<Vec<String>> {
     let vpx = crate::vpx::read(vpx_file_path)?;
     let fs = MemoryFileSystem::default();

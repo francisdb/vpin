@@ -73,6 +73,15 @@ fn to_lzw(data: &[u8]) -> Vec<u8> {
         .unwrap()
 }
 
+/// Compress raw bitmap bytes into the gif-style block data of a `BITS`
+/// record; the inverse of [`from_lzw_blocks`].
+///
+/// The stream is standard LSB-first LZW with an 8-bit minimum code size
+/// (codes start at 9 bits and grow to 12), as in GIF, cut into blocks of at
+/// most 254 bytes, each preceded by its length byte. vpinball's
+/// `LZWReader` accepts this stream. `data` is the packed 32-bit sBGRA
+/// bitmap, `width * height * 4` bytes, that the record decodes to. Encoding
+/// into memory cannot fail.
 pub fn to_lzw_blocks(data: &[u8]) -> Vec<u8> {
     let compressed = to_lzw(data);
     // convert compressed bytes to gif blocks
