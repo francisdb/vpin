@@ -1757,7 +1757,6 @@ pub(crate) struct GameDataJson {
     pub name: String,
     pub custom_colors: [Color; 16],
     pub protection_data: Option<Vec<u8>>,
-    //pub code: StringWithEncoding,
     pub locked: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exposure: Option<f32>,

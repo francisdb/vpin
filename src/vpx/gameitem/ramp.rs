@@ -438,7 +438,7 @@ struct RampJson {
     wire_distance_y: f32,
     is_reflection_enabled: Option<bool>,
     physics_material: Option<String>,
-    overwrite_physics: Option<bool>, // true;
+    overwrite_physics: Option<bool>,
     drag_points: Vec<DragPoint>,
     #[serde(skip_serializing_if = "Option::is_none")]
     part_group_name: Option<String>,

@@ -181,17 +181,14 @@ struct BumperJson {
     threshold: f32,
     force: f32,
     scatter: Option<f32>,
-    // BSCT (added in ?)
     height_scale: f32,
     ring_speed: f32,
     orientation: f32,
     ring_drop_offset: Option<F32WithNanInf>,
-    // RDLI (added in ?)
     cap_material: String,
     base_material: String,
     socket_material: String,
     ring_material: Option<String>,
-    // RIMA (added in ?)
     surface: String,
     name: String,
     is_cap_visible: bool,

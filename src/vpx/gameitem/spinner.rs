@@ -187,7 +187,7 @@ struct SpinnerJson {
     image: String,
     surface: String,
     name: String,
-    is_reflection_enabled: Option<bool>, // added in ?
+    is_reflection_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     part_group_name: Option<String>,
 }
