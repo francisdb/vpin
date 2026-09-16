@@ -10,7 +10,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// Values this library does not know are kept in [`PlungerType::Other`] so the
 /// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum PlungerType {
     /// Value 0, outside vpinball's enum, found in "Star Wars (Data East 1992) VPW v1.2.2.vpx".
     /// Kept as a named variant for compatibility with existing expanded tables.
@@ -27,7 +27,7 @@ pub enum PlungerType {
     /// it would write the same bytes as the named variant and read back as
     /// it, breaking round-trip equality. The library itself never does
     /// (`From` normalizes known values to their named variants).
-    Other(u32),
+    Other(#[cfg_attr(test, proptest(strategy = "4..=u32::MAX"))] u32),
 }
 impl From<u32> for PlungerType {
     fn from(value: u32) -> Self {
@@ -161,7 +161,7 @@ mod plunger_type_open_enum_tests {
 /// [`tip_shape`](Self::tip_shape) and the `rod_*`, `ring_*` and `spring_*`
 /// fields only to the custom plunger.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Plunger {
     /// Position of the plunger tip when fully pulled back, in VPU.
     ///
@@ -247,6 +247,7 @@ pub struct Plunger {
     /// material.
     ///
     /// BIFF tag `MATR`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub material: String,
     /// Name of the texture rendered on the plunger; empty for none.
     ///
@@ -256,6 +257,7 @@ pub struct Plunger {
     /// the image and the ring and rod in the quarters below it.
     ///
     /// BIFF tag `IMAG`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub image: String,
     /// Spring strength tying the simulated plunger to a mechanical plunger.
     ///
@@ -340,6 +342,7 @@ pub struct Plunger {
     /// Used to determine the plunger's base height (z position).
     /// If empty, the plunger sits on the playfield.
     /// BIFF tag: SURF
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub surface: String,
     /// Name of the plunger, the identifier used from VBScript. Stored as a
     /// UTF-16 string.
@@ -356,6 +359,7 @@ pub struct Plunger {
     /// `"0 .34; 2 .6; 3 .64; 5 .7; 7 .84; 8 .88; 9 .9; 11 .92; 14 .92; 39 .84"`.
     ///
     /// BIFF tag `TIPS`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub tip_shape: String,
     /// Diameter of the rod of a custom plunger, as a fraction of
     /// [`width`](Self::width). vpinball default `0.6`.
@@ -421,6 +425,10 @@ pub struct Plunger {
     /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
     ///
     /// BIFF tag `LANR`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub editor_layer_name: Option<String>,
     /// Whether the legacy editor layer is shown in the editor.
     /// Editor-only; has no runtime effect. `None` when absent.
@@ -428,6 +436,10 @@ pub struct Plunger {
     /// BIFF tag `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub part_group_name: Option<String>,
 }
 impl_shared_attributes!(Plunger);
@@ -781,56 +793,20 @@ impl BiffWrite for Plunger {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
-    use fake::{Fake, Faker};
+    use crate::vpx::test_support::debug;
+    use proptest::prelude::*;
 
     use super::*;
     use pretty_assertions::assert_eq;
 
-    #[test]
-    fn test_write_read() {
-        let plunger = Plunger {
-            center: Vertex2D::new(1.0, 2.0),
-            width: 1.0,
-            height: 1.0,
-            z_adjust: 0.1,
-            stroke: 2.0,
-            speed_pull: 0.5,
-            speed_fire: 3.0,
-            plunger_type: Faker.fake(),
-            anim_frames: 1,
-            material: "test material".to_string(),
-            image: "test image".to_string(),
-            mech_strength: 85.0,
-            is_mech_plunger: false,
-            auto_plunger: false,
-            park_position: 0.5 / 3.0,
-            scatter_velocity: 0.0,
-            momentum_xfer: 1.0,
-            timer: TimerData::default(),
-            is_visible: true,
-            is_reflection_enabled: Some(true),
-            surface: "test surface".to_string(),
-            name: "test plunger".to_string(),
-            tip_shape: "0 .34; 2 .6; 3 .64; 5 .7; 7 .84; 8 .88; 9 .9; 11 .92; 14 .92; 39 .83"
-                .to_string(),
-            rod_diam: 0.6,
-            ring_gap: 2.0,
-            ring_diam: 0.94,
-            ring_width: 3.0,
-            spring_diam: 0.77,
-            spring_gauge: 1.38,
-            spring_loops: 8.0,
-            spring_end_loops: 2.5,
-            is_locked: true,
-            editor_layer: Some(0),
-            editor_layer_name: Some("test layer".to_string()),
-            editor_layer_visibility: Some(false),
-            part_group_name: Some("test group".to_string()),
-        };
-        let mut writer = BiffWriter::new();
-        Plunger::biff_write(&plunger, &mut writer);
-        let plunger_read = Plunger::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
-        assert_eq!(plunger, plunger_read);
+    proptest! {
+        #[test]
+        fn any_plunger_round_trips_through_its_records(plunger in any::<Plunger>()) {
+            let mut writer = BiffWriter::new();
+            Plunger::biff_write(&plunger, &mut writer);
+            let read = Plunger::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
+            prop_assert_eq!(debug(&plunger), debug(&read));
+        }
     }
 
     #[test]

@@ -10,7 +10,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// [`center`](Self::center) that spins around its horizontal axis when the
 /// ball passes through, slowing down with [`damping`](Self::damping).
 #[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Spinner {
     /// The name of the spinner. Used for scripting and to identify the spinner
     /// in the editor. Must be unique across all spinners in the playfield.
@@ -110,6 +110,7 @@ pub struct Spinner {
     /// Default: empty string (uses default material)
     ///
     /// BIFF tag: MATR
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub material: String,
     /// Image/texture name for the spinner plate.
     ///
@@ -122,11 +123,13 @@ pub struct Spinner {
     /// Default: empty string (no texture)
     ///
     /// BIFF tag: IMGF
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub image: String,
     /// Name of the surface (ramp or wall top) this spinner sits on.
     /// Used to determine the spinner's base height (z position).
     /// If empty, the spinner sits on the playfield.
     /// BIFF tag: SURF
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub surface: String,
     /// Whether this spinner appears in playfield reflections.
     ///
@@ -154,6 +157,10 @@ pub struct Spinner {
     /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
     ///
     /// BIFF tag: `LANR`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub editor_layer_name: Option<String>,
     /// Whether the legacy editor layer is shown in the editor.
     /// Editor-only; has no runtime effect. `None` when absent.
@@ -161,6 +168,10 @@ pub struct Spinner {
     /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub part_group_name: Option<String>,
 }
 impl_shared_attributes!(Spinner);
@@ -401,11 +412,11 @@ impl BiffWrite for Spinner {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
+    use crate::vpx::test_support::debug;
+    use proptest::prelude::*;
 
     use super::*;
-    use crate::vpx::gameitem::tests::RandomOption;
     use pretty_assertions::assert_eq;
-    use rand::RngExt;
 
     #[test]
     fn a_spinner_from_before_october_2015_keeps_its_overhang() {
@@ -437,40 +448,13 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_write_read() {
-        let mut rng = rand::rng();
-        // values not equal to the defaults
-        let spinner = Spinner {
-            center: Vertex2D::new(rng.random(), rng.random()),
-            rotation: rng.random(),
-            timer: TimerData {
-                is_enabled: rng.random(),
-                interval: rng.random(),
-            },
-            height: rng.random(),
-            length: rng.random(),
-            damping: rng.random(),
-            angle_max: rng.random(),
-            angle_min: rng.random(),
-            elasticity: rng.random(),
-            is_visible: rng.random(),
-            show_bracket: rng.random(),
-            legacy_overhang: Some(2.5),
-            material: "test material".to_string(),
-            image: "test image".to_string(),
-            surface: "test surface".to_string(),
-            name: "test name".to_string(),
-            is_reflection_enabled: rng.random_option(),
-            is_locked: rng.random(),
-            editor_layer: Some(rng.random()),
-            editor_layer_name: Some("test layer name".to_string()),
-            editor_layer_visibility: rng.random_option(),
-            part_group_name: Some("test group name".to_string()),
-        };
-        let mut writer = BiffWriter::new();
-        Spinner::biff_write(&spinner, &mut writer);
-        let spinner_read = Spinner::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
-        assert_eq!(spinner, spinner_read);
+    proptest! {
+        #[test]
+        fn any_spinner_round_trips_through_its_records(spinner in any::<Spinner>()) {
+            let mut writer = BiffWriter::new();
+            Spinner::biff_write(&spinner, &mut writer);
+            let read = Spinner::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
+            prop_assert_eq!(debug(&spinner), debug(&read));
+        }
     }
 }

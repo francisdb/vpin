@@ -11,7 +11,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// Stored as a `u32` in the `GATY` record; the numeric value of each
 /// variant is given below. The collision shape does not depend on it.
 #[derive(Debug, PartialEq, Clone)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum GateType {
     /// `1`, `GateWireW`: a wire bent in a W shape, the default and the
     /// fallback for an unknown value.
@@ -34,7 +34,7 @@ pub enum GateType {
     /// out-of-range value at load time, but never rewrites the file.
     ///
     /// The raw value is kept here so that files round-trip unchanged.
-    Other(u32),
+    Other(#[cfg_attr(test, proptest(strategy = "5..=u32::MAX"))] u32),
 }
 
 impl GateType {
@@ -145,7 +145,7 @@ impl<'de> Deserialize<'de> for GateType {
 /// and, unless [`two_way`](Self::two_way), blocks the ball from the other
 /// side.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Gate {
     /// BIFF tag: `NAME`
     pub name: String,
@@ -297,6 +297,10 @@ pub struct Gate {
     /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
     ///
     /// BIFF tag: `LANR`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub editor_layer_name: Option<String>,
     /// Whether the legacy editor layer is shown in the editor.
     /// Editor-only; has no runtime effect. `None` when absent.
@@ -304,6 +308,10 @@ pub struct Gate {
     /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub part_group_name: Option<String>,
 }
 impl_shared_attributes!(Gate);

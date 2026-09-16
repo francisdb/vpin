@@ -58,7 +58,7 @@ pub const DEFAULT_DETAIL_LEVEL: u32 = 10;
 /// Values this library does not know are kept in [`ViewLayoutMode::Other`] so the
 /// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone, Copy)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum ViewLayoutMode {
     /// All tables before 10.8 used a viewer position relative to a fitting of a set of bounding vertices (not all parts) with a standard perspective projection skewed by a layback angle
     Legacy,
@@ -72,7 +72,7 @@ pub enum ViewLayoutMode {
     /// it would write the same bytes as the named variant and read back as
     /// it, breaking round-trip equality. The library itself never does
     /// (`From` normalizes known values to their named variants).
-    Other(u32),
+    Other(#[cfg_attr(test, proptest(strategy = "3..=u32::MAX"))] u32),
 }
 impl From<u32> for ViewLayoutMode {
     fn from(value: u32) -> Self {
@@ -156,6 +156,19 @@ impl<'de> Deserialize<'de> for ViewLayoutMode {
 #[cfg(test)]
 mod view_layout_mode_open_enum_tests {
     use super::ViewLayoutMode;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn any_view_layout_mode_round_trips_through_its_value_and_json(
+            mode in any::<ViewLayoutMode>()
+        ) {
+            prop_assert_eq!(ViewLayoutMode::from(u32::from(&mode)), mode);
+            let json = serde_json::to_value(mode).unwrap();
+            let back: ViewLayoutMode = serde_json::from_value(json).unwrap();
+            prop_assert_eq!(back, mode);
+        }
+    }
 
     #[test]
     fn unknown_value_round_trips() {
@@ -244,7 +257,7 @@ impl Default for ViewSetup {
 /// the vpinball enum: `0` Reinhard, `1` AgX, `2` Filmic, `3` Neutral,
 /// `4` AgX punchy.
 #[derive(Debug, PartialEq, Clone, Copy)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum ToneMapper {
     /// Reinhard, used to be the default until 10.8
     Reinhard,
@@ -259,7 +272,7 @@ pub enum ToneMapper {
     /// Any value this crate does not know, kept as is so the table round
     /// trips. vpinball master also defines `5` (`TM_WCG_SPLINE`), a spline
     /// curve for HDR to HDR display mapping that is not exposed to the user.
-    Other(u32),
+    Other(#[cfg_attr(test, proptest(strategy = "5..=u32::MAX"))] u32),
 }
 
 impl From<u32> for ToneMapper {
@@ -360,6 +373,23 @@ impl<'de> Deserialize<'de> for ToneMapper {
         }
 
         deserializer.deserialize_any(ToneMapperVisitor)
+    }
+}
+#[cfg(test)]
+mod tone_mapper_open_enum_tests {
+    use super::ToneMapper;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn any_tone_mapper_round_trips_through_its_value_and_json(
+            tone_mapper in any::<ToneMapper>()
+        ) {
+            prop_assert_eq!(ToneMapper::from(u32::from(&tone_mapper)), tone_mapper);
+            let json = serde_json::to_value(tone_mapper).unwrap();
+            let back: ToneMapper = serde_json::from_value(json).unwrap();
+            prop_assert_eq!(back, tone_mapper);
+        }
     }
 }
 
@@ -2966,8 +2996,9 @@ fn write_colors(colors: &[Color; 16]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fake::{Fake, Faker};
+    use crate::vpx::renderprobe::RenderProbeJson;
     use pretty_assertions::assert_eq;
+    use proptest::prelude::*;
 
     #[test]
     fn effective_detail_level_uses_default_when_no_override() {
@@ -3019,6 +3050,13 @@ mod tests {
         assert_eq!(game_data, read_game_data);
     }
 
+    /// A render probe from its json model, the only way to fill its
+    /// private fields from here
+    fn render_probe(json: serde_json::Value) -> RenderProbeWithGarbage {
+        let json: RenderProbeJson = serde_json::from_value(json).unwrap();
+        json.to_renderprobe()
+    }
+
     /// A game data with a non-default value in every field, and the
     /// records that only some vpinball versions write present where the
     /// 10.7 layout allows it.
@@ -3029,7 +3067,7 @@ mod tests {
             top: 3.0,
             bottom: 4.0,
             camera_layout_mode: None,
-            bg_view_mode_desktop: Faker.fake(),
+            bg_view_mode_desktop: Some(ViewLayoutMode::Camera),
             bg_rotation_desktop: 1.0,
             bg_inclination_desktop: 2.0,
             bg_layback_desktop: 3.0,
@@ -3103,8 +3141,8 @@ mod tests {
             playfield_material: "material_pf".to_string(),
             backdrop_color: Color::rgb(0x11, 0x22, 0x33),
             global_difficulty: 0.3,
-            light_ambient: Faker.fake(),
-            light0_emission: Faker.fake(),
+            light_ambient: Color::rgb(0x44, 0x55, 0x66),
+            light0_emission: Color::rgb(0x77, 0x88, 0x99),
             light_height: 4000.0,
             light_range: 50000.0,
             light_emission_scale: 1.2,
@@ -3133,7 +3171,7 @@ mod tests {
             use_fxaa: Some(-2),
             use_ao: Some(-3),
             use_ssr: Some(-4),
-            tone_mapper: Faker.fake(),
+            tone_mapper: Some(ToneMapper::AgX),
             exposure: Some(0.42),
             bloom_strength: 0.3,
             materials_size: 0,
@@ -3145,7 +3183,25 @@ mod tests {
             materials_old: vec![],
             materials_physics_old: Some(vec![]),
             materials: None,
-            render_probes: Some(vec![Faker.fake(), Faker.fake()]),
+            render_probes: Some(vec![
+                render_probe(serde_json::json!({
+                    "type": "plane_reflection",
+                    "name": "playfield reflection",
+                    "roughness": 1,
+                    "reflection_plane": [0.0, 0.0, 1.0, 0.0],
+                    "reflection_mode": "static_and_balls",
+                })),
+                render_probe(serde_json::json!({
+                    "type": "screen_space_transparency",
+                    "name": "refraction",
+                    "roughness": 2,
+                    "roughness_clear": 3,
+                    "reflection_plane": [1.0, 2.0, 3.0, 4.0],
+                    "reflection_mode": "dynamic",
+                    "disable_light_reflection": true,
+                    "trailing_data": [1, 2, 3, 4],
+                })),
+            ]),
             name: String::from("test name"),
             custom_colors: [Color::RED; 16],
             protection_data: None,
@@ -3158,7 +3214,7 @@ mod tests {
             bg_window_bottom_x_offset_desktop: None,
             bg_window_bottom_y_offset_desktop: None,
             bg_window_bottom_z_offset_desktop: None,
-            bg_view_mode_fullscreen: Faker.fake(),
+            bg_view_mode_fullscreen: Some(ViewLayoutMode::Legacy),
             bg_view_horizontal_offset_fullscreen: None,
             bg_view_vertical_offset_fullscreen: None,
             bg_window_top_x_offset_fullscreen: None,
@@ -3167,7 +3223,7 @@ mod tests {
             bg_window_bottom_x_offset_fullscreen: None,
             bg_window_bottom_y_offset_fullscreen: None,
             bg_window_bottom_z_offset_fullscreen: None,
-            bg_view_mode_full_single_screen: Faker.fake(),
+            bg_view_mode_full_single_screen: Some(ViewLayoutMode::Window),
             bg_view_horizontal_offset_full_single_screen: None,
             bg_view_vertical_offset_full_single_screen: None,
             bg_window_top_x_offset_full_single_screen: None,
@@ -3176,7 +3232,7 @@ mod tests {
             bg_window_bottom_x_offset_full_single_screen: None,
             bg_window_bottom_y_offset_full_single_screen: None,
             bg_window_bottom_z_offset_full_single_screen: None,
-            locked: Faker.fake(),
+            locked: Some(1),
             is_10_8_0_beta1_to_beta4: false,
         }
     }
@@ -3191,15 +3247,13 @@ mod tests {
         assert_eq!(gamedata, read_game_data);
     }
 
-    #[test]
-    fn test_write_read_colors() {
-        let mut colors = [Color::RED; 16];
-        for color in &mut colors {
-            *color = Faker.fake();
+    proptest! {
+        #[test]
+        fn any_custom_colors_round_trip_through_their_record(colors in any::<[Color; 16]>()) {
+            let bytes = write_colors(&colors);
+            let read = read_colors(&bytes).unwrap();
+            prop_assert_eq!(colors, read);
         }
-        let bytes = write_colors(&colors);
-        let read_colors = read_colors(&bytes).unwrap();
-        assert_eq!(colors, read_colors);
     }
 
     /// The sample with every optional record present: the window and
@@ -3208,12 +3262,6 @@ mod tests {
     fn gamedata_with_every_optional_record() -> GameData {
         GameData {
             camera_layout_mode: Some(1),
-            // the sample fakes these, which may leave them absent
-            bg_view_mode_desktop: Some(ViewLayoutMode::Camera),
-            bg_view_mode_fullscreen: Some(ViewLayoutMode::Legacy),
-            bg_view_mode_full_single_screen: Some(ViewLayoutMode::Window),
-            tone_mapper: Some(ToneMapper::Filmic),
-            locked: Some(1),
             bg_view_horizontal_offset_desktop: Some(1.5),
             bg_view_vertical_offset_desktop: Some(2.5),
             bg_window_top_x_offset_desktop: Some(3.5),

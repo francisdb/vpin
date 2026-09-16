@@ -14,7 +14,7 @@ use std::io;
 /// `src/parts/Collection.cpp`); the parts are stored by name and resolved
 /// after the whole table is loaded.
 #[derive(PartialEq, Debug)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Collection {
     /// Name of the collection, the identifier a script uses for it
     /// (`Collection::m_wzName`). Stored as a wide string.
@@ -167,6 +167,15 @@ pub(crate) fn json_to_collections(
 mod test {
     use super::*;
     use pretty_assertions::assert_eq;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn any_collection_round_trips_through_its_records(collection in any::<Collection>()) {
+            let read = read(&write(&collection)).unwrap();
+            prop_assert_eq!(collection, read);
+        }
+    }
 
     #[test]
     fn write_read() {

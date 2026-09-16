@@ -45,6 +45,7 @@ pub(crate) trait HasSharedAttributes {
 /// - `TMON`: `is_enabled` (bool)
 /// - `TMIN`: `interval` (i32, milliseconds)
 #[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct TimerData {
     /// Whether the scripting timer is enabled.
     ///
@@ -67,16 +68,6 @@ pub struct TimerData {
     /// BIFF tag: `TMIN`
     #[serde(rename = "timer_interval")]
     pub interval: i32,
-}
-
-#[cfg(test)]
-impl fake::Dummy<fake::Faker> for TimerData {
-    fn dummy_with_rng<R: rand::RngExt + ?Sized>(_: &fake::Faker, rng: &mut R) -> Self {
-        Self {
-            is_enabled: rng.random(),
-            interval: rng.random(),
-        }
-    }
 }
 
 impl TimerData {

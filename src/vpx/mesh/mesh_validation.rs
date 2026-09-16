@@ -610,21 +610,21 @@ mod tests {
     #[test]
     fn test_flipper_mesh_validation() {
         use crate::vpx::gameitem::flipper::Flipper;
-        use fake::{Fake, Faker};
 
-        // Create a flipper with randomized values but ensure it's visible
-        let mut flipper: Flipper = Faker.fake();
-        flipper.name = "TestFlipper".to_string();
-        flipper.is_visible = true;
-        // Set reasonable values for mesh generation
-        flipper.base_radius = 21.5;
-        flipper.end_radius = 13.0;
-        flipper.flipper_radius_max = 130.0;
-        flipper.height = 50.0;
-        flipper.rubber_thickness = Some(7.0);
-        flipper.rubber_height = Some(19.0);
-        flipper.rubber_width = Some(24.0);
-        flipper.start_angle = 121.0;
+        // A visible flipper with reasonable values for mesh generation
+        let flipper = Flipper {
+            name: "TestFlipper".to_string(),
+            is_visible: true,
+            base_radius: 21.5,
+            end_radius: 13.0,
+            flipper_radius_max: 130.0,
+            height: 50.0,
+            rubber_thickness: Some(7.0),
+            rubber_height: Some(19.0),
+            rubber_width: Some(24.0),
+            start_angle: 121.0,
+            ..Default::default()
+        };
 
         let (vertices, faces) =
             build_flipper_mesh(&flipper, 0.0).expect("Flipper mesh should be generated");

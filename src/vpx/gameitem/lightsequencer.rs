@@ -11,7 +11,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// [`pos_x`](Self::pos_x)/[`pos_y`](Self::pos_y). It has no visual or
 /// physical presence of its own.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct LightSequencer {
     /// Editor UI position of the light sequencer marker, in editor
     /// background coordinates. This is only where the item's handle is drawn
@@ -76,6 +76,10 @@ pub struct LightSequencer {
     /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
     ///
     /// BIFF tag: `LANR`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub editor_layer_name: Option<String>,
     // LANR (added in 10.7?) default "Layer_{editor_layer + 1}"
     /// Whether the legacy editor layer is shown in the editor.
@@ -84,6 +88,10 @@ pub struct LightSequencer {
     /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>, // LVIS (added in 10.7?)
     /// Added in 10.8.1
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub part_group_name: Option<String>,
 }
 
@@ -276,38 +284,18 @@ impl BiffWrite for LightSequencer {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
+    use crate::vpx::test_support::debug;
+    use proptest::prelude::*;
 
     use super::*;
-    use crate::vpx::gameitem::tests::RandomOption;
-    use pretty_assertions::assert_eq;
-    use rand::RngExt;
 
-    #[test]
-    fn test_write_read() {
-        let mut rng = rand::rng();
-        // values not equal to the defaults
-        let spinner = LightSequencer {
-            center: Vertex2D::new(rng.random(), rng.random()),
-            collection: "test collection".to_string(),
-            pos_x: rng.random(),
-            pos_y: rng.random(),
-            update_interval: rng.random(),
-            timer: TimerData {
-                is_enabled: rng.random(),
-                interval: rng.random(),
-            },
-            name: "test name".to_string(),
-            backglass: rng.random(),
-            is_locked: rng.random_option(),
-            editor_layer: rng.random_option(),
-            editor_layer_name: Some("test layer name".to_string()),
-            editor_layer_visibility: rng.random_option(),
-            part_group_name: Some("test group name".to_string()),
-        };
-        let mut writer = BiffWriter::new();
-        LightSequencer::biff_write(&spinner, &mut writer);
-        let spinner_read =
-            LightSequencer::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
-        assert_eq!(spinner, spinner_read);
+    proptest! {
+        #[test]
+        fn any_light_sequencer_round_trips_through_its_records(light_sequencer in any::<LightSequencer>()) {
+            let mut writer = BiffWriter::new();
+            LightSequencer::biff_write(&light_sequencer, &mut writer);
+            let read = LightSequencer::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
+            prop_assert_eq!(debug(&light_sequencer), debug(&read));
+        }
     }
 }

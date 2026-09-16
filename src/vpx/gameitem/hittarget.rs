@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 /// Values this library does not know are kept in [`TargetType::Other`] so the
 /// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum TargetType {
     /// `DropTargetBeveled`: drop target with beveled edges.
     DropTargetBeveled,
@@ -37,7 +37,7 @@ pub enum TargetType {
     /// it would write the same bytes as the named variant and read back as
     /// it, breaking round-trip equality. The library itself never does
     /// (`From` normalizes known values to their named variants).
-    Other(u32),
+    Other(#[cfg_attr(test, proptest(strategy = "10..=u32::MAX"))] u32),
 }
 impl From<u32> for TargetType {
     fn from(value: u32) -> Self {
@@ -186,7 +186,7 @@ mod target_type_open_enum_tests {
 /// [`threshold`](Self::threshold) while
 /// [`use_hit_event`](Self::use_hit_event) is set.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct HitTarget {
     /// Name of the target, the identifier used from VBScript. Stored as a
     /// UTF-16 string.
@@ -215,6 +215,7 @@ pub struct HitTarget {
     /// Name of the texture rendered on the target; empty for none.
     ///
     /// BIFF tag `IMAG`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub image: String,
     /// Shape and kind of the target, see [`TargetType`].
     ///
@@ -227,6 +228,7 @@ pub struct HitTarget {
     /// material.
     ///
     /// BIFF tag `MATR`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub material: String,
     /// Whether the target is rendered.
     ///
@@ -308,6 +310,10 @@ pub struct HitTarget {
     /// Replaced by `disable_lighting_top` in VPX 10.8.
     ///
     /// BIFF tag: `DILI` (removed in 10.8)
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::quantized_u8())")
+    )]
     pub disable_lighting_top_old: Option<f32>,
 
     /// Controls how much lighting is disabled on the top surface.
@@ -382,6 +388,10 @@ pub struct HitTarget {
     /// targets in June 2016 (10.2), older tables lack it.
     ///
     /// BIFF tag `MAPH`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub physics_material: Option<String>,
     /// Whether the target's own [`elasticity`](Self::elasticity),
     /// [`elasticity_falloff`](Self::elasticity_falloff),
@@ -414,6 +424,10 @@ pub struct HitTarget {
     /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
     ///
     /// BIFF tag `LANR`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub editor_layer_name: Option<String>,
     /// Whether the legacy editor layer is shown in the editor.
     /// Editor-only; has no runtime effect. `None` when absent.
@@ -421,6 +435,10 @@ pub struct HitTarget {
     /// BIFF tag `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub part_group_name: Option<String>,
 }
 impl_shared_attributes!(HitTarget);
@@ -777,59 +795,20 @@ impl BiffWrite for HitTarget {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
-    use fake::{Fake, Faker};
+    use crate::vpx::test_support::debug;
+    use proptest::prelude::*;
 
     use super::*;
-    use crate::vpx::gameitem::tests::RandomOption;
     use pretty_assertions::assert_eq;
-    use rand::RngExt;
 
-    #[test]
-    fn test_write_read() {
-        let mut rng = rand::rng();
-        // values not equal to the defaults
-        let hittarget = HitTarget {
-            position: Vertex3D::new(rng.random(), rng.random(), rng.random()),
-            size: Vertex3D::new(rng.random(), rng.random(), rng.random()),
-            rot_z: rng.random(),
-            image: "test image".to_string(),
-            target_type: Faker.fake(),
-            name: "test name".to_string(),
-            material: "test material".to_string(),
-            is_visible: rng.random(),
-            is_legacy: rng.random(),
-            use_hit_event: rng.random(),
-            threshold: rng.random(),
-            elasticity: rng.random(),
-            elasticity_falloff: rng.random(),
-            friction: rng.random(),
-            scatter: rng.random(),
-            is_collidable: rng.random(),
-            // we need a value that is supported when quantized to 8 bits, since the old `DILI` tag uses 8-bit quantization.
-            disable_lighting_top_old: Some(0.007843138),
-            disable_lighting_top: Some(rng.random()),
-            disable_lighting_below: rng.random_option(),
-            is_reflection_enabled: rng.random(),
-            depth_bias: rng.random(),
-            is_dropped: rng.random(),
-            drop_speed: rng.random(),
-            timer: TimerData {
-                is_enabled: rng.random(),
-                interval: rng.random(),
-            },
-            raise_delay: rng.random_option(),
-            physics_material: Some("test physics material".to_string()),
-            overwrite_physics: rng.random_option(),
-            is_locked: rng.random(),
-            editor_layer: Some(rng.random()),
-            editor_layer_name: Some("test layer name".to_string()),
-            editor_layer_visibility: rng.random_option(),
-            part_group_name: Some("test group name".to_string()),
-        };
-        let mut writer = BiffWriter::new();
-        HitTarget::biff_write(&hittarget, &mut writer);
-        let hittarget_read = HitTarget::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
-        assert_eq!(hittarget, hittarget_read);
+    proptest! {
+        #[test]
+        fn any_hittarget_round_trips_through_its_records(hittarget in any::<HitTarget>()) {
+            let mut writer = BiffWriter::new();
+            HitTarget::biff_write(&hittarget, &mut writer);
+            let read = HitTarget::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
+            prop_assert_eq!(debug(&hittarget), debug(&read));
+        }
     }
 
     #[test]

@@ -10,7 +10,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// Values this library does not know are kept in [`TriggerShape::Other`]
 /// so the table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone, Default)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum TriggerShape {
     /// No visible mesh (invisible trigger): 0
     None,
@@ -35,7 +35,7 @@ pub enum TriggerShape {
     /// it would write the same bytes as the named variant and read back as
     /// it, breaking round-trip equality. The library itself never does
     /// (`From` normalizes known values to their named variants).
-    Other(u32),
+    Other(#[cfg_attr(test, proptest(strategy = "8..=u32::MAX"))] u32),
 }
 
 #[cfg(test)]
@@ -183,7 +183,7 @@ impl<'de> Deserialize<'de> for TriggerShape {
 /// The record is written by `Trigger::Save` and read by `Trigger::Load` in
 /// vpinball's `src/parts/trigger.cpp`.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Trigger {
     /// Name of the trigger, its identifier in the editor and in scripts.
     /// Stored as a wide string.
@@ -245,11 +245,13 @@ pub struct Trigger {
     /// the default material.
     ///
     /// BIFF tag `MATR`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub material: String,
     /// Name of the surface (ramp or wall top) this trigger sits on.
     /// Used to determine the trigger's base height (z position).
     /// If empty, the trigger sits on the playfield.
     /// BIFF tag: SURF
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub surface: String,
 
     /// Whether the mesh is rendered; the hit area is not affected.
@@ -329,6 +331,10 @@ pub struct Trigger {
     /// follows. `None` when the record is absent.
     ///
     /// BIFF tag `LANR`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub editor_layer_name: Option<String>,
     /// Whether the item is shown in the editor (the 10.7 layer visibility,
     /// stored per item). Editor-only; has no runtime effect. `None` when
@@ -344,6 +350,10 @@ pub struct Trigger {
     /// is not in a group).
     ///
     /// BIFF tag `GRUP`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub part_group_name: Option<String>,
 
     /// Control points of the polygon that forms the hit area of the wire
@@ -597,45 +607,20 @@ impl BiffWrite for Trigger {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
-    use fake::{Fake, Faker};
+    use crate::vpx::test_support::debug;
+    use proptest::prelude::*;
 
     use super::*;
     use pretty_assertions::assert_eq;
 
-    #[test]
-    fn test_write_read() {
-        // values not equal to the defaults
-        let trigger = Trigger {
-            center: Vertex2D::new(1.0, 2.0),
-            radius: 25.0,
-            rotation: 3.0,
-            wire_thickness: Some(4.0),
-            scale_x: 5.0,
-            scale_y: 6.0,
-            timer: TimerData {
-                is_enabled: true,
-                interval: 7,
-            },
-            material: "test material".to_string(),
-            surface: "test surface".to_string(),
-            is_visible: false,
-            is_enabled: false,
-            hit_height: 8.0,
-            name: "test name".to_string(),
-            shape: Faker.fake(),
-            anim_speed: 10.0,
-            is_reflection_enabled: Some(false),
-            is_locked: true,
-            editor_layer: Some(11),
-            editor_layer_name: Some("test layer name".to_string()),
-            editor_layer_visibility: Some(false),
-            part_group_name: Some("test group name".to_string()),
-            drag_points: vec![DragPoint::default()],
-        };
-        let mut writer = BiffWriter::new();
-        Trigger::biff_write(&trigger, &mut writer);
-        let trigger_read = Trigger::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
-        assert_eq!(trigger, trigger_read);
+    proptest! {
+        #[test]
+        fn any_trigger_round_trips_through_its_records(trigger in any::<Trigger>()) {
+            let mut writer = BiffWriter::new();
+            Trigger::biff_write(&trigger, &mut writer);
+            let read = Trigger::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
+            prop_assert_eq!(debug(&trigger), debug(&read));
+        }
     }
 
     #[test]

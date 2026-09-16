@@ -43,7 +43,7 @@ use serde::{Deserialize, Serialize};
 /// - `RenderBall` / `RenderBall_DecalMode`: Equirectangular environment mapping
 /// - `RenderBall_SphericalMap` / `RenderBall_SphericalMap_DecalMode`: Spherical UV mapping
 #[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Ball {
     /// Name of the ball.
     ///
@@ -96,6 +96,7 @@ pub struct Ball {
     /// The mapping method is controlled by `spherical_mapping`.
     ///
     /// BIFF tag: `IMAG`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub image: String,
 
     /// Decal/overlay image name for the ball.
@@ -108,6 +109,7 @@ pub struct Ball {
     /// If empty, falls back to `gamedata.ball_image_front`.
     ///
     /// BIFF tag: `DIMG`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub image_decal: String,
 
     /// Scale factor for bulb light intensity on the ball surface.
@@ -173,6 +175,10 @@ pub struct Ball {
     /// `"Layer_{editor_layer + 1}"` when unset. `None` when absent.
     ///
     /// BIFF tag: `LANR`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub editor_layer_name: Option<String>,
     /// Whether the legacy editor layer is visible in the editor. `None` when
     /// absent. Editor-only; has no effect at runtime.
@@ -183,6 +189,10 @@ pub struct Ball {
     /// replacing editor layers). `None` for tables written by older versions.
     ///
     /// BIFF tag: `GRUP`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub part_group_name: Option<String>,
 }
 impl_shared_attributes!(Ball);

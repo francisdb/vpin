@@ -13,7 +13,7 @@ use super::biff::BiffWriter;
 /// trips unchanged, and its JSON form is `#rrggbb`, or `xx#rrggbb` when
 /// the unused byte is not 0.
 #[derive(Debug, PartialEq, Clone, Copy)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Color {
     /// Unused byte, should be 0 but when reading from vpx files it might contain random data.
     /// So used for BIFF reading and writing
@@ -195,6 +195,30 @@ impl std::fmt::Display for Color {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn any_color_round_trips_through_its_record(color in any::<Color>()) {
+            let mut writer = BiffWriter::new();
+            color.biff_write(&mut writer);
+            let mut reader = BiffReader::with_remaining(writer.get_data(), 4);
+            let read = Color::biff_read(&mut reader).unwrap();
+            prop_assert_eq!(color, read);
+        }
+
+        #[test]
+        fn any_color_round_trips_through_its_json(color in any::<Color>()) {
+            let json = serde_json::to_string(&color).unwrap();
+            let read: Color = serde_json::from_str(&json).unwrap();
+            prop_assert_eq!(color, read);
+        }
+
+        #[test]
+        fn any_color_round_trips_through_its_win_color(color in any::<Color>()) {
+            prop_assert_eq!(color, Color::from_win_color(color.to_win_color()));
+        }
+    }
 
     #[test]
     fn test_color_serde() {

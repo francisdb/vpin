@@ -688,7 +688,6 @@ mod tests {
     use crate::vpx::sound::{OutputTarget, SoundData, WaveForm};
     use crate::vpx::tableinfo::TableInfo;
     use crate::vpx::version::Version;
-    use fake::{Fake, Faker};
     use pretty_assertions::assert_eq;
     use std::collections::HashMap;
 
@@ -871,56 +870,82 @@ mod tests {
         let version = Version::new(1074);
         let screenshot = vec![0, 1, 2, 3];
 
-        let mut bumper: gameitem::bumper::Bumper = Faker.fake();
-        bumper.name = "test bumper".to_string();
-        let mut decal: gameitem::decal::Decal = Faker.fake();
-        decal.name = "test decal".to_string();
-        let mut flasher: gameitem::flasher::Flasher = Faker.fake();
-        flasher.name = "test flasher".to_string();
-        let mut flipper: gameitem::flipper::Flipper = Faker.fake();
-        flipper.name = "test flipper".to_string();
-        let mut gate: gameitem::gate::Gate = Faker.fake();
-        gate.name = "test gate".to_string();
-        let mut hittarget: gameitem::hittarget::HitTarget = Faker.fake();
-        hittarget.name = "test hittarget".to_string();
-        let mut kicker: gameitem::kicker::Kicker = Faker.fake();
-        kicker.name = "test kicker".to_string();
-        let mut light: gameitem::light::Light = Faker.fake();
-        light.name = "test light".to_string();
-        let mut light_sequencer: gameitem::lightsequencer::LightSequencer = Faker.fake();
-        light_sequencer.name = "test light sequencer".to_string();
-        let mut plunger: gameitem::plunger::Plunger = Faker.fake();
-        plunger.name = "test plunger".to_string();
-        let mut primitive: Primitive = Faker.fake();
-        primitive.name = "test primitive".to_string();
-        // keep the vertices and indices empty to work around compression errors on fake data
-        primitive.use_3d_mesh = false;
-        primitive.num_vertices = None;
-        primitive.num_indices = None;
-        primitive.compressed_vertices_len = None;
-        primitive.compressed_vertices_data = None;
-        primitive.compressed_indices_len = None;
-        primitive.compressed_indices_data = None;
-        primitive.vertices_data = None;
-        primitive.indices_data = None;
-        primitive.compressed_animation_vertices_len = None;
-        primitive.compressed_animation_vertices_data = None;
-        let mut ramp: gameitem::ramp::Ramp = Faker.fake();
-        ramp.name = "test ramp".to_string();
-        let mut reel: gameitem::reel::Reel = Faker.fake();
-        reel.name = "test reel".to_string();
-        let mut rubber: gameitem::rubber::Rubber = Faker.fake();
-        rubber.name = "test rubber".to_string();
-        let mut spinner: gameitem::spinner::Spinner = Faker.fake();
-        spinner.name = "test spinner".to_string();
-        let mut textbox: gameitem::textbox::TextBox = Faker.fake();
-        textbox.name = "test textbox".to_string();
-        let mut timer: gameitem::timer::Timer = Faker.fake();
-        timer.name = "test timer".to_string();
-        let mut trigger: gameitem::trigger::Trigger = Faker.fake();
-        trigger.name = "test trigger".to_string();
-        let mut wall: gameitem::wall::Wall = Faker.fake();
-        wall.name = "test wall".to_string();
+        let bumper = gameitem::bumper::Bumper {
+            name: "test bumper".to_string(),
+            ..Default::default()
+        };
+        let decal = gameitem::decal::Decal {
+            name: "test decal".to_string(),
+            ..Default::default()
+        };
+        let flasher = gameitem::flasher::Flasher {
+            name: "test flasher".to_string(),
+            ..Default::default()
+        };
+        let flipper = gameitem::flipper::Flipper {
+            name: "test flipper".to_string(),
+            ..Default::default()
+        };
+        let gate = gameitem::gate::Gate {
+            name: "test gate".to_string(),
+            ..Default::default()
+        };
+        let hittarget = gameitem::hittarget::HitTarget {
+            name: "test hittarget".to_string(),
+            ..Default::default()
+        };
+        let kicker = gameitem::kicker::Kicker {
+            name: "test kicker".to_string(),
+            ..Default::default()
+        };
+        let light = gameitem::light::Light {
+            name: "test light".to_string(),
+            ..Default::default()
+        };
+        let light_sequencer = gameitem::lightsequencer::LightSequencer {
+            name: "test light sequencer".to_string(),
+            ..Default::default()
+        };
+        let plunger = gameitem::plunger::Plunger {
+            name: "test plunger".to_string(),
+            ..Default::default()
+        };
+        let primitive = Primitive {
+            name: "test primitive".to_string(),
+            ..Default::default()
+        };
+        let ramp = gameitem::ramp::Ramp {
+            name: "test ramp".to_string(),
+            ..Default::default()
+        };
+        let reel = gameitem::reel::Reel {
+            name: "test reel".to_string(),
+            ..Default::default()
+        };
+        let rubber = gameitem::rubber::Rubber {
+            name: "test rubber".to_string(),
+            ..Default::default()
+        };
+        let spinner = gameitem::spinner::Spinner {
+            name: "test spinner".to_string(),
+            ..Default::default()
+        };
+        let textbox = gameitem::textbox::TextBox {
+            name: "test textbox".to_string(),
+            ..Default::default()
+        };
+        let timer = gameitem::timer::Timer {
+            name: "test timer".to_string(),
+            ..Default::default()
+        };
+        let trigger = gameitem::trigger::Trigger {
+            name: "test trigger".to_string(),
+            ..Default::default()
+        };
+        let wall = gameitem::wall::Wall {
+            name: "test wall".to_string(),
+            ..Default::default()
+        };
 
         let mut gamedata = GameData::default();
         gamedata.code.string = r#"debug.print "Hello world""#.to_string();
@@ -1122,25 +1147,14 @@ mod tests {
         Ok(())
     }
 
-    /// A primitive with a non-ASCII name, mesh fields cleared to work around
-    /// compression errors on fake data (same as in test_read_write).
+    /// A primitive with a non-ASCII name and no mesh
     fn unicode_named_primitive() -> Primitive {
-        let mut primitive: Primitive = Faker.fake();
-        // NFC "ö" (U+00F6), the form found in real VPX files
-        primitive.name = "PfL\u{00F6}cher".to_string();
-        primitive.editor_layer_name = Some("Layer_1".to_string());
-        primitive.use_3d_mesh = false;
-        primitive.num_vertices = None;
-        primitive.num_indices = None;
-        primitive.compressed_vertices_len = None;
-        primitive.compressed_vertices_data = None;
-        primitive.compressed_indices_len = None;
-        primitive.compressed_indices_data = None;
-        primitive.vertices_data = None;
-        primitive.indices_data = None;
-        primitive.compressed_animation_vertices_len = None;
-        primitive.compressed_animation_vertices_data = None;
-        primitive
+        Primitive {
+            // NFC "ö" (U+00F6), the form found in real VPX files
+            name: "PfL\u{00F6}cher".to_string(),
+            editor_layer_name: Some("Layer_1".to_string()),
+            ..Default::default()
+        }
     }
 
     fn unicode_named_vpx() -> VPX {
@@ -1292,8 +1306,10 @@ mod tests {
     /// A table with one game item and one image, enough for every
     /// expanded file kind to show up
     fn small_table() -> VPX {
-        let mut wall: gameitem::wall::Wall = Faker.fake();
-        wall.name = "test wall".to_string();
+        let wall = gameitem::wall::Wall {
+            name: "test wall".to_string(),
+            ..Default::default()
+        };
         VPX {
             gameitems: vec![GameItemEnum::Wall(wall)],
             images: vec![ImageData {

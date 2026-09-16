@@ -10,7 +10,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
  * Surface
  */
 #[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Wall {
     /// Name of the surface (wall), used to reference it from scripts.
     /// Must be unique across all game items.
@@ -55,23 +55,28 @@ pub struct Wall {
     /// Empty for none.
     ///
     /// BIFF tag: `IMAG` (legacy tables use `IMGF`)
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub image: String,
     /// Name of the texture image mapped onto the side faces of the wall.
     /// Empty for none.
     ///
     /// BIFF tag: `SIMG` (legacy tables use `IMGS`)
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub side_image: String,
     /// Name of the material applied to the side faces of the wall.
     ///
     /// BIFF tag: `SIMA` (legacy tables use `MATR`)
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub side_material: String,
     /// Name of the material applied to the top face of the wall.
     ///
     /// BIFF tag: `TOMA` (legacy tables use `MATP`)
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub top_material: String,
     /// Name of the material used to render the slingshot segments of the wall.
     ///
     /// BIFF tag: `SLMA` (legacy tables use `MATL`)
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub slingshot_material: String,
     /// Height of the bottom edge of the wall above the playfield, in VP units.
     /// Default: `0.0`.
@@ -139,6 +144,10 @@ pub struct Wall {
     /// Replaced by `disable_lighting_top` in VPX 10.8.
     ///
     /// BIFF tag: `DILI` (removed in 10.8)
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::quantized_u8())")
+    )]
     pub disable_lighting_top_old: Option<f32>,
 
     /// Controls how much lighting is disabled on the top surface.
@@ -175,6 +184,10 @@ pub struct Wall {
     /// on older tables that predate this field.
     ///
     /// BIFF tag: `MAPH` (legacy tables use `PMAT`)
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub physics_material: Option<String>,
     /// When `true`, the wall's own `elasticity`, `elasticity_falloff`,
     /// `friction` and `scatter` values are used; when `false`, the named
@@ -204,6 +217,10 @@ pub struct Wall {
     /// all game items.
     ///
     /// BIFF tag: `LANR`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub editor_layer_name: Option<String>,
     /// Whether the item's editor layer is currently visible in the editor.
     /// `None` when absent. Editor-only attribute shared by all game items.
@@ -214,6 +231,10 @@ pub struct Wall {
     /// `None` when absent. Editor-only attribute shared by all game items.
     ///
     /// BIFF tag: `GRUP`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub part_group_name: Option<String>,
 
     /// The ordered drag points defining the outline (polygon) of the wall on
@@ -660,58 +681,16 @@ impl BiffWrite for Wall {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pretty_assertions::assert_eq;
-    use rand::RngExt;
+    use crate::vpx::test_support::debug;
+    use proptest::prelude::*;
 
-    #[test]
-    fn test_write_read() {
-        let mut rng = rand::rng();
-        let wall = Wall {
-            hit_event: true,
-            is_droppable: true,
-            is_flipbook: true,
-            is_bottom_solid: true,
-            is_collidable: true,
-            timer: TimerData {
-                is_enabled: true,
-                interval: 1,
-            },
-            threshold: 2.0,
-            image: "image".to_string(),
-            side_image: "side_image".to_string(),
-            side_material: "side_material".to_string(),
-            top_material: "top_material".to_string(),
-            slingshot_material: "slingshot_material".to_string(),
-            height_bottom: 3.0,
-            height_top: 4.0,
-            name: "name".to_string(),
-            display_texture: true,
-            slingshot_force: 5.0,
-            slingshot_threshold: 6.0,
-            elasticity: 7.0,
-            elasticity_falloff: Some(8.0),
-            friction: 9.0,
-            scatter: 10.0,
-            is_top_bottom_visible: true,
-            slingshot_animation: true,
-            is_side_visible: true,
-            // we need a value that is supported when quantized to 8 bits, since the old `DILI` tag uses 8-bit quantization.
-            disable_lighting_top_old: Some(0.12156863),
-            disable_lighting_top: Some(rng.random()),
-            disable_lighting_below: Some(12.0),
-            is_reflection_enabled: Some(true),
-            physics_material: Some("physics_material".to_string()),
-            overwrite_physics: Some(true),
-            is_locked: true,
-            editor_layer: Some(13),
-            editor_layer_name: Some("editor_layer_name".to_string()),
-            editor_layer_visibility: Some(true),
-            part_group_name: Some("part_group_name".to_string()),
-            drag_points: vec![DragPoint::default()],
-        };
-        let mut writer = BiffWriter::new();
-        Wall::biff_write(&wall, &mut writer);
-        let wall_read = Wall::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
-        assert_eq!(wall, wall_read);
+    proptest! {
+        #[test]
+        fn any_wall_round_trips_through_its_records(wall in any::<Wall>()) {
+            let mut writer = BiffWriter::new();
+            Wall::biff_write(&wall, &mut writer);
+            let read = Wall::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
+            prop_assert_eq!(debug(&wall), debug(&read));
+        }
     }
 }

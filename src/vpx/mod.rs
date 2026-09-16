@@ -96,10 +96,13 @@ pub(crate) mod json;
 // we have to make this public for the integration tests
 /// Exporting table geometry to OBJ and glTF/GLB files.
 pub mod export;
+
 pub(crate) mod gltf;
 pub mod lzw;
 pub mod mesh;
 pub(crate) mod obj;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub(crate) mod wav;
 
 /// In-memory representation of a VPX file
@@ -1633,9 +1636,9 @@ mod tests {
         let dir: PathBuf = testdir!();
         let test_vpx_path = dir.join("test.vpx");
         let mut vpx = VPX::default();
-        // generate random values for the pixels
-        let random_pixels = (0..1000 * 1000 * 4)
-            .map(|_| rand::random::<u8>())
+        // noisy pixels so the image does not compress to nothing
+        let random_pixels = (0..1000u32 * 1000 * 4)
+            .map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8)
             .collect::<Vec<u8>>();
         let bmp_image = ImageData {
             name: "bpmimage".to_string(),

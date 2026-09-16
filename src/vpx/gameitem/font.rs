@@ -68,17 +68,49 @@ pub enum FontStyle {
     /// Strikethrough, bit `0x08` of the attribute byte.
     Strikethrough,
 }
-/// Fakes only the styles a file can produce; the deprecated `Bold` would
-/// not survive a JSON round trip.
+/// Generates only the styles a file can produce; the deprecated `Bold`
+/// would not survive a round trip.
 #[cfg(test)]
-impl fake::Dummy<fake::Faker> for FontStyle {
-    fn dummy_with_rng<R: rand::RngExt + ?Sized>(_: &fake::Faker, rng: &mut R) -> Self {
-        match rng.random_range(0..4) {
-            0 => FontStyle::Normal,
-            1 => FontStyle::Italic,
-            2 => FontStyle::Underline,
-            _ => FontStyle::Strikethrough,
-        }
+impl proptest::arbitrary::Arbitrary for FontStyle {
+    type Parameters = ();
+    type Strategy = proptest::strategy::BoxedStrategy<Self>;
+    fn arbitrary_with(_: ()) -> Self::Strategy {
+        use proptest::prelude::*;
+        prop_oneof![
+            Just(FontStyle::Normal),
+            Just(FontStyle::Italic),
+            Just(FontStyle::Underline),
+            Just(FontStyle::Strikethrough),
+        ]
+        .boxed()
+    }
+}
+
+/// Strategies for the fields of a [`Font`] whose attribute byte is lossy
+/// for some values.
+#[cfg(test)]
+mod test_strategies {
+    use super::{FontStyle, KNOWN_ATTRIBUTE_BITS};
+    use proptest::prelude::*;
+    use std::collections::HashSet;
+
+    /// The styles that are bits of the attribute byte: `Normal` is not one,
+    /// so a set that contains it reads back without it.
+    pub(super) fn style_bits() -> impl Strategy<Value = HashSet<FontStyle>> {
+        proptest::collection::hash_set(
+            prop_oneof![
+                Just(FontStyle::Italic),
+                Just(FontStyle::Underline),
+                Just(FontStyle::Strikethrough),
+            ],
+            0..=3,
+        )
+    }
+
+    /// An attribute byte without the known style bits, which the reader
+    /// puts in the style set instead.
+    pub(super) fn other_attribute_bits() -> impl Strategy<Value = u8> {
+        any::<u8>().prop_map(|bits| bits & !KNOWN_ATTRIBUTE_BITS)
     }
 }
 
@@ -154,8 +186,8 @@ pub const CHARSET_EXTENDED: u16 = 255;
 /// The serialization format is not vpinball's own: it is Microsoft's OLE
 /// `StdFont` persistence format, inherited because old Windows vpinball
 /// saved fonts through `OleSaveToStream` on a COM font object.
-#[derive(PartialEq, Debug)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[derive(PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Font {
     /// Version byte of the OLE `StdFont` stream. Microsoft defined it as
     /// always 1 and never revised the format, so 1 is the only value in
@@ -175,13 +207,16 @@ pub struct Font {
     /// 255 Extended characters normally displayed by Microsoft MS-DOS applications.
     /// For other character set values, consult the Platform SDK documentation.
     charset: u16,
+    #[cfg_attr(test, proptest(strategy = "test_strategies::style_bits()"))]
     style: HashSet<FontStyle>,
     /// The bits of the attribute byte the `StdFont` format does not define
     /// (`0x01` and `0x10` to `0x80`), kept so the byte round-trips. Always
     /// `0` in files written by vpinball.
+    #[cfg_attr(test, proptest(strategy = "test_strategies::other_attribute_bits()"))]
     other_attributes: u8,
     weight: u16,
     size: u32,
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     name: String,
 }
 
@@ -280,6 +315,30 @@ impl Font {
     }
 }
 
+/// Like the derived `Debug`, but with the styles in a stable order, since
+/// a `HashSet` iterates differently from one instance to the next.
+impl std::fmt::Debug for Font {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        struct SortedStyles<'a>(Vec<&'a FontStyle>);
+        impl std::fmt::Debug for SortedStyles<'_> {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.debug_set().entries(&self.0).finish()
+            }
+        }
+        let mut styles: Vec<&FontStyle> = self.style.iter().collect();
+        styles.sort_by_key(|style| format!("{style:?}"));
+        f.debug_struct("Font")
+            .field("version", &self.version)
+            .field("charset", &self.charset)
+            .field("style", &SortedStyles(styles))
+            .field("other_attributes", &self.other_attributes)
+            .field("weight", &self.weight)
+            .field("size", &self.size)
+            .field("name", &self.name)
+            .finish()
+    }
+}
+
 impl Default for Font {
     fn default() -> Self {
         // TODO get proper defaults
@@ -338,9 +397,34 @@ impl BiffWrite for Font {
 mod test {
 
     use crate::vpx::biff::BiffWrite;
+    use crate::vpx::test_support::debug;
+    use proptest::prelude::*;
 
     use super::*;
     use pretty_assertions::assert_eq;
+
+    proptest! {
+        #[test]
+        fn any_font_round_trips_through_its_records(font in any::<Font>()) {
+            let mut writer = BiffWriter::new();
+            Font::biff_write(&font, &mut writer);
+            let read = Font::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
+            prop_assert_eq!(debug(&font), debug(&read));
+        }
+    }
+
+    #[test]
+    fn debug_lists_the_styles_in_a_stable_order() {
+        let font = Font::new(
+            CHARSET_ANSI,
+            HashSet::from([FontStyle::Underline, FontStyle::Italic]),
+            400,
+            120000,
+            "Arial".to_string(),
+        );
+        let debug = format!("{font:?}");
+        assert!(debug.contains("style: {Italic, Underline}"), "{debug}");
+    }
 
     /// The attribute byte at offset 3 of a written font.
     fn written_attributes(font: &Font) -> u8 {

@@ -16,7 +16,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// Values this library does not know are kept in [`Filter::Other`] so the
 /// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone, Default)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum Filter {
     /// No filtering/blending applied
     None,
@@ -35,7 +35,7 @@ pub enum Filter {
     /// it would write the same bytes as the named variant and read back as
     /// it, breaking round-trip equality. The library itself never does
     /// (`From` normalizes known values to their named variants).
-    Other(u32),
+    Other(#[cfg_attr(test, proptest(strategy = "5..=u32::MAX"))] u32),
 }
 impl From<u32> for Filter {
     fn from(value: u32) -> Self {
@@ -154,7 +154,7 @@ mod filter_open_enum_tests {
 /// Values this library does not know are kept in [`RenderMode::Other`] so the
 /// table round-trips unchanged; reading one logs a warning.
 #[derive(Debug, PartialEq, Clone, Default)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum RenderMode {
     /// Custom blended images
     #[default]
@@ -173,7 +173,7 @@ pub enum RenderMode {
     /// it would write the same bytes as the named variant and read back as
     /// it, breaking round-trip equality. The library itself never does
     /// (`From` normalizes known values to their named variants).
-    Other(u32),
+    Other(#[cfg_attr(test, proptest(strategy = "5..=u32::MAX"))] u32),
 }
 impl From<u32> for RenderMode {
     fn from(value: u32) -> Self {
@@ -575,7 +575,7 @@ mod seg_family_open_enum_tests {
 /// The record is written by `Flasher::Save` and read by `Flasher::Load` in
 /// vpinball's `src/parts/flasher.cpp`.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Flasher {
     /// Height (z position) of the flasher above the playfield in VPU.
     /// This is added to the z coordinate after rotation is applied.
@@ -616,6 +616,7 @@ pub struct Flasher {
     /// When both image_a and image_b are set, they are blended together using
     /// the `filter` and `modulate_vs_add` settings.
     /// BIFF tag: `IMAG`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub image_a: String,
     /// Secondary texture for blending with image_a.
     /// When set along with image_a, both textures are blended together in the shader
@@ -623,6 +624,7 @@ pub struct Flasher {
     /// `modulate_vs_add` settings. If only image_b is set (no image_a), it acts
     /// as the primary texture.
     /// BIFF tag: `IMAB`
+    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
     pub image_b: String,
     /// Overall alpha/opacity of the flasher (0-100).
     /// BIFF tag: `FALP`
@@ -685,6 +687,10 @@ pub struct Flasher {
     pub glass_pad_right: Option<f32>,
     /// Image source link for display content (default source is script).
     /// BIFF tag: `LINK` Since 10.8.1
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub image_src_link: Option<String>,
     /// Whether to display the texture in the VPinball editor preview.
     /// This does NOT affect runtime rendering — textures are always rendered if set.
@@ -712,6 +718,10 @@ pub struct Flasher {
     /// BIFF tag: `FIAM`
     pub filter_amount: u32,
     /// BIFF tag: `LMAP` added in 10.8
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub light_map: Option<String>,
     /// BIFF tag: `BGLS` added in 10.8.1
     pub backglass: Option<bool>,
@@ -765,6 +775,10 @@ pub struct Flasher {
     /// follows. `None` when the record is absent.
     ///
     /// BIFF tag `LANR`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub editor_layer_name: Option<String>,
     /// Whether the item is shown in the editor (the 10.7 layer visibility,
     /// stored per item). Editor-only; has no runtime effect. `None` when
@@ -780,6 +794,10 @@ pub struct Flasher {
     /// is not in a group).
     ///
     /// BIFF tag `GRUP`
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
     pub part_group_name: Option<String>,
 }
 impl_shared_attributes!(Flasher);
@@ -1172,64 +1190,20 @@ impl BiffWrite for Flasher {
 #[cfg(test)]
 mod tests {
     use crate::vpx::biff::BiffWriter;
-    use fake::{Fake, Faker};
+    use crate::vpx::test_support::debug;
+    use proptest::prelude::*;
 
     use super::*;
-    use crate::vpx::gameitem::tests::RandomOption;
     use pretty_assertions::assert_eq;
-    use rand::RngExt;
 
-    #[test]
-    fn test_write_read() {
-        let mut rng = rand::rng();
-        // values not equal to the defaults
-        let flasher = Flasher {
-            height: rng.random(),
-            pos_x: rng.random(),
-            pos_y: rng.random(),
-            rot_x: rng.random(),
-            rot_y: rng.random(),
-            rot_z: rng.random(),
-            color: Faker.fake(),
-            timer: TimerData {
-                is_enabled: rng.random(),
-                interval: rng.random(),
-            },
-            name: "test name".to_string(),
-            image_a: "test image a".to_string(),
-            image_b: "test image b".to_string(),
-            alpha: rng.random(),
-            modulate_vs_add: rng.random(),
-            is_visible: rng.random(),
-            add_blend: rng.random(),
-            is_dmd: rng.random_option(),
-            render_mode: Some(RenderMode::DMD),
-            render_style: rng.random_option(),
-            glass_roughness: rng.random_option(),
-            glass_ambient: rng.random_option(),
-            glass_pad_top: rng.random_option(),
-            glass_pad_bottom: rng.random_option(),
-            glass_pad_left: rng.random_option(),
-            glass_pad_right: rng.random_option(),
-            image_src_link: Some("test image src link".to_string()),
-            display_texture: rng.random(),
-            depth_bias: rng.random(),
-            image_alignment: Faker.fake(),
-            filter: Faker.fake(),
-            filter_amount: rng.random(),
-            light_map: Some("test light map".to_string()),
-            backglass: rng.random_option(),
-            is_locked: rng.random(),
-            editor_layer: Some(rng.random()),
-            editor_layer_name: Some("test layer".to_string()),
-            editor_layer_visibility: rng.random_option(),
-            part_group_name: Some("test group".to_string()),
-            drag_points: vec![DragPoint::default()],
-        };
-        let mut writer = BiffWriter::new();
-        Flasher::biff_write(&flasher, &mut writer);
-        let flasher_read = Flasher::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
-        assert_eq!(flasher, flasher_read);
+    proptest! {
+        #[test]
+        fn any_flasher_round_trips_through_its_records(flasher in any::<Flasher>()) {
+            let mut writer = BiffWriter::new();
+            Flasher::biff_write(&flasher, &mut writer);
+            let read = Flasher::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
+            prop_assert_eq!(debug(&flasher), debug(&read));
+        }
     }
 
     #[test]
