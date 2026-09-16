@@ -5,6 +5,10 @@ use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// The rubber game item, vpinball's `Rubber` (`src/parts/rubber.cpp`): a
+/// tube of [`thickness`](Self::thickness) extruded along the spline of its
+/// [`drag_points`](Self::drag_points) at [`height`](Self::height), with
+/// its own elasticity, friction and scatter.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Rubber {

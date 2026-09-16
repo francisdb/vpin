@@ -328,6 +328,16 @@ mod fader_open_enum_tests {
     }
 }
 
+/// A light: a playfield lamp that the script switches, blinks and fades,
+/// rendered as a classic textured lightmap polygon or as a bulb halo, with
+/// an optional bulb mesh and ball reflection.
+///
+/// The lit area is the polygon of [`drag_points`](Self::drag_points); the
+/// state and intensity are animated per frame from the script state, the
+/// blink pattern and the fade speeds. Lights have no physics.
+///
+/// The record is written by `Light::Save` and read by `Light::Load` in
+/// vpinball's `src/parts/light.cpp`.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Light {
@@ -538,15 +548,43 @@ pub struct Light {
     /// If empty, the light sits on the playfield.
     /// BIFF tag: SURF
     pub surface: String,
-    pub is_backglass: bool, // BGLS
+    /// Whether the light is part of the desktop backdrop (the 2D backglass
+    /// area of desktop mode) instead of the playfield.
+    ///
+    /// vpinball keeps this in `IEditable::m_desktopBackdrop`. A backdrop
+    /// light is positioned in the 1000 x 750 backdrop editor space, drawn
+    /// without depth and only when
+    /// [`GameData::render_decals`](crate::vpx::gamedata::GameData::render_decals)
+    /// is set; backdrop items are skipped in cabinet and VR modes and in
+    /// reflections. Default: `false`.
+    ///
+    /// BIFF tag `BGLS`
+    pub is_backglass: bool,
     /// Offset applied when depth-sorting transparent and overlapping objects.
     /// Higher values move the object "further away" in the sort order, causing it
     /// to render behind objects with lower bias.
     /// Also used on: [`Flasher`](crate::vpx::gameitem::flasher::Flasher), [`Primitive`](crate::vpx::gameitem::primitive::Primitive), [`Ramp`](crate::vpx::gameitem::ramp::Ramp), [`HitTarget`](crate::vpx::gameitem::hittarget::HitTarget).
     /// BIFF tag: `LIDB`
     pub depth_bias: f32,
-    pub fade_speed_up: f32, // FASP, can be Inf (Dr. Dude (Bally 1990)v3.0.vpx)
-    pub fade_speed_down: f32, // FASD, can be Inf (Dr. Dude (Bally 1990)v3.0.vpx)
+    /// Fade-in speed, in intensity units per millisecond.
+    ///
+    /// With the linear [`fader`](Self::fader) the current intensity rises
+    /// by `fade_speed_up x elapsed ms` per frame until it reaches
+    /// `intensity x intensity_scale x state`; the incandescent fader
+    /// divides it by the full intensity to derive a time constant. Default:
+    /// `10 / 200 = 0.05`, a 200 ms fade at the default intensity of 10.
+    /// Can be infinity (instant), for example in
+    /// `Dr. Dude (Bally 1990)v3.0.vpx`.
+    ///
+    /// BIFF tag `FASP`
+    pub fade_speed_up: f32,
+    /// Fade-out speed, in intensity units per millisecond, see
+    /// [`fade_speed_up`](Self::fade_speed_up). Default: `10 / 500 = 0.02`,
+    /// a 500 ms fade at the default intensity of 10. Can be infinity, for
+    /// example in `Dr. Dude (Bally 1990)v3.0.vpx`.
+    ///
+    /// BIFF tag `FASD`
+    pub fade_speed_down: f32,
     /// Selects the light render mode: Halo (`true`) or Classic (`false`).
     ///
     /// - **Classic** (`false`): Flat lightmap polygon using the [`image`](Self::image)
@@ -727,15 +765,50 @@ pub struct Light {
     pub timer: TimerData,
 
     // these are shared between all items
+    /// Whether the item is locked in the editor to prevent accidental
+    /// moving or editing. Editor-only; has no runtime effect.
+    ///
+    /// BIFF tag `LOCK`
     pub is_locked: bool,
+    /// Legacy editor layer index (0-based, at most 11). Editor-only.
+    ///
+    /// Superseded by part groups in 10.8.1, see
+    /// [`part_group_name`](Self::part_group_name); vpinball still writes
+    /// it, as the index of the item's root group among the root groups, so
+    /// older versions can open the file. `None` when the record is absent.
+    ///
+    /// BIFF tag `LAYR`
     pub editor_layer: Option<u32>,
+    /// Name of the editor layer (10.7 named layers). Editor-only.
+    ///
+    /// Defaults to `"Layer_{editor_layer + 1}"`. Since 10.8.1 vpinball
+    /// writes the name of the item's root part group here, for older
+    /// versions, and on read maps it to a group when no `GRUP` record
+    /// follows. `None` when the record is absent.
+    ///
+    /// BIFF tag `LANR`
     pub editor_layer_name: Option<String>,
-    // default "Layer_{editor_layer + 1}"
+    /// Whether the item is shown in the editor (the 10.7 layer visibility,
+    /// stored per item). Editor-only; has no runtime effect. `None` when
+    /// the record is absent.
+    ///
+    /// BIFF tag `LVIS`
     pub editor_layer_visibility: Option<bool>,
-    /// Added in 10.8.1
+    /// Name of the part group the item belongs to. Added in 10.8.1.
+    ///
+    /// Part groups replace the editor layers; see
+    /// [`PartGroup`](crate::vpx::gameitem::partgroup::PartGroup). `None`
+    /// when the record is absent (file older than 10.8.1, or an item that
+    /// is not in a group).
+    ///
+    /// BIFF tag `GRUP`
     pub part_group_name: Option<String>,
 
-    // last
+    /// Control points of the polygon that forms the lit area, in table
+    /// coordinates (VPU). Written last in the record, after the shared
+    /// attributes.
+    ///
+    /// BIFF tag `DPNT` (one record per point)
     pub drag_points: Vec<DragPoint>,
 }
 impl_shared_attributes!(Light);

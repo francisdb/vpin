@@ -1,6 +1,10 @@
 use crate::vpx::biff::{BiffError, BiffRead, BiffReader, BiffWrite, BiffWriter};
 use serde::{Deserialize, Serialize};
 
+/// A point in the playfield plane, mirroring vpinball's `Vertex2D`
+/// (`src/math/vector.h`): two `f32` components, `x` and `y`, in VP units.
+///
+/// Stored as 8 bytes, `x` then `y`, in records such as `VCEN`.
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Copy)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Vertex2D {
@@ -11,6 +15,7 @@ pub struct Vertex2D {
 }
 
 impl Vertex2D {
+    /// A vertex from its components.
     pub fn new(x: f32, y: f32) -> Vertex2D {
         Vertex2D { x, y }
     }

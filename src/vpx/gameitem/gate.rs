@@ -5,12 +5,22 @@ use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// The shape of a gate, vpinball's `GateType` enum (`src/core/vpinball.idl`),
+/// which selects the mesh the gate is rendered with (`gate.cpp`).
+///
+/// Stored as a `u32` in the `GATY` record; the numeric value of each
+/// variant is given below. The collision shape does not depend on it.
 #[derive(Debug, PartialEq, Clone)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum GateType {
+    /// `1`, `GateWireW`: a wire bent in a W shape, the default and the
+    /// fallback for an unknown value.
     WireW,
+    /// `2`, `GateWireRectangle`: a rectangular wire loop.
     WireRectangle,
+    /// `3`, `GatePlate`: a solid plate.
     Plate,
+    /// `4`, `GateLongPlate`: a longer solid plate.
     LongPlate,
     /// Any value outside the known range 1-4, seen as 0 in the wild, for example in
     /// "Algar (1980)", "Asteroid Annie (1980)", "Fireball II (1981)", "Tri Zone (1979)".
@@ -129,6 +139,11 @@ impl<'de> Deserialize<'de> for GateType {
     }
 }
 
+/// The gate game item, vpinball's `Gate` (`src/parts/gate.cpp`): a wire or
+/// plate of the shape in [`gate_type`](Self::gate_type), hinged on a bracket
+/// at [`center`](Self::center), that swings open when the ball pushes it
+/// and, unless [`two_way`](Self::two_way), blocks the ball from the other
+/// side.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Gate {

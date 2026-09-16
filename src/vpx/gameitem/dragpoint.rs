@@ -3,6 +3,13 @@ use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// One control point of a spline based part, vpinball's `DragPoint`
+/// (`src/parts/dragpoint.cpp`), item type `15`.
+///
+/// Walls, ramps, rubbers, triggers and light shapes store their outline as
+/// a list of these, each written as a `DPNT` sub record inside the owning
+/// item; a drag point is never a game item on its own. The per point
+/// height and slingshot flag are only used by the parts that need them.
 #[derive(Debug, PartialEq, Clone)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct DragPoint {

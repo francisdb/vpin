@@ -5,6 +5,11 @@ use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// The timer game item, vpinball's `Timer` (`src/parts/timer.cpp`): a
+/// standalone script timer whose only state is the shared
+/// [`timer`](Self::timer) data (enabled flag and interval). It has no
+/// visual or physical presence; [`center`](Self::center) only places its
+/// icon in the editor.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Timer {

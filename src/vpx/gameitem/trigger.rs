@@ -170,10 +170,32 @@ impl<'de> Deserialize<'de> for TriggerShape {
     }
 }
 
+/// A trigger: a switch on the playfield that fires `_Hit` when the ball
+/// rolls onto it and `_Unhit` when it leaves, with an optional animated
+/// wire, star or button mesh.
+///
+/// The hit area is the polygon of [`drag_points`](Self::drag_points) (line
+/// segments plus a polygon collider) or, for the Star and Button shapes, a
+/// circle of [`radius`](Self::radius); it starts at the height of
+/// [`surface`](Self::surface) and is [`hit_height`](Self::hit_height) VPU
+/// high.
+///
+/// The record is written by `Trigger::Save` and read by `Trigger::Load` in
+/// vpinball's `src/parts/trigger.cpp`.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Trigger {
+    /// Name of the trigger, its identifier in the editor and in scripts.
+    /// Stored as a wide string.
+    ///
+    /// BIFF tag `NAME`
     pub name: String,
+    /// Position of the trigger in table coordinates (VPU).
+    ///
+    /// The mesh and the circular hit area are centered here; the drag
+    /// points of the polygon hit area are absolute table coordinates.
+    ///
+    /// BIFF tag `VCEN`
     pub center: Vertex2D,
 
     /// Radius of the trigger in VPU (Visual Pinball Units).
@@ -191,6 +213,10 @@ pub struct Trigger {
     ///
     /// BIFF tag: RADI
     pub radius: f32,
+    /// Rotation of the mesh around the Z axis, in degrees. Has no effect on
+    /// the hit area. Default: `0.0`.
+    ///
+    /// BIFF tag `ROTA`
     pub rotation: f32,
     /// Wire thickness for wire-type triggers (WireA, WireB, WireC, WireD, Inder).
     ///
@@ -204,8 +230,21 @@ pub struct Trigger {
     ///
     /// BIFF tag: WITI (was missing in 10.01)
     pub wire_thickness: Option<f32>,
+    /// Scale of the wire meshes (WireA, WireB, WireC, WireD, Inder) along
+    /// X; the Star and Button shapes use [`radius`](Self::radius) instead.
+    /// Has no effect on the hit area. Default: `1.0`.
+    ///
+    /// BIFF tag `SCAX`
     pub scale_x: f32,
+    /// Scale of the wire meshes along Y, see [`scale_x`](Self::scale_x).
+    /// Default: `1.0`.
+    ///
+    /// BIFF tag `SCAY`
     pub scale_y: f32,
+    /// Name of the table material used to render the mesh. Empty selects
+    /// the default material.
+    ///
+    /// BIFF tag `MATR`
     pub material: String,
     /// Name of the surface (ramp or wall top) this trigger sits on.
     /// Used to determine the trigger's base height (z position).
@@ -213,8 +252,22 @@ pub struct Trigger {
     /// BIFF tag: SURF
     pub surface: String,
 
+    /// Whether the mesh is rendered; the hit area is not affected.
+    /// Default: `true`.
+    ///
+    /// BIFF tag `VSBL`
     pub is_visible: bool,
+    /// Whether the trigger reacts to the ball at table start (`Enabled`
+    /// in script). Default: `true`.
+    ///
+    /// BIFF tag `EBLD`
     pub is_enabled: bool,
+    /// Height of the hit volume above its base, in VPU.
+    ///
+    /// The line segments of a polygon trigger use `hit_height - 8` so they
+    /// trigger at the same height as the circular shapes. Default: `50.0`.
+    ///
+    /// BIFF tag `THOT`
     pub hit_height: f32,
 
     /// The visual shape of the trigger.
@@ -254,14 +307,52 @@ pub struct Trigger {
     pub timer: TimerData,
 
     // these are shared between all items
+    /// Whether the item is locked in the editor to prevent accidental
+    /// moving or editing. Editor-only; has no runtime effect.
+    ///
+    /// BIFF tag `LOCK`
     pub is_locked: bool,
+    /// Legacy editor layer index (0-based, at most 11). Editor-only.
+    ///
+    /// Superseded by part groups in 10.8.1, see
+    /// [`part_group_name`](Self::part_group_name); vpinball still writes
+    /// it, as the index of the item's root group among the root groups, so
+    /// older versions can open the file. `None` when the record is absent.
+    ///
+    /// BIFF tag `LAYR`
     pub editor_layer: Option<u32>,
+    /// Name of the editor layer (10.7 named layers). Editor-only.
+    ///
+    /// Defaults to `"Layer_{editor_layer + 1}"`. Since 10.8.1 vpinball
+    /// writes the name of the item's root part group here, for older
+    /// versions, and on read maps it to a group when no `GRUP` record
+    /// follows. `None` when the record is absent.
+    ///
+    /// BIFF tag `LANR`
     pub editor_layer_name: Option<String>,
-    // default "Layer_{editor_layer + 1}"
+    /// Whether the item is shown in the editor (the 10.7 layer visibility,
+    /// stored per item). Editor-only; has no runtime effect. `None` when
+    /// the record is absent.
+    ///
+    /// BIFF tag `LVIS`
     pub editor_layer_visibility: Option<bool>,
-    /// Added in 10.8.1
+    /// Name of the part group the item belongs to. Added in 10.8.1.
+    ///
+    /// Part groups replace the editor layers; see
+    /// [`PartGroup`](crate::vpx::gameitem::partgroup::PartGroup). `None`
+    /// when the record is absent (file older than 10.8.1, or an item that
+    /// is not in a group).
+    ///
+    /// BIFF tag `GRUP`
     pub part_group_name: Option<String>,
 
+    /// Control points of the polygon that forms the hit area of the wire
+    /// shapes, in table coordinates (VPU); the Star and Button shapes use a
+    /// circle of [`radius`](Self::radius) instead. The rendered mesh does
+    /// not follow these points. Written last in the record, after the
+    /// shared attributes.
+    ///
+    /// BIFF tag `DPNT` (one record per point)
     pub drag_points: Vec<DragPoint>,
 }
 impl_shared_attributes!(Trigger);

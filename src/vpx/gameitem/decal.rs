@@ -235,13 +235,60 @@ mod sizing_type_open_enum_tests {
     }
 }
 
+/// A decal: a flat image or a line of text lying on the playfield, on a
+/// surface, or on the desktop backdrop.
+///
+/// vpinball renders it as a single textured quad of
+/// [`width`](Self::width) x [`height`](Self::height) VPU centered on
+/// [`center`](Self::center), rotated by [`rotation`](Self::rotation) and
+/// placed 0.2 VPU above the height of [`surface`](Self::surface). A text
+/// decal is rasterized with its [`font`](Self::font) into a texture at
+/// render setup. Decals have no physics and are prerendered when their
+/// material is opaque.
+///
+/// The record is written by `Decal::Save` and read by `Decal::Load` in
+/// vpinball's `src/parts/decal.cpp`.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Decal {
+    /// Position of the decal center in table coordinates (VPU).
+    ///
+    /// For a backdrop decal ([`backglass`](Self::backglass)) the
+    /// coordinates are in the 1000 x 750 backdrop editor space and are
+    /// scaled to the render target.
+    ///
+    /// BIFF tag `VCEN`
     pub center: Vertex2D,
+    /// Width of the decal quad in VPU.
+    ///
+    /// Used as is for `ManualSize`, for image decals with `AutoSize`
+    /// (treated as manual) and for vertical text with `AutoWidth`; in the
+    /// other cases vpinball derives the width from the text or the image
+    /// aspect ratio, see [`sizing_type`](Self::sizing_type). Default:
+    /// `100.0`.
+    ///
+    /// BIFF tag `WDTH`
     pub width: f32,
+    /// Height of the decal quad in VPU.
+    ///
+    /// Used as is except for `AutoSize` text decals, where the height
+    /// follows the font size (`font.size / 2545` VPU, multiplied by the
+    /// character count for vertical text). Default: `100.0`.
+    ///
+    /// BIFF tag `HIGH`
     pub height: f32,
+    /// Rotation of the quad around its center, in degrees. Default:
+    /// `0.0`.
+    ///
+    /// BIFF tag `ROTA`
     pub rotation: f32,
+    /// Name of the table image shown by an image decal
+    /// ([`DecalType::Image`]); ignored for text decals.
+    ///
+    /// When empty, or the image is missing, the quad is rendered with the
+    /// material only. Default: empty.
+    ///
+    /// BIFF tag `IMAG`
     pub image: String,
     /// The name of the surface (wall, ramp, or empty for playfield) that this decal sits on.
     /// Used to determine the Z height of the decal via `GetSurfaceHeight()`.
@@ -249,24 +296,113 @@ pub struct Decal {
     ///
     /// BIFF tag: `SURF`
     pub surface: String,
+    /// Name of the decal, its identifier in the editor and in scripts.
+    /// Stored as a wide string.
+    ///
+    /// BIFF tag `NAME`
     pub name: String,
+    /// Text drawn by a text decal ([`DecalType::Text`]); ignored for image
+    /// decals.
+    ///
+    /// An empty text makes vpinball fall back to the manual size. Default:
+    /// empty.
+    ///
+    /// BIFF tag `TEXT`
     pub text: String,
+    /// Whether the decal shows its [`text`](Self::text) or its
+    /// [`image`](Self::image), see [`DecalType`]. Default:
+    /// [`DecalType::Image`].
+    ///
+    /// BIFF tag `TYPE`
     pub decal_type: DecalType,
+    /// Name of the table material applied to the quad.
+    ///
+    /// vpinball uses the material's active opacity flag to decide whether
+    /// the decal is prerendered with the static parts (opaque) or drawn in
+    /// the dynamic pass. Default: empty (the default material).
+    ///
+    /// BIFF tag `MATR`
     pub material: String,
+    /// Color of the text of a text decal (`FontColor` in script); ignored
+    /// for image decals.
+    ///
+    /// At render setup vpinball nudges pure white to `RGB(254, 255, 255)`
+    /// and pure black to `RGB(0, 0, 1)` so the text does not clash with the
+    /// transparent color of the rasterized texture. Default: black.
+    ///
+    /// BIFF tag `COLR`
     pub color: Color,
+    /// How [`width`](Self::width) and [`height`](Self::height) are derived,
+    /// see [`SizingType`]. Image decals treat `AutoSize` as `ManualSize`.
+    /// Default: [`SizingType::ManualSize`].
+    ///
+    /// BIFF tag `SIZE`
     pub sizing_type: SizingType,
+    /// Draws the text of a text decal one character per line, from top to
+    /// bottom, instead of horizontally. Default: `false`.
+    ///
+    /// BIFF tag `VERT`
     pub vertical_text: bool,
+    /// Whether the decal is part of the desktop backdrop (the 2D backglass
+    /// area of desktop mode) instead of the playfield.
+    ///
+    /// vpinball keeps this in `IEditable::m_desktopBackdrop`. A backdrop
+    /// decal is positioned in the backdrop editor space, drawn without
+    /// depth and only when
+    /// [`GameData::render_decals`](crate::vpx::gamedata::GameData::render_decals)
+    /// is set; backdrop items are skipped in cabinet and VR modes and in
+    /// reflections. Default: `false`.
+    ///
+    /// BIFF tag `BGLS`
     pub backglass: bool,
 
+    /// Font used to rasterize a text decal; ignored for image decals.
+    ///
+    /// The stored size is the point size x 10000; an auto sized text decal
+    /// is `size / 2545` VPU high. Default: Arial Black, 14.25 pt, normal
+    /// weight, no italic, underline or strikethrough.
+    ///
+    /// BIFF tag `FONT` (OLE font descriptor)
     pub font: Font,
 
     // these are shared between all items
+    /// Whether the item is locked in the editor to prevent accidental
+    /// moving or editing. Editor-only; has no runtime effect.
+    ///
+    /// BIFF tag `LOCK`
     pub is_locked: bool,
+    /// Legacy editor layer index (0-based, at most 11). Editor-only.
+    ///
+    /// Superseded by part groups in 10.8.1, see
+    /// [`part_group_name`](Self::part_group_name); vpinball still writes
+    /// it, as the index of the item's root group among the root groups, so
+    /// older versions can open the file. `None` when the record is absent.
+    ///
+    /// BIFF tag `LAYR`
     pub editor_layer: Option<u32>,
+    /// Name of the editor layer (10.7 named layers). Editor-only.
+    ///
+    /// Defaults to `"Layer_{editor_layer + 1}"`. Since 10.8.1 vpinball
+    /// writes the name of the item's root part group here, for older
+    /// versions, and on read maps it to a group when no `GRUP` record
+    /// follows. `None` when the record is absent.
+    ///
+    /// BIFF tag `LANR`
     pub editor_layer_name: Option<String>,
-    // default "Layer_{editor_layer + 1}"
+    /// Whether the item is shown in the editor (the 10.7 layer visibility,
+    /// stored per item). Editor-only; has no runtime effect. `None` when
+    /// the record is absent.
+    ///
+    /// BIFF tag `LVIS`
     pub editor_layer_visibility: Option<bool>,
-    /// Added in 10.8.1
+    /// Name of the part group the item belongs to. Added in 10.8.1.
+    ///
+    /// Part groups replace the editor layers; see
+    /// [`PartGroup`](crate::vpx::gameitem::partgroup::PartGroup). `None`
+    /// when the record is absent (file older than 10.8.1, or an item that
+    /// is not in a group).
+    ///
+    /// BIFF tag `GRUP`
     pub part_group_name: Option<String>,
 }
 impl_shared_attributes!(Decal);

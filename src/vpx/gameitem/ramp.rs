@@ -148,17 +148,73 @@ mod ramp_type_open_enum_tests {
     }
 }
 
+/// A ramp: a raised path the ball travels on, either a flat ramp with a
+/// floor and optional side walls or a wire (habitrail) ramp of one to four
+/// wires, chosen by [`ramp_type`](Self::ramp_type).
+///
+/// The path follows [`drag_points`](Self::drag_points), rising from
+/// [`height_bottom`](Self::height_bottom) to
+/// [`height_top`](Self::height_top) and going from
+/// [`width_bottom`](Self::width_bottom) to [`width_top`](Self::width_top)
+/// along its length. The wall fields (`left_wall_height`,
+/// `right_wall_height`, the `*_visible` heights and
+/// [`image_walls`](Self::image_walls)) only apply to a flat ramp; a wire
+/// ramp uses [`wire_diameter`](Self::wire_diameter),
+/// [`wire_distance_x`](Self::wire_distance_x) and
+/// [`wire_distance_y`](Self::wire_distance_y) and gets fixed collision
+/// walls. Physically every ramp is a flat floor with two side walls.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Ramp {
-    pub height_bottom: f32,  // 1
-    pub height_top: f32,     // 2
-    pub width_bottom: f32,   // 3
-    pub width_top: f32,      // 4
-    pub material: String,    // 5
-    pub ramp_type: RampType, // TYPE 8
-    pub name: String,        // 9
-    pub image: String,       // 10
+    /// Height of the ramp floor at its start (the first drag point), in VPU
+    /// above the playfield.
+    ///
+    /// The floor rises linearly along the path length to
+    /// [`height_top`](Self::height_top). vpinball default `0.0`.
+    ///
+    /// BIFF tag `HTBT`
+    pub height_bottom: f32,
+    /// Height of the ramp floor at its end (the last drag point), in VPU
+    /// above the playfield. vpinball default `50.0`.
+    ///
+    /// BIFF tag `HTTP`
+    pub height_top: f32,
+    /// Width of a flat ramp at its start, in VPU, interpolated along the
+    /// path to [`width_top`](Self::width_top).
+    ///
+    /// Wire ramps take their width from
+    /// [`wire_distance_x`](Self::wire_distance_x) or
+    /// [`wire_diameter`](Self::wire_diameter) instead, but a ramp with both
+    /// widths `0.0` is not rendered at all. vpinball default `75.0`.
+    ///
+    /// BIFF tag `WDBT`
+    pub width_bottom: f32,
+    /// Width of a flat ramp at its end, in VPU; see
+    /// [`width_bottom`](Self::width_bottom). vpinball default `60.0`.
+    ///
+    /// BIFF tag `WDTP`
+    pub width_top: f32,
+    /// Name of the material rendered on the ramp; empty for the default
+    /// material.
+    ///
+    /// BIFF tag `MATR`
+    pub material: String,
+    /// Shape of the ramp, see [`RampType`]: a flat ramp or one of the wire
+    /// ramps. vpinball default [`RampType::Flat`].
+    ///
+    /// BIFF tag `TYPE`
+    pub ramp_type: RampType,
+    /// Name of the ramp, the identifier used from VBScript. Stored as a
+    /// UTF-16 string.
+    ///
+    /// BIFF tag `NAME`
+    pub name: String,
+    /// Name of the texture on the ramp floor and, with
+    /// [`image_walls`](Self::image_walls), on its walls; empty for none.
+    /// Mapped as chosen by [`image_alignment`](Self::image_alignment).
+    ///
+    /// BIFF tag `IMAG`
+    pub image: String,
     /// Controls how the texture is mapped onto the ramp surface.
     /// - [`World`](RampImageAlignment::World): UVs are based on table coordinates.
     /// - [`Wrap`](RampImageAlignment::Wrap): UVs are based on the ramp bounding box
@@ -166,28 +222,127 @@ pub struct Ramp {
     ///
     /// Also used on: [`Flasher`](crate::vpx::gameitem::flasher::Flasher).
     /// BIFF tag: `ALGN`
-    pub image_alignment: RampImageAlignment, // 11
-    pub image_walls: bool,   // 12
-    pub left_wall_height: f32, // 13
-    pub right_wall_height: f32, // 14
-    pub left_wall_height_visible: f32, // 15
-    pub right_wall_height_visible: f32, // 16
-    pub hit_event: Option<bool>, // HTEV 17 (added in 10.?)
-    pub threshold: Option<f32>, // THRS 18 (added in 10.?)
-    pub elasticity: f32,     // 19
-    pub friction: f32,       // 20
-    pub scatter: f32,        // 21
-    pub is_collidable: bool, // 22
-    pub is_visible: bool,    // 23
+    pub image_alignment: RampImageAlignment,
+    /// Whether the [`image`](Self::image) also covers the side walls of a
+    /// flat ramp. When `false` the walls only show the material. vpinball
+    /// default `true`.
+    ///
+    /// BIFF tag `IMGW`
+    pub image_walls: bool,
+    /// Height of the left collision wall of a flat ramp above the floor,
+    /// in VPU; `0.0` disables the wall.
+    ///
+    /// Physics only: the rendered wall uses
+    /// [`left_wall_height_visible`](Self::left_wall_height_visible). Wire
+    /// ramps ignore it and get fixed walls: `31.0` for one and two wires,
+    /// `62.0` for four wires, and `62.0` on the side with the third wire
+    /// and `18.5` on the other side for three wires. vpinball default
+    /// `62.0`.
+    ///
+    /// BIFF tag `WLHL`
+    pub left_wall_height: f32,
+    /// Height of the right collision wall of a flat ramp above the floor,
+    /// in VPU; `0.0` disables the wall. See
+    /// [`left_wall_height`](Self::left_wall_height). vpinball default
+    /// `62.0`.
+    ///
+    /// BIFF tag `WLHR`
+    pub right_wall_height: f32,
+    /// Height of the rendered left wall of a flat ramp above the floor, in
+    /// VPU; `0.0` draws no wall.
+    ///
+    /// Rendering only: collision uses
+    /// [`left_wall_height`](Self::left_wall_height). vpinball default
+    /// `30.0`.
+    ///
+    /// BIFF tag `WVHL`
+    pub left_wall_height_visible: f32,
+    /// Height of the rendered right wall of a flat ramp above the floor,
+    /// in VPU; `0.0` draws no wall. See
+    /// [`left_wall_height_visible`](Self::left_wall_height_visible).
+    /// vpinball default `30.0`.
+    ///
+    /// BIFF tag `WVHR`
+    pub right_wall_height_visible: f32,
+    /// Whether the ramp fires `Hit` events to the script when the ball hits
+    /// it at least as fast as [`threshold`](Self::threshold).
+    ///
+    /// `None` when the record is absent: it was added in April 2017 (after
+    /// 10.3), older tables have neither `HTEV` nor `THRS` and vpinball
+    /// then keeps its default `false`.
+    ///
+    /// BIFF tag `HTEV`
+    pub hit_event: Option<bool>,
+    /// Minimum ball speed into the ramp surface for a `Hit` event, in
+    /// vpinball velocity units.
+    ///
+    /// Only used with [`hit_event`](Self::hit_event). `None` when the
+    /// record is absent (older tables, see `hit_event`); vpinball default
+    /// `2.0`.
+    ///
+    /// BIFF tag `THRS`
+    pub threshold: Option<f32>,
+    /// Elasticity of the ramp surface, the fraction of the ball speed kept
+    /// on a bounce (`0.0` to `1.0`).
+    ///
+    /// Used when [`overwrite_physics`](Self::overwrite_physics) is `true`
+    /// (or absent); otherwise the elasticity of
+    /// [`physics_material`](Self::physics_material) applies. vpinball
+    /// default `0.3`.
+    ///
+    /// BIFF tag `ELAS`
+    pub elasticity: f32,
+    /// Friction of the ramp surface, `0.0` (none) to `1.0`.
+    ///
+    /// Used when [`overwrite_physics`](Self::overwrite_physics) is `true`
+    /// (or absent); otherwise the friction of
+    /// [`physics_material`](Self::physics_material) applies. vpinball
+    /// default `0.3`.
+    ///
+    /// BIFF tag `RFCT`
+    pub friction: f32,
+    /// Scatter angle in degrees, the maximum random deviation of the ball's
+    /// bounce direction off the ramp.
+    ///
+    /// Used when [`overwrite_physics`](Self::overwrite_physics) is `true`
+    /// (or absent); otherwise the scatter angle of
+    /// [`physics_material`](Self::physics_material) applies. vpinball
+    /// default `0.0`.
+    ///
+    /// BIFF tag `RSCT`
+    pub scatter: f32,
+    /// Whether the ball collides with the ramp. vpinball default `true`.
+    ///
+    /// BIFF tag `CLDR`
+    pub is_collidable: bool,
+    /// Whether the ramp is rendered. vpinball default `true`.
+    ///
+    /// BIFF tag `RVIS`
+    pub is_visible: bool,
     /// Offset applied when depth-sorting transparent and overlapping objects.
     /// Higher values move the object "further away" in the sort order, causing it
     /// to render behind objects with lower bias.
     /// Also used on: [`Flasher`](crate::vpx::gameitem::flasher::Flasher), [`Primitive`](crate::vpx::gameitem::primitive::Primitive), [`Light`](crate::vpx::gameitem::light::Light), [`HitTarget`](crate::vpx::gameitem::hittarget::HitTarget).
     /// BIFF tag: `RADB`
     pub depth_bias: f32,
-    pub wire_diameter: f32,   // 25
-    pub wire_distance_x: f32, // 26
-    pub wire_distance_y: f32, // 27
+    /// Diameter of the wires of a wire ramp, in VPU, and the full width of
+    /// a [`RampType::OneWire`] ramp. Flat ramps ignore it. vpinball
+    /// default `8.0`.
+    ///
+    /// BIFF tag `RADI`
+    pub wire_diameter: f32,
+    /// Horizontal distance between the two lower wires of a wire ramp, in
+    /// VPU; this is the ramp width of every wire ramp but the one-wire
+    /// ramp. Flat ramps ignore it. vpinball default `38.0`.
+    ///
+    /// BIFF tag `RADX`
+    pub wire_distance_x: f32,
+    /// Vertical spacing of the upper wires of a three or four wire ramp, in
+    /// VPU: the upper wires are drawn `wire_distance_y / 2` above the lower
+    /// ones. Other ramp types ignore it. vpinball default `88.0`.
+    ///
+    /// BIFF tag `RADY`
+    pub wire_distance_y: f32,
     /// Whether this ramp appears in playfield reflections.
     ///
     /// When `true`, the ball is rendered in the reflection pass.
@@ -195,9 +350,31 @@ pub struct Ramp {
     ///
     /// BIFF tag: `REEN` (was missing in 10.01)
     pub is_reflection_enabled: Option<bool>,
-    pub physics_material: Option<String>, // MAPH 29 (added in 10.?)
-    pub overwrite_physics: Option<bool>,  // OVPH 30 (added in 10.?)
+    /// Name of the material whose elasticity, friction and scatter angle
+    /// apply when [`overwrite_physics`](Self::overwrite_physics) is
+    /// `false`; empty for none.
+    ///
+    /// `None` when the record is absent (older tables, before physics
+    /// materials existed).
+    ///
+    /// BIFF tag `MAPH`
+    pub physics_material: Option<String>,
+    /// Whether the ramp's own [`elasticity`](Self::elasticity),
+    /// [`friction`](Self::friction) and [`scatter`](Self::scatter) are used
+    /// instead of those of [`physics_material`](Self::physics_material).
+    ///
+    /// `None` when the record is absent (older tables, before physics
+    /// materials existed); vpinball then keeps its default `true`.
+    ///
+    /// BIFF tag `OVPH`
+    pub overwrite_physics: Option<bool>,
 
+    /// Control points of the ramp path, in order from the bottom end to
+    /// the top end; at least two are needed.
+    ///
+    /// Each point can be a smooth curve point or a corner, see
+    /// [`DragPoint`]. Written after an empty `PNTS` marker as one `DPNT`
+    /// record per point.
     pub drag_points: Vec<DragPoint>,
 
     /// Timer data for scripting (shared across all game items).
@@ -205,10 +382,25 @@ pub struct Ramp {
     pub timer: TimerData,
 
     // these are shared between all items
+    /// Whether the item is locked in the editor to prevent accidental
+    /// moving or editing. Editor-only; has no runtime effect.
+    ///
+    /// BIFF tag `LOCK`
     pub is_locked: bool,
+    /// Legacy editor layer index. Removed in 10.8.1, superseded by part
+    /// groups (see `part_group_name`). `None` when absent.
+    ///
+    /// BIFF tag `LAYR`
     pub editor_layer: Option<u32>,
+    /// Display name of the legacy editor layer; defaults to
+    /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
+    ///
+    /// BIFF tag `LANR`
     pub editor_layer_name: Option<String>,
-    // default "Layer_{editor_layer + 1}"
+    /// Whether the legacy editor layer is shown in the editor.
+    /// Editor-only; has no runtime effect. `None` when absent.
+    ///
+    /// BIFF tag `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
     pub part_group_name: Option<String>,

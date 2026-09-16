@@ -4,6 +4,12 @@ use crate::vpx::gameitem::select::TimerData;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// The light sequencer game item, vpinball's `LightSeq`
+/// (`src/parts/lightseq.cpp`): plays scripted animation patterns (sweeps,
+/// circles, blinks, ...) over the lights of the
+/// [`collection`](Self::collection) it names, radiating from
+/// [`pos_x`](Self::pos_x)/[`pos_y`](Self::pos_y). It has no visual or
+/// physical presence of its own.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct LightSequencer {

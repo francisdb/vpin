@@ -1,6 +1,13 @@
 use crate::vpx::biff::{BiffError, BiffRead, BiffReader, BiffWrite, BiffWriter};
 use serde::{Deserialize, Serialize};
 
+/// A four component vector, mirroring vpinball's `Vertex4D` (`vec4` in
+/// `src/math/vector.h`): four `f32` components `x`, `y`, `z` and `w`,
+/// stored as 16 bytes in that order.
+///
+/// In the file it holds the reflection plane of a render probe, the `RPLA`
+/// record: `x`, `y` and `z` are the plane normal and `w` the distance of
+/// the plane along that normal, vpinball's plane equation.
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Copy)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Vertex4D {
@@ -15,6 +22,7 @@ pub struct Vertex4D {
 }
 
 impl Vertex4D {
+    /// A vector from its components.
     pub fn new(x: f32, y: f32, z: f32, w: f32) -> Self {
         Self { x, y, z, w }
     }

@@ -211,22 +211,104 @@ mod space_reference_open_enum_tests {
     }
 }
 
+/// A part group: a named node of the table's part hierarchy. Added in
+/// 10.8.1.
+///
+/// Part groups replace the editor layers of earlier versions (`LAYR`,
+/// `LANR`). Every other item names the group it belongs to in its `GRUP`
+/// record (the `part_group_name` field of the item), and a group can itself
+/// be nested in another group. Besides grouping, a group carries a
+/// [`player_mode_visibility_mask`](Self::player_mode_visibility_mask) that
+/// selects the player modes its parts are rendered in, and a
+/// [`space_reference`](Self::space_reference) that selects the coordinate
+/// space its parts are placed in; both are combined along the chain of
+/// parent groups. Parts in a group that does not resolve to the playfield
+/// space get no physics colliders.
+///
+/// For files written before 10.8.1 vpinball creates a group per layer
+/// name on load. When saving, it still writes `LAYR` and `LANR` for the
+/// root group of each item so older versions can open the file.
+///
+/// The record is written by `PartGroup::Save` and read by
+/// `PartGroup::Load` in vpinball's `src/parts/PartGroup.cpp`.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct PartGroup {
+    /// Name of the group; items reference it through their `GRUP` record.
+    /// Stored as a wide string.
+    ///
+    /// BIFF tag `NAME`
     pub name: String,
-    /// In vpinball this is just v, but I wanted to unify the naming.
+    /// Position of the group in table coordinates (VPU), used by the editor
+    /// to select and move the group. Called `m_v` in vpinball; named
+    /// `center` here to match the other items.
+    ///
+    /// BIFF tag `VCEN`
     pub center: Vertex2D,
+    /// Timer data for scripting (shared across all game items).
+    /// See [`TimerData`] for details.
     pub timer: TimerData,
+    /// Whether the group is part of the desktop backdrop
+    /// (`m_backglass`).
+    ///
+    /// Part of the part group record from its introduction in the 10.8.1
+    /// development builds (March 2025); upstream vpinball dropped it in
+    /// March 2026 and keeps a per-item backdrop flag instead. Default:
+    /// `false`.
+    ///
+    /// BIFF tag `BGLS`
     pub backglass: bool,
+    /// View visibility mask, one bit per window, see [`VisibilityMask`].
+    ///
+    /// Only written by vpinball 10.8.1 development builds between March
+    /// and September 2025; it was removed as not implemented. `None` when
+    /// the record is absent, which is the case for every other file; the
+    /// value is written back only when present.
+    ///
+    /// BIFF tag `VMSK`
     pub visibility_mask: Option<u32>,
+    /// Coordinate space the parts of the group are placed in, see
+    /// [`SpaceReference`].
+    ///
+    /// [`SpaceReference::Inherit`] takes the parent group's space; a root
+    /// group without an explicit space resolves to
+    /// [`SpaceReference::Playfield`]. Parts whose resolved space is not the
+    /// playfield are decoration (cabinet, room) and get no physics
+    /// colliders. vpinball's default for a new group is `Playfield`; this
+    /// library's [`Default`] uses `Inherit`.
+    ///
+    /// BIFF tag `SPRF`
     pub space_reference: SpaceReference,
+    /// Player mode visibility mask: the player modes in which the parts of
+    /// the group are rendered.
+    ///
+    /// Bits: `0x0001` desktop, `0x0002` full single screen, `0x0004`
+    /// cabinet, `0x0008` mixed reality, `0x0010` virtual reality;
+    /// `0xFFFF` is all modes. The renderer ANDs the masks of the group and
+    /// its parents and skips a part when the result has no bit in common
+    /// with the current mode. `None` when the record is absent. Default:
+    /// `0xFFFF`.
+    ///
+    /// BIFF tag `PMSK`
     pub player_mode_visibility_mask: Option<u32>,
 
     // these are shared between all items
+    /// Whether the group is locked in the editor to prevent accidental
+    /// moving or editing. Editor-only; has no runtime effect.
+    ///
+    /// BIFF tag `LOCK`
     pub is_locked: bool,
+    /// Name of the editor layer (10.7 named layers), written by vpinball
+    /// as the name of the group's root group so older versions can open
+    /// the file. Editor-only. `None` when the record is absent.
+    ///
+    /// BIFF tag `LANR`
     pub editor_layer_name: Option<String>,
-    // default "Layer_{editor_layer + 1}"
+    /// Whether the group is shown in the editor (the 10.7 layer
+    /// visibility, stored per item). Editor-only; has no runtime effect.
+    /// `None` when the record is absent.
+    ///
+    /// BIFF tag `LVIS`
     pub editor_layer_visibility: Option<bool>,
     // Added in 10.8.1
     //pub part_group_name: Option<String>,
