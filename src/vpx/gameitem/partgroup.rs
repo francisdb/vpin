@@ -346,7 +346,6 @@ struct PartGroupJson {
     is_locked: bool,
     editor_layer_name: Option<String>,
     editor_layer_visibility: Option<bool>,
-    // part_group_name: Option<String>,
 }
 
 impl PartGroupJson {
