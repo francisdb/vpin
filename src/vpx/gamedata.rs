@@ -2339,7 +2339,7 @@ pub struct Record {
 /// table directory. The script, the materials, the render probes and the
 /// item counts are not part of it, the expanded format keeps them in other
 /// files. Used by the semantic diff to compare two tables field by field.
-pub fn game_data_to_json(game_data: &GameData) -> serde_json::Value {
+pub(crate) fn game_data_to_json(game_data: &GameData) -> serde_json::Value {
     infallible_to_value(GameDataJson::from_game_data(game_data))
 }
 
