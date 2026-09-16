@@ -480,7 +480,7 @@ mod tests {
             is_dmd: Some(false),
             font: Font::new(
                 CHARSET_ANSI,
-                HashSet::from([FontStyle::Bold, FontStyle::Underline]),
+                HashSet::from([FontStyle::Italic, FontStyle::Underline]),
                 123,
                 456,
                 "test font".to_string(),
