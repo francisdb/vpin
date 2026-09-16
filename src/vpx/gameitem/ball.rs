@@ -428,4 +428,66 @@ mod tests {
         let ball_read = Ball::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(ball, ball_read);
     }
+
+    #[test]
+    fn json_round_trip_keeps_every_field() {
+        let ball = Ball {
+            pos: Vertex3D::new(1.0, 2.0, 3.0),
+            radius: 30.0,
+            mass: 2.5,
+            force_reflection: true,
+            decal_mode: true,
+            image: "test_image".to_string(),
+            image_decal: "test_decal".to_string(),
+            bulb_intensity_scale: 1.5,
+            playfield_reflection_strength: 0.8,
+            color: Color::rgb(128, 64, 32),
+            spherical_mapping: true,
+            is_reflection_enabled: false,
+            timer: TimerData {
+                is_enabled: true,
+                interval: 500,
+            },
+            name: "test ball".to_string(),
+            is_locked: true,
+            editor_layer: Some(3),
+            editor_layer_name: Some("layer".to_string()),
+            editor_layer_visibility: Some(true),
+            part_group_name: Some("part group".to_string()),
+        };
+        let json = serde_json::to_value(&ball).unwrap();
+        // the lock and editor layer attributes live in a separate file of
+        // the expanded format, so the item json neither carries nor
+        // restores them
+        let object = json.as_object().unwrap();
+        for key in [
+            "is_locked",
+            "editor_layer",
+            "editor_layer_name",
+            "editor_layer_visibility",
+        ] {
+            assert!(!object.contains_key(key), "{key} belongs to the sidecar");
+        }
+        let back: Ball = serde_json::from_value(json).unwrap();
+        let expected = Ball {
+            is_locked: false,
+            editor_layer: None,
+            editor_layer_name: None,
+            editor_layer_visibility: None,
+            ..ball
+        };
+        assert_eq!(expected, back);
+    }
+
+    #[test]
+    fn json_omits_an_absent_part_group_and_reads_it_back_as_absent() {
+        // a ball from a file without the part group record must not invent
+        // one on the way through the json
+        let ball = Ball::default();
+        assert_eq!(ball.part_group_name, None);
+        let json = serde_json::to_value(&ball).unwrap();
+        assert!(!json.as_object().unwrap().contains_key("part_group_name"));
+        let back: Ball = serde_json::from_value(json).unwrap();
+        assert_eq!(ball, back);
+    }
 }

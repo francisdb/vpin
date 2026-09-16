@@ -511,4 +511,45 @@ mod tests {
         let gate_read = PartGroup::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
         assert_eq!(part_group, gate_read);
     }
+
+    #[test]
+    fn json_round_trip_keeps_every_field() {
+        let part_group = PartGroup {
+            name: "Test".to_string(),
+            center: Vertex2D::new(1.0, 2.0),
+            timer: TimerData {
+                is_enabled: true,
+                interval: 1000,
+            },
+            backglass: true,
+            visibility_mask: Some(VisibilityMask::PLAYFIELD.into()),
+            space_reference: SpaceReference::Cabinet,
+            player_mode_visibility_mask: Some(0x00FF),
+            is_locked: true,
+            editor_layer_name: Some("Layer 1".to_string()),
+            editor_layer_visibility: Some(true),
+        };
+        let json = serde_json::to_value(&part_group).unwrap();
+        let back: PartGroup = serde_json::from_value(json).unwrap();
+        assert_eq!(part_group, back);
+    }
+
+    #[test]
+    fn json_omits_absent_mask_records_and_reads_them_back_as_absent() {
+        // the short-lived VMSK record and the player mode mask are only
+        // written when the file had them; the json must not invent them.
+        // Unlike the other items, a part group keeps its editor attributes
+        // in its own json, where an absent record is written as null
+        let part_group = PartGroup::default();
+        assert_eq!(part_group.visibility_mask, None);
+        assert_eq!(part_group.player_mode_visibility_mask, None);
+        let json = serde_json::to_value(&part_group).unwrap();
+        let object = json.as_object().unwrap();
+        assert!(!object.contains_key("visibility_mask"));
+        assert!(!object.contains_key("player_mode_visibility_mask"));
+        assert!(object["editor_layer_name"].is_null());
+        assert!(object["editor_layer_visibility"].is_null());
+        let back: PartGroup = serde_json::from_value(json).unwrap();
+        assert_eq!(part_group, back);
+    }
 }
