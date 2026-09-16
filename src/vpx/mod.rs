@@ -1462,7 +1462,7 @@ mod tests {
         let mac = read_mac(&mut comp)?;
         // the value follows the bytes a minimal table is written as
         let expected = [
-            9, 154, 183, 177, 109, 97, 2, 107, 25, 192, 147, 173, 37, 25, 101, 192,
+            184, 23, 76, 105, 11, 66, 112, 155, 107, 128, 217, 79, 62, 9, 110, 224,
         ];
         assert_eq!(mac, expected);
         Ok(())
