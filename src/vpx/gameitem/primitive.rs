@@ -530,6 +530,7 @@ struct PrimitiveJson {
     is_toy: bool,
     use_3d_mesh: bool,
     static_rendering: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     disable_lighting_top_old: Option<f32>,
     disable_lighting_top: Option<f32>,
     disable_lighting_below: Option<f32>,

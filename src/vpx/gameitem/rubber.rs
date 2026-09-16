@@ -200,6 +200,7 @@ struct RubberJson {
     scatter: f32,
     is_collidable: bool,
     is_visible: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     radb: Option<f32>,
     static_rendering: bool,
     show_in_editor: bool,

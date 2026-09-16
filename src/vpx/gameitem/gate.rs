@@ -355,7 +355,9 @@ pub(crate) struct GateJson {
     pub timer: TimerData,
     show_bracket: bool,
     is_collidable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     imgf: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     imgb: Option<String>,
     surface: String,
     elasticity: f32,
