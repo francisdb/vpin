@@ -14,6 +14,9 @@ categories = ["game-engines", "game-development"]
 
 [package.metadata.docs.rs]
 all-features = true
+# docs.rs builds on nightly; the docsrs cfg turns on doc_cfg so items behind
+# a feature carry an "available on crate feature" badge.
+rustdoc-args = ["--cfg", "docsrs"]
 
 exclude = [
     "testdata/*",

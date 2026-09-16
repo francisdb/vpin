@@ -4,12 +4,59 @@ use std::io::{self, BufReader, BufWriter, Cursor, Read, Write};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
+/// Where the expanded directory format reads and writes its files.
+///
+/// The expanded reader and writer take the file system as a parameter so
+/// the same code serves a directory on disk ([`RealFileSystem`]) and an
+/// in-memory tree ([`MemoryFileSystem`]), which the wasm bindings and the
+/// tests use. Paths are whatever the caller passes; the trait does not
+/// resolve or normalize them.
 pub trait FileSystem: Sync {
+    /// Creates the file at `path`, replacing any existing content, and
+    /// returns a writer for it. The written data must be visible to
+    /// [`read_file`](Self::read_file) once the writer is flushed or
+    /// dropped.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the file cannot be created, for example when its parent
+    /// directory does not exist.
     fn create_file(&self, path: &Path) -> io::Result<Box<dyn Write>>;
+
+    /// Opens the file at `path` for reading.
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`io::ErrorKind::NotFound`] when there is no file at
+    /// `path`; the message names the path.
     fn open_file(&self, path: &Path) -> io::Result<Box<dyn Read>>;
+
+    /// Reads the whole file at `path`.
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`io::ErrorKind::NotFound`] when there is no file at
+    /// `path`; the message names the path.
     fn read_file(&self, path: &Path) -> io::Result<Vec<u8>>;
+
+    /// Writes `data` as the whole content of the file at `path`, creating
+    /// the file or replacing what it held.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the file cannot be created or written.
     fn write_file(&self, path: &Path, data: &[u8]) -> io::Result<()>;
+
+    /// Creates the directory at `path` and every missing parent. Succeeds
+    /// when the directory already exists.
+    ///
+    /// # Errors
+    ///
+    /// Fails when a directory cannot be created.
     fn create_dir_all(&self, path: &Path) -> io::Result<()>;
+
+    /// Whether something exists at `path`. For an implementation without
+    /// directories this is whether a file was written at that exact path.
     fn exists(&self, path: &Path) -> bool;
 
     /// Writer suitable for many small writes. Default impl wraps
@@ -32,6 +79,11 @@ pub trait FileSystem: Sync {
     }
 }
 
+/// The file system of the host, through [`std::fs`].
+///
+/// Paths are used as given, relative ones against the current working
+/// directory. Errors from opening and reading name the path, which
+/// [`std::fs`] leaves out.
 pub struct RealFileSystem;
 
 impl FileSystem for RealFileSystem {
@@ -64,6 +116,16 @@ impl FileSystem for RealFileSystem {
     }
 }
 
+/// A file system that keeps every file in memory, keyed by the path as a
+/// string.
+///
+/// There are no directories: [`create_dir_all`](FileSystem::create_dir_all)
+/// always succeeds and [`exists`](FileSystem::exists) only reports files.
+/// A path is stored as its lossy string form, so `/vpx/a.png` and
+/// `Path::new("/vpx/a.png")` name the same file.
+///
+/// Clones share the same files; the store is behind an [`Arc`] and a
+/// [`RwLock`], so a clone handed to another thread sees the same writes.
 #[derive(Default, Clone)]
 pub struct MemoryFileSystem {
     files: Arc<RwLock<HashMap<String, Vec<u8>>>>,
@@ -122,12 +184,15 @@ impl MemoryFileSystem {
 }
 
 impl MemoryFileSystem {
+    /// An empty file system.
     pub fn new() -> Self {
         Self {
             files: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
+    /// A copy of the content of the file at `path`, `None` when there is
+    /// no such file.
     pub fn get_file(&self, path: &str) -> Option<Vec<u8>> {
         let files = self
             .files
@@ -136,6 +201,7 @@ impl MemoryFileSystem {
         files.get(path).cloned()
     }
 
+    /// The paths of every file, in no particular order.
     pub fn list_files(&self) -> Vec<String> {
         let files = self
             .files
@@ -144,6 +210,7 @@ impl MemoryFileSystem {
         files.keys().cloned().collect()
     }
 
+    /// Removes every file.
     pub fn clear(&self) {
         let mut files = self
             .files
@@ -152,6 +219,7 @@ impl MemoryFileSystem {
         files.clear();
     }
 
+    /// Removes the file at `path`; a path without a file is not an error.
     pub fn delete_file(&self, path: &str) {
         let mut files = self
             .files

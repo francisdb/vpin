@@ -1032,6 +1032,7 @@ mod tests {
     }
 }
 
+/// Helpers shared by the mesh and export tests.
 #[cfg(test)]
 pub mod test_utils {
     use crate::vpx::gameitem::primitive::compress_mesh_data;

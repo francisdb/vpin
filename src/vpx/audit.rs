@@ -33,8 +33,15 @@ const NONE_SELECTION: &str = "<None>";
 pub enum Finding {
     /// A game item or table setting references an image that does not exist
     MissingImage {
+        /// Type and name of the game item that carries the reference, such
+        /// as `Wall "Apron"`, or `table settings` for a reference the table
+        /// itself holds
         item: String,
+        /// The image property that holds the reference, named as the
+        /// editor shows it: `image`, `side image`, `normal map`, `decal
+        /// image`, or a table setting such as `playfield image`
         field: &'static str,
+        /// Name of the referenced image, as written in the item
         image: String,
     },
     /// A table setting references an image that does not exist, but
@@ -43,7 +50,10 @@ pub enum Finding {
     /// built-in ball, a ball decal is left off. The reference is stale,
     /// the table plays as intended
     MissingImageWithFallback {
+        /// The table setting that holds the reference: `environment
+        /// image`, `ball image` or `ball decal image`
         field: &'static str,
+        /// Name of the referenced image, as written in the table settings
         image: String,
         /// What vpinball uses instead
         fallback: &'static str,
@@ -51,19 +61,45 @@ pub enum Finding {
     /// The color grade image does not exist. vpinball looks it up in the
     /// table only and silently renders without color grading when it is
     /// missing, so this one changes the picture
-    MissingColorGradeImage { image: String },
+    MissingColorGradeImage {
+        /// Name of the color grade image, as written in the table settings
+        image: String,
+    },
     /// A game item or table setting references a material that does not exist
     MissingMaterial {
+        /// Type and name of the game item that carries the reference, such
+        /// as `Wall "Apron"`, or `table settings` for a reference the table
+        /// itself holds
         item: String,
+        /// The material property that holds the reference, named as the
+        /// editor shows it: `material`, `side material`, `physics
+        /// material` and so on, or `playfield material` for the table
         field: &'static str,
+        /// Name of the referenced material, as written in the item
         material: String,
     },
     /// A game item is placed on a surface (wall or ramp) that does not exist
-    MissingSurface { item: String, surface: String },
+    MissingSurface {
+        /// Type and name of the game item placed on the surface
+        item: String,
+        /// Name of the wall or ramp the item is placed on, as written in
+        /// the item
+        surface: String,
+    },
     /// A game item belongs to a part group that does not exist
-    MissingPartGroup { item: String, part_group: String },
+    MissingPartGroup {
+        /// Type and name of the game item that belongs to the group
+        item: String,
+        /// Name of the part group, as written in the item
+        part_group: String,
+    },
     /// A collection contains an item that does not exist
-    MissingCollectionItem { collection: String, item: String },
+    MissingCollectionItem {
+        /// Name of the collection that lists the item
+        collection: String,
+        /// Name of the listed game item, as written in the collection
+        item: String,
+    },
     /// Several images, sounds, game items, collections or materials share
     /// a name, compared case insensitively like vpinball's lookups,
     /// reported once per name with how many carry it. Only the first image
@@ -78,15 +114,25 @@ pub enum Finding {
     /// exact name while the player looks it up case insensitively and
     /// takes the last one loaded, so the two render it differently
     DuplicateName {
+        /// Which list of the table the name is in
         kind: NameKind,
+        /// The shared name, spelled as the first entry that carries it
         name: String,
+        /// How many entries carry the name
         count: usize,
     },
     /// A game item or collection name is longer than vpinball's editor
     /// allows. vpinball cuts a collection name at load and a game item
     /// name as soon as it is edited, and the script's reference to the
     /// full name then fails
-    NameTooLong { item: String, length: usize },
+    NameTooLong {
+        /// Type and name of the game item, such as `Wall "Apron"`, or
+        /// `Collection` and the name of the collection
+        item: String,
+        /// Length of the name in characters; the limit is
+        /// [`MAX_NAME_LENGTH`]
+        length: usize,
+    },
     /// A game item or collection has a name the script already gives a
     /// meaning: a VBScript keyword, which the script cannot even refer
     /// to; a VBScript builtin function or constant, which the item then
@@ -95,8 +141,11 @@ pub enum Finding {
     /// properties, which vpinball on Windows renames at load and
     /// standalone vpinball lets the item hide
     ReservedName {
+        /// Whether a game item or a collection carries the name
         kind: NameKind,
+        /// The reserved name, spelled as the item or collection writes it
         name: String,
+        /// What the name clashes with
         reserved: ReservedName,
     },
     /// Game items of one type have no name, reported once per type with
@@ -106,54 +155,104 @@ pub enum Finding {
     /// unnamed ones. vpinball and vpx-editor name them when they load the
     /// table and write the name on save, so a resave fixes it; that is a
     /// suggestion
-    UnnamedItems { type_name: String, count: usize },
+    UnnamedItems {
+        /// The item type, as the editor shows it, such as `Wall` or `Decal`
+        type_name: String,
+        /// How many items of that type have no name
+        count: usize,
+    },
     /// The table info has no table name
     MissingTableName,
     /// An image is stored as an uncompressed era bitmap; vpinball suggests
     /// converting these to webp
-    BmpImage { image: String },
+    BmpImage {
+        /// Name of the image
+        image: String,
+    },
     /// The color grade lookup table image is not the 256x16 layout the
     /// shader expects, which silently renders wrong colors
     ColorGradeLutUnusualSize {
+        /// Name of the color grade image
         image: String,
+        /// Width of the image in pixels; the shader expects 256
         width: u32,
+        /// Height of the image in pixels; the shader expects 16
         height: u32,
     },
     /// The script mixes line ending styles. vpinball and the standalone
     /// VBScript engine accept any of them, but line based tooling (diffs of
     /// an extracted script, patchers, some editors) trips over a mix. The
     /// counts tell a stray line from a wholesale mix
-    MixedScriptLineEndings { crlf: usize, lf: usize, cr: usize },
+    MixedScriptLineEndings {
+        /// How many lines end in CR LF
+        crlf: usize,
+        /// How many lines end in a bare LF
+        lf: usize,
+        /// How many lines end in a bare CR
+        cr: usize,
+    },
     /// An embedded font whose face names no textbox or decal uses and the
     /// script does not mention; it only adds to the file
-    UnusedFont { font: String, faces: Vec<String> },
+    UnusedFont {
+        /// Name of the embedded font, as the table lists it
+        font: String,
+        /// Face names inside the font file, which are what a textbox or
+        /// decal refers to
+        faces: Vec<String>,
+    },
     /// A textbox or decal uses a font that is neither embedded in the
     /// table nor one of the core fonts available on every platform, so
     /// it renders with a substitute on any machine without it installed.
     /// Standalone resolves fonts differently: it looks for
     /// `Name-Style.ttf` (spaces removed) next to the table and falls back
     /// to Liberation Sans for anything else, embedded or not
-    NonStandardFont { item: String, font: String },
+    NonStandardFont {
+        /// Type and name of the textbox or decal
+        item: String,
+        /// Face name of the font, as written in the item
+        font: String,
+    },
     /// The script uses a table property vpinball has deprecated; it logs
     /// an error and the call does nothing
-    DeprecatedTableProperty { property: String },
+    DeprecatedTableProperty {
+        /// Name of the property, spelled as vpinball declares it
+        property: String,
+    },
     /// The script sets a VPinMAME controller property the standalone
     /// PinMAME plugin has deprecated; it logs and ignores it, VPinMAME
     /// on Windows still honors it
-    DeprecatedControllerProperty { property: String },
+    DeprecatedControllerProperty {
+        /// Name of the property, spelled as VPinMAME declares it
+        property: String,
+    },
     /// A primitive mesh with over a million vertices; the biggest tables
     /// bake a whole playfield into one, anything else that size is a
     /// mistake in the import
     HugeMesh {
+        /// Type and name of the primitive
         item: String,
+        /// How many vertices the mesh has
         vertices: u32,
+        /// How many indices the mesh has; zero when the table does not
+        /// record it
         indices: u32,
     },
     /// An image no game item or table setting uses and the script never
     /// names; it only adds to the file
-    UnusedImage { image: String, bytes: usize },
+    UnusedImage {
+        /// Name of the image
+        image: String,
+        /// Size of the stored image data in bytes, the JPEG or the LZW
+        /// compressed bitmap as the file holds it
+        bytes: usize,
+    },
     /// A sound the script never names; it only adds to the file
-    UnusedSound { sound: String, bytes: usize },
+    UnusedSound {
+        /// Name of the sound
+        sound: String,
+        /// Size of the stored sound data in bytes
+        bytes: usize,
+    },
     /// Images or sounds whose stored bytes are identical under different
     /// names, one finding per group in the order the table lists them.
     /// For images the parts and the script can point at one name and the
@@ -165,19 +264,35 @@ pub enum Finding {
     /// often carry many more copies than balls they can have in play.
     /// Sharing one sample between names is asked of vpinball in
     /// <https://github.com/vpinball/vpinball/issues/3939>
-    SameAssetData { kind: NameKind, names: Vec<String> },
+    SameAssetData {
+        /// Whether the group holds images or sounds
+        kind: NameKind,
+        /// Names of the assets that hold the same data, in the order the
+        /// table lists them; names that differ in case only count once
+        names: Vec<String>,
+    },
     /// Materials no game item or the playfield uses and the script never
     /// names. They cost nothing in the file, but they clutter the material
     /// list; reported once per table since most tables carry dozens
-    UnusedMaterials { names: Vec<String>, total: usize },
+    UnusedMaterials {
+        /// Names of the unused materials, in the order the table lists them
+        names: Vec<String>,
+        /// How many materials the table has in all
+        total: usize,
+    },
     /// The script plays or stops a sound that does not exist; vpinball
     /// logs a warning and plays nothing
-    MissingSound { sound: String },
+    MissingSound {
+        /// Name of the sound as the script writes it, lower cased; only
+        /// the start of the name when the script builds the rest at runtime
+        sound: String,
+    },
     /// The image's stored width and height differ from the encoded
     /// picture; older vpinball versions wrote the dimensions after their
     /// load time resize. vpinball logs it as a corrupted file and uses the
     /// picture's own size, so this only matters to tools reading the header
     ImageDimensionMismatch {
+        /// Name of the image
         image: String,
         /// Width and height stored in the image record
         stored: (u32, u32),
@@ -185,20 +300,38 @@ pub enum Finding {
         actual: (u32, u32),
     },
     /// The glass is below two inches or upside down
-    GlassHeightInvalid { detail: &'static str },
+    GlassHeightInvalid {
+        /// What is wrong, as a phrase: the bottom is higher than the top,
+        /// or the glass is below two inches
+        detail: &'static str,
+    },
     /// The legacy spherical ball mapping renders badly in VR, stereo and
     /// head tracked setups
     BallSphericalMapping,
     /// A legacy textbox is used for DMD rendering, a flasher renders better
-    TextboxUsedForDmd { item: String },
+    TextboxUsedForDmd {
+        /// Type and name of the textbox
+        item: String,
+    },
     /// A timer fires faster than a 60 FPS frame, which causes stutters
-    FastTimer { item: String, interval: i32 },
+    FastTimer {
+        /// Type and name of the game item that owns the timer
+        item: String,
+        /// The timer interval in milliseconds
+        interval: i32,
+    },
     /// A light has a negative intensity
-    NegativeLightIntensity { item: String },
+    NegativeLightIntensity {
+        /// Type and name of the light
+        item: String,
+    },
     /// A primitive is marked static, which bakes it at load, while the
     /// script refers to it; most of its properties cannot change at
     /// runtime then (reading them is fine)
-    StaticPrimitiveInScript { item: String },
+    StaticPrimitiveInScript {
+        /// Type and name of the primitive
+        item: String,
+    },
     /// A light with a linear or incandescent fader has a fade speed of
     /// zero, below zero or not a number, so a state change never moves its
     /// intensity: switched through `State` the light stays as it started.
@@ -210,6 +343,7 @@ pub enum Finding {
     /// saved with a zero intensity shows nothing yet, so that is only a
     /// suggestion until something lights it
     LightCannotFade {
+        /// Type and name of the light
         item: String,
         /// The unusable fade up speed, with which the light cannot turn
         /// on, as text: `0`, a negative number or `NaN`
@@ -221,19 +355,34 @@ pub enum Finding {
         lit: bool,
     },
     /// A sound plays on the playfield speakers but is not mono
-    StereoTableSound { sound: String },
+    StereoTableSound {
+        /// Name of the sound
+        sound: String,
+    },
     /// The embedded screenshot is large; it bloats the file and every save
     /// spends noticeable time hashing it into the integrity signature.
     /// Large ones are usually PNG captures, which JPEG stores much smaller.
-    LargeScreenshot { bytes: usize, png: bool },
+    LargeScreenshot {
+        /// Size of the embedded screenshot in bytes
+        bytes: usize,
+        /// The screenshot is a PNG, which JPEG would store much smaller
+        png: bool,
+    },
     /// The script could not be parsed, so the script-level checks could not run
-    ScriptParseError { detail: String },
+    ScriptParseError {
+        /// The parser's error, rendered as debug text
+        detail: String,
+    },
     /// The script has no `Option Explicit`, so a typo in a variable name
     /// silently creates a new variable instead of being caught
     MissingOptionExplicit,
     /// A sub or function is declared more than once; the later one wins and
     /// the earlier is dead
-    DuplicateProcedure { name: String },
+    DuplicateProcedure {
+        /// Name of the sub or function, spelled as the repeated declaration
+        /// writes it
+        name: String,
+    },
     /// The script uses `Execute`, which runs code built at runtime; vpinball
     /// warns this triggers security checks and can stutter. `ExecuteGlobal`
     /// is not flagged since tables normally use it to load scripts at startup
@@ -248,7 +397,12 @@ pub enum Finding {
     /// The script declares a variable, constant, procedure or class with
     /// the name of a game item or collection, which hides the item from
     /// the script
-    ScriptNameShadowsItem { name: String, kind: NameKind },
+    ScriptNameShadowsItem {
+        /// The name the script declares, spelled as the script writes it
+        name: String,
+        /// Whether a game item or a collection is hidden
+        kind: NameKind,
+    },
     /// The script uses `Rnd` without calling `Randomize`, so every run
     /// draws the same sequence
     RndWithoutRandomize,
@@ -258,12 +412,22 @@ pub enum Finding {
     /// `InitTimer`) and timers handled through an event firing collection
     /// are accounted for; handlers built with `Execute`, `ExecuteGlobal` or
     /// `Eval` are not seen
-    TimerWithoutHandler { item: String, interval: i32 },
+    TimerWithoutHandler {
+        /// Name of the game item whose timer is enabled, without its type;
+        /// the missing handler is `<item>_Timer`
+        item: String,
+        /// The timer interval in milliseconds; -1 means every frame
+        interval: i32,
+    },
     /// Event handlers such as `<name>_Hit` or `<name>_Timer` whose item,
     /// collection or table does not exist and that nothing calls by name:
     /// dead code, typically a sound package pasted in without its
     /// collections, or an item that was renamed. Reported once per table
-    HandlersWithoutItem { names: Vec<String> },
+    HandlersWithoutItem {
+        /// Names of the handlers, such as `Bumper1_Hit`, as the script
+        /// spells them
+        names: Vec<String>,
+    },
 }
 
 /// How serious a [`Finding`] is
@@ -332,10 +496,15 @@ pub enum ReservedName {
 /// What kind of name a [`Finding::DuplicateName`] is about
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NameKind {
+    /// A name in the table's image list
     Image,
+    /// A name in the table's sound list
     Sound,
+    /// A name in the table's game item list
     GameItem,
+    /// A name in the table's collection list
     Collection,
+    /// A name in the table's material list
     Material,
 }
 

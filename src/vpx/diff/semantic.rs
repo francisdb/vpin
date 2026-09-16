@@ -79,7 +79,9 @@ pub enum Change {
     Removed(Entity),
     /// An entity exists in both tables with different properties
     Changed {
+        /// The entity that differs
         entity: Entity,
+        /// The properties that differ, never empty
         fields: Vec<FieldChange>,
     },
     /// The entities of a kind appear in a different order. Only reported
@@ -88,7 +90,9 @@ pub enum Change {
     /// The script text differs. The counts are the lines that only appear
     /// on one side; both zero means only the line endings changed
     Script {
+        /// Lines that only appear in the modified script
         lines_added: usize,
+        /// Lines that only appear in the original script
         lines_removed: usize,
     },
 }
@@ -103,25 +107,40 @@ pub enum Entity {
     TableSettings,
     /// A game item, identified by its type and name
     GameItem {
+        /// The item type as vpinball names it, for example `Wall` or
+        /// `Primitive`
         type_name: String,
+        /// The item name as shown in the editor
         name: String,
     },
+    /// An image, identified by its name in the image manager
     Image {
+        /// The image name
         name: String,
     },
+    /// A sound, identified by its name in the sound manager
     Sound {
+        /// The sound name
         name: String,
     },
+    /// A font, identified by its name
     Font {
+        /// The font name
         name: String,
     },
+    /// A material, identified by its name in the material manager
     Material {
+        /// The material name
         name: String,
     },
+    /// A render probe, identified by its name
     RenderProbe {
+        /// The render probe name
         name: String,
     },
+    /// A collection, identified by its name in the collection manager
     Collection {
+        /// The collection name
         name: String,
     },
 }
@@ -130,12 +149,19 @@ pub enum Entity {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum EntityKind {
+    /// Game items, see [`Entity::GameItem`]
     GameItem,
+    /// Images, see [`Entity::Image`]
     Image,
+    /// Sounds, see [`Entity::Sound`]
     Sound,
+    /// Fonts, see [`Entity::Font`]
     Font,
+    /// Materials, see [`Entity::Material`]
     Material,
+    /// Render probes, see [`Entity::RenderProbe`]
     RenderProbe,
+    /// Collections, see [`Entity::Collection`]
     Collection,
 }
 
@@ -147,8 +173,14 @@ pub enum EntityKind {
 /// absent or null on that side.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldChange {
+    /// The property path in the JSON model, for example
+    /// `drag_points[2].x`
     pub field: String,
+    /// The value in the original table, rendered for display; `None`
+    /// when the property is absent or null there
     pub original: Option<String>,
+    /// The value in the modified table, rendered for display; `None`
+    /// when the property is absent or null there
     pub modified: Option<String>,
 }
 
