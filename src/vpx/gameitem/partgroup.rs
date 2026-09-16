@@ -344,7 +344,9 @@ struct PartGroupJson {
     #[serde(skip_serializing_if = "Option::is_none")]
     player_mode_visibility_mask: Option<u32>,
     is_locked: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     editor_layer_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     editor_layer_visibility: Option<bool>,
 }
 
@@ -535,19 +537,21 @@ mod tests {
 
     #[test]
     fn json_omits_absent_mask_records_and_reads_them_back_as_absent() {
-        // the short-lived VMSK record and the player mode mask are only
-        // written when the file had them; the json must not invent them.
-        // Unlike the other items, a part group keeps its editor attributes
-        // in its own json, where an absent record is written as null
+        // the short-lived VMSK record and the legacy layer records are
+        // dead, so an absent one is left out, as is the player mode mask
         let part_group = PartGroup::default();
         assert_eq!(part_group.visibility_mask, None);
         assert_eq!(part_group.player_mode_visibility_mask, None);
         let json = serde_json::to_value(&part_group).unwrap();
         let object = json.as_object().unwrap();
-        assert!(!object.contains_key("visibility_mask"));
-        assert!(!object.contains_key("player_mode_visibility_mask"));
-        assert!(object["editor_layer_name"].is_null());
-        assert!(object["editor_layer_visibility"].is_null());
+        for key in [
+            "visibility_mask",
+            "player_mode_visibility_mask",
+            "editor_layer_name",
+            "editor_layer_visibility",
+        ] {
+            assert!(!object.contains_key(key), "{key} was written");
+        }
         let back: PartGroup = serde_json::from_value(json).unwrap();
         assert_eq!(part_group, back);
     }

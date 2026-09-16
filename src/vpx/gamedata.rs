@@ -1689,7 +1689,9 @@ pub(crate) struct GameDataJson {
     pub scatter: f32,
     pub default_scatter: f32,
     pub nudge_time: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub plunger_normalize: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub plunger_filter: Option<bool>,
     pub physics_max_loops: u32,
     pub render_em_reels: bool,
@@ -1699,9 +1701,13 @@ pub(crate) struct GameDataJson {
     pub zoom: f32,
     pub angle_tilt_max: f32,
     pub angle_tilt_min: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub stereo_max_separation: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub stereo_zero_parallax_displacement: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub stereo_offset: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub overwrite_global_stereo3d: Option<bool>,
     pub image: String,
     pub backglass_image_full_desktop: String,
@@ -1718,6 +1724,7 @@ pub(crate) struct GameDataJson {
     pub display_backdrop: bool,
     pub glass_top_height: f32,
     pub glass_bottom_height: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub table_height: Option<f32>,
     pub playfield_material: String,
     pub backdrop_color: Color,
@@ -1734,21 +1741,30 @@ pub(crate) struct GameDataJson {
     pub ground_to_lockbar_height: Option<f32>,
     pub table_sound_volume: f32,
     pub table_music_volume: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub table_adaptive_vsync: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub use_reflection_for_balls: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub brst: Option<i32>,
     pub playfield_reflection_strength: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub use_trail_for_balls: Option<i32>,
     pub ball_decal_mode: bool,
     pub ball_playfield_reflection_strength: Option<f32>,
     pub default_bulb_intensity_scale_on_ball: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ball_trail_strength: Option<u32>,
     pub user_detail_level: Option<u32>,
     pub overwrite_global_detail_level: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub overwrite_global_day_night: Option<bool>,
     pub show_grid: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reflect_elements_on_playfield: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub use_aal: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub use_fxaa: Option<i32>,
     pub use_ao: Option<i32>,
     pub use_ssr: Option<i32>,
@@ -1756,6 +1772,7 @@ pub(crate) struct GameDataJson {
     pub bloom_strength: f32,
     pub name: String,
     pub custom_colors: [Color; 16],
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub protection_data: Option<Vec<u8>>,
     pub locked: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]

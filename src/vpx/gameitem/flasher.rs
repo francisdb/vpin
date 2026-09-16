@@ -848,6 +848,7 @@ pub(crate) struct FlasherJson {
     modulate_vs_add: f32,
     is_visible: bool,
     add_blend: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     is_dmd: Option<bool>,
     render_mode: Option<RenderMode>,
     render_style: Option<u32>,

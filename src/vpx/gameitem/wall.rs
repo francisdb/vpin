@@ -255,6 +255,7 @@ struct WallJson {
     is_top_bottom_visible: bool,
     slingshot_animation: bool,
     is_side_visible: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     disable_lighting_top_old: Option<f32>,
     disable_lighting_top: Option<f32>,
     disable_lighting_below: Option<f32>,
