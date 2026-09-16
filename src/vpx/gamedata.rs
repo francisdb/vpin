@@ -2995,9 +2995,11 @@ mod tests {
         assert_eq!(game_data, read_game_data);
     }
 
-    #[test]
-    fn read_write() {
-        let gamedata = GameData {
+    /// A game data with a non-default value in every field, and the
+    /// records that only some vpinball versions write present where the
+    /// 10.7 layout allows it.
+    fn sample_gamedata() -> GameData {
+        GameData {
             left: 1.0,
             right: 2.0,
             top: 3.0,
@@ -3152,7 +3154,12 @@ mod tests {
             bg_window_bottom_z_offset_full_single_screen: None,
             locked: Faker.fake(),
             is_10_8_0_beta1_to_beta4: false,
-        };
+        }
+    }
+
+    #[test]
+    fn read_write() {
+        let gamedata = sample_gamedata();
         let version = Version::new(1074);
         let bytes = write_all_gamedata_records(&gamedata, &version);
         let read_game_data = read_all_gamedata_records(&bytes, &version).unwrap();
@@ -3169,6 +3176,140 @@ mod tests {
         let bytes = write_colors(&colors);
         let read_colors = read_colors(&bytes).unwrap();
         assert_eq!(colors, read_colors);
+    }
+
+    /// The sample with every optional record present: the window and
+    /// view offsets of the three view setups, the camera layout mode,
+    /// the 10.8 material records and the old protection blob.
+    fn gamedata_with_every_optional_record() -> GameData {
+        GameData {
+            camera_layout_mode: Some(1),
+            // the sample fakes these, which may leave them absent
+            bg_view_mode_desktop: Some(ViewLayoutMode::Camera),
+            bg_view_mode_fullscreen: Some(ViewLayoutMode::Legacy),
+            bg_view_mode_full_single_screen: Some(ViewLayoutMode::Window),
+            tone_mapper: Some(ToneMapper::Filmic),
+            locked: Some(1),
+            bg_view_horizontal_offset_desktop: Some(1.5),
+            bg_view_vertical_offset_desktop: Some(2.5),
+            bg_window_top_x_offset_desktop: Some(3.5),
+            bg_window_top_y_offset_desktop: Some(4.5),
+            bg_window_top_z_offset_desktop: Some(5.5),
+            bg_window_bottom_x_offset_desktop: Some(6.5),
+            bg_window_bottom_y_offset_desktop: Some(7.5),
+            bg_window_bottom_z_offset_desktop: Some(8.5),
+            bg_view_horizontal_offset_fullscreen: Some(11.5),
+            bg_view_vertical_offset_fullscreen: Some(12.5),
+            bg_window_top_x_offset_fullscreen: Some(13.5),
+            bg_window_top_y_offset_fullscreen: Some(14.5),
+            bg_window_top_z_offset_fullscreen: Some(15.5),
+            bg_window_bottom_x_offset_fullscreen: Some(16.5),
+            bg_window_bottom_y_offset_fullscreen: Some(17.5),
+            bg_window_bottom_z_offset_fullscreen: Some(18.5),
+            bg_view_horizontal_offset_full_single_screen: Some(21.5),
+            bg_view_vertical_offset_full_single_screen: Some(22.5),
+            bg_window_top_x_offset_full_single_screen: Some(23.5),
+            bg_window_top_y_offset_full_single_screen: Some(24.5),
+            bg_window_top_z_offset_full_single_screen: Some(25.5),
+            bg_window_bottom_x_offset_full_single_screen: Some(26.5),
+            bg_window_bottom_y_offset_full_single_screen: Some(27.5),
+            bg_window_bottom_z_offset_full_single_screen: Some(28.5),
+            materials: Some(vec![Material::default(), Material::default()]),
+            protection_data: Some(vec![1, 2, 3, 4, 5, 6, 7, 8]),
+            ..sample_gamedata()
+        }
+    }
+
+    /// Every `Option` field of `gamedata` is `Some`, checked through the
+    /// json model so a new optional field cannot slip past the round trip
+    /// tests unnoticed.
+    fn assert_no_optional_record_absent(gamedata: &GameData) {
+        let json = serde_json::to_value(GameDataJson::from_game_data(gamedata)).unwrap();
+        let absent: Vec<&String> = json
+            .as_object()
+            .unwrap()
+            .iter()
+            .filter(|(_, value)| value.is_null())
+            .map(|(key, _)| key)
+            .collect();
+        assert!(
+            absent.is_empty(),
+            "optional records left absent: {absent:?}"
+        );
+    }
+
+    #[test]
+    fn every_optional_record_round_trips_in_the_10_8_layout() {
+        let gamedata = gamedata_with_every_optional_record();
+        assert_no_optional_record_absent(&gamedata);
+        let version = Version::new(1081);
+        let bytes = write_all_gamedata_records(&gamedata, &version);
+        let read = read_all_gamedata_records(&bytes, &version).unwrap();
+        assert_eq!(gamedata, read);
+    }
+
+    #[test]
+    fn every_optional_record_round_trips_in_the_10_8_0_beta_layout() {
+        // beta 1 to 4 stored EFSS between the desktop and fullscreen view
+        // records; the reader detects that from the position and the
+        // writer reproduces it
+        let gamedata = GameData {
+            is_10_8_0_beta1_to_beta4: true,
+            ..gamedata_with_every_optional_record()
+        };
+        let version = Version::new(1080);
+        let bytes = write_all_gamedata_records(&gamedata, &version);
+        let read = read_all_gamedata_records(&bytes, &version).unwrap();
+        assert_eq!(gamedata, read);
+    }
+
+    #[test]
+    fn every_optional_record_round_trips_in_the_10_7_layout() {
+        // a pre-10.8 version only moves EFSS; every record a 10.8 table
+        // carries is still written and read back at its 10.7 position
+        let gamedata = gamedata_with_every_optional_record();
+        let version = Version::new(1074);
+        let bytes = write_all_gamedata_records(&gamedata, &version);
+        let read = read_all_gamedata_records(&bytes, &version).unwrap();
+        assert_eq!(gamedata, read);
+    }
+
+    #[test]
+    fn every_optional_record_survives_the_json() {
+        let gamedata = gamedata_with_every_optional_record();
+        let json = serde_json::to_value(GameDataJson::from_game_data(&gamedata)).unwrap();
+        let back: GameDataJson = serde_json::from_value(json).unwrap();
+        // the script, the materials, the render probes and the item counts
+        // live in other files of the expanded format
+        let expected = GameData {
+            code: StringWithEncoding::empty(),
+            materials_size: 0,
+            materials_old: vec![],
+            materials_physics_old: None,
+            materials: None,
+            render_probes: None,
+            gameitems_size: 0,
+            sounds_size: 0,
+            images_size: 0,
+            fonts_size: 0,
+            collections_size: 0,
+            ..gamedata
+        };
+        assert_eq!(expected, back.to_game_data());
+    }
+
+    #[test]
+    fn absent_optional_records_stay_absent_through_the_json() {
+        // a table without the records must not get them invented on the
+        // way through the json
+        let gamedata = GameData::default();
+        let json = serde_json::to_value(GameDataJson::from_game_data(&gamedata)).unwrap();
+        let back: GameDataJson = serde_json::from_value(json).unwrap();
+        let expected = GameData {
+            code: StringWithEncoding::empty(),
+            ..GameData::default()
+        };
+        assert_eq!(expected, back.to_game_data());
     }
 }
 
