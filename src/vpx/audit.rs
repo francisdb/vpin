@@ -67,15 +67,16 @@ pub enum Finding {
     /// Several images, sounds, game items, collections or materials share
     /// a name, compared case insensitively like vpinball's lookups,
     /// reported once per name with how many carry it. Only the first image
-    /// or sound is ever found: vpinball drops an exact duplicate when it
-    /// loads the table and its lookups stop at the first match for one
-    /// that differs in case only. A duplicate part is renamed at load,
-    /// which breaks the script's reference to it. vpinball keeps only
-    /// the last material of a name since September 2026 and drops the
-    /// others at load, so a resave loses them. Older builds keep all of
-    /// them, but the editor resolves a reference by its exact name while
-    /// the player looks it up case insensitively and takes the last one
-    /// loaded, so the two render it differently
+    /// or sound is ever found: vpinball drops the others at load since
+    /// September 2026, whatever their case, so a resave loses them. Older
+    /// builds drop an exact duplicate only and their lookups stop at the
+    /// first match for one that differs in case only. A duplicate part is
+    /// renamed at load, which breaks the script's reference to it.
+    /// vpinball keeps only the last material of a name since September
+    /// 2026 and drops the others at load, so a resave loses them. Older
+    /// builds keep all of them, but the editor resolves a reference by its
+    /// exact name while the player looks it up case insensitively and
+    /// takes the last one loaded, so the two render it differently
     DuplicateName {
         kind: NameKind,
         name: String,
@@ -390,7 +391,7 @@ impl fmt::Display for Finding {
             }
             Finding::DuplicateName { kind, name, count } => {
                 let consequence = match kind {
-                    NameKind::Image | NameKind::Sound => "vpinball only ever finds the first",
+                    NameKind::Image | NameKind::Sound => "vpinball keeps only the first one",
                     NameKind::GameItem => {
                         "vpinball renames all but the first, which breaks the script's reference"
                     }
@@ -2600,7 +2601,7 @@ mod tests {
         );
         assert_eq!(
             findings[0].to_string(),
-            "3 images share the name \"ding\", vpinball only ever finds the first"
+            "3 images share the name \"ding\", vpinball keeps only the first one"
         );
     }
 
