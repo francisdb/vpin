@@ -892,3 +892,486 @@ fn read_gltf_as_frame(
     }
     Ok(frames)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::filesystem::MemoryFileSystem;
+    use crate::vpx::VPX;
+    use crate::vpx::expanded::{ExpandOptions, read_fs, write_fs};
+    use crate::vpx::gameitem::dragpoint::DragPoint;
+    use crate::vpx::gameitem::primitive::Primitive;
+    use crate::vpx::mesh::test_utils::create_minimal_mesh_data;
+    use pretty_assertions::assert_eq;
+
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    const ROOT: &str = "table";
+
+    fn drag_point(x: f32, y: f32) -> DragPoint {
+        DragPoint {
+            x,
+            y,
+            ..Default::default()
+        }
+    }
+
+    fn square() -> Vec<DragPoint> {
+        vec![
+            drag_point(100.0, 100.0),
+            drag_point(100.0, 400.0),
+            drag_point(400.0, 400.0),
+            drag_point(400.0, 100.0),
+        ]
+    }
+
+    /// One item of every type that has a derived mesh writer, set up so
+    /// every part of the item gets a mesh
+    fn items_with_derived_meshes() -> Vec<GameItemEnum> {
+        vec![
+            GameItemEnum::Wall(Wall {
+                name: "Wall1".to_string(),
+                drag_points: square(),
+                ..Default::default()
+            }),
+            GameItemEnum::Ramp(Ramp {
+                name: "Ramp1".to_string(),
+                drag_points: square(),
+                ..Default::default()
+            }),
+            GameItemEnum::Rubber(Rubber {
+                name: "Rubber1".to_string(),
+                drag_points: square(),
+                ..Default::default()
+            }),
+            GameItemEnum::Flasher(Flasher {
+                name: "Flasher1".to_string(),
+                drag_points: square(),
+                ..Default::default()
+            }),
+            GameItemEnum::Flipper(Flipper {
+                name: "Flipper1".to_string(),
+                ..Default::default()
+            }),
+            GameItemEnum::Spinner(Spinner {
+                name: "Spinner1".to_string(),
+                ..Default::default()
+            }),
+            GameItemEnum::Bumper(Bumper {
+                name: "Bumper1".to_string(),
+                ..Default::default()
+            }),
+            GameItemEnum::HitTarget(HitTarget {
+                name: "HitTarget1".to_string(),
+                ..Default::default()
+            }),
+            GameItemEnum::Gate(Gate {
+                name: "Gate1".to_string(),
+                ..Default::default()
+            }),
+            GameItemEnum::Plunger(Plunger {
+                name: "Plunger1".to_string(),
+                ..Default::default()
+            }),
+            GameItemEnum::Trigger(Trigger {
+                name: "Trigger1".to_string(),
+                ..Default::default()
+            }),
+            GameItemEnum::Light(Light {
+                name: "Light1".to_string(),
+                show_bulb_mesh: true,
+                ..Default::default()
+            }),
+        ]
+    }
+
+    /// The mesh files [`items_with_derived_meshes`] produces, relative to
+    /// the table root
+    fn expected_derived_mesh_files(mesh_format: PrimitiveMeshFormat) -> Vec<String> {
+        let ext = mesh_file_extension(mesh_format);
+        let single = |stem: &str| format!("{ROOT}/{GAMEITEMS_DIR}/{stem}-generated.{ext}");
+        let part = |stem: &str, part: &str| {
+            format!("{ROOT}/{GAMEITEMS_DIR}/{stem}-{part}.json-generated.{ext}")
+        };
+        let plain = |stem: &str, part: &str| format!("{ROOT}/{GAMEITEMS_DIR}/{stem}-{part}.{ext}");
+        vec![
+            single("Wall.Wall1"),
+            single("Ramp.Ramp1"),
+            single("Rubber.Rubber1"),
+            single("Flasher.Flasher1"),
+            single("Flipper.Flipper1"),
+            part("Spinner.Spinner1", "bracket"),
+            part("Spinner.Spinner1", "plate"),
+            part("Bumper.Bumper1", "base"),
+            part("Bumper.Bumper1", "socket"),
+            part("Bumper.Bumper1", "ring"),
+            part("Bumper.Bumper1", "cap"),
+            single("HitTarget.HitTarget1"),
+            part("Gate.Gate1", "bracket"),
+            part("Gate.Gate1", "wire"),
+            part("Plunger.Plunger1", "rod"),
+            part("Plunger.Plunger1", "spring"),
+            part("Plunger.Plunger1", "ring"),
+            part("Plunger.Plunger1", "tip"),
+            single("Trigger.Trigger1"),
+            plain("Light.Light1", "bulb"),
+            plain("Light.Light1", "socket"),
+        ]
+    }
+
+    fn write_derived_meshes(
+        generate: bool,
+        mesh_format: PrimitiveMeshFormat,
+    ) -> Result<MemoryFileSystem, WriteError> {
+        let vpx = VPX {
+            gameitems: items_with_derived_meshes(),
+            ..Default::default()
+        };
+        let fs = MemoryFileSystem::new();
+        let options = ExpandOptions::new()
+            .mesh_format(mesh_format)
+            .generate_derived_meshes(generate);
+        write_fs(&vpx, &ROOT, &options, &fs)?;
+        Ok(fs)
+    }
+
+    /// The file as text, failing with the path when it is missing
+    fn text_file(fs: &MemoryFileSystem, path: &str) -> String {
+        let data = fs
+            .get_file(path)
+            .unwrap_or_else(|| panic!("{path} should have been written"));
+        String::from_utf8(data).unwrap_or_else(|e| panic!("{path} is not text: {e}"))
+    }
+
+    #[test]
+    fn derived_meshes_are_written_for_every_item_type() -> TestResult {
+        let fs = write_derived_meshes(true, PrimitiveMeshFormat::Obj)?;
+        for path in expected_derived_mesh_files(PrimitiveMeshFormat::Obj) {
+            let obj = text_file(&fs, &path);
+            assert!(obj.starts_with("# "), "{path} should start with a comment");
+            assert!(obj.contains("\no "), "{path} should name its object");
+            assert!(obj.contains("\nv "), "{path} should hold vertices");
+            assert!(obj.contains("\nf "), "{path} should hold faces");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn derived_meshes_are_not_written_when_disabled() -> TestResult {
+        let fs = write_derived_meshes(false, PrimitiveMeshFormat::Obj)?;
+        for path in expected_derived_mesh_files(PrimitiveMeshFormat::Obj) {
+            assert_eq!(fs.get_file(&path), None, "{path} should not be written");
+        }
+        let meshes: Vec<String> = fs
+            .list_files()
+            .into_iter()
+            .filter(|file| file.ends_with(".obj"))
+            .collect();
+        assert_eq!(meshes, Vec::<String>::new());
+        Ok(())
+    }
+
+    #[test]
+    fn derived_meshes_are_written_as_glb() -> TestResult {
+        let fs = write_derived_meshes(true, PrimitiveMeshFormat::Glb)?;
+        for path in expected_derived_mesh_files(PrimitiveMeshFormat::Glb) {
+            let glb = fs
+                .get_file(&path)
+                .unwrap_or_else(|| panic!("{path} should have been written"));
+            assert_eq!(&glb[..4], b"glTF", "{path} should start with the GLB magic");
+        }
+        Ok(())
+    }
+
+    /// Three animated vertices, moved by `offset` so the frames differ
+    fn frame(offset: f32) -> Vec<VertData> {
+        (0..3)
+            .map(|i| VertData {
+                x: i as f32 * 10.0 + offset,
+                y: offset * 2.0,
+                z: 1.5 + offset,
+                nx: 0.0,
+                ny: 0.6,
+                nz: 0.8,
+            })
+            .collect()
+    }
+
+    fn compress_frame(frame: &[VertData]) -> io::Result<Vec<u8>> {
+        let mut buff = BytesMut::with_capacity(frame.len() * VertData::SERIALIZED_SIZE);
+        for vertex in frame {
+            write_animation_vertex_data(&mut buff, vertex);
+        }
+        primitive::compress_mesh_data(&buff)
+    }
+
+    /// A primitive with the minimal triangle mesh and the given animation frames
+    fn animated_primitive(frames: &[Vec<VertData>]) -> io::Result<Primitive> {
+        let (vertices, indices, num_vertices, num_indices) = create_minimal_mesh_data();
+        let compressed_frames = frames
+            .iter()
+            .map(|frame| compress_frame(frame))
+            .collect::<io::Result<Vec<_>>>()?;
+        let lengths = compressed_frames.iter().map(|f| f.len() as u32).collect();
+        Ok(Primitive {
+            name: "Prim1".to_string(),
+            use_3d_mesh: true,
+            num_vertices: Some(num_vertices),
+            num_indices: Some(num_indices),
+            compressed_vertices_len: Some(vertices.len() as u32),
+            compressed_vertices_data: Some(vertices),
+            compressed_indices_len: Some(indices.len() as u32),
+            compressed_indices_data: Some(indices),
+            compressed_animation_vertices_len: Some(lengths),
+            compressed_animation_vertices_data: Some(compressed_frames),
+            ..Default::default()
+        })
+    }
+
+    /// Writes a table holding only `primitive` and returns the file system
+    fn write_primitive(
+        primitive: Primitive,
+        mesh_format: PrimitiveMeshFormat,
+    ) -> Result<MemoryFileSystem, WriteError> {
+        let vpx = VPX {
+            gameitems: vec![GameItemEnum::Primitive(Box::new(primitive))],
+            ..Default::default()
+        };
+        let fs = MemoryFileSystem::new();
+        let options = ExpandOptions::new().mesh_format(mesh_format);
+        write_fs(&vpx, &ROOT, &options, &fs)?;
+        Ok(fs)
+    }
+
+    fn read_primitive(fs: &MemoryFileSystem) -> io::Result<Primitive> {
+        let vpx = read_fs(&ROOT, fs)?;
+        match vpx.gameitems.into_iter().next() {
+            Some(GameItemEnum::Primitive(primitive)) => Ok(*primitive),
+            other => panic!("expected a primitive, got {other:?}"),
+        }
+    }
+
+    /// The decoded animation frames, one row of position and normal per vertex
+    fn frame_values(primitive: &Primitive) -> Vec<Vec<[f32; 6]>> {
+        let data = primitive
+            .compressed_animation_vertices_data
+            .as_ref()
+            .expect("animation frames");
+        let lengths = primitive
+            .compressed_animation_vertices_len
+            .as_ref()
+            .expect("animation frame lengths");
+        data.iter()
+            .zip(lengths)
+            .map(|(frame, length)| {
+                read_vpx_animation_frame(frame, length)
+                    .expect("a readable frame")
+                    .iter()
+                    .map(|v| [v.x, v.y, v.z, v.nx, v.ny, v.nz])
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// The decoded base mesh
+    fn mesh_values(primitive: &Primitive) -> (Vec<Vertex3dNoTex2>, Vec<VpxFace>) {
+        let mesh = primitive
+            .read_mesh()
+            .expect("a readable mesh")
+            .expect("a mesh");
+        let vertices = mesh.vertices.into_iter().map(|v| v.vertex).collect();
+        (vertices, mesh.indices)
+    }
+
+    fn animation_frames_round_trip(mesh_format: PrimitiveMeshFormat) -> TestResult {
+        // Primitive is not Clone, the helper is deterministic so build it twice
+        let frames = [frame(0.0), frame(1.0), frame(2.0)];
+        let original = animated_primitive(&frames)?;
+        let fs = write_primitive(animated_primitive(&frames)?, mesh_format)?;
+
+        let frame_path = |i: usize| {
+            format!(
+                "{ROOT}/{GAMEITEMS_DIR}/Primitive.Prim1_anim_{i}.{}",
+                mesh_file_extension(mesh_format)
+            )
+        };
+        for i in 0..3 {
+            assert!(
+                fs.get_file(&frame_path(i)).is_some(),
+                "{} should be written",
+                frame_path(i)
+            );
+        }
+        assert_eq!(fs.get_file(&frame_path(3)), None);
+
+        let back = read_primitive(&fs)?;
+        assert_eq!(mesh_values(&back), mesh_values(&original));
+        assert_eq!(frame_values(&back), frame_values(&original));
+        assert_eq!(
+            back.compressed_animation_vertices_len,
+            original.compressed_animation_vertices_len
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn animation_frames_round_trip_through_obj() -> TestResult {
+        animation_frames_round_trip(PrimitiveMeshFormat::Obj)
+    }
+
+    #[test]
+    fn animation_frames_round_trip_through_glb() -> TestResult {
+        animation_frames_round_trip(PrimitiveMeshFormat::Glb)
+    }
+
+    #[test]
+    fn animation_frames_round_trip_through_gltf() -> TestResult {
+        animation_frames_round_trip(PrimitiveMeshFormat::Gltf)
+    }
+
+    #[test]
+    fn animation_frames_without_lengths_are_rejected() -> TestResult {
+        let mut primitive = animated_primitive(&[frame(0.0)])?;
+        primitive.compressed_animation_vertices_len = None;
+        let Err(WriteError::Io(error)) = write_primitive(primitive, PrimitiveMeshFormat::Obj)
+        else {
+            panic!("frames without lengths should be an io error");
+        };
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        assert!(
+            error.to_string().contains("Primitive.Prim1"),
+            "{error} should name the primitive file"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_missing_mesh_file_is_reported_with_its_path() -> TestResult {
+        let fs = write_primitive(animated_primitive(&[])?, PrimitiveMeshFormat::Obj)?;
+        let mesh_path = format!("{ROOT}/{GAMEITEMS_DIR}/Primitive.Prim1.obj");
+        fs.delete_file(&mesh_path);
+
+        let error = read_primitive(&fs).expect_err("a missing mesh should be an error");
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        assert!(
+            error.to_string().contains("Primitive.Prim1.obj"),
+            "{error} should name the missing file"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_malformed_mesh_file_is_reported_with_its_path() -> TestResult {
+        let fs = write_primitive(animated_primitive(&[])?, PrimitiveMeshFormat::Obj)?;
+        let mesh_path = format!("{ROOT}/{GAMEITEMS_DIR}/Primitive.Prim1.obj");
+        // a face that points past the only vertex
+        fs.write_file(Path::new(&mesh_path), b"o Bad\nv 0 0 0\nf 1 2 9\n")?;
+
+        let error = read_primitive(&fs).expect_err("a malformed mesh should be an error");
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert!(
+            error.to_string().contains("Primitive.Prim1.obj"),
+            "{error} should name the malformed file"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_malformed_animation_frame_is_reported_with_its_path() -> TestResult {
+        let fs = write_primitive(
+            animated_primitive(&[frame(0.0), frame(1.0)])?,
+            PrimitiveMeshFormat::Obj,
+        )?;
+        let frame_path = format!("{ROOT}/{GAMEITEMS_DIR}/Primitive.Prim1_anim_1.obj");
+        fs.write_file(Path::new(&frame_path), b"o Bad\nv 0 0 0\nf 1 2 9\n")?;
+
+        let error = read_primitive(&fs).expect_err("a malformed frame should be an error");
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert!(
+            error.to_string().contains("Primitive.Prim1_anim_1.obj"),
+            "{error} should name the malformed frame file"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn filtered_out_derived_meshes_and_frames_are_skipped() -> TestResult {
+        let mut gameitems = items_with_derived_meshes();
+        gameitems.push(GameItemEnum::Primitive(Box::new(animated_primitive(&[
+            frame(0.0),
+        ])?)));
+        let vpx = VPX {
+            gameitems,
+            ..Default::default()
+        };
+        let fs = MemoryFileSystem::new();
+        let options = ExpandOptions::new()
+            .generate_derived_meshes(true)
+            .filter(|path: &Path| path.extension().is_none_or(|ext| ext != "obj"));
+        write_fs(&vpx, &ROOT, &options, &fs)?;
+
+        let meshes: Vec<String> = fs
+            .list_files()
+            .into_iter()
+            .filter(|file| file.ends_with(".obj"))
+            .collect();
+        assert_eq!(meshes, Vec::<String>::new());
+        Ok(())
+    }
+
+    #[test]
+    fn items_without_geometry_write_no_derived_mesh() -> TestResult {
+        let gameitems = vec![
+            GameItemEnum::Wall(Wall::default()),
+            GameItemEnum::Ramp(Ramp::default()),
+            GameItemEnum::Rubber(Rubber {
+                drag_points: vec![],
+                ..Default::default()
+            }),
+            GameItemEnum::Flasher(Flasher::default()),
+            GameItemEnum::Flipper(Flipper {
+                is_visible: false,
+                ..Default::default()
+            }),
+            GameItemEnum::Bumper(Bumper {
+                is_cap_visible: false,
+                is_base_visible: false,
+                is_ring_visible: Some(false),
+                is_socket_visible: Some(false),
+                ..Default::default()
+            }),
+            GameItemEnum::HitTarget(HitTarget {
+                is_visible: false,
+                ..Default::default()
+            }),
+            GameItemEnum::Gate(Gate {
+                is_visible: false,
+                ..Default::default()
+            }),
+            GameItemEnum::Plunger(Plunger {
+                is_visible: false,
+                ..Default::default()
+            }),
+            GameItemEnum::Trigger(Trigger {
+                is_visible: false,
+                ..Default::default()
+            }),
+            GameItemEnum::Light(Light::default()),
+        ];
+        let vpx = VPX {
+            gameitems,
+            ..Default::default()
+        };
+        let fs = MemoryFileSystem::new();
+        let options = ExpandOptions::new().generate_derived_meshes(true);
+        write_fs(&vpx, &ROOT, &options, &fs)?;
+
+        let meshes: Vec<String> = fs
+            .list_files()
+            .into_iter()
+            .filter(|file| file.ends_with(".obj"))
+            .collect();
+        assert_eq!(meshes, Vec::<String>::new());
+        Ok(())
+    }
+}
