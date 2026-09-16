@@ -793,8 +793,7 @@ pub struct GameData {
     /// Whether EM reels (`DispReel` parts) are rendered on the backdrop.
     ///
     /// Exposed as `EnableEMReels` in VBScript (vpinball's
-    /// `GetEMReelsEnabled()`). vpinball defaults to `true`; this crate's
-    /// [`Default`] uses `false`.
+    /// `GetEMReelsEnabled()`). Default: `true`.
     ///
     /// BIFF tag `REEL`
     pub render_em_reels: bool,
@@ -803,8 +802,7 @@ pub struct GameData {
     ///
     /// Exposed as `EnableDecals` in VBScript (vpinball's
     /// `GetDecalsEnabled()`). When `false` the backglass image is not drawn
-    /// either. vpinball defaults to `true`; this crate's [`Default`] uses
-    /// `false`.
+    /// either. Default: `true`.
     ///
     /// BIFF tag `DECL`
     pub render_decals: bool,
@@ -1049,8 +1047,8 @@ pub struct GameData {
     /// Whether the 2D editor draws the playfield image (or the backglass
     /// image in the backglass view) behind the parts.
     ///
-    /// Editor-only (`m_winEditorBackdrop`), no effect on gameplay. vpinball
-    /// defaults to `true`; this crate's [`Default`] uses `false`.
+    /// Editor-only (`m_winEditorBackdrop`), no effect on gameplay. Default:
+    /// `true`.
     ///
     /// BIFF tag `FBCK`
     pub display_backdrop: bool,
@@ -1061,8 +1059,7 @@ pub struct GameData {
     /// defines the sloped glass plane the ball collides with, and the
     /// default window position of the window view mode. Before 10.8 this
     /// was the single glass height of the whole table (the glass was
-    /// horizontal). Exposed as `GlassHeight` in VBScript. vpinball defaults
-    /// to `210.0`; this crate's [`Default`] uses `400.0`.
+    /// horizontal). Exposed as `GlassHeight` in VBScript. Default: `210.0`.
     ///
     /// BIFF tag `GLAS`
     pub glass_top_height: f32,
@@ -1141,8 +1138,7 @@ pub struct GameData {
     ///
     /// vpinball places the two lights at 1/3 and 2/3 of the table length,
     /// centred horizontally, at this Z. Exposed as `LightHeight` in
-    /// VBScript. vpinball's load default is `1000.0`; this crate's
-    /// [`Default`] uses `5000.0`.
+    /// VBScript. Default: `1000.0`.
     ///
     /// BIFF tag `LZHI`
     pub light_height: f32,
@@ -1150,8 +1146,7 @@ pub struct GameData {
     ///
     /// Passed to the shaders as the light range part of
     /// `cAmbient_LightRange`. Exposed as `LightRange` in VBScript.
-    /// vpinball's load default is `3000.0`; this crate's [`Default`] uses
-    /// `4000000.0`.
+    /// Default: `3000.0`.
     ///
     /// BIFF tag `LZRA`
     pub light_range: f32,
@@ -1159,8 +1154,7 @@ pub struct GameData {
     ///
     /// Multiplies [`light0_emission`](Self::light0_emission) (together with
     /// the global emission scale) before it is sent to the shaders. Exposed
-    /// as `LightEmissionScale` in VBScript. vpinball's load default is
-    /// `1000000.0`; this crate's [`Default`] uses `4000000.0`.
+    /// as `LightEmissionScale` in VBScript. Default: `1000000.0`.
     ///
     /// BIFF tag `LIES`
     pub light_emission_scale: f32,
@@ -1169,8 +1163,7 @@ pub struct GameData {
     /// Multiplies the contribution of [`env_image`](Self::env_image)
     /// (together with the global emission scale); the editor shows it as a
     /// percentage. Exposed as `EnvironmentEmissionScale` in VBScript.
-    /// vpinball's load default is `10.0`; this crate's [`Default`] uses
-    /// `2.0`.
+    /// Default: `10.0`.
     ///
     /// BIFF tag `ENES`
     pub env_emission_scale: f32,
@@ -1181,8 +1174,7 @@ pub struct GameData {
     /// [`image_backdrop_night_day`](Self::image_backdrop_night_day) is
     /// set). The player can replace it with a user light level or a time
     /// based day/night cycle. Exposed as `NightDay` in VBScript, as a
-    /// percentage. vpinball's default is `1.0`; this crate's [`Default`]
-    /// uses `0.52`.
+    /// percentage. Default: `1.0` (full day).
     ///
     /// BIFF tag `GLES`
     pub global_emission_scale: f32,
@@ -2209,8 +2201,8 @@ impl Default for GameData {
             plunger_normalize: None, // 100
             plunger_filter: None,    // false
             physics_max_loops: 0,
-            render_em_reels: false,
-            render_decals: false,
+            render_em_reels: true,
+            render_decals: true,
             offset_x: 476.0,
             offset_y: 1081.0,
             zoom: 0.5,
@@ -2232,20 +2224,20 @@ impl Default for GameData {
             env_image: None,
             notes: None,
             screen_shot: String::new(),
-            display_backdrop: false,
-            glass_top_height: 400.0,   // new default 210 for both
-            glass_bottom_height: None, // new default 210 for both
+            display_backdrop: true,
+            glass_top_height: 210.0,
+            glass_bottom_height: None, // vpinball uses glass_top_height for both ends
             table_height: None,        //0.0,
             playfield_material: "".to_string(),
             backdrop_color: Color::from_rgb(0x626E8E), // Waikawa/Bluish Gray
             global_difficulty: 0.2,
             light_ambient: Color::rgb((0.1 * 255.) as u8, (0.1 * 255.) as u8, (0.1 * 255.) as u8),
             light0_emission: Color::rgb((0.4 * 255.) as u8, (0.4 * 255.) as u8, (0.4 * 255.) as u8),
-            light_height: 5000.0,
-            light_range: 4000000.0,
-            light_emission_scale: 4000000.0,
-            env_emission_scale: 2.0,
-            global_emission_scale: 0.52,
+            light_height: 1000.0,
+            light_range: 3000.0,
+            light_emission_scale: 1000000.0,
+            env_emission_scale: 10.0,
+            global_emission_scale: 1.0,
             ao_scale: 1.75,
             ssr_scale: None, //1.0,
             ground_to_lockbar_height: None,
