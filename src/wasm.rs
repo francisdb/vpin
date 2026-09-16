@@ -25,6 +25,9 @@ fn emit_progress(message: &str) {
     });
 }
 
+/// Runs once when the wasm module is instantiated; installs the panic
+/// hook that forwards Rust panics to the browser console. JavaScript
+/// callers never call this themselves.
 #[wasm_bindgen(start)]
 pub fn init() {
     #[cfg(feature = "wasm")]
@@ -74,6 +77,23 @@ extern "C" {
     pub type AuditFindings;
 }
 
+/// Unpacks a `.vpx` file into the expanded directory format as a file map.
+///
+/// `data` holds the bytes of the `.vpx` file, as a `Uint8Array`. The
+/// result is a `VpxFileMap`: a plain object from absolute path under
+/// `/vpx` to a `Uint8Array`, for example `/vpx/images/ball.png` or
+/// `/vpx/gameitems/Wall1.json`. Primitive meshes come out as `.obj`
+/// files; the derived meshes vpinball generates for other items are not
+/// included. The map is what [`assemble`], [`audit`], [`export_glb`] and
+/// [`export_obj`] take.
+///
+/// `callback`, when given, receives a status message at every stage of
+/// the extraction.
+///
+/// # Errors
+///
+/// Throws a `JsError` whose message names the problem when the bytes are
+/// not a readable `.vpx` file or the expansion fails.
 #[wasm_bindgen]
 pub fn extract(data: &[u8], callback: Option<ProgressCallback>) -> Result<VpxFileMap, JsError> {
     set_progress_callback(callback.map(Into::into));
@@ -220,6 +240,23 @@ pub fn audit(
     Ok(value.unchecked_into())
 }
 
+/// Packs an expanded table back into a `.vpx` file.
+///
+/// `files` is the `VpxFileMap` produced by [`extract`], with whatever
+/// edits the caller made to its entries; the table is read from the
+/// entries under `/vpx`. The result is the bytes of the `.vpx` file, as
+/// a `Uint8Array`.
+/// Assembling an unmodified map writes a file that holds the same table
+/// as the one that was extracted.
+///
+/// `callback`, when given, receives a status message at every stage of
+/// the assembly.
+///
+/// # Errors
+///
+/// Throws a `JsError` whose message names the problem when a map value is
+/// not a byte array, a required file is missing or malformed, or the
+/// table cannot be written.
 #[wasm_bindgen]
 pub fn assemble(files: VpxFileMap, callback: Option<ProgressCallback>) -> Result<Vec<u8>, JsError> {
     set_progress_callback(callback.map(Into::into));
@@ -655,26 +692,39 @@ pub struct PrimitiveMesh {
 
 #[wasm_bindgen]
 impl PrimitiveMesh {
+    /// The mesh name: the `o` name of the OBJ it was read from, or
+    /// `primitive` for a generated mesh.
     #[wasm_bindgen(getter)]
     pub fn name(&self) -> String {
         self.name.clone()
     }
 
+    /// Vertex positions as a flat `x, y, z` array, three values per
+    /// corner. Each access copies the data out of wasm memory.
     #[wasm_bindgen(getter)]
     pub fn positions(&self) -> js_sys::Float32Array {
         js_sys::Float32Array::from(self.positions.as_slice())
     }
 
+    /// Texture coordinates as a flat `u, v` array, two values per corner,
+    /// aligned with `positions`. Exposed to JavaScript as `texCoords`.
+    /// Each access copies the data out of wasm memory.
     #[wasm_bindgen(getter, js_name = texCoords)]
     pub fn tex_coords(&self) -> js_sys::Float32Array {
         js_sys::Float32Array::from(self.tex_coords.as_slice())
     }
 
+    /// Vertex normals as a flat `x, y, z` array, three values per corner,
+    /// aligned with `positions`. Each access copies the data out of wasm
+    /// memory.
     #[wasm_bindgen(getter)]
     pub fn normals(&self) -> js_sys::Float32Array {
         js_sys::Float32Array::from(self.normals.as_slice())
     }
 
+    /// Triangle corner indices, three per triangle, as 0-based offsets
+    /// into the aligned vertex arrays. Each access copies the data out of
+    /// wasm memory.
     #[wasm_bindgen(getter)]
     pub fn indices(&self) -> js_sys::Uint32Array {
         js_sys::Uint32Array::from(self.indices.as_slice())

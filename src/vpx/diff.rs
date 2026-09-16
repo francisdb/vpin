@@ -43,58 +43,97 @@ use std::ops::Range;
 #[non_exhaustive]
 pub enum Difference {
     /// A stream that only exists in the modified file
-    StreamAdded { path: String },
+    StreamAdded {
+        /// The stream path inside the compound file
+        path: String,
+    },
     /// A stream that only exists in the original file
-    StreamRemoved { path: String },
+    StreamRemoved {
+        /// The stream path inside the compound file
+        path: String,
+    },
     /// A stream that is compared byte for byte (sounds, table info,
     /// version) has different content
     StreamChanged {
+        /// The stream path inside the compound file
         path: String,
+        /// The stream in user terms, when the stream has a name to offer
         label: Option<String>,
+        /// The stream length in the original file, in bytes
         len_original: usize,
+        /// The stream length in the modified file, in bytes
         len_modified: usize,
     },
     /// The compound file metadata (CLSID) of a stream differs
     StreamClsidChanged {
+        /// The stream path inside the compound file
         path: String,
+        /// The CLSID in the original file, as a GUID string
         original: String,
+        /// The CLSID in the modified file, as a GUID string
         modified: String,
     },
     /// A game item stream holds a different item type
     GameItemTypeChanged {
+        /// The stream path inside the compound file
         path: String,
+        /// The item type name in the original file, for example `Wall`
         original: String,
+        /// The item type name in the modified file, for example `Wall`
         modified: String,
     },
     /// A record with the same tag on both sides has different content
     RecordChanged {
+        /// The stream path inside the compound file
         path: String,
+        /// The stream in user terms, when the stream has a name to offer
         label: Option<String>,
+        /// The 0-based position of the record in the original stream
         index: usize,
+        /// The four character BIFF tag of the record, for example `NAME`
         tag: String,
+        /// The record payload length in the original file, in bytes;
+        /// the decompressed length when the record was compared
+        /// decompressed
         len_original: usize,
+        /// The record payload length in the modified file, in bytes;
+        /// the decompressed length when the record was compared
+        /// decompressed
         len_modified: usize,
     },
     /// A record that appears at a different position in the modified file
     RecordMoved {
+        /// The stream path inside the compound file
         path: String,
+        /// The stream in user terms, when the stream has a name to offer
         label: Option<String>,
+        /// The four character BIFF tag of the record, for example `NAME`
         tag: String,
+        /// The 0-based position of the record in the original stream
         index_original: usize,
+        /// The 0-based position of the record in the modified stream
         index_modified: usize,
     },
     /// The modified file has more records in this stream
     RecordAdded {
+        /// The stream path inside the compound file
         path: String,
+        /// The stream in user terms, when the stream has a name to offer
         label: Option<String>,
+        /// The 0-based position of the record in the modified stream
         index: usize,
+        /// The four character BIFF tag of the record, for example `NAME`
         tag: String,
     },
     /// The original file has more records in this stream
     RecordRemoved {
+        /// The stream path inside the compound file
         path: String,
+        /// The stream in user terms, when the stream has a name to offer
         label: Option<String>,
+        /// The 0-based position of the record in the original stream
         index: usize,
+        /// The four character BIFF tag of the record, for example `NAME`
         tag: String,
     },
 }
