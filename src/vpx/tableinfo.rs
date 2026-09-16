@@ -425,7 +425,7 @@ struct TableInfoJson {
 /// The custom tag names go into a `properties_order` array because a
 /// JSON object does not keep the order vpinball stores them in. The
 /// screenshot is not part of the JSON; it is written to its own file.
-pub fn info_to_json(
+pub(crate) fn info_to_json(
     table_info: &TableInfo,
     custom_info_tags: &CustomInfoTags,
 ) -> serde_json::Value {
@@ -455,7 +455,7 @@ pub fn info_to_json(
 /// # Errors
 ///
 /// Fails when the JSON does not have the shape [`info_to_json`] writes.
-pub fn json_to_info(
+pub(crate) fn json_to_info(
     json: serde_json::Value,
     screenshot: Option<Vec<u8>>,
 ) -> Result<(TableInfo, CustomInfoTags), serde_json::Error> {

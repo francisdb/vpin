@@ -126,7 +126,7 @@ struct CollectionJson {
 /// Converts the collections to the JSON of `collections.json` in an
 /// extracted table directory: an array with one object per
 /// [`Collection`], in table order.
-pub fn collections_json(collections: &[Collection]) -> serde_json::Value {
+pub(crate) fn collections_json(collections: &[Collection]) -> serde_json::Value {
     let collections_json: Vec<CollectionJson> = collections
         .iter()
         .map(|collection| CollectionJson {
@@ -147,7 +147,9 @@ pub fn collections_json(collections: &[Collection]) -> serde_json::Value {
 ///
 /// Fails when the JSON does not have the shape [`collections_json`]
 /// writes.
-pub fn json_to_collections(json: serde_json::Value) -> Result<Vec<Collection>, serde_json::Error> {
+pub(crate) fn json_to_collections(
+    json: serde_json::Value,
+) -> Result<Vec<Collection>, serde_json::Error> {
     let collections_json: Vec<CollectionJson> = serde_json::from_value(json)?;
     Ok(collections_json
         .into_iter()
