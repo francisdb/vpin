@@ -44,7 +44,6 @@ use super::super::gamedata::GameData;
 use super::super::gameitem::GameItemEnum;
 use super::super::gameitem::primitive::Primitive;
 use super::super::image::{ImageData, ImageDataJson};
-use super::super::jsonmodel;
 use super::super::lzw::from_lzw_blocks;
 use super::super::material::{Material, MaterialType, SaveMaterial, SavePhysicsMaterial};
 use super::super::math::dequantize_u8;
@@ -587,8 +586,10 @@ fn absent_to_zero(change: &FieldChange) -> bool {
 }
 
 fn diff_table_info(original: &VPX, modified: &VPX, changes: &mut Vec<Change>) {
-    let mut json_original = jsonmodel::info_to_json(&original.info, &original.custominfotags);
-    let mut json_modified = jsonmodel::info_to_json(&modified.info, &modified.custominfotags);
+    let mut json_original =
+        super::super::tableinfo::info_to_json(&original.info, &original.custominfotags);
+    let mut json_modified =
+        super::super::tableinfo::info_to_json(&modified.info, &modified.custominfotags);
     // the order of the custom properties is not something an author sees
     remove_keys(&mut json_original, &["properties_order"]);
     remove_keys(&mut json_modified, &["properties_order"]);
@@ -629,8 +630,8 @@ fn diff_table_settings(original: &VPX, modified: &VPX, changes: &mut Vec<Change>
             Some(modified.version.to_string()),
         ));
     }
-    let mut json_original = jsonmodel::game_data_to_json(&original.gamedata);
-    let mut json_modified = jsonmodel::game_data_to_json(&modified.gamedata);
+    let mut json_original = super::super::gamedata::game_data_to_json(&original.gamedata);
+    let mut json_modified = super::super::gamedata::game_data_to_json(&modified.gamedata);
     // a marker for files written by a few 10.8 beta builds, not a setting
     remove_keys(&mut json_original, &["is_10_8_0_beta1_to_beta4"]);
     remove_keys(&mut json_modified, &["is_10_8_0_beta1_to_beta4"]);

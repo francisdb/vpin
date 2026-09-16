@@ -64,8 +64,8 @@ pub mod gamedata;
 pub mod gameitem;
 /// Images embedded in a table, either as encoded files or as raw bitmaps.
 pub mod image;
-/// JSON conversions for table info, collections and game data, used by
-/// the exploded directory format.
+/// Deprecated re-exports of the JSON conversions, which now live next to
+/// the types they convert.
 pub mod jsonmodel;
 pub(crate) mod le;
 pub mod math;

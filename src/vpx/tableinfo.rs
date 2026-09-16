@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use std::io::{Read, Seek, Write};
 use std::path::{MAIN_SEPARATOR_STR, Path};
 
+use crate::vpx::custominfotags::CustomInfoTags;
+use crate::vpx::json::infallible_to_value;
 use crate::vpx::utf16::{decode_utf16le, encode_utf16le};
+use serde::{Deserialize, Serialize};
 
 // >    "/TableInfo/AuthorName",
 // >    "/TableInfo/Screenshot",
@@ -88,7 +91,7 @@ pub struct TableInfo {
     pub table_description: Option<String>,
     /// The custom info properties, keyed by name. The names and their
     /// order are stored separately in the `GameStg/CustomInfoTags` stream,
-    /// see [`CustomInfoTags`](crate::vpx::custominfotags::CustomInfoTags);
+    /// see [`CustomInfoTags`];
     /// this library also puts any unknown stream of the storage here.
     ///
     /// Streams `TableInfo/<name>`
@@ -395,6 +398,87 @@ fn write_stream_binary<F: Read + Write + Seek>(
     stream.write_all(bytes)
 }
 
+/// The shape of `info.json` in an extracted table directory. The
+/// screenshot is not part of it, it is written to its own file, and the
+/// custom tag names go into `properties_order` because a JSON object does
+/// not keep the order vpinball stores them in.
+#[derive(Serialize, Deserialize)]
+struct TableInfoJson {
+    table_name: Option<String>,
+    author_name: Option<String>,
+    table_blurb: Option<String>,
+    table_rules: Option<String>,
+    author_email: Option<String>,
+    release_date: Option<String>,
+    table_save_rev: Option<String>,
+    table_version: Option<String>,
+    author_website: Option<String>,
+    table_save_date: Option<String>,
+    table_description: Option<String>,
+    properties: HashMap<String, String>,
+    properties_order: Vec<String>,
+}
+
+/// Converts a [`TableInfo`] and its [`CustomInfoTags`] to the JSON of
+/// `info.json` in an extracted table directory.
+///
+/// The custom tag names go into a `properties_order` array because a
+/// JSON object does not keep the order vpinball stores them in. The
+/// screenshot is not part of the JSON; it is written to its own file.
+pub fn info_to_json(
+    table_info: &TableInfo,
+    custom_info_tags: &CustomInfoTags,
+) -> serde_json::Value {
+    let info_json = TableInfoJson {
+        table_name: table_info.table_name.clone(),
+        author_name: table_info.author_name.clone(),
+        table_blurb: table_info.table_blurb.clone(),
+        table_rules: table_info.table_rules.clone(),
+        author_email: table_info.author_email.clone(),
+        release_date: table_info.release_date.clone(),
+        table_save_rev: table_info.table_save_rev.clone(),
+        table_version: table_info.table_version.clone(),
+        author_website: table_info.author_website.clone(),
+        table_save_date: table_info.table_save_date.clone(),
+        table_description: table_info.table_description.clone(),
+        properties: table_info.properties.clone(),
+        properties_order: custom_info_tags.clone(),
+    };
+    infallible_to_value(info_json)
+}
+
+/// Converts the JSON of `info.json` in an extracted table directory back
+/// to a [`TableInfo`] and its [`CustomInfoTags`]; the inverse of
+/// [`info_to_json`]. The screenshot comes from its own file and is passed
+/// in as `screenshot`.
+///
+/// # Errors
+///
+/// Fails when the JSON does not have the shape [`info_to_json`] writes.
+pub fn json_to_info(
+    json: serde_json::Value,
+    screenshot: Option<Vec<u8>>,
+) -> Result<(TableInfo, CustomInfoTags), serde_json::Error> {
+    let info_json: TableInfoJson = serde_json::from_value(json)?;
+    let table_info = TableInfo {
+        table_name: info_json.table_name,
+        author_name: info_json.author_name,
+        screenshot,
+        table_blurb: info_json.table_blurb,
+        table_rules: info_json.table_rules,
+        author_email: info_json.author_email,
+        release_date: info_json.release_date,
+        table_save_rev: info_json.table_save_rev,
+        table_version: info_json.table_version,
+        author_website: info_json.author_website,
+        table_save_date: info_json.table_save_date,
+        table_description: info_json.table_description,
+        properties: info_json.properties,
+    };
+    let custom_info_tags = info_json.properties_order;
+    Ok((table_info, custom_info_tags))
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
@@ -435,4 +519,21 @@ mod tests {
     //     // Please note, that private functions can be tested too!
     //     assert_eq!(bad_add(1, 2), 3);
     // }
+
+    #[test]
+    fn info_round_trips_through_the_json() {
+        let table_info = TableInfo {
+            table_name: Some("Table".to_string()),
+            author_name: None,
+            properties: HashMap::from([("Custom".to_string(), "value".to_string())]),
+            ..TableInfo::default()
+        };
+        let custom_info_tags = vec!["Custom".to_string()];
+        let json = info_to_json(&table_info, &custom_info_tags);
+        // an absent stream is written as null so the author sees it
+        assert!(json["author_name"].is_null());
+        let (table_info2, custom_info_tags2) = json_to_info(json, None).unwrap();
+        assert_eq!(table_info, table_info2);
+        assert_eq!(custom_info_tags, custom_info_tags2);
+    }
 }

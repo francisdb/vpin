@@ -34,7 +34,7 @@ use super::{
 };
 use crate::vpx::biff::{BiffRead, BiffWrite};
 use crate::vpx::color::Color;
-use crate::vpx::json::F32WithNanInf;
+use crate::vpx::json::{F32WithNanInf, infallible_to_value};
 use crate::vpx::material::{Material, SaveMaterial, SavePhysicsMaterial};
 use crate::vpx::math::{dequantize_u8, dequantize_unsigned, quantize_u8, quantize_unsigned};
 use crate::vpx::renderprobe::RenderProbeWithGarbage;
@@ -2335,6 +2335,14 @@ pub struct Record {
     data: Vec<u8>,
 }
 
+/// Converts a [`GameData`] to the JSON of `gamedata.json` in an extracted
+/// table directory. The script, the materials, the render probes and the
+/// item counts are not part of it, the expanded format keeps them in other
+/// files. Used by the semantic diff to compare two tables field by field.
+pub fn game_data_to_json(game_data: &GameData) -> serde_json::Value {
+    infallible_to_value(GameDataJson::from_game_data(game_data))
+}
+
 /// Serializes `gamedata` to the bytes of the `GameData` stream.
 ///
 /// Records are written in the order vpinball writes them, which matters for
@@ -3371,5 +3379,19 @@ mod corrupt_input_tests {
         let err = read_all_gamedata_records(writer.get_data(), &Version::new(1074)).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
         assert!(err.to_string().contains("CCUS"), "{err}");
+    }
+}
+
+#[cfg(test)]
+mod json_tests {
+    use super::*;
+
+    #[test]
+    fn game_data_json_carries_the_table_name() {
+        let json = game_data_to_json(&GameData::default());
+        assert_eq!(
+            json["name"],
+            serde_json::Value::String("Table1".to_string())
+        );
     }
 }
