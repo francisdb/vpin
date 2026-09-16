@@ -908,6 +908,16 @@ mod tests {
 
     const ROOT: &str = "table";
 
+    /// A file of the table's game item directory as the memory file
+    /// system keys it: built with the platform separator, like the writer
+    fn table_file(name: impl AsRef<str>) -> String {
+        Path::new(ROOT)
+            .join(GAMEITEMS_DIR)
+            .join(name.as_ref())
+            .to_string_lossy()
+            .into_owned()
+    }
+
     fn drag_point(x: f32, y: f32) -> DragPoint {
         DragPoint {
             x,
@@ -989,11 +999,10 @@ mod tests {
     /// the table root
     fn expected_derived_mesh_files(mesh_format: PrimitiveMeshFormat) -> Vec<String> {
         let ext = mesh_file_extension(mesh_format);
-        let single = |stem: &str| format!("{ROOT}/{GAMEITEMS_DIR}/{stem}-generated.{ext}");
-        let part = |stem: &str, part: &str| {
-            format!("{ROOT}/{GAMEITEMS_DIR}/{stem}-{part}.json-generated.{ext}")
-        };
-        let plain = |stem: &str, part: &str| format!("{ROOT}/{GAMEITEMS_DIR}/{stem}-{part}.{ext}");
+        let single = |stem: &str| table_file(format!("{stem}-generated.{ext}"));
+        let part =
+            |stem: &str, part: &str| table_file(format!("{stem}-{part}.json-generated.{ext}"));
+        let plain = |stem: &str, part: &str| table_file(format!("{stem}-{part}.{ext}"));
         vec![
             single("Wall.Wall1"),
             single("Ramp.Ramp1"),
@@ -1190,10 +1199,10 @@ mod tests {
         let fs = write_primitive(animated_primitive(&frames)?, mesh_format)?;
 
         let frame_path = |i: usize| {
-            format!(
-                "{ROOT}/{GAMEITEMS_DIR}/Primitive.Prim1_anim_{i}.{}",
+            table_file(format!(
+                "Primitive.Prim1_anim_{i}.{}",
                 mesh_file_extension(mesh_format)
-            )
+            ))
         };
         for i in 0..3 {
             assert!(
@@ -1248,7 +1257,7 @@ mod tests {
     #[test]
     fn a_missing_mesh_file_is_reported_with_its_path() -> TestResult {
         let fs = write_primitive(animated_primitive(&[])?, PrimitiveMeshFormat::Obj)?;
-        let mesh_path = format!("{ROOT}/{GAMEITEMS_DIR}/Primitive.Prim1.obj");
+        let mesh_path = table_file("Primitive.Prim1.obj");
         fs.delete_file(&mesh_path);
 
         let error = read_primitive(&fs).expect_err("a missing mesh should be an error");
@@ -1263,7 +1272,7 @@ mod tests {
     #[test]
     fn a_malformed_mesh_file_is_reported_with_its_path() -> TestResult {
         let fs = write_primitive(animated_primitive(&[])?, PrimitiveMeshFormat::Obj)?;
-        let mesh_path = format!("{ROOT}/{GAMEITEMS_DIR}/Primitive.Prim1.obj");
+        let mesh_path = table_file("Primitive.Prim1.obj");
         // a face that points past the only vertex
         fs.write_file(Path::new(&mesh_path), b"o Bad\nv 0 0 0\nf 1 2 9\n")?;
 
@@ -1282,7 +1291,7 @@ mod tests {
             animated_primitive(&[frame(0.0), frame(1.0)])?,
             PrimitiveMeshFormat::Obj,
         )?;
-        let frame_path = format!("{ROOT}/{GAMEITEMS_DIR}/Primitive.Prim1_anim_1.obj");
+        let frame_path = table_file("Primitive.Prim1_anim_1.obj");
         fs.write_file(Path::new(&frame_path), b"o Bad\nv 0 0 0\nf 1 2 9\n")?;
 
         let error = read_primitive(&fs).expect_err("a malformed frame should be an error");
