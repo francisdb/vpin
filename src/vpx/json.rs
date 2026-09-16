@@ -93,6 +93,12 @@ where
     }
 }
 
+/// Serializes one of the plain json model structs, which cannot fail
+#[allow(clippy::unwrap_used)]
+pub(crate) fn infallible_to_value<T: Serialize>(value: T) -> Value {
+    serde_json::to_value(value).unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

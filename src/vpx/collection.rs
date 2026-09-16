@@ -1,5 +1,7 @@
 use super::biff::{self, BiffReader, BiffWriter};
+use crate::vpx::json::infallible_to_value;
 use log::warn;
+use serde::{Deserialize, Serialize};
 use std::io;
 // TODO comment here a vpx file that contains font data
 
@@ -110,6 +112,55 @@ pub fn write(collection: &Collection) -> Vec<u8> {
     writer.get_data().to_owned()
 }
 
+/// The shape of one collection in `collections.json` of an extracted
+/// table directory.
+#[derive(Serialize, Deserialize)]
+struct CollectionJson {
+    name: String,
+    items: Vec<String>,
+    fire_events: bool,
+    stop_single_events: bool,
+    group_elements: bool,
+}
+
+/// Converts the collections to the JSON of `collections.json` in an
+/// extracted table directory: an array with one object per
+/// [`Collection`], in table order.
+pub fn collections_json(collections: &[Collection]) -> serde_json::Value {
+    let collections_json: Vec<CollectionJson> = collections
+        .iter()
+        .map(|collection| CollectionJson {
+            name: collection.name.clone(),
+            items: collection.items.clone(),
+            fire_events: collection.fire_events,
+            stop_single_events: collection.stop_single_events,
+            group_elements: collection.group_elements,
+        })
+        .collect();
+    infallible_to_value(collections_json)
+}
+
+/// Converts the JSON of `collections.json` in an extracted table directory
+/// back to the collections; the inverse of [`collections_json`].
+///
+/// # Errors
+///
+/// Fails when the JSON does not have the shape [`collections_json`]
+/// writes.
+pub fn json_to_collections(json: serde_json::Value) -> Result<Vec<Collection>, serde_json::Error> {
+    let collections_json: Vec<CollectionJson> = serde_json::from_value(json)?;
+    Ok(collections_json
+        .into_iter()
+        .map(|collection_json| Collection {
+            name: collection_json.name,
+            items: collection_json.items,
+            fire_events: collection_json.fire_events,
+            stop_single_events: collection_json.stop_single_events,
+            group_elements: collection_json.group_elements,
+        })
+        .collect())
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -148,5 +199,34 @@ mod corrupt_input_tests {
         for len in 0..bytes.len() {
             assert!(read(&bytes[..len]).is_err(), "truncated to {len}");
         }
+    }
+}
+
+#[cfg(test)]
+mod json_tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn collections_round_trip_through_the_json() {
+        let collections = vec![
+            Collection {
+                name: "collection1".to_string(),
+                items: vec!["item1".to_string(), "item2".to_string()],
+                fire_events: true,
+                stop_single_events: false,
+                group_elements: true,
+            },
+            Collection {
+                name: "collection2".to_string(),
+                items: vec!["item3".to_string(), "item4".to_string()],
+                fire_events: false,
+                stop_single_events: true,
+                group_elements: false,
+            },
+        ];
+        let json = collections_json(&collections);
+        let collections2 = json_to_collections(json).unwrap();
+        assert_eq!(collections, collections2);
     }
 }

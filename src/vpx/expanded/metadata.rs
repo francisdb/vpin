@@ -2,12 +2,13 @@
 
 use crate::filesystem::FileSystem;
 use crate::vpx::collection::Collection;
+use crate::vpx::collection::{collections_json, json_to_collections};
 use crate::vpx::custominfotags::CustomInfoTags;
 use crate::vpx::gamedata::{GameData, GameDataJson};
 use crate::vpx::gameitem::MAX_NAME_LENGTH;
-use crate::vpx::jsonmodel::{collections_json, info_to_json, json_to_collections, json_to_info};
 use crate::vpx::renderprobe::{RenderProbeJson, RenderProbeWithGarbage};
 use crate::vpx::tableinfo::TableInfo;
+use crate::vpx::tableinfo::{info_to_json, json_to_info};
 use log::{info, warn};
 use serde_json::Value;
 use std::borrow::Cow;
