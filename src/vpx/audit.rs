@@ -334,6 +334,10 @@ pub enum Finding {
     StaticPrimitiveInScript {
         /// Type and name of the primitive
         item: String,
+        /// The script names `DisableStaticPrerendering`, so its author
+        /// knows about baking and most likely switches it off before
+        /// writing; reported as info then instead of a warning
+        script_toggles_prerendering: bool,
     },
     /// A light with a linear or incandescent fader has a fade speed of
     /// zero, below zero or not a number, so a state change never moves its
@@ -473,6 +477,10 @@ impl Finding {
             Finding::TimerWithoutHandler { .. } | Finding::HandlersWithoutItem { .. } => {
                 Severity::Info
             }
+            Finding::StaticPrimitiveInScript {
+                script_toggles_prerendering: true,
+                ..
+            } => Severity::Info,
             Finding::UnnamedItems { type_name, .. } if type_name == "Decal" => Severity::Suggestion,
             Finding::LightCannotFade { lit: false, .. } => Severity::Suggestion,
             Finding::ReservedName { reserved, .. } => match reserved {
@@ -720,7 +728,17 @@ impl fmt::Display for Finding {
             Finding::NegativeLightIntensity { item } => {
                 write!(f, "{item}: negative light intensity")
             }
-            Finding::StaticPrimitiveInScript { item } => write!(
+            Finding::StaticPrimitiveInScript {
+                item,
+                script_toggles_prerendering: true,
+            } => write!(
+                f,
+                "{item}: is static (baked at load) and the script refers to it; the script toggles DisableStaticPrerendering, so writes to its properties land while that is set or before the first frame"
+            ),
+            Finding::StaticPrimitiveInScript {
+                item,
+                script_toggles_prerendering: false,
+            } => write!(
                 f,
                 "{item}: is static (baked at load) but the script refers to it; writes to most of its properties are lost after the first frame (Init and the startup option event still land) unless the script sets DisableStaticPrerendering first; reading is fine"
             ),
@@ -3633,11 +3651,42 @@ mod tests {
             vpx.gameitems.push(primitive("Dynamic", false));
             vpx.gameitems.push(primitive("Unmentioned", true));
             vpx.gamedata.gameitems_size = vpx.gameitems.len() as u32;
+            let findings = script_findings(&vpx);
             assert_eq!(
-                script_findings(&vpx),
+                findings,
                 vec![Finding::StaticPrimitiveInScript {
                     item: "Primitive \"Baked\"".to_string(),
+                    script_toggles_prerendering: false,
                 }]
+            );
+            assert_eq!(findings[0].severity(), Severity::Warning);
+        }
+
+        #[test]
+        fn a_script_that_toggles_static_prerendering_is_only_informed() {
+            use crate::vpx::gameitem::primitive::Primitive;
+            let mut vpx = scripted(
+                "Sub Table1_OptionEvent(ByVal eventId)\r\n    If eventId = 1 Then DisableStaticPreRendering = True\r\n    Baked.ReflectionEnabled = False\r\nEnd Sub\r\n",
+            );
+            vpx.gameitems
+                .push(GameItemEnum::Primitive(Box::new(Primitive {
+                    name: "Baked".to_string(),
+                    static_rendering: true,
+                    ..Primitive::default()
+                })));
+            vpx.gamedata.gameitems_size = vpx.gameitems.len() as u32;
+            let findings = script_findings(&vpx);
+            assert_eq!(
+                findings,
+                vec![Finding::StaticPrimitiveInScript {
+                    item: "Primitive \"Baked\"".to_string(),
+                    script_toggles_prerendering: true,
+                }]
+            );
+            assert_eq!(findings[0].severity(), Severity::Info);
+            assert_eq!(
+                findings[0].to_string(),
+                "Primitive \"Baked\": is static (baked at load) and the script refers to it; the script toggles DisableStaticPrerendering, so writes to its properties land while that is set or before the first frame"
             );
         }
 
@@ -3904,6 +3953,7 @@ mod script {
 
         // like vpinball: any mention of a static primitive's name, reading a
         // property is fine but writing one has no effect once it is baked
+        let script_toggles_prerendering = scan.identifiers.contains("disablestaticprerendering");
         for item in &vpx.gameitems {
             if let GameItemEnum::Primitive(primitive) = item
                 && primitive.static_rendering
@@ -3911,6 +3961,7 @@ mod script {
             {
                 findings.push(Finding::StaticPrimitiveInScript {
                     item: super::item_label(item),
+                    script_toggles_prerendering,
                 });
             }
         }
