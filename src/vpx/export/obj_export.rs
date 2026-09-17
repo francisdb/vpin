@@ -32,27 +32,35 @@
 //! the winding reversal follows the handedness flip, and only the raw
 //! vpx-internal convention skips the V flip.
 //!
-//! The walk only includes the items that VPinball's `Item::ExportMesh`
-//! implementations cover (primitive, wall, ramp, rubber, bumper, flipper,
-//! gate, kicker, spinner, hittarget, trigger). Lights, decals, plungers,
-//! flashers and reels are skipped, matching VPinball.
+//! Which items the walk includes is decided by the
+//! [`ItemFilter`] in the options. The default is every item type with
+//! geometry, like the glTF exporter; [`ObjExportOptions::vpinball_strict`]
+//! narrows it to what VPinball's `Item::ExportMesh` implementations cover
+//! (primitive, wall, ramp, rubber, bumper, flipper, gate, kicker, spinner,
+//! hittarget, trigger).
 
 use crate::filesystem::FileSystem;
 use crate::vpx::TableDimensions;
 use crate::vpx::VPX;
 use crate::vpx::color::Color;
 use crate::vpx::expanded::util::sanitize_filename;
+use crate::vpx::export::item_filter::ItemFilter;
+use crate::vpx::export::vpinball_rules;
 use crate::vpx::gameitem::GameItemEnum;
 use crate::vpx::gameitem::primitive::{Primitive, VertexWrapper};
 use crate::vpx::image::ImageData;
 use crate::vpx::material::MaterialType;
 use crate::vpx::math::{Matrix3D, Vec3, Vertex3D};
+use crate::vpx::mesh::balls::build_ball_mesh;
 use crate::vpx::mesh::builtin_primitive::effective_primitive_mesh;
 use crate::vpx::mesh::bumpers::build_bumper_meshes;
+use crate::vpx::mesh::decals::build_decal_mesh;
+use crate::vpx::mesh::flashers::build_flasher_mesh;
 use crate::vpx::mesh::flippers::build_flipper_meshes_unchecked;
 use crate::vpx::mesh::gates::build_gate_meshes_unchecked;
 use crate::vpx::mesh::hittargets::build_hit_target_mesh_unchecked;
 use crate::vpx::mesh::kickers::build_kicker_meshes;
+use crate::vpx::mesh::lights::{build_light_insert_mesh, build_light_meshes};
 use crate::vpx::mesh::playfields::build_playfield_mesh;
 use crate::vpx::mesh::plungers::build_plunger_meshes;
 use crate::vpx::mesh::ramps::build_ramp_mesh;
@@ -130,18 +138,17 @@ pub struct ObjExportOptions {
     ///   representation.
     pub axes: AxisConvention,
 
-    /// Include plunger meshes (rod, spring, ring, tip, flat overlay).
+    /// Which game items are written. See [`ItemFilter`].
     ///
-    /// - **`true` (default)**: emit plunger geometry, matching what the
-    ///   glTF exporter already does. Most users exporting to OBJ for DCC
-    ///   work expect the plunger to be there.
-    /// - **`false`**: omit plungers entirely. Matches vpinball's
-    ///   `File -> Export -> OBJ Mesh`, which deliberately skips them.
-    ///   Set automatically by [`Self::vpinball_strict`].
-    ///
-    /// See [vpin#313](https://github.com/francisdb/vpin/issues/313) for
-    /// the broader discussion of the OBJ-vs-glTF item-coverage gap.
-    pub include_plunger: bool,
+    /// - **default**: [`ItemFilter::everything`], every item type with
+    ///   geometry, like the glTF exporter.
+    /// - **[`Self::vpinball_strict`]**: [`ItemFilter::vpinball_obj_export`],
+    ///   the items vpinball's `File -> Export -> OBJ Mesh` writes, which
+    ///   leaves out lights, flashers, decals, plungers and balls.
+    /// - **[`ItemFilter::skip_editor_hidden`]**: also leave out the items
+    ///   on hidden editor layers, which vpinball's own export does; opt-in
+    ///   because released tables often have most layers hidden.
+    pub filter: ItemFilter,
 }
 
 impl Default for ObjExportOptions {
@@ -151,7 +158,7 @@ impl Default for ObjExportOptions {
             extract_textures: true,
             units: ExportUnits::M,
             axes: AxisConvention::ZDownRightHanded,
-            include_plunger: true,
+            filter: ItemFilter::everything(),
         }
     }
 }
@@ -166,8 +173,14 @@ impl ObjExportOptions {
             extract_textures: false,
             units: ExportUnits::Vpu,
             axes: AxisConvention::ZDownRightHanded,
-            include_plunger: false,
+            filter: vpinball_rules::obj_export_filter(),
         }
+    }
+
+    /// Replace the item filter.
+    pub fn with_filter(mut self, filter: ItemFilter) -> Self {
+        self.filter = filter;
+        self
     }
 }
 
@@ -233,10 +246,13 @@ pub fn export_obj(
         write_playfield(&mut obj_writer, &mut mtl_writer, &mut state, fs)?;
 
         // 2. Walk gameitems in storage order (mirrors VPinball's m_vedit
-        //    iteration). Visibility filter only - the m_desktopBackdrop bit
-        //    is not yet parsed by vpin and is irrelevant for items with
-        //    geometry (they all assert !m_desktopBackdrop in VPinball).
+        //    iteration). The filter decides which items the writer sees;
+        //    per part visibility (wall top/side, bumper parts) stays with
+        //    the writers.
         for gameitem in &vpx.gameitems {
+            if !options.filter.includes(gameitem, &vpx.version) {
+                continue;
+            }
             write_gameitem(&mut obj_writer, &mut mtl_writer, &mut state, fs, gameitem)?;
         }
     }
@@ -306,9 +322,6 @@ struct WriterState<'a> {
     /// Axis convention for positions and normals; also decides the
     /// winding reversal and V flip. See [`ObjExportOptions::axes`].
     axes: AxisConvention,
-    /// Whether to emit plunger meshes. See
-    /// [`ObjExportOptions::include_plunger`].
-    include_plunger: bool,
 }
 
 impl<'a> WriterState<'a> {
@@ -333,7 +346,6 @@ impl<'a> WriterState<'a> {
             seen_mtl_pairs: HashSet::new(),
             position_scale: options.units.scale(),
             axes: options.axes,
-            include_plunger: options.include_plunger,
         }
     }
 
@@ -474,20 +486,19 @@ fn write_gameitem<O: ObjWriter<f32>, M: MtlWriter<f32>>(
         GameItemEnum::Spinner(spinner) => write_spinner(obj, mtl, state, fs, spinner),
         GameItemEnum::HitTarget(hit_target) => write_hittarget(obj, mtl, state, fs, hit_target),
         GameItemEnum::Trigger(trigger) => write_trigger(obj, mtl, state, fs, trigger),
-        GameItemEnum::Plunger(plunger) if state.include_plunger => {
-            write_plunger(obj, mtl, state, fs, plunger)
-        }
-        // Items VPinball does not include in OBJ export.
-        GameItemEnum::Light(_)
-        | GameItemEnum::Decal(_)
-        | GameItemEnum::Plunger(_)
-        | GameItemEnum::Flasher(_)
-        | GameItemEnum::Reel(_)
+        // Items VPinball does not include in its OBJ export; only written
+        // when the filter asks for them.
+        GameItemEnum::Plunger(plunger) => write_plunger(obj, mtl, state, fs, plunger),
+        GameItemEnum::Light(light) => write_light(obj, mtl, state, fs, light),
+        GameItemEnum::Flasher(flasher) => write_flasher(obj, mtl, state, fs, flasher),
+        GameItemEnum::Decal(decal) => write_decal(obj, mtl, state, fs, decal),
+        GameItemEnum::Ball(ball) => write_ball(obj, mtl, state, fs, ball),
+        // Items without geometry.
+        GameItemEnum::Reel(_)
         | GameItemEnum::Timer(_)
         | GameItemEnum::TextBox(_)
         | GameItemEnum::LightSequencer(_)
         | GameItemEnum::PartGroup(_)
-        | GameItemEnum::Ball(_)
         | GameItemEnum::Generic(_, _) => Ok(()),
     }
 }
@@ -499,9 +510,6 @@ fn write_primitive<O: ObjWriter<f32>, M: MtlWriter<f32>>(
     fs: &dyn FileSystem,
     primitive: &Primitive,
 ) -> io::Result<()> {
-    if !crate::vpx::compat::primitive_is_visible(primitive, &state.vpx.version) {
-        return Ok(());
-    }
     let read = match effective_primitive_mesh(primitive) {
         Ok(Some(read)) => read,
         Ok(None) => return Ok(()),
@@ -779,9 +787,6 @@ fn write_ramp<O: ObjWriter<f32>, M: MtlWriter<f32>>(
     fs: &dyn FileSystem,
     ramp: &crate::vpx::gameitem::ramp::Ramp,
 ) -> io::Result<()> {
-    if !ramp.is_visible {
-        return Ok(());
-    }
     // VPinball's `Ramp::GenerateWireMesh` uses max-precision wire
     // segments when the material is opaque (`!mat->m_bOpacityActive`).
     // Missing/empty material falls through to opaque (vpinball's dummy
@@ -827,9 +832,6 @@ fn write_rubber<O: ObjWriter<f32>, M: MtlWriter<f32>>(
     fs: &dyn FileSystem,
     rubber: &crate::vpx::gameitem::rubber::Rubber,
 ) -> io::Result<()> {
-    if !rubber.is_visible {
-        return Ok(());
-    }
     let Some((vertices, indices, center)) = build_rubber_mesh(rubber, state.detail_level) else {
         return Ok(());
     };
@@ -946,9 +948,6 @@ fn write_plunger<O: ObjWriter<f32>, M: MtlWriter<f32>>(
     fs: &dyn FileSystem,
     plunger: &crate::vpx::gameitem::plunger::Plunger,
 ) -> io::Result<()> {
-    if !plunger.is_visible {
-        return Ok(());
-    }
     let surface_height = state.surface_height(&plunger.surface, plunger.center.x, plunger.center.y);
     // Translation mirrors the glTF exporter: surface height + z_adjust.
     // The mesh generators already lift the cylinder centerline by `width`
@@ -1255,9 +1254,6 @@ fn write_trigger<O: ObjWriter<f32>, M: MtlWriter<f32>>(
     fs: &dyn FileSystem,
     trigger: &crate::vpx::gameitem::trigger::Trigger,
 ) -> io::Result<()> {
-    if !trigger.is_visible {
-        return Ok(());
-    }
     let surface_height = state.surface_height(&trigger.surface, trigger.center.x, trigger.center.y);
     let translation = Vec3::new(trigger.center.x, trigger.center.y, surface_height);
     let Some((vertices, indices)) = build_trigger_mesh(trigger) else {
@@ -1276,6 +1272,197 @@ fn write_trigger<O: ObjWriter<f32>, M: MtlWriter<f32>>(
             translation,
             material_name: Some(&material_name),
             texture_name: None,
+            smoothing: true,
+        },
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Items vpinball's OBJ export leaves out. Written only when the filter
+// includes them; the meshes and placement mirror the glTF exporter.
+// ---------------------------------------------------------------------------
+
+/// A block without a material gets no `usemtl`, which would drop its
+/// texture, so an item that only has an image uses the image name as its
+/// material name, like vpinball does for a top-only wall with an image.
+fn material_or_image<'a>(material: &'a str, image: &'a str) -> (Option<&'a str>, Option<&'a str>) {
+    let texture_name = (!image.is_empty()).then_some(image);
+    let material_name = if material.is_empty() {
+        texture_name
+    } else {
+        Some(material)
+    };
+    (material_name, texture_name)
+}
+
+fn write_light<O: ObjWriter<f32>, M: MtlWriter<f32>>(
+    obj: &mut O,
+    mtl: &mut M,
+    state: &mut WriterState,
+    fs: &dyn FileSystem,
+    light: &crate::vpx::gameitem::light::Light,
+) -> io::Result<()> {
+    // A backglass light has no playfield geometry.
+    if light.is_backglass {
+        return Ok(());
+    }
+    let surface_height = state.surface_height(&light.surface, light.center.x, light.center.y);
+
+    // Bulb and socket meshes, gated like the glTF exporter so pre-10.8
+    // classic lights do not get a spurious bulb. VPinball places them at
+    // surface height (light.cpp: bulb_z = m_surfaceHeight); neither has a
+    // material of its own in the table.
+    if crate::vpx::compat::light_show_bulb_mesh(light, &state.vpx.version)
+        && let Some(light_meshes) = build_light_meshes(light)
+    {
+        let translation = Vec3::new(light.center.x, light.center.y, surface_height);
+        let parts = [("Bulb", light_meshes.bulb), ("Socket", light_meshes.socket)];
+        for (suffix, mesh) in parts {
+            if let Some((vertices, indices)) = mesh {
+                write_block(
+                    obj,
+                    mtl,
+                    state,
+                    fs,
+                    Block {
+                        name: &format!("{}{}", light.name, suffix),
+                        vertices: &vertices,
+                        indices: &indices,
+                        translation,
+                        material_name: None,
+                        texture_name: None,
+                        smoothing: true,
+                    },
+                )?;
+            }
+        }
+    }
+
+    // The insert: the light's drag point polygon, 0.1 VPU above the
+    // surface like vpinball draws it (light.cpp: buf[t].z = height + 0.1f).
+    // The image is only used in classic mode; in bulb mode vpinball
+    // ignores it (light.cpp: offTexel = m_BulbLight ? nullptr : ...).
+    if let Some((vertices, indices, center)) = build_light_insert_mesh(light, &state.table_dims) {
+        let translation = Vec3::new(center.x, center.y, surface_height + 0.1);
+        let image = if light.is_bulb_light {
+            ""
+        } else {
+            light.image.as_str()
+        };
+        let (material_name, texture_name) = material_or_image("", image);
+        write_block(
+            obj,
+            mtl,
+            state,
+            fs,
+            Block {
+                name: &format!("{}Insert", light.name),
+                vertices: &vertices,
+                indices: &indices,
+                translation,
+                material_name,
+                texture_name,
+                smoothing: false,
+            },
+        )?;
+    }
+    Ok(())
+}
+
+fn write_flasher<O: ObjWriter<f32>, M: MtlWriter<f32>>(
+    obj: &mut O,
+    mtl: &mut M,
+    state: &mut WriterState,
+    fs: &dyn FileSystem,
+    flasher: &crate::vpx::gameitem::flasher::Flasher,
+) -> io::Result<()> {
+    let Some((vertices, indices, center)) = build_flasher_mesh(flasher, &state.table_dims) else {
+        return Ok(());
+    };
+    // Flashers have no material; image_a is their texture.
+    let (material_name, texture_name) = material_or_image("", &flasher.image_a);
+    write_block(
+        obj,
+        mtl,
+        state,
+        fs,
+        Block {
+            name: &flasher.name,
+            vertices: &vertices,
+            indices: &indices,
+            translation: center,
+            material_name,
+            texture_name,
+            smoothing: false,
+        },
+    )
+}
+
+fn write_decal<O: ObjWriter<f32>, M: MtlWriter<f32>>(
+    obj: &mut O,
+    mtl: &mut M,
+    state: &mut WriterState,
+    fs: &dyn FileSystem,
+    decal: &crate::vpx::gameitem::decal::Decal,
+) -> io::Result<()> {
+    // Only image decals have a mesh; text decals need a font renderer.
+    let Some((vertices, indices)) = build_decal_mesh(decal) else {
+        return Ok(());
+    };
+    let surface_height = state.surface_height(&decal.surface, decal.center.x, decal.center.y);
+    // 0.2 VPU above the surface (decal.cpp line 646).
+    let translation = Vec3::new(decal.center.x, decal.center.y, surface_height + 0.2);
+    let (material_name, texture_name) = material_or_image(&decal.material, &decal.image);
+    write_block(
+        obj,
+        mtl,
+        state,
+        fs,
+        Block {
+            name: &decal.name,
+            vertices: &vertices,
+            indices: &indices,
+            translation,
+            material_name,
+            texture_name,
+            smoothing: false,
+        },
+    )
+}
+
+fn write_ball<O: ObjWriter<f32>, M: MtlWriter<f32>>(
+    obj: &mut O,
+    mtl: &mut M,
+    state: &mut WriterState,
+    fs: &dyn FileSystem,
+    ball: &crate::vpx::gameitem::ball::Ball,
+) -> io::Result<()> {
+    let (vertices, indices) = build_ball_mesh(ball);
+    // Balls have no material. In decal mode the front image is a logo and
+    // serves as the texture; in scratches mode it is a roughness overlay
+    // that an OBJ material cannot express, so it is left out. The
+    // environment map (ball_image) is never a surface texture.
+    let is_decal_mode = ball.decal_mode || state.vpx.gamedata.ball_decal_mode;
+    let image = if !is_decal_mode {
+        ""
+    } else if !ball.image_decal.is_empty() {
+        ball.image_decal.as_str()
+    } else {
+        state.vpx.gamedata.ball_image_front.as_str()
+    };
+    let (material_name, texture_name) = material_or_image("", image);
+    write_block(
+        obj,
+        mtl,
+        state,
+        fs,
+        Block {
+            name: &ball.name,
+            vertices: &vertices,
+            indices: &indices,
+            translation: Vec3::new(ball.pos.x, ball.pos.y, ball.pos.z),
+            material_name,
+            texture_name,
             smoothing: true,
         },
     )
@@ -1623,6 +1810,10 @@ fn write_image_bmp(
 mod tests {
     use super::*;
     use crate::filesystem::MemoryFileSystem;
+    use crate::vpx::gameitem::ball::Ball;
+    use crate::vpx::gameitem::dragpoint::DragPoint;
+    use crate::vpx::gameitem::flasher::Flasher;
+    use crate::vpx::gameitem::flipper::Flipper;
 
     fn export_to_memory(options: &ObjExportOptions) -> (String, String) {
         let vpx = VPX::default();
@@ -1925,5 +2116,184 @@ mod tests {
             newmtl <= usemtl,
             "newmtl ({newmtl}) should not exceed usemtl ({usemtl}) when deduped"
         );
+    }
+
+    fn export_table_to_string(vpx: &VPX, options: &ObjExportOptions) -> String {
+        let fs = MemoryFileSystem::default();
+        let obj_path = Path::new("out/test.obj");
+        export_obj(vpx, obj_path, &fs, options).unwrap();
+        String::from_utf8(fs.read_file(obj_path).unwrap()).unwrap()
+    }
+
+    fn object_names(obj: &str) -> Vec<&str> {
+        obj.lines().filter_map(|l| l.strip_prefix("o ")).collect()
+    }
+
+    fn flipper(name: &str, is_visible: bool) -> GameItemEnum {
+        GameItemEnum::Flipper(Flipper {
+            name: name.to_string(),
+            is_visible,
+            ..Flipper::default()
+        })
+    }
+
+    /// A flipper (in vpinball's export), a ball and a flasher (not in it).
+    fn table_with_one_of_each() -> VPX {
+        let mut vpx = VPX::default();
+        vpx.gameitems.push(flipper("LeftFlipper", true));
+        vpx.gameitems.push(GameItemEnum::Ball(Ball {
+            name: "CaptiveBall".to_string(),
+            ..Ball::default()
+        }));
+        vpx.gameitems.push(GameItemEnum::Flasher(Flasher {
+            name: "Flasher1".to_string(),
+            drag_points: vec![
+                DragPoint {
+                    x: 100.0,
+                    y: 100.0,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 100.0,
+                    y: 400.0,
+                    ..Default::default()
+                },
+                DragPoint {
+                    x: 400.0,
+                    y: 400.0,
+                    ..Default::default()
+                },
+            ],
+            ..Flasher::default()
+        }));
+        vpx
+    }
+
+    #[test]
+    fn strict_filter_writes_the_vpinball_items_only() {
+        let obj = export_table_to_string(
+            &table_with_one_of_each(),
+            &ObjExportOptions::vpinball_strict(),
+        );
+        let names = object_names(&obj);
+        assert!(
+            names.iter().any(|n| n.starts_with("LeftFlipper")),
+            "{names:?}"
+        );
+        assert!(!names.contains(&"CaptiveBall"), "{names:?}");
+        assert!(!names.contains(&"Flasher1"), "{names:?}");
+    }
+
+    #[test]
+    fn default_filter_adds_the_items_vpinball_leaves_out() {
+        let obj = export_table_to_string(&table_with_one_of_each(), &ObjExportOptions::default());
+        let names = object_names(&obj);
+        assert!(
+            names.iter().any(|n| n.starts_with("LeftFlipper")),
+            "{names:?}"
+        );
+        assert!(names.contains(&"CaptiveBall"), "{names:?}");
+        assert!(names.contains(&"Flasher1"), "{names:?}");
+    }
+
+    #[test]
+    fn skip_editor_hidden_leaves_out_the_hidden_items() {
+        let mut vpx = VPX::default();
+        vpx.gameitems.push(flipper("Shown", true));
+        let mut hidden = flipper("Hidden", true);
+        hidden.set_editor_layer_visibility(Some(false));
+        vpx.gameitems.push(hidden);
+
+        let obj = export_table_to_string(&vpx, &ObjExportOptions::default());
+        let names = object_names(&obj);
+        assert!(names.iter().any(|n| n.starts_with("Hidden")), "{names:?}");
+
+        let options = ObjExportOptions::default()
+            .with_filter(ObjExportOptions::default().filter.skip_editor_hidden(true));
+        let obj = export_table_to_string(&vpx, &options);
+        let names = object_names(&obj);
+        assert!(names.iter().any(|n| n.starts_with("Shown")), "{names:?}");
+        assert!(!names.iter().any(|n| n.starts_with("Hidden")), "{names:?}");
+    }
+
+    #[test]
+    fn invisible_flipper_follows_the_vpinball_rule_but_not_everything() {
+        let mut vpx = VPX::default();
+        vpx.gameitems.push(flipper("Ghost", false));
+
+        // vpinball's Flipper::ExportMesh has no visible guard
+        let obj = export_table_to_string(&vpx, &ObjExportOptions::vpinball_strict());
+        assert!(object_names(&obj).iter().any(|n| n.starts_with("Ghost")));
+
+        let options = ObjExportOptions::default().with_filter(ItemFilter::everything());
+        let obj = export_table_to_string(&vpx, &options);
+        assert!(!object_names(&obj).iter().any(|n| n.starts_with("Ghost")));
+    }
+
+    #[test]
+    fn only_and_exclude_names_select_items() {
+        let mut vpx = VPX::default();
+        vpx.gameitems.push(flipper("LeftFlipper", true));
+        vpx.gameitems.push(flipper("RightFlipper", true));
+
+        let options = ObjExportOptions::default().with_filter(
+            ObjExportOptions::default()
+                .filter
+                .only_names(["leftflipper"]),
+        );
+        let names = object_names(&export_table_to_string(&vpx, &options))
+            .iter()
+            .filter(|n| n.contains("Flipper"))
+            .map(|n| n.to_string())
+            .collect::<Vec<_>>();
+        assert!(
+            names.iter().all(|n| n.starts_with("LeftFlipper")),
+            "{names:?}"
+        );
+        assert!(!names.is_empty());
+
+        let options = ObjExportOptions::default().with_filter(
+            ObjExportOptions::default()
+                .filter
+                .exclude_names(["LeftFlipper"]),
+        );
+        let names = object_names(&export_table_to_string(&vpx, &options))
+            .iter()
+            .filter(|n| n.contains("Flipper"))
+            .map(|n| n.to_string())
+            .collect::<Vec<_>>();
+        assert!(
+            names.iter().all(|n| n.starts_with("RightFlipper")),
+            "{names:?}"
+        );
+        assert!(!names.is_empty());
+    }
+
+    /// The vpinball selection is a subset of the default selection, and the
+    /// fixture's lights only show up in the latter.
+    #[test]
+    #[cfg(not(target_family = "wasm"))]
+    fn blank_table_default_is_a_superset_of_the_vpinball_selection() {
+        let vpx =
+            crate::vpx::read(Path::new("testdata/completely_blank_table_10_7_4.vpx")).unwrap();
+        let default = export_table_to_string(
+            &vpx,
+            &ObjExportOptions::default().with_filter(ItemFilter::vpinball_obj_export()),
+        );
+        let everything = export_table_to_string(&vpx, &ObjExportOptions::default());
+        let default_names = object_names(&default);
+        let everything_names = object_names(&everything);
+        for name in &default_names {
+            assert!(
+                everything_names.contains(name),
+                "{name} missing from everything"
+            );
+        }
+        assert!(everything_names.len() > default_names.len());
+        assert!(
+            everything_names.iter().any(|n| n.ends_with("Bulb")),
+            "{everything_names:?}"
+        );
+        assert!(!default_names.iter().any(|n| n.ends_with("Bulb")));
     }
 }

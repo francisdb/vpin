@@ -113,7 +113,27 @@ let options = ObjExportOptions {
 ```
 
 Note that the glTF specification defines meters and Y-up as the only conforming conventions - the unit option exists
-for pipelines that expect a different scale. See the [examples folder](/examples) for complete export examples, and
+for pipelines that expect a different scale.
+
+Which items an export includes is an `ItemFilter` on the options (`export::item_filter`). Both exporters default to
+`ItemFilter::everything()`, every item type with geometry; `ObjExportOptions::vpinball_strict()` narrows it to what
+vpinball's own `File -> Export -> OBJ Mesh` writes (`ItemFilter::vpinball_obj_export()`, declared in
+`export::vpinball_rules`). Either exporter takes either preset, narrowed or widened by type, name, editor layer
+visibility or a predicate:
+
+```rust
+use vpin::vpx::export::gltf_export::GltfExportOptions;
+use vpin::vpx::export::item_filter::{ItemFilter, ItemType};
+
+// A GLB with only what vpinball's OBJ export would carry, plus the lights
+let options = GltfExportOptions::glb()
+    .with_filter(ItemFilter::vpinball_obj_export().with_type(ItemType::Light));
+
+// Everything except the items on hidden editor layers
+let filter = ItemFilter::everything().skip_editor_hidden(true);
+```
+
+See the [examples folder](/examples) for complete export examples, and
 [wasm-readme.md](wasm-readme.md) for the same functionality from JavaScript (`export_glb`, `export_obj`).
 
 ## VPinball Coordinate System

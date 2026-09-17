@@ -113,10 +113,14 @@ down on sound-heavy tables. A map without them works too.
 **Parameters:**
 
 - `files: VpxFileMap` (`Record<string, Uint8Array>`) - file paths to contents
-- `options?: GlbExportOptions` - `{ exportInvisibleItems?: boolean }`;
-  when `true`, invisible items are exported with the
-  `KHR_node_visibility` extension instead of skipped (needs viewer
-  support; leave off for Blender). Default `false`.
+- `options?: GlbExportOptions` - `{ exportInvisibleItems?: boolean, itemFilter?: "everything" | "vpinball", skipEditorHiddenItems?: boolean, onlyItems?: string[], excludeItems?: string[] }`;
+  `exportInvisibleItems: true` exports invisible items with the
+  `KHR_node_visibility` extension instead of skipping them (needs viewer
+  support; leave off for Blender). `itemFilter` picks the item selection:
+  `"everything"` (default) or `"vpinball"`, what vpinball's own OBJ export
+  writes. `skipEditorHiddenItems` leaves out the items on hidden editor
+  layers, and `onlyItems` / `excludeItems` select items by name. The same
+  four filter options exist on `export_obj`.
 - `callback?: (message: string) => void` - Optional progress callback
 
 **Returns:** `Uint8Array` - GLB file bytes

@@ -91,7 +91,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let options = GltfExportOptions {
         format,
-        export_invisible_items: export_invisible,
+        filter: GltfExportOptions::default()
+            .filter
+            .include_invisible(export_invisible),
         ..GltfExportOptions::default()
     };
     export_gltf(&vpx, &output_path, &RealFileSystem, &options)?;
