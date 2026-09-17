@@ -2081,6 +2081,22 @@ struct References<'a> {
     surface: Option<&'a str>,
 }
 
+/// A primitive named `playfield_mesh` replaces the built-in playfield
+/// geometry, and vpinball copies the playfield image and material from
+/// the table settings onto it when it renders. With that primitive
+/// hidden the playfield never renders at all. That is how VLM baked
+/// tables ship: bake primitives draw the playfield and the table
+/// settings still name the image from before the bake. A dangling
+/// playfield image or material is then a leftover without effect.
+fn playfield_hidden(vpx: &VPX) -> bool {
+    vpx.gameitems.iter().any(|item| match item {
+        GameItemEnum::Primitive(primitive) => {
+            primitive.name.eq_ignore_ascii_case("playfield_mesh") && !primitive.is_visible
+        }
+        _ => false,
+    })
+}
+
 fn check_table_settings(
     vpx: &VPX,
     images: &HashSet<String>,
@@ -2093,8 +2109,16 @@ fn check_table_settings(
             && !image.eq_ignore_ascii_case(NONE_SELECTION)
             && !images.contains(image.to_lowercase().as_str())
     };
+    let playfield_hidden = playfield_hidden(vpx);
     let image_fields: [(&'static str, &str); 4] = [
-        ("playfield image", &gamedata.image),
+        (
+            "playfield image",
+            if playfield_hidden {
+                ""
+            } else {
+                &gamedata.image
+            },
+        ),
         (
             "desktop backglass image",
             &gamedata.backglass_image_full_desktop,
@@ -2161,7 +2185,8 @@ fn check_table_settings(
             height: image.height,
         });
     }
-    if !gamedata.playfield_material.is_empty()
+    if !playfield_hidden
+        && !gamedata.playfield_material.is_empty()
         && !materials.contains(gamedata.playfield_material.to_lowercase().as_str())
     {
         findings.push(Finding::MissingMaterial {
@@ -2509,6 +2534,63 @@ mod tests {
             }]
         );
         assert_eq!(findings[0].severity(), Severity::Warning);
+    }
+
+    /// A missing playfield image only matters while the playfield renders
+    fn with_playfield_mesh(vpx: &mut VPX, is_visible: bool) {
+        use crate::vpx::gameitem::primitive::Primitive;
+        vpx.gameitems
+            .push(GameItemEnum::Primitive(Box::new(Primitive {
+                name: "playfield_mesh".to_string(),
+                is_visible,
+                ..Primitive::default()
+            })));
+        vpx.gamedata.gameitems_size += 1;
+    }
+
+    fn table_setting_references(findings: Vec<Finding>) -> Vec<Finding> {
+        findings
+            .into_iter()
+            .filter(|f| {
+                matches!(
+                    f,
+                    Finding::MissingImage { item, .. } | Finding::MissingMaterial { item, .. }
+                        if item == "table settings"
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_hidden_playfield_mesh_silences_dangling_playfield_references() {
+        let mut vpx = clean_vpx();
+        vpx.gamedata.image = "NGG PF Scan".to_string();
+        vpx.gamedata.playfield_material = "no_such_material".to_string();
+        with_playfield_mesh(&mut vpx, false);
+        assert_eq!(table_setting_references(audit(&vpx)), vec![]);
+    }
+
+    #[test]
+    fn a_visible_playfield_mesh_renders_the_playfield_references() {
+        let mut vpx = clean_vpx();
+        vpx.gamedata.image = "no_such_image".to_string();
+        vpx.gamedata.playfield_material = "no_such_material".to_string();
+        with_playfield_mesh(&mut vpx, true);
+        assert_eq!(
+            table_setting_references(audit(&vpx)),
+            vec![
+                Finding::MissingImage {
+                    item: "table settings".to_string(),
+                    field: "playfield image",
+                    image: "no_such_image".to_string(),
+                },
+                Finding::MissingMaterial {
+                    item: "table settings".to_string(),
+                    field: "playfield material",
+                    material: "no_such_material".to_string(),
+                },
+            ]
+        );
     }
 
     #[test]
