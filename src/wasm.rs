@@ -5,6 +5,7 @@ use wasm_bindgen::prelude::*;
 use crate::filesystem::{FileSystem, MemoryFileSystem};
 use crate::vpx;
 use crate::vpx::expanded::{ExpandOptions, PrimitiveMeshFormat, read_fs, write_fs};
+use crate::vpx::export::item_filter::ItemFilter;
 use crate::vpx::units::AxisConvention;
 
 thread_local! {
@@ -327,6 +328,29 @@ export interface GlbExportOptions {
      * engines); leave off for Blender. Default: `false`.
      */
     exportInvisibleItems?: boolean;
+    /**
+     * Which items the export includes. `"everything"`: every item type
+     * with geometry, skipping the ones invisible at play time.
+     * `"vpinball"`: what vpinball's own `File -> Export -> OBJ Mesh`
+     * writes (no lights, flashers, decals, plungers or balls). Default:
+     * `"everything"`.
+     */
+    itemFilter?: "everything" | "vpinball";
+    /**
+     * Skip the items whose editor layer is hidden (the `LVIS` record),
+     * like vpinball's own OBJ export does. Opt-in: the record holds the
+     * layer panel state of the last save, and released tables often
+     * have most layers hidden. Default: `false`.
+     */
+    skipEditorHiddenItems?: boolean;
+    /**
+     * Only export the items with these names (case insensitive).
+     */
+    onlyItems?: string[];
+    /**
+     * Skip the items with these names (case insensitive).
+     */
+    excludeItems?: string[];
 }
 "#;
 
@@ -367,9 +391,28 @@ export interface ObjExportOptions {
      */
     extractTextures?: boolean;
     /**
-     * Include the plunger mesh. Default: `true`.
+     * Which items the export includes. `"everything"`: every item type
+     * with geometry, skipping the ones invisible at play time.
+     * `"vpinball"`: what vpinball's own `File -> Export -> OBJ Mesh`
+     * writes (no lights, flashers, decals, plungers or balls). Default:
+     * `"everything"`.
      */
-    includePlunger?: boolean;
+    itemFilter?: "everything" | "vpinball";
+    /**
+     * Skip the items whose editor layer is hidden (the `LVIS` record),
+     * like vpinball's own OBJ export does. Opt-in: the record holds the
+     * layer panel state of the last save, and released tables often
+     * have most layers hidden. Default: `false`.
+     */
+    skipEditorHiddenItems?: boolean;
+    /**
+     * Only export the items with these names (case insensitive).
+     */
+    onlyItems?: string[];
+    /**
+     * Skip the items with these names (case insensitive).
+     */
+    excludeItems?: string[];
 }
 
 /**
@@ -399,7 +442,10 @@ struct ObjExportOptionsData {
     units: Option<crate::vpx::units::ExportUnits>,
     dedup_mtl_blocks: Option<bool>,
     extract_textures: Option<bool>,
-    include_plunger: Option<bool>,
+    item_filter: Option<String>,
+    skip_editor_hidden_items: Option<bool>,
+    only_items: Option<Vec<String>>,
+    exclude_items: Option<Vec<String>>,
 }
 
 /// The `GlbExportOptions` TypeScript interface as seen by serde.
@@ -407,6 +453,42 @@ struct ObjExportOptionsData {
 #[serde(rename_all = "camelCase")]
 struct GlbExportOptionsData {
     export_invisible_items: Option<bool>,
+    item_filter: Option<String>,
+    skip_editor_hidden_items: Option<bool>,
+    only_items: Option<Vec<String>>,
+    exclude_items: Option<Vec<String>>,
+}
+
+/// The item filter the `itemFilter`, `skipEditorHiddenItems`, `onlyItems`
+/// and `excludeItems` options of both exporters select, starting from the
+/// exporter's default.
+fn resolve_item_filter(
+    default: ItemFilter,
+    item_filter: Option<&str>,
+    skip_editor_hidden_items: Option<bool>,
+    only_items: Option<&[String]>,
+    exclude_items: Option<&[String]>,
+) -> Result<ItemFilter, JsError> {
+    let mut filter = match item_filter {
+        None => default,
+        Some("everything") => ItemFilter::everything(),
+        Some("vpinball") => ItemFilter::vpinball_obj_export(),
+        Some(other) => {
+            return Err(JsError::new(&format!(
+                "Invalid options: unknown itemFilter {other:?}, expected \"everything\" or \"vpinball\""
+            )));
+        }
+    };
+    if let Some(skip) = skip_editor_hidden_items {
+        filter = filter.skip_editor_hidden(skip);
+    }
+    if let Some(names) = only_items {
+        filter = filter.only_names(names);
+    }
+    if let Some(names) = exclude_items {
+        filter = filter.exclude_names(names);
+    }
+    Ok(filter)
 }
 
 /// Export a whole table to a GLB (binary glTF 2.0) file.
@@ -462,11 +544,20 @@ pub fn export_glb(
     emit_progress("Exporting GLB...");
     let out_fs = MemoryFileSystem::new();
     let out_path = Path::new("/export/table.glb");
+    let defaults = GltfExportOptions::default();
+    let filter = resolve_item_filter(
+        defaults.filter.clone(),
+        data.item_filter.as_deref(),
+        data.skip_editor_hidden_items,
+        data.only_items.as_deref(),
+        data.exclude_items.as_deref(),
+    )?
+    .include_invisible(data.export_invisible_items.unwrap_or(false));
     let export_options = GltfExportOptions {
         format: GltfFormat::Glb,
-        export_invisible_items: data.export_invisible_items.unwrap_or(false),
+        filter,
         // ExportUnits::M - the canonical glTF unit
-        ..Default::default()
+        ..defaults
     };
     export_gltf(&vpx_data, out_path, &out_fs, &export_options).map_err(|e| {
         set_progress_callback(None);
@@ -501,12 +592,19 @@ pub fn export_obj(
     let js: Option<&JsValue> = options.as_ref().map(|o| o.as_ref());
     let data: ObjExportOptionsData = parse_js_options(js)?;
     let defaults = NativeOptions::default();
+    let filter = resolve_item_filter(
+        defaults.filter.clone(),
+        data.item_filter.as_deref(),
+        data.skip_editor_hidden_items,
+        data.only_items.as_deref(),
+        data.exclude_items.as_deref(),
+    )?;
     let export_options = NativeOptions {
         axes: data.axes.unwrap_or(defaults.axes),
         units: data.units.unwrap_or(defaults.units),
         dedup_mtl_blocks: data.dedup_mtl_blocks.unwrap_or(defaults.dedup_mtl_blocks),
         extract_textures: data.extract_textures.unwrap_or(defaults.extract_textures),
-        include_plunger: data.include_plunger.unwrap_or(defaults.include_plunger),
+        filter,
     };
 
     set_progress_callback(callback.map(Into::into));
@@ -1330,6 +1428,43 @@ mod tests {
             &obj[..obj.len().min(200)]
         );
         assert!(obj.contains("\nv "), "no vertices in obj");
+    }
+
+    #[wasm_bindgen_test]
+    fn test_export_obj_item_filter() {
+        let original_data = include_bytes!("../testdata/completely_blank_table_10_7_4.vpx");
+        let files = extract(original_data, None).expect("Extraction failed");
+        let object_count = |obj: &str| obj.lines().filter(|l| l.starts_with("o ")).count();
+
+        let out =
+            export_obj(files.clone().unchecked_into(), None, None).expect("OBJ export failed");
+        let default_count = object_count(&file_map_text(&out, "table.obj"));
+
+        let options = js_sys::Object::new();
+        js_sys::Reflect::set(
+            &options,
+            &JsValue::from_str("itemFilter"),
+            &JsValue::from_str("vpinball"),
+        )
+        .unwrap();
+        let options: ObjExportOptions = options.unchecked_into();
+        let out = export_obj(files.clone().unchecked_into(), Some(options), None)
+            .expect("OBJ export failed");
+        let vpinball_count = object_count(&file_map_text(&out, "table.obj"));
+        assert!(
+            vpinball_count < default_count,
+            "vpinball ({vpinball_count}) should leave out the lights of the default ({default_count})"
+        );
+
+        let options = js_sys::Object::new();
+        js_sys::Reflect::set(
+            &options,
+            &JsValue::from_str("itemFilter"),
+            &JsValue::from_str("nonsense"),
+        )
+        .unwrap();
+        let options: ObjExportOptions = options.unchecked_into();
+        assert!(export_obj(files, Some(options), None).is_err());
     }
 
     #[wasm_bindgen_test]

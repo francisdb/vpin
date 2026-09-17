@@ -92,6 +92,7 @@
 use crate::filesystem::FileSystem;
 use crate::gltf::GltfMaterialBuilder;
 use crate::vpx;
+use crate::vpx::export::item_filter::ItemFilter;
 use crate::vpx::gamedata::GameDataJson;
 use crate::vpx::gameitem::GameItemEnum;
 use crate::vpx::gameitem::light::Light;
@@ -112,9 +113,9 @@ use crate::vpx::mesh::balls::build_ball_mesh;
 use crate::vpx::mesh::builtin_primitive::effective_primitive_mesh;
 use crate::vpx::mesh::bumpers::build_bumper_meshes;
 use crate::vpx::mesh::flashers::build_flasher_mesh;
-use crate::vpx::mesh::flippers::build_flipper_meshes;
-use crate::vpx::mesh::gates::build_gate_meshes;
-use crate::vpx::mesh::hittargets::build_hit_target_mesh;
+use crate::vpx::mesh::flippers::build_flipper_meshes_unchecked;
+use crate::vpx::mesh::gates::build_gate_meshes_unchecked;
+use crate::vpx::mesh::hittargets::build_hit_target_mesh_unchecked;
 use crate::vpx::mesh::kickers::build_kicker_meshes;
 use crate::vpx::mesh::lights::{build_light_insert_mesh, build_light_meshes};
 use crate::vpx::mesh::playfields::build_playfield_mesh;
@@ -809,12 +810,14 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
     let detail_level = vpx.gamedata.effective_detail_level();
 
     for gameitem in &vpx.gameitems {
+        // The filter decides which items are collected; per part visibility
+        // (wall top/side, bumper parts) stays with the arms below.
+        if !options.filter.includes(gameitem, &vpx.version) {
+            continue;
+        }
         match gameitem {
             GameItemEnum::Primitive(primitive) => {
                 let visible = crate::vpx::compat::primitive_is_visible(primitive, &vpx.version);
-                if !options.export_invisible_items && !visible {
-                    continue;
-                }
                 if let Ok(Some(read_mesh)) = effective_primitive_mesh(primitive) {
                     let (transformed, translation) =
                         transform_primitive_vertices(read_mesh.vertices, primitive, options.units);
@@ -888,19 +891,14 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                 }
             }
             GameItemEnum::Wall(wall) => {
-                if !options.export_invisible_items
-                    && !wall.is_top_bottom_visible
-                    && !wall.is_side_visible
-                {
-                    continue;
-                }
+                let include_invisible = options.filter.includes_invisible();
                 if let Some(wall_meshes) = build_wall_meshes(wall, &table_dims) {
                     let group_info = item_group_info_for(wall);
                     let wall_layer_name = group_info.layer_name.clone();
                     item_groups.push(group_info);
 
                     // Add top mesh
-                    if (options.export_invisible_items || wall.is_top_bottom_visible)
+                    if (include_invisible || wall.is_top_bottom_visible)
                         && let Some((vertices, indices)) = wall_meshes.top
                     {
                         // Top surface: use image (texture) AND top_material (for opacity settings)
@@ -934,7 +932,7 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                     }
 
                     // Add side mesh
-                    if (options.export_invisible_items || wall.is_side_visible)
+                    if (include_invisible || wall.is_side_visible)
                         && let Some((vertices, indices)) = wall_meshes.side
                     {
                         // Side surface: use side_image (texture) AND side_material (for opacity settings)
@@ -969,9 +967,6 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                 }
             }
             GameItemEnum::Ramp(ramp) => {
-                if !options.export_invisible_items && !ramp.is_visible {
-                    continue;
-                }
                 // VPinball's `Ramp::GenerateWireMesh` uses max-precision
                 // wire segments when the material is opaque
                 // (`!mat->m_bOpacityActive`). Look the material up;
@@ -1019,9 +1014,6 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                 }
             }
             GameItemEnum::Rubber(rubber) => {
-                if !options.export_invisible_items && !rubber.is_visible {
-                    continue;
-                }
                 if let Some((vertices, indices, center)) = build_rubber_mesh(rubber, detail_level) {
                     let group_info = item_group_info_for(rubber);
                     let rubber_layer_name = group_info.layer_name.clone();
@@ -1048,9 +1040,6 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                 }
             }
             GameItemEnum::Flasher(flasher) => {
-                if !options.export_invisible_items && !flasher.is_visible {
-                    continue;
-                }
                 if let Some((vertices, indices, center)) = build_flasher_mesh(flasher, &table_dims)
                 {
                     let group_info = item_group_info_for(flasher);
@@ -1087,11 +1076,11 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                 }
             }
             GameItemEnum::Flipper(flipper) => {
-                if !options.export_invisible_items && !flipper.is_visible {
-                    continue;
-                }
+                // The filter has decided; the unchecked builders skip the
+                // visible flag so an included invisible item still gets its
+                // mesh (marked with KHR_node_visibility below).
                 // TODO: get surface height from the table
-                if let Some(flipper_meshes) = build_flipper_meshes(flipper, 0.0) {
+                if let Some(flipper_meshes) = build_flipper_meshes_unchecked(flipper, 0.0) {
                     let group_info = item_group_info_for(flipper);
                     let flipper_layer_name = group_info.layer_name.clone();
                     item_groups.push(group_info);
@@ -1237,9 +1226,6 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                 }
             }
             GameItemEnum::Spinner(spinner) => {
-                if !options.export_invisible_items && !spinner.is_visible {
-                    continue;
-                }
                 let surface_height =
                     get_surface_height(vpx, &spinner.surface, spinner.center.x, spinner.center.y);
                 let spinner_meshes = build_spinner_meshes(spinner);
@@ -1296,10 +1282,7 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                 });
             }
             GameItemEnum::HitTarget(hit_target) => {
-                if !options.export_invisible_items && !hit_target.is_visible {
-                    continue;
-                }
-                if let Some((vertices, indices)) = build_hit_target_mesh(hit_target) {
+                if let Some((vertices, indices)) = build_hit_target_mesh_unchecked(hit_target) {
                     let group_info = item_group_info_for(hit_target);
                     let hit_target_layer_name = group_info.layer_name.clone();
                     item_groups.push(group_info);
@@ -1335,12 +1318,9 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                 }
             }
             GameItemEnum::Gate(gate) => {
-                if !options.export_invisible_items && !gate.is_visible {
-                    continue;
-                }
                 let surface_height =
                     get_surface_height(vpx, &gate.surface, gate.center.x, gate.center.y);
-                if let Some(gate_meshes) = build_gate_meshes(gate) {
+                if let Some(gate_meshes) = build_gate_meshes_unchecked(gate) {
                     let group_info = item_group_info_for(gate);
                     let gate_layer_name = group_info.layer_name.clone();
                     item_groups.push(group_info);
@@ -1398,9 +1378,6 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                 }
             }
             GameItemEnum::Trigger(trigger) => {
-                if !options.export_invisible_items && !trigger.is_visible {
-                    continue;
-                }
                 let surface_height =
                     get_surface_height(vpx, &trigger.surface, trigger.center.x, trigger.center.y);
                 if let Some((vertices, indices)) = build_trigger_mesh(trigger) {
@@ -1435,7 +1412,8 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                 }
             }
             GameItemEnum::Light(light) => {
-                // Skip backglass lights entirely
+                // A backglass light has no playfield geometry, whatever the
+                // filter's backdrop rule says.
                 if light.is_backglass {
                     continue;
                 }
@@ -1555,9 +1533,6 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                 }
             }
             GameItemEnum::Plunger(plunger) => {
-                if !options.export_invisible_items && !plunger.is_visible {
-                    continue;
-                }
                 let surface_height =
                     get_surface_height(vpx, &plunger.surface, plunger.center.x, plunger.center.y);
                 let plunger_meshes = build_plunger_meshes(plunger);
@@ -3032,17 +3007,18 @@ pub enum GltfFormat {
 pub struct GltfExportOptions {
     /// The output format (GLB or glTF)
     pub format: GltfFormat,
-    /// Whether to include invisible items in the export.
+    /// Which game items are exported. See [`ItemFilter`].
     ///
-    /// When `true`, items marked as invisible in the VPX table are still exported
-    /// with the `KHR_node_visibility` extension set to `visible: false`.
-    /// This preserves the full table structure but requires glTF viewer support
-    /// for the extension (e.g., some game engines).
-    ///
-    /// When `false` (default), invisible items are skipped entirely.
-    /// This is recommended for tools like Blender that don't support
-    /// `KHR_node_visibility`.
-    pub export_invisible_items: bool,
+    /// - **default**: [`ItemFilter::everything`], every item type with
+    ///   geometry, skipping the items that are invisible at play time.
+    /// - [`ItemFilter::include_invisible`]: invisible items are exported
+    ///   too, with the `KHR_node_visibility` extension set to
+    ///   `visible: false`. This preserves the full table structure but
+    ///   needs viewer support for the extension (some game engines);
+    ///   Blender does not support it.
+    /// - [`ItemFilter::vpinball_obj_export`]: only what vpinball's own OBJ
+    ///   export would write.
+    pub filter: ItemFilter,
 
     /// Output unit for vertex positions and translations, including the
     /// camera positions and clip planes.
@@ -3063,7 +3039,7 @@ impl Default for GltfExportOptions {
     fn default() -> Self {
         Self {
             format: GltfFormat::default(),
-            export_invisible_items: false,
+            filter: ItemFilter::everything(),
             // Metres has been the implicit unit since this exporter was
             // introduced; keep it as the default to avoid silently
             // rescaling existing pipelines.
@@ -3089,9 +3065,16 @@ impl GltfExportOptions {
         }
     }
 
-    /// Set whether to export invisible items using `KHR_node_visibility`
+    /// Set whether to export invisible items using `KHR_node_visibility`.
+    /// Shorthand for [`ItemFilter::include_invisible`] on the filter.
     pub fn with_export_invisible_items(mut self, export_invisible: bool) -> Self {
-        self.export_invisible_items = export_invisible;
+        self.filter = self.filter.include_invisible(export_invisible);
+        self
+    }
+
+    /// Replace the item filter.
+    pub fn with_filter(mut self, filter: ItemFilter) -> Self {
+        self.filter = filter;
         self
     }
 }
@@ -3210,6 +3193,7 @@ pub fn export_gltf(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vpx::gameitem::flipper::Flipper;
     use crate::vpx::gameitem::primitive::Primitive;
     use crate::vpx::mesh::test_utils::create_minimal_mesh_data;
 
@@ -3514,6 +3498,100 @@ mod tests {
             roughness >= 0.03,
             "roughness should be clamped to minimum 0.03, got {}",
             roughness
+        );
+    }
+
+    fn flipper(name: &str, is_visible: bool) -> GameItemEnum {
+        GameItemEnum::Flipper(Flipper {
+            name: name.to_string(),
+            is_visible,
+            ..Flipper::default()
+        })
+    }
+
+    fn mesh_names(vpx: &VPX, options: &GltfExportOptions) -> Vec<String> {
+        let (meshes, _item_groups) = collect_meshes(vpx, options);
+        meshes.into_iter().map(|m| m.name).collect()
+    }
+
+    #[test]
+    #[cfg(not(target_family = "wasm"))]
+    fn vpinball_filter_leaves_out_lights_and_plunger() {
+        let vpx_path = Path::new("testdata/completely_blank_table_10_7_4.vpx");
+        let vpx = crate::vpx::read(vpx_path).unwrap();
+        let everything = mesh_names(&vpx, &GltfExportOptions::default());
+        assert!(
+            everything.iter().any(|n| n.ends_with("_bulb")),
+            "{everything:?}"
+        );
+        assert!(
+            everything.iter().any(|n| n.starts_with("Plunger")),
+            "{everything:?}"
+        );
+
+        let options = GltfExportOptions::default().with_filter(ItemFilter::vpinball_obj_export());
+        let vpinball = mesh_names(&vpx, &options);
+        assert!(
+            !vpinball.iter().any(|n| n.ends_with("_bulb")),
+            "{vpinball:?}"
+        );
+        assert!(
+            !vpinball.iter().any(|n| n.starts_with("Plunger")),
+            "{vpinball:?}"
+        );
+        for name in &vpinball {
+            assert!(everything.contains(name), "{name} missing from everything");
+        }
+        assert!(vpinball.len() < everything.len());
+    }
+
+    #[test]
+    fn invisible_flipper_is_kept_by_the_vpinball_filter_only() {
+        let mut vpx = VPX::default();
+        vpx.gameitems.push(flipper("Ghost", false));
+
+        let default = mesh_names(&vpx, &GltfExportOptions::default());
+        assert!(
+            !default.iter().any(|n| n.starts_with("Ghost")),
+            "{default:?}"
+        );
+
+        let options = GltfExportOptions::default().with_filter(ItemFilter::vpinball_obj_export());
+        let (meshes, _) = collect_meshes(&vpx, &options);
+        let ghost = meshes.iter().find(|m| m.name.starts_with("Ghost")).unwrap();
+        assert!(!ghost.visible, "kept, but marked invisible");
+    }
+
+    #[test]
+    fn only_names_and_skip_editor_hidden_select_items() {
+        let mut vpx = VPX::default();
+        vpx.gameitems.push(flipper("LeftFlipper", true));
+        let mut right = flipper("RightFlipper", true);
+        right.set_editor_layer_visibility(Some(false));
+        vpx.gameitems.push(right);
+
+        let options = GltfExportOptions::default()
+            .with_filter(ItemFilter::everything().only_names(["RightFlipper"]));
+        let names = mesh_names(&vpx, &options);
+        assert!(
+            names.iter().any(|n| n.starts_with("RightFlipper")),
+            "{names:?}"
+        );
+        assert!(
+            !names.iter().any(|n| n.starts_with("LeftFlipper")),
+            "{names:?}"
+        );
+
+        let options = GltfExportOptions::default()
+            .with_filter(ItemFilter::everything().skip_editor_hidden(true));
+        let names = mesh_names(&vpx, &options);
+        assert!(
+            names.iter().any(|n| n.starts_with("LeftFlipper")),
+            "{names:?}"
+        );
+        assert!(
+            !names.iter().any(|n| n.starts_with("RightFlipper")),
+            "{names:?}"
         );
     }
 }
