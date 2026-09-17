@@ -391,6 +391,21 @@ pub enum Finding {
         /// writes it
         name: String,
     },
+    /// Script level variables the script declares with `Dim`, `Public` or
+    /// `Private` and never names again, not even inside a string handed
+    /// to `Eval` or `Execute`: dead declarations. Constants are left
+    /// alone, and so are the globals the standard scripts read, such as
+    /// `BallSize` or `UseVPMDMD`. Reported once per table
+    UnusedVariables {
+        /// Names of the variables, as the script declares them
+        names: Vec<String>,
+    },
+    /// Variables a sub or function declares with `Dim` and never names in
+    /// its body: dead declarations. Reported once per table
+    UnusedLocalVariables {
+        /// `procedure.variable`, both as the script spells them
+        names: Vec<String>,
+    },
     /// The script uses `Execute`, which runs code built at runtime; vpinball
     /// warns this triggers security checks and can stutter. `ExecuteGlobal`
     /// is not flagged since tables normally use it to load scripts at startup
@@ -482,6 +497,9 @@ impl Finding {
                 script_toggles_prerendering: true,
                 ..
             } => Severity::Info,
+            Finding::UnusedVariables { .. } | Finding::UnusedLocalVariables { .. } => {
+                Severity::Info
+            }
             Finding::UnnamedItems { type_name, .. } if type_name == "Decal" => Severity::Suggestion,
             Finding::LightCannotFade { lit: false, .. } => Severity::Suggestion,
             Finding::ReservedName { reserved, .. } => match reserved {
@@ -781,6 +799,26 @@ impl fmt::Display for Finding {
             Finding::DuplicateProcedure { name } => {
                 write!(f, "script declares {name:?} more than once")
             }
+            Finding::UnusedVariables { names } => write!(
+                f,
+                "script declares {} variables it never uses: {}",
+                names.len(),
+                names
+                    .iter()
+                    .map(|name| format!("{name:?}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Finding::UnusedLocalVariables { names } => write!(
+                f,
+                "script declares {} local variables their procedure never uses: {}",
+                names.len(),
+                names
+                    .iter()
+                    .map(|name| format!("{name:?}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
             Finding::ExecuteUsed => {
                 write!(
                     f,
@@ -3028,7 +3066,8 @@ mod tests {
         let mut vpx = clean_vpx();
         // valid VBScript with Option Explicit so only the line-ending check
         // fires, with a bare LF and a bare CR mixed into the CRLF endings
-        vpx.gamedata.code.string = "Option Explicit\r\nDim x\nDim y\rDim z\r\n".to_string();
+        vpx.gamedata.code.string =
+            "Option Explicit\r\nRandomize\nRandomize\rRandomize\r\n".to_string();
         let findings = audit(&vpx);
         assert_eq!(
             findings,
@@ -3048,7 +3087,7 @@ mod tests {
     #[test]
     fn consistent_lf_line_endings_are_fine() {
         let mut vpx = clean_vpx();
-        vpx.gamedata.code.string = "Option Explicit\nDim x\nDim y\n".to_string();
+        vpx.gamedata.code.string = "Option Explicit\nRandomize\nRandomize\n".to_string();
         assert_eq!(audit(&vpx), vec![]);
     }
 
@@ -3621,9 +3660,62 @@ mod tests {
                             | Finding::TimerWithoutHandler { .. }
                             | Finding::HandlersWithoutItem { .. }
                             | Finding::StaticPrimitiveInScript { .. }
+                            | Finding::UnusedVariables { .. }
+                            | Finding::UnusedLocalVariables { .. }
                     )
                 })
                 .collect()
+        }
+
+        #[test]
+        fn variables_declared_but_never_named_are_reported() {
+            let vpx = scripted(
+                "Dim used, dead, viaEval\nPrivate alsoDead\nDim BallSize\n\
+                 Sub Table1_Init\n    used = Eval(\"viaEval\")\nEnd Sub\n",
+            );
+            let findings = script_findings(&vpx);
+            assert_eq!(
+                findings,
+                vec![Finding::UnusedVariables {
+                    names: vec!["dead".to_string(), "alsoDead".to_string()],
+                }]
+            );
+            assert_eq!(findings[0].severity(), Severity::Info);
+            assert_eq!(
+                findings[0].to_string(),
+                "script declares 2 variables it never uses: \"dead\", \"alsoDead\""
+            );
+        }
+
+        #[test]
+        fn locals_a_procedure_never_names_are_reported() {
+            let vpx = scripted(
+                "Sub Table1_Init\n    Dim x, y\n    x = 1\nEnd Sub\n\
+                 Function Twice(n)\n    Dim tmp\n    Twice = n * 2\nEnd Function\n",
+            );
+            let findings = script_findings(&vpx);
+            assert_eq!(
+                findings,
+                vec![Finding::UnusedLocalVariables {
+                    names: vec!["Table1_Init.y".to_string(), "Twice.tmp".to_string()],
+                }]
+            );
+            assert_eq!(findings[0].severity(), Severity::Info);
+        }
+
+        #[test]
+        fn loop_counters_conditions_case_tests_and_redim_count_as_use() {
+            let vpx = scripted(
+                "Dim i, e, n, c, s, arr()\n\
+                 Sub Table1_Init\n\
+                 \x20   For i = 1 To 3\n    Next\n\
+                 \x20   For Each e In arr\n    Next\n\
+                 \x20   Do While n > 0\n    Loop\n\
+                 \x20   Select Case c\n        Case s\n    End Select\n\
+                 \x20   ReDim arr(2)\n\
+                 End Sub\n",
+            );
+            assert_eq!(script_findings(&vpx), vec![]);
         }
 
         #[test]
@@ -3751,6 +3843,16 @@ mod tests {
                     shadows("Wall2", NameKind::GameItem),
                     shadows("AllLights", NameKind::Collection),
                     shadows("Wall3", NameKind::GameItem),
+                    Finding::UnusedVariables {
+                        names: vec![
+                            "Bumper1".to_string(),
+                            "Free".to_string(),
+                            "Wall2".to_string(),
+                        ],
+                    },
+                    Finding::UnusedLocalVariables {
+                        names: vec!["Table1_Init.Wall4".to_string()],
+                    },
                 ]
             );
         }
@@ -3907,7 +4009,52 @@ mod script {
         /// items handed to core.vbs `vpmBuildEvent` or `InitTimer`, which
         /// build the timer handler at runtime
         built_events: HashSet<String>,
+        /// variables declared at script level, in declaration order
+        variables: Vec<String>,
+        /// the sub or function being scanned, with what it declares and
+        /// names
+        procedure: Option<Procedure>,
+        /// `procedure.variable` for every local a procedure declares and
+        /// never names
+        unused_locals: Vec<String>,
     }
+
+    struct Procedure {
+        name: String,
+        dims: Vec<String>,
+        identifiers: HashSet<String>,
+    }
+
+    /// Table script globals the standard scripts read: core.vbs looks most
+    /// of them up with `Eval`, controller.vbs, B2B.vbs and the machine
+    /// scripts name the rest. A table declares them for those scripts, so
+    /// never naming them again is not dead code
+    const STANDARD_SCRIPT_GLOBALS: [&str; 24] = [
+        "b2bon",
+        "b2scgamename",
+        "b2son",
+        "ballmass",
+        "ballsize",
+        "cgamename",
+        "csinglelflip",
+        "csinglerflip",
+        "gameonsolenoid",
+        "noupperrightflipper",
+        "nvoffset",
+        "scoin",
+        "sflipperoff",
+        "sflipperon",
+        "ssolenoidoff",
+        "ssolenoidon",
+        "uselamps",
+        "usepdbleds",
+        "usesolenoids",
+        "usevpmcoloreddmd",
+        "usevpmdmd",
+        "usevpmmodsol",
+        "usevpmnvram",
+        "vpmballimage",
+    ];
 
     /// The events vpinball fires on script objects, from vpinball.idl
     const EVENTS: [&str; 21] = [
@@ -4027,6 +4174,50 @@ mod script {
             findings.push(Finding::RndWithoutRandomize);
         }
 
+        // declared and never named again, not even inside a string handed
+        // to Eval or Execute: dead declarations
+        let literal_words: HashSet<String> = super::script_literals(&vpx.gamedata.code.string)
+            .iter()
+            .flat_map(|literal| {
+                literal
+                    .text
+                    .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                    .filter(|word| !word.is_empty())
+                    .map(str::to_lowercase)
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        let mut seen: HashSet<String> = HashSet::new();
+        let unused: Vec<String> = scan
+            .variables
+            .iter()
+            .filter(|name| {
+                let lower = name.to_lowercase();
+                seen.insert(lower.clone())
+                    && !scan.identifiers.contains(&lower)
+                    && !literal_words.contains(&lower)
+                    && !STANDARD_SCRIPT_GLOBALS.contains(&lower.as_str())
+            })
+            .cloned()
+            .collect();
+        if !unused.is_empty() {
+            findings.push(Finding::UnusedVariables { names: unused });
+        }
+        let unused_locals: Vec<String> = scan
+            .unused_locals
+            .iter()
+            .filter(|qualified| {
+                let variable = qualified.rsplit('.').next().unwrap_or(qualified);
+                !literal_words.contains(&variable.to_lowercase())
+            })
+            .cloned()
+            .collect();
+        if !unused_locals.is_empty() {
+            findings.push(Finding::UnusedLocalVariables {
+                names: unused_locals,
+            });
+        }
+
         // enabled timers nothing handles, and handlers nothing fires
         let procedures: HashSet<String> = scan
             .procedures
@@ -4119,6 +4310,8 @@ mod script {
                     Item::Variable { vars, .. } => {
                         self.script_level
                             .extend(vars.iter().map(|(name, _)| name.clone()));
+                        self.variables
+                            .extend(vars.iter().map(|(name, _)| name.clone()));
                     }
                 }
             }
@@ -4143,16 +4336,47 @@ mod script {
                             self.procedures.push(name.clone());
                         }
                     }
-                    self.declared.push(qualified);
+                    self.declared.push(qualified.clone());
+                    let outer = self.procedure.replace(Procedure {
+                        name: qualified,
+                        dims: Vec::new(),
+                        identifiers: HashSet::new(),
+                    });
                     self.depth += 1;
                     self.stmts(body);
                     self.depth -= 1;
+                    if let Some(procedure) = self.procedure.take() {
+                        for dim in &procedure.dims {
+                            if !procedure.identifiers.contains(&dim.to_lowercase()) {
+                                self.unused_locals
+                                    .push(format!("{}.{}", procedure.name, dim));
+                            }
+                        }
+                    }
+                    self.procedure = outer;
                 }
                 // a Dim inside a procedure is local, but VBScript hoists
                 // nothing: only script level declarations shadow items
                 Stmt::Dim { vars } if self.current_class.is_none() && self.depth == 0 => {
                     self.script_level
                         .extend(vars.iter().map(|(name, _)| name.clone()));
+                    self.variables
+                        .extend(vars.iter().map(|(name, _)| name.clone()));
+                }
+                Stmt::Dim { vars } => {
+                    if let Some(procedure) = &mut self.procedure {
+                        procedure
+                            .dims
+                            .extend(vars.iter().map(|(name, _)| name.clone()));
+                    }
+                }
+                Stmt::ReDim { var_bounds, .. } => {
+                    for (name, bounds) in var_bounds {
+                        self.ident(name);
+                        for bound in bounds {
+                            self.expr(bound);
+                        }
+                    }
                 }
                 Stmt::Const(values) if self.current_class.is_none() && self.depth == 0 => {
                     self.script_level
@@ -4200,12 +4424,13 @@ mod script {
                     self.stmts(body);
                 }
                 Stmt::ForStmt {
+                    counter,
                     start,
                     end,
                     step,
                     body,
-                    ..
                 } => {
+                    self.ident(counter);
                     self.expr(start);
                     self.expr(end);
                     if let Some(step) = step {
@@ -4213,11 +4438,24 @@ mod script {
                     }
                     self.stmts(body);
                 }
-                Stmt::ForEachStmt { group, body, .. } => {
+                Stmt::ForEachStmt {
+                    element,
+                    group,
+                    body,
+                } => {
+                    self.ident(element);
                     self.expr(group);
                     self.stmts(body);
                 }
-                Stmt::DoLoop { body, .. } => self.stmts(body),
+                Stmt::DoLoop { check, body } => {
+                    use vbscript::parser::ast::{DoLoopCheck, DoLoopCondition};
+                    if let DoLoopCheck::Pre(condition) | DoLoopCheck::Post(condition) = check {
+                        let (DoLoopCondition::While(expr) | DoLoopCondition::Until(expr)) =
+                            condition;
+                        self.expr(expr);
+                    }
+                    self.stmts(body);
+                }
                 Stmt::SelectCase {
                     test_expr,
                     cases,
@@ -4225,6 +4463,9 @@ mod script {
                 } => {
                     self.expr(test_expr);
                     for case in cases {
+                        for test in &case.tests {
+                            self.expr(test);
+                        }
                         self.stmts(&case.body);
                     }
                     if let Some(block) = else_stmt {
@@ -4266,11 +4507,19 @@ mod script {
             self.expr(&fi.0);
         }
 
+        /// A name the script uses, for the script and for the procedure
+        /// being scanned
+        fn ident(&mut self, name: &str) {
+            let lower = name.to_lowercase();
+            if let Some(procedure) = &mut self.procedure {
+                procedure.identifiers.insert(lower.clone());
+            }
+            self.identifiers.insert(lower);
+        }
+
         fn expr(&mut self, expr: &Expr) {
             match expr {
-                Expr::Ident(name) => {
-                    self.identifiers.insert(name.to_lowercase());
-                }
+                Expr::Ident(name) => self.ident(name),
                 Expr::New(name) => {
                     self.identifiers.insert(name.to_lowercase());
                 }
