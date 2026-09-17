@@ -18,6 +18,7 @@ use super::VPX;
 use super::gameitem::GameItemEnum;
 use super::gameitem::light::Fader;
 use crate::vpx::gameitem::MAX_NAME_LENGTH;
+use crate::vpx::gameitem::textbox::TextBox;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
@@ -1038,9 +1039,17 @@ fn check_render_settings(vpx: &VPX, findings: &mut Vec<Finding>) {
     }
 }
 
+/// A textbox flagged as DMD, or whose text contains "DMD" (the VP 10.0
+/// legacy way to flag it), only ever draws the controller's DMD frames.
+/// Its text is never rendered, so vpinball never touches its font
+/// (textbox.cpp)
+fn renders_dmd(textbox: &TextBox) -> bool {
+    textbox.is_dmd == Some(true) || textbox.text.to_uppercase().contains("DMD")
+}
+
 fn check_item_behavior(item: &GameItemEnum, findings: &mut Vec<Finding>) {
     if let GameItemEnum::TextBox(textbox) = item
-        && (textbox.is_dmd == Some(true) || textbox.text.to_uppercase().contains("DMD"))
+        && renders_dmd(textbox)
     {
         findings.push(Finding::TextboxUsedForDmd {
             item: item_label(item),
@@ -1531,6 +1540,7 @@ fn check_font_availability(vpx: &VPX, findings: &mut Vec<Finding>) {
     };
     for item in &vpx.gameitems {
         let font = match item {
+            GameItemEnum::TextBox(textbox) if renders_dmd(textbox) => continue,
             GameItemEnum::TextBox(textbox) => textbox.font.name(),
             GameItemEnum::Decal(decal) => decal.font.name(),
             _ => continue,
@@ -3144,6 +3154,47 @@ mod tests {
         assert_eq!(
             findings[0].to_string(),
             "font \"unused\" (\"Nobody Uses This\") is not used by any textbox or decal and the script does not mention it"
+        );
+    }
+
+    #[test]
+    fn a_dmd_textbox_never_draws_its_font() {
+        use crate::vpx::gameitem::font::Font;
+        use crate::vpx::gameitem::textbox::TextBox;
+        let textbox = |name: &str, text: &str, is_dmd: Option<bool>| {
+            GameItemEnum::TextBox(TextBox {
+                name: name.to_string(),
+                text: text.to_string(),
+                is_dmd,
+                font: Font::new(
+                    0,
+                    Default::default(),
+                    700,
+                    180000,
+                    "Lucida Sans Unicode".to_string(),
+                ),
+                ..TextBox::default()
+            })
+        };
+        let mut vpx = clean_vpx();
+        vpx.collections.clear();
+        vpx.gamedata.collections_size = 0;
+        vpx.gameitems = vec![
+            textbox("ScoreText", "VISUAL PINBALL", Some(true)),
+            textbox("Legacy", "DMD", None),
+            textbox("Credits", "CREDITS 0", None),
+        ];
+        vpx.gamedata.gameitems_size = 3;
+        let fonts: Vec<Finding> = audit(&vpx)
+            .into_iter()
+            .filter(|f| matches!(f, Finding::NonStandardFont { .. }))
+            .collect();
+        assert_eq!(
+            fonts,
+            vec![Finding::NonStandardFont {
+                item: "TextBox \"Credits\"".to_string(),
+                font: "Lucida Sans Unicode".to_string(),
+            }]
         );
     }
 
