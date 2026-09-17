@@ -327,8 +327,11 @@ pub enum Finding {
         item: String,
     },
     /// A primitive is marked static, which bakes it at load, while the
-    /// script refers to it; most of its properties cannot change at
-    /// runtime then (reading them is fine)
+    /// script refers to it. Writes to most of its properties are lost
+    /// once it is baked, which happens on the first frame, after `Init`
+    /// and the startup option event. Reading its properties is fine, and
+    /// a script that sets `DisableStaticPrerendering` before writing
+    /// renders the primitive dynamically from then on, so its writes land
     StaticPrimitiveInScript {
         /// Type and name of the primitive
         item: String,
@@ -720,7 +723,7 @@ impl fmt::Display for Finding {
             }
             Finding::StaticPrimitiveInScript { item } => write!(
                 f,
-                "{item}: is static (baked at load) but the script refers to it; most of its properties cannot change at runtime"
+                "{item}: is static (baked at load) but the script refers to it; writes to most of its properties are lost after the first frame (Init and the startup option event still land) unless the script sets DisableStaticPrerendering first; reading is fine"
             ),
             Finding::LightCannotFade { item, up, down, .. } => {
                 let which = match (up, down) {
