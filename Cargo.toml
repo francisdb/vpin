@@ -27,9 +27,11 @@ exclude = [
 default = ["parallel"]
 parallel = ["rayon"]
 # Script-level audit checks; pulls in the vbscript parser (~8k LOC, no
-# transitive deps). Deliberately not in default or wasm to keep those lean.
+# transitive deps). Not in default to keep the plain library lean; the
+# wasm build has it, so vpx-editor gets the script findings.
 script-audit = ["dep:vbscript"]
 wasm = [
+    "script-audit",
     "wasm-bindgen",
     "js-sys",
     "console_error_panic_hook",
