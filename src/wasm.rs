@@ -53,8 +53,15 @@ export type ProgressCallback = (message: string) => void;
  * One table consistency finding reported by `audit`.
  */
 export type AuditFinding = {
-  severity: "error" | "warning" | "suggestion";
+  severity: "error" | "warning" | "suggestion" | "info";
+  /** The check that produced the finding, in kebab case, e.g. "missing-image" */
+  code: string;
+  /** What is wrong, without the location */
   message: string;
+  /** Script line the finding is about, from 1, when it points at one */
+  line?: number;
+  /** Script column of the first character, from 1, when known */
+  column?: number;
 };
 "#;
 
@@ -192,16 +199,25 @@ fn file_map_to_fs_filtered(
 /// One table consistency finding, see [`crate::vpx::audit`]
 #[derive(serde::Serialize)]
 pub struct AuditFinding {
-    /// "warning" or "suggestion"
+    /// "error", "warning", "suggestion" or "info"
     pub severity: String,
-    /// Human readable description of the finding
+    /// The check that produced the finding, in kebab case
+    pub code: String,
+    /// Human readable description of the finding, without the location
     pub message: String,
+    /// Script line the finding is about, from 1, when it points at one
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<usize>,
+    /// Script column of the first character, from 1, when known
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column: Option<usize>,
 }
 
 /// Checks the expanded table files for consistency problems: references to
 /// images, materials, surfaces or collection items that do not exist,
-/// duplicate or over-long names, and storage suggestions. Returns an array
-/// of `{severity, message}` objects, empty when the table is clean.
+/// duplicate or over-long names, storage suggestions and script checks.
+/// Returns an array of `{severity, code, message, line?, column?}` objects,
+/// empty when the table is clean.
 #[wasm_bindgen]
 pub fn audit(
     files: VpxFileMap,
@@ -228,9 +244,13 @@ pub fn audit(
             severity: match finding.severity() {
                 crate::vpx::audit::Severity::Suggestion => "suggestion".to_string(),
                 crate::vpx::audit::Severity::Error => "error".to_string(),
+                crate::vpx::audit::Severity::Info => "info".to_string(),
                 _ => "warning".to_string(),
             },
-            message: finding.to_string(),
+            code: finding.code().to_string(),
+            message: finding.message().to_string(),
+            line: finding.location().map(|location| location.line),
+            column: finding.location().and_then(|location| location.column),
         })
         .collect();
 
@@ -1253,6 +1273,44 @@ mod tests {
         let value = js_sys::Reflect::get(map, &JsValue::from_str(key)).unwrap();
         let bytes = js_sys::Uint8Array::new(&value).to_vec();
         String::from_utf8(bytes).unwrap()
+    }
+
+    #[wasm_bindgen_test]
+    fn test_audit_reports_codes_and_script_lines() {
+        let original_data = include_bytes!("../testdata/completely_blank_table_10_7_4.vpx");
+        let files = extract(original_data, None).expect("Extraction failed");
+
+        let findings = audit(files, None).expect("audit failed");
+        let findings: js_sys::Array = findings.unchecked_into();
+        assert!(findings.length() > 0);
+        let field = |finding: &JsValue, name: &str| {
+            js_sys::Reflect::get(finding, &JsValue::from_str(name)).unwrap()
+        };
+        for finding in findings.iter() {
+            let code = field(&finding, "code").as_string().unwrap();
+            assert!(
+                !code.is_empty() && code.chars().all(|c| c.is_ascii_lowercase() || c == '-'),
+                "{code}"
+            );
+            assert!(field(&finding, "message").as_string().is_some());
+            assert!(field(&finding, "severity").as_string().is_some());
+        }
+        // the template script draws random numbers without Randomize, a
+        // script check, located at the Rnd call
+        let rnd = findings
+            .iter()
+            .find(|f| field(f, "code").as_string().as_deref() == Some("rnd-without-randomize"))
+            .expect("script checks run in the wasm build");
+        assert_eq!(
+            field(&rnd, "severity").as_string().as_deref(),
+            Some("suggestion")
+        );
+        assert!(field(&rnd, "line").as_f64().is_some_and(|line| line >= 1.0));
+        assert!(
+            field(&rnd, "column")
+                .as_f64()
+                .is_some_and(|column| column >= 1.0)
+        );
     }
 
     #[wasm_bindgen_test]

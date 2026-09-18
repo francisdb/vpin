@@ -25,13 +25,14 @@ use std::fmt;
 /// The sentinel vpinball's editor writes for "no image selected"
 const NONE_SELECTION: &str = "<None>";
 
-/// A single consistency problem found by [`audit`].
+/// The structured form of a finding, one variant per check. Crate
+/// private so that new checks and new fields are not API changes;
+/// [`Finding`] is the flat form [`audit`] returns.
 ///
 /// `item` names the game item carrying the problem, `field` the property
 /// holding the dangling reference.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Finding {
+pub(crate) enum Kind {
     /// A game item or table setting references an image that does not exist
     MissingImage {
         /// Type and name of the game item that carries the reference, such
@@ -333,6 +334,8 @@ pub enum Finding {
     /// a script that sets `DisableStaticPrerendering` before writing
     /// renders the primitive dynamically from then on, so its writes land
     StaticPrimitiveInScript {
+        /// Name of the primitive, what the script mentions
+        name: String,
         /// Type and name of the primitive
         item: String,
         /// The script names `DisableStaticPrerendering`, so its author
@@ -467,42 +470,34 @@ pub enum Severity {
     Error,
 }
 
-impl Finding {
+impl Kind {
     /// How serious this finding is
-    pub fn severity(&self) -> Severity {
+    fn severity(&self) -> Severity {
         match self {
-            Finding::BmpImage { .. }
-            | Finding::LargeScreenshot { .. }
-            | Finding::MixedScriptLineEndings { .. }
-            | Finding::MissingImageWithFallback { .. }
-            | Finding::UnusedFont { .. }
-            | Finding::NonStandardFont { .. }
-            | Finding::DeprecatedTableProperty { .. } => Severity::Suggestion,
-            Finding::DeprecatedControllerProperty { .. } | Finding::HugeMesh { .. } => {
-                Severity::Info
+            Kind::BmpImage { .. }
+            | Kind::LargeScreenshot { .. }
+            | Kind::MixedScriptLineEndings { .. }
+            | Kind::MissingImageWithFallback { .. }
+            | Kind::UnusedFont { .. }
+            | Kind::NonStandardFont { .. }
+            | Kind::DeprecatedTableProperty { .. } => Severity::Suggestion,
+            Kind::DeprecatedControllerProperty { .. } | Kind::HugeMesh { .. } => Severity::Info,
+            Kind::UnusedImage { .. } | Kind::UnusedSound { .. } | Kind::SameAssetData { .. } => {
+                Severity::Suggestion
             }
-            Finding::UnusedImage { .. }
-            | Finding::UnusedSound { .. }
-            | Finding::SameAssetData { .. } => Severity::Suggestion,
-            Finding::UnusedMaterials { .. } => Severity::Info,
-            Finding::ImageDimensionMismatch { .. } => Severity::Info,
-            Finding::NegativeLightIntensity { .. } | Finding::StereoTableSound { .. } => {
-                Severity::Error
-            }
-            Finding::MissingOptionExplicit | Finding::RndWithoutRandomize => Severity::Suggestion,
-            Finding::TimerWithoutHandler { .. } | Finding::HandlersWithoutItem { .. } => {
-                Severity::Info
-            }
-            Finding::StaticPrimitiveInScript {
+            Kind::UnusedMaterials { .. } => Severity::Info,
+            Kind::ImageDimensionMismatch { .. } => Severity::Info,
+            Kind::NegativeLightIntensity { .. } | Kind::StereoTableSound { .. } => Severity::Error,
+            Kind::MissingOptionExplicit | Kind::RndWithoutRandomize => Severity::Suggestion,
+            Kind::TimerWithoutHandler { .. } | Kind::HandlersWithoutItem { .. } => Severity::Info,
+            Kind::StaticPrimitiveInScript {
                 script_toggles_prerendering: true,
                 ..
             } => Severity::Info,
-            Finding::UnusedVariables { .. } | Finding::UnusedLocalVariables { .. } => {
-                Severity::Info
-            }
-            Finding::UnnamedItems { type_name, .. } if type_name == "Decal" => Severity::Suggestion,
-            Finding::LightCannotFade { lit: false, .. } => Severity::Suggestion,
-            Finding::ReservedName { reserved, .. } => match reserved {
+            Kind::UnusedVariables { .. } | Kind::UnusedLocalVariables { .. } => Severity::Info,
+            Kind::UnnamedItems { type_name, .. } if type_name == "Decal" => Severity::Suggestion,
+            Kind::LightCannotFade { lit: false, .. } => Severity::Suggestion,
+            Kind::ReservedName { reserved, .. } => match reserved {
                 ReservedName::VbsKeyword | ReservedName::TableGlobal => Severity::Error,
                 ReservedName::VbsBuiltin => Severity::Warning,
             },
@@ -511,9 +506,9 @@ impl Finding {
     }
 }
 
-/// What a [`Finding::ReservedName`] clashes with
+/// What a [`Kind::ReservedName`] clashes with
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ReservedName {
+pub(crate) enum ReservedName {
     /// A VBScript keyword such as `To` or `Empty`
     VbsKeyword,
     /// A VBScript builtin function or constant such as `Timer` or `Left`
@@ -523,9 +518,9 @@ pub enum ReservedName {
     TableGlobal,
 }
 
-/// What kind of name a [`Finding::DuplicateName`] is about
+/// What kind of name a [`Kind::DuplicateName`] is about
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NameKind {
+pub(crate) enum NameKind {
     /// A name in the table's image list
     Image,
     /// A name in the table's sound list
@@ -550,13 +545,13 @@ impl fmt::Display for NameKind {
     }
 }
 
-impl fmt::Display for Finding {
+impl fmt::Display for Kind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Finding::MissingImage { item, field, image } => {
+            Kind::MissingImage { item, field, image } => {
                 write!(f, "{item}: {field} references missing image {image:?}")
             }
-            Finding::MissingImageWithFallback {
+            Kind::MissingImageWithFallback {
                 field,
                 image,
                 fallback,
@@ -564,11 +559,11 @@ impl fmt::Display for Finding {
                 f,
                 "table settings: {field} references missing image {image:?}, vpinball uses {fallback}"
             ),
-            Finding::MissingColorGradeImage { image } => write!(
+            Kind::MissingColorGradeImage { image } => write!(
                 f,
                 "table settings: color grade image {image:?} does not exist, color grading is silently off"
             ),
-            Finding::MissingMaterial {
+            Kind::MissingMaterial {
                 item,
                 field,
                 material,
@@ -576,19 +571,19 @@ impl fmt::Display for Finding {
                 f,
                 "{item}: {field} references missing material {material:?}"
             ),
-            Finding::MissingSurface { item, surface } => {
+            Kind::MissingSurface { item, surface } => {
                 write!(f, "{item}: placed on missing surface {surface:?}")
             }
-            Finding::MissingPartGroup { item, part_group } => {
+            Kind::MissingPartGroup { item, part_group } => {
                 write!(f, "{item}: belongs to missing part group {part_group:?}")
             }
-            Finding::MissingCollectionItem { collection, item } => {
+            Kind::MissingCollectionItem { collection, item } => {
                 write!(
                     f,
                     "collection {collection:?} contains missing item {item:?}"
                 )
             }
-            Finding::DuplicateName { kind, name, count } => {
+            Kind::DuplicateName { kind, name, count } => {
                 let consequence = match kind {
                     NameKind::Image | NameKind::Sound => "vpinball keeps only the first one",
                     NameKind::GameItem => {
@@ -601,7 +596,7 @@ impl fmt::Display for Finding {
                 };
                 write!(f, "{count} {kind}s share the name {name:?}, {consequence}")
             }
-            Finding::UnnamedItems { type_name, count } => {
+            Kind::UnnamedItems { type_name, count } => {
                 let items = if *count == 1 {
                     "item has"
                 } else {
@@ -614,7 +609,7 @@ impl fmt::Display for Finding {
                 };
                 write!(f, "{count} {type_name} {items} no name, {consequence}")
             }
-            Finding::ReservedName {
+            Kind::ReservedName {
                 kind,
                 name,
                 reserved,
@@ -632,16 +627,16 @@ impl fmt::Display for Finding {
                 };
                 write!(f, "{kind} {name:?} {consequence}")
             }
-            Finding::NameTooLong { item, length } => write!(
+            Kind::NameTooLong { item, length } => write!(
                 f,
                 "{item}: name is {length} characters, vpinball cuts names at {MAX_NAME_LENGTH}"
             ),
-            Finding::MissingTableName => write!(f, "table info has no table name"),
-            Finding::BmpImage { image } => write!(
+            Kind::MissingTableName => write!(f, "table info has no table name"),
+            Kind::BmpImage { image } => write!(
                 f,
                 "image {image:?} is stored as a bitmap, consider converting to webp"
             ),
-            Finding::ColorGradeLutUnusualSize {
+            Kind::ColorGradeLutUnusualSize {
                 image,
                 width,
                 height,
@@ -649,7 +644,7 @@ impl fmt::Display for Finding {
                 f,
                 "color grade image {image:?} is {width}x{height}, the shader expects 256x16"
             ),
-            Finding::MixedScriptLineEndings { crlf, lf, cr } => {
+            Kind::MixedScriptLineEndings { crlf, lf, cr } => {
                 let styles: Vec<String> = [(crlf, "CRLF"), (lf, "LF"), (cr, "CR")]
                     .into_iter()
                     .filter(|(count, _)| **count > 0)
@@ -657,7 +652,7 @@ impl fmt::Display for Finding {
                     .collect();
                 write!(f, "script mixes line endings: {}", styles.join(", "))
             }
-            Finding::HugeMesh {
+            Kind::HugeMesh {
                 item,
                 vertices,
                 indices,
@@ -665,7 +660,7 @@ impl fmt::Display for Finding {
                 f,
                 "{item}: mesh has {vertices} vertices and {indices} indices, in the top thousandth of all primitives"
             ),
-            Finding::ImageDimensionMismatch {
+            Kind::ImageDimensionMismatch {
                 image,
                 stored,
                 actual,
@@ -675,7 +670,7 @@ impl fmt::Display for Finding {
                 stored.0, stored.1, actual.0, actual.1
             ),
 
-            Finding::UnusedFont { font, faces } => write!(
+            Kind::UnusedFont { font, faces } => write!(
                 f,
                 "font {font:?} ({}) is not used by any textbox or decal and the script does not mention it",
                 faces
@@ -684,24 +679,24 @@ impl fmt::Display for Finding {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Finding::NonStandardFont { item, font } => write!(
+            Kind::NonStandardFont { item, font } => write!(
                 f,
                 "{item}: font {font:?} is not embedded in the table and not a core font, so it renders with a substitute where it is not installed (standalone needs it as a .ttf next to the table)"
             ),
-            Finding::DeprecatedControllerProperty { property } => write!(
+            Kind::DeprecatedControllerProperty { property } => write!(
                 f,
                 "script sets the VPinMAME controller property {property}, which the standalone PinMAME plugin ignores"
             ),
-            Finding::DeprecatedTableProperty { property } => write!(
+            Kind::DeprecatedTableProperty { property } => write!(
                 f,
                 "script uses the deprecated table property {property}, which does nothing"
             ),
-            Finding::UnusedImage { image, bytes } => write!(
+            Kind::UnusedImage { image, bytes } => write!(
                 f,
                 "image {image:?} ({} KB) is not used by any item or table setting and the script does not name it",
                 bytes / 1024
             ),
-            Finding::UnusedMaterials { names, total } => write!(
+            Kind::UnusedMaterials { names, total } => write!(
                 f,
                 "{} of {total} materials are not used by any item or the playfield and the script does not name them: {}",
                 names.len(),
@@ -711,10 +706,10 @@ impl fmt::Display for Finding {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Finding::MissingSound { sound } => {
+            Kind::MissingSound { sound } => {
                 write!(f, "script names missing sound {sound:?}")
             }
-            Finding::SameAssetData { kind, names } => write!(
+            Kind::SameAssetData { kind, names } => write!(
                 f,
                 "{} {kind}s hold the same data: {}",
                 names.len(),
@@ -724,44 +719,46 @@ impl fmt::Display for Finding {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Finding::UnusedSound { sound, bytes } => write!(
+            Kind::UnusedSound { sound, bytes } => write!(
                 f,
                 "sound {sound:?} ({} KB) is not named in the script",
                 bytes / 1024
             ),
-            Finding::GlassHeightInvalid { detail } => {
+            Kind::GlassHeightInvalid { detail } => {
                 write!(f, "glass height seems invalid: {detail}")
             }
-            Finding::BallSphericalMapping => write!(
+            Kind::BallSphericalMapping => write!(
                 f,
                 "ball uses legacy spherical mapping, which renders badly in VR, stereo and head tracked setups"
             ),
-            Finding::TextboxUsedForDmd { item } => write!(
+            Kind::TextboxUsedForDmd { item } => write!(
                 f,
                 "{item}: legacy textbox used for DMD rendering, a flasher renders better"
             ),
-            Finding::FastTimer { item, interval } => write!(
+            Kind::FastTimer { item, interval } => write!(
                 f,
                 "{item}: timer fires every {interval}ms, faster than a 60 FPS frame, which causes stutters"
             ),
-            Finding::NegativeLightIntensity { item } => {
+            Kind::NegativeLightIntensity { item } => {
                 write!(f, "{item}: negative light intensity")
             }
-            Finding::StaticPrimitiveInScript {
+            Kind::StaticPrimitiveInScript {
                 item,
                 script_toggles_prerendering: true,
+                ..
             } => write!(
                 f,
                 "{item}: is static (baked at load) and the script refers to it; the script toggles DisableStaticPrerendering, so writes to its properties land while that is set or before the first frame"
             ),
-            Finding::StaticPrimitiveInScript {
+            Kind::StaticPrimitiveInScript {
                 item,
                 script_toggles_prerendering: false,
+                ..
             } => write!(
                 f,
                 "{item}: is static (baked at load) but the script refers to it; writes to most of its properties are lost after the first frame (Init and the startup option event still land) unless the script sets DisableStaticPrerendering first; reading is fine"
             ),
-            Finding::LightCannotFade { item, up, down, .. } => {
+            Kind::LightCannotFade { item, up, down, .. } => {
                 let which = match (up, down) {
                     (Some(up), Some(down)) if up == down => format!("fade speeds are {up}"),
                     (Some(up), Some(down)) => format!("fade speeds are {up} and {down}"),
@@ -771,11 +768,11 @@ impl fmt::Display for Finding {
                 };
                 write!(f, "{item}: {which}, state changes never show")
             }
-            Finding::StereoTableSound { sound } => write!(
+            Kind::StereoTableSound { sound } => write!(
                 f,
                 "sound {sound:?} plays on the playfield speakers but is not mono"
             ),
-            Finding::LargeScreenshot { bytes, png } => {
+            Kind::LargeScreenshot { bytes, png } => {
                 let advice = if *png {
                     "consider converting it to JPEG"
                 } else {
@@ -787,19 +784,19 @@ impl fmt::Display for Finding {
                     *bytes as f64 / 1e6
                 )
             }
-            Finding::ScriptParseError { detail } => {
+            Kind::ScriptParseError { detail } => {
                 write!(f, "script could not be parsed: {detail}")
             }
-            Finding::MissingOptionExplicit => {
+            Kind::MissingOptionExplicit => {
                 write!(
                     f,
                     "script has no 'Option Explicit', typos create silent new variables"
                 )
             }
-            Finding::DuplicateProcedure { name } => {
+            Kind::DuplicateProcedure { name } => {
                 write!(f, "script declares {name:?} more than once")
             }
-            Finding::UnusedVariables { names } => write!(
+            Kind::UnusedVariables { names } => write!(
                 f,
                 "script declares {} variables it never uses: {}",
                 names.len(),
@@ -809,7 +806,7 @@ impl fmt::Display for Finding {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Finding::UnusedLocalVariables { names } => write!(
+            Kind::UnusedLocalVariables { names } => write!(
                 f,
                 "script declares {} local variables their procedure never uses: {}",
                 names.len(),
@@ -819,35 +816,35 @@ impl fmt::Display for Finding {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Finding::ExecuteUsed => {
+            Kind::ExecuteUsed => {
                 write!(
                     f,
                     "script uses Execute, which runs runtime-built code and can stutter"
                 )
             }
-            Finding::MissingPinMameTimer => write!(
+            Kind::MissingPinMameTimer => write!(
                 f,
                 "script uses a VPinMAME controller but the table has no timer named 'PinMAMETimer'"
             ),
-            Finding::MissingVpmInit => {
+            Kind::MissingVpmInit => {
                 write!(
                     f,
                     "script uses a VPinMAME controller but never calls vpmInit"
                 )
             }
-            Finding::ScriptNameShadowsItem { name, kind } => write!(
+            Kind::ScriptNameShadowsItem { name, kind } => write!(
                 f,
                 "script declares {name:?}, which hides the {kind} of that name"
             ),
-            Finding::RndWithoutRandomize => write!(
+            Kind::RndWithoutRandomize => write!(
                 f,
                 "script uses Rnd without Randomize, so every run draws the same numbers"
             ),
-            Finding::MissingPulseTimer => write!(
+            Kind::MissingPulseTimer => write!(
                 f,
                 "script uses 'vpmTimer' but the table has no timer named 'PulseTimer'"
             ),
-            Finding::TimerWithoutHandler { item, interval } => {
+            Kind::TimerWithoutHandler { item, interval } => {
                 write!(f, "timer of {item:?} fires ")?;
                 match interval {
                     -1 => write!(f, "every frame")?,
@@ -855,7 +852,7 @@ impl fmt::Display for Finding {
                 }
                 write!(f, " but the script has no {item}_Timer handler")
             }
-            Finding::HandlersWithoutItem { names } => write!(
+            Kind::HandlersWithoutItem { names } => write!(
                 f,
                 "script has {} event handlers for items that do not exist: {}",
                 names.len(),
@@ -869,11 +866,304 @@ impl fmt::Display for Finding {
     }
 }
 
+/// A place in the table script, counted the way editors do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
+pub struct ScriptLocation {
+    /// Line number, from 1
+    pub line: usize,
+    /// Column of the first character, from 1, counted in characters, when
+    /// known
+    pub column: Option<usize>,
+}
+
+impl fmt::Display for ScriptLocation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.column {
+            Some(column) => write!(f, "script line {}, column {column}", self.line),
+            None => write!(f, "script line {}", self.line),
+        }
+    }
+}
+
+/// A single consistency problem found by [`audit`].
+///
+/// A finding is a severity, a stable code and a message meant to be shown
+/// as is, plus the place in the script it is about when it has one. The
+/// code names the check in kebab case, `missing-image` for instance, and is
+/// what to group or suppress findings by. New checks add codes; they do not
+/// change this type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Finding {
+    severity: Severity,
+    code: &'static str,
+    message: String,
+    location: Option<ScriptLocation>,
+}
+
+impl Finding {
+    /// How serious this finding is
+    pub fn severity(&self) -> Severity {
+        self.severity
+    }
+
+    /// The check that produced this finding, in kebab case, such as
+    /// `missing-image` or `timer-without-handler`
+    pub fn code(&self) -> &'static str {
+        self.code
+    }
+
+    /// What is wrong, in one sentence, without the location
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    /// Where in the script the finding is, for findings about the script
+    /// that point at one place
+    pub fn location(&self) -> Option<ScriptLocation> {
+        self.location
+    }
+}
+
+impl fmt::Display for Finding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.location {
+            Some(location) => write!(f, "{location}: {}", self.message),
+            None => write!(f, "{}", self.message),
+        }
+    }
+}
+
+impl Kind {
+    /// The code of the check, the variant name in kebab case
+    fn code(&self) -> &'static str {
+        match self {
+            Kind::MissingImage { .. } => "missing-image",
+            Kind::MissingImageWithFallback { .. } => "missing-image-with-fallback",
+            Kind::MissingColorGradeImage { .. } => "missing-color-grade-image",
+            Kind::MissingMaterial { .. } => "missing-material",
+            Kind::MissingSurface { .. } => "missing-surface",
+            Kind::MissingPartGroup { .. } => "missing-part-group",
+            Kind::MissingCollectionItem { .. } => "missing-collection-item",
+            Kind::DuplicateName { .. } => "duplicate-name",
+            Kind::NameTooLong { .. } => "name-too-long",
+            Kind::ReservedName { .. } => "reserved-name",
+            Kind::UnnamedItems { .. } => "unnamed-items",
+            Kind::MissingTableName => "missing-table-name",
+            Kind::BmpImage { .. } => "bmp-image",
+            Kind::ColorGradeLutUnusualSize { .. } => "color-grade-lut-unusual-size",
+            Kind::MixedScriptLineEndings { .. } => "mixed-script-line-endings",
+            Kind::UnusedFont { .. } => "unused-font",
+            Kind::NonStandardFont { .. } => "non-standard-font",
+            Kind::DeprecatedTableProperty { .. } => "deprecated-table-property",
+            Kind::DeprecatedControllerProperty { .. } => "deprecated-controller-property",
+            Kind::HugeMesh { .. } => "huge-mesh",
+            Kind::UnusedImage { .. } => "unused-image",
+            Kind::UnusedSound { .. } => "unused-sound",
+            Kind::SameAssetData { .. } => "same-asset-data",
+            Kind::UnusedMaterials { .. } => "unused-materials",
+            Kind::MissingSound { .. } => "missing-sound",
+            Kind::ImageDimensionMismatch { .. } => "image-dimension-mismatch",
+            Kind::GlassHeightInvalid { .. } => "glass-height-invalid",
+            Kind::BallSphericalMapping => "ball-spherical-mapping",
+            Kind::TextboxUsedForDmd { .. } => "textbox-used-for-dmd",
+            Kind::FastTimer { .. } => "fast-timer",
+            Kind::NegativeLightIntensity { .. } => "negative-light-intensity",
+            Kind::StaticPrimitiveInScript { .. } => "static-primitive-in-script",
+            Kind::LightCannotFade { .. } => "light-cannot-fade",
+            Kind::StereoTableSound { .. } => "stereo-table-sound",
+            Kind::LargeScreenshot { .. } => "large-screenshot",
+            Kind::ScriptParseError { .. } => "script-parse-error",
+            Kind::MissingOptionExplicit => "missing-option-explicit",
+            Kind::DuplicateProcedure { .. } => "duplicate-procedure",
+            Kind::UnusedVariables { .. } => "unused-variables",
+            Kind::UnusedLocalVariables { .. } => "unused-local-variables",
+            Kind::ExecuteUsed => "execute-used",
+            Kind::MissingPinMameTimer => "missing-pinmame-timer",
+            Kind::MissingVpmInit => "missing-vpm-init",
+            Kind::MissingPulseTimer => "missing-pulse-timer",
+            Kind::ScriptNameShadowsItem { .. } => "script-name-shadows-item",
+            Kind::RndWithoutRandomize => "rnd-without-randomize",
+            Kind::TimerWithoutHandler { .. } => "timer-without-handler",
+            Kind::HandlersWithoutItem { .. } => "handlers-without-item",
+        }
+    }
+
+    /// The flat form of this finding, with the place in the script it is
+    /// about when it has one
+    fn finding(self, vpx: &VPX) -> Finding {
+        let location = self.locate(&vpx.gamedata.code.string, &vpx.gamedata.name);
+        Finding {
+            severity: self.severity(),
+            code: self.code(),
+            message: self.to_string(),
+            location,
+        }
+    }
+
+    /// Where in the script this finding is about, for the findings that
+    /// point at one place. Findings that list several names carry none.
+    fn locate(&self, script: &str, table_name: &str) -> Option<ScriptLocation> {
+        match self {
+            Kind::ScriptParseError { detail } => parse_error_location(detail),
+            Kind::MixedScriptLineEndings { .. } => line_ending_change(script),
+            Kind::ExecuteUsed => find_word(script, "execute"),
+            Kind::RndWithoutRandomize => find_word(script, "rnd"),
+            Kind::MissingPinMameTimer | Kind::MissingVpmInit => {
+                find_word(script, "loadvpm").or_else(|| find_word(script, "loadvpmalt"))
+            }
+            Kind::MissingPulseTimer => find_word(script, "vpmtimer"),
+            Kind::DuplicateProcedure { name } => {
+                let name = name.rsplit('.').next().unwrap_or(name);
+                let mut declarations = script_matches(script, &format!("sub {name}"), true);
+                declarations.extend(script_matches(script, &format!("function {name}"), true));
+                declarations.sort();
+                declarations.into_iter().nth(1)
+            }
+            Kind::ScriptNameShadowsItem { name, .. } => find_word(script, name),
+            Kind::StaticPrimitiveInScript { name, .. } => find_word(script, name),
+            Kind::DeprecatedTableProperty { property } => {
+                find_word(script, &format!("{table_name}.{property}"))
+            }
+            Kind::DeprecatedControllerProperty { property } => {
+                find_word(script, &format!(".{property}"))
+            }
+            Kind::MissingSound { sound } => script_matches(script, &format!("\"{sound}\""), false)
+                .into_iter()
+                .next()
+                .or_else(|| {
+                    script_matches(script, &format!("\"{sound}"), false)
+                        .into_iter()
+                        .next()
+                }),
+            _ => None,
+        }
+    }
+}
+
+/// The location in a vbscript parse error, whose text reads `ParseError at
+/// line 12, column 4: ...`
+fn parse_error_location(detail: &str) -> Option<ScriptLocation> {
+    let rest = detail.strip_prefix("ParseError at line ")?;
+    let (line, rest) = rest.split_once(", column ")?;
+    let (column, _) = rest.split_once(':')?;
+    Some(ScriptLocation {
+        line: line.trim().parse().ok()?,
+        column: column.trim().parse().ok(),
+    })
+}
+
+/// The first line whose ending differs from the one the script starts with
+fn line_ending_change(script: &str) -> Option<ScriptLocation> {
+    let bytes = script.as_bytes();
+    let mut first: Option<&str> = None;
+    let mut line = 1;
+    let mut i = 0;
+    while i < bytes.len() {
+        let ending = match bytes[i] {
+            b'\r' if bytes.get(i + 1) == Some(&b'\n') => {
+                i += 1;
+                "\r\n"
+            }
+            b'\r' => "\r",
+            b'\n' => "\n",
+            _ => {
+                i += 1;
+                continue;
+            }
+        };
+        match first {
+            None => first = Some(ending),
+            Some(f) if f != ending => {
+                return Some(ScriptLocation { line, column: None });
+            }
+            Some(_) => {}
+        }
+        line += 1;
+        i += 1;
+    }
+    None
+}
+
+/// Where a word first occurs in the code of the script, comments and
+/// string literals excluded, on identifier boundaries
+fn find_word(script: &str, word: &str) -> Option<ScriptLocation> {
+    script_matches(script, word, true).into_iter().next()
+}
+
+/// Every place `needle` occurs in the script, case insensitively, comments
+/// excluded. With `in_code` the string literals are blanked so only code
+/// matches, otherwise the literal text is searched too. A match must stand
+/// on an identifier boundary on each side where the needle itself is an
+/// identifier character.
+fn script_matches(script: &str, needle: &str, in_code: bool) -> Vec<ScriptLocation> {
+    let needle: Vec<char> = needle.to_lowercase().chars().collect();
+    let Some((&first, &last)) = needle.first().zip(needle.last()) else {
+        return Vec::new();
+    };
+    let is_ident = |c: char| c.is_alphanumeric() || c == '_';
+    let mut found = Vec::new();
+    for (index, line) in script.lines().enumerate() {
+        let haystack = searchable_line(line, in_code);
+        if haystack.len() < needle.len() {
+            continue;
+        }
+        for start in 0..=haystack.len() - needle.len() {
+            let end = start + needle.len();
+            if haystack[start..end] != needle[..] {
+                continue;
+            }
+            let bounded_before = !is_ident(first) || start == 0 || !is_ident(haystack[start - 1]);
+            let bounded_after =
+                !is_ident(last) || end == haystack.len() || !is_ident(haystack[end]);
+            if bounded_before && bounded_after {
+                found.push(ScriptLocation {
+                    line: index + 1,
+                    column: Some(start + 1),
+                });
+            }
+        }
+    }
+    found
+}
+
+/// A script line lower cased with its comment cut off and, with
+/// `in_code`, its string literals blanked, keeping every character in
+/// place so columns still count
+fn searchable_line(line: &str, in_code: bool) -> Vec<char> {
+    let mut out = Vec::with_capacity(line.len());
+    let mut in_string = false;
+    for c in line.chars() {
+        match (in_string, c) {
+            (false, '"') => {
+                in_string = true;
+                out.push('"');
+            }
+            (false, '\'') => break,
+            (false, c) => out.push(c.to_ascii_lowercase()),
+            (true, '"') => {
+                in_string = false;
+                out.push('"');
+            }
+            (true, c) => out.push(if in_code { ' ' } else { c.to_ascii_lowercase() }),
+        }
+    }
+    out
+}
+
 /// Checks a table for consistency problems, returning an empty list when
 /// nothing is wrong.
 ///
 /// Name comparisons are case insensitive, like vpinball's own lookups.
 pub fn audit(vpx: &VPX) -> Vec<Finding> {
+    audit_kinds(vpx)
+        .into_iter()
+        .map(|kind| kind.finding(vpx))
+        .collect()
+}
+
+/// The checks, in their structured form
+fn audit_kinds(vpx: &VPX) -> Vec<Kind> {
     let mut findings = Vec::new();
 
     let images = name_set(vpx.images.iter().map(|image| image.name.as_str()));
@@ -901,7 +1191,7 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
         check_part_group(item, &part_groups, &mut findings);
         let name = item.name();
         if name.chars().count() > MAX_NAME_LENGTH {
-            findings.push(Finding::NameTooLong {
+            findings.push(Kind::NameTooLong {
                 item: item_label(item),
                 length: name.chars().count(),
             });
@@ -917,12 +1207,12 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
         }
     }
     for (type_name, count) in unnamed {
-        findings.push(Finding::UnnamedItems { type_name, count });
+        findings.push(Kind::UnnamedItems { type_name, count });
     }
 
     for item in &vpx.gameitems {
         if let Some(reserved) = reserved_name(item.name()) {
-            findings.push(Finding::ReservedName {
+            findings.push(Kind::ReservedName {
                 kind: NameKind::GameItem,
                 name: item.name().to_string(),
                 reserved,
@@ -931,7 +1221,7 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
     }
     for collection in &vpx.collections {
         if let Some(reserved) = reserved_name(&collection.name) {
-            findings.push(Finding::ReservedName {
+            findings.push(Kind::ReservedName {
                 kind: NameKind::Collection,
                 name: collection.name.clone(),
                 reserved,
@@ -941,14 +1231,14 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
 
     for collection in &vpx.collections {
         if collection.name.chars().count() > MAX_NAME_LENGTH {
-            findings.push(Finding::NameTooLong {
+            findings.push(Kind::NameTooLong {
                 item: format!("Collection {:?}", collection.name),
                 length: collection.name.chars().count(),
             });
         }
         for item in &collection.items {
             if !item_names.contains(item.to_lowercase().as_str()) {
-                findings.push(Finding::MissingCollectionItem {
+                findings.push(Kind::MissingCollectionItem {
                     collection: collection.name.clone(),
                     item: item.clone(),
                 });
@@ -1009,19 +1299,19 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
         .as_ref()
         .is_none_or(|name| name.is_empty())
     {
-        findings.push(Finding::MissingTableName);
+        findings.push(Kind::MissingTableName);
     }
 
     for image in &vpx.images {
         if image.bits.is_some() {
-            findings.push(Finding::BmpImage {
+            findings.push(Kind::BmpImage {
                 image: image.name.clone(),
             });
         }
         if let Some(actual) = picture_dimensions(image)
             && actual != (image.width, image.height)
         {
-            findings.push(Finding::ImageDimensionMismatch {
+            findings.push(Kind::ImageDimensionMismatch {
                 image: image.name.clone(),
                 stored: (image.width, image.height),
                 actual,
@@ -1034,13 +1324,13 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
     let lf = script.matches('\n').count() - crlf;
     let cr = script.matches('\r').count() - crlf;
     if [crlf, lf, cr].iter().filter(|count| **count > 0).count() > 1 {
-        findings.push(Finding::MixedScriptLineEndings { crlf, lf, cr });
+        findings.push(Kind::MixedScriptLineEndings { crlf, lf, cr });
     }
 
     if let Some(screenshot) = &vpx.info.screenshot
         && screenshot.len() > LARGE_SCREENSHOT_BYTES
     {
-        findings.push(Finding::LargeScreenshot {
+        findings.push(Kind::LargeScreenshot {
             bytes: screenshot.len(),
             png: screenshot.starts_with(&[0x89, b'P', b'N', b'G']),
         });
@@ -1055,7 +1345,7 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
         if sound.output_target == crate::vpx::sound::OutputTarget::Table
             && sound.wave_form.channels > 1
         {
-            findings.push(Finding::StereoTableSound {
+            findings.push(Kind::StereoTableSound {
                 sound: sound.name.clone(),
             });
         }
@@ -1067,18 +1357,18 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
     findings
 }
 
-/// Screenshots above this size get a [`Finding::LargeScreenshot`]
+/// Screenshots above this size get a [`Kind::LargeScreenshot`]
 const LARGE_SCREENSHOT_BYTES: usize = 1024 * 1024;
 
 /// two inches in vp units (1 VPU = 0.53975 mm)
 const TWO_INCHES_VPU: f32 = 2.0 * 25.4 / 0.539_75;
 
-fn check_render_settings(vpx: &VPX, findings: &mut Vec<Finding>) {
+fn check_render_settings(vpx: &VPX, findings: &mut Vec<Kind>) {
     let gamedata = &vpx.gamedata;
     if let Some(bottom) = gamedata.glass_bottom_height
         && bottom > gamedata.glass_top_height
     {
-        findings.push(Finding::GlassHeightInvalid {
+        findings.push(Kind::GlassHeightInvalid {
             detail: "the bottom is higher than the top",
         });
     }
@@ -1087,14 +1377,14 @@ fn check_render_settings(vpx: &VPX, findings: &mut Vec<Finding>) {
             .glass_bottom_height
             .is_some_and(|bottom| bottom < TWO_INCHES_VPU)
     {
-        findings.push(Finding::GlassHeightInvalid {
+        findings.push(Kind::GlassHeightInvalid {
             detail: "the glass is below two inches",
         });
     }
     // vpinball defaults to the legacy mapping when the field is absent,
     // which is the case for every table saved before 10.8
     if gamedata.ball_spherical_mapping.unwrap_or(true) {
-        findings.push(Finding::BallSphericalMapping);
+        findings.push(Kind::BallSphericalMapping);
     }
 }
 
@@ -1106,18 +1396,18 @@ fn renders_dmd(textbox: &TextBox) -> bool {
     textbox.is_dmd == Some(true) || textbox.text.to_uppercase().contains("DMD")
 }
 
-fn check_item_behavior(item: &GameItemEnum, findings: &mut Vec<Finding>) {
+fn check_item_behavior(item: &GameItemEnum, findings: &mut Vec<Kind>) {
     if let GameItemEnum::TextBox(textbox) = item
         && renders_dmd(textbox)
     {
-        findings.push(Finding::TextboxUsedForDmd {
+        findings.push(Kind::TextboxUsedForDmd {
             item: item_label(item),
         });
     }
     if let GameItemEnum::Light(light) = item
         && light.intensity < 0.0
     {
-        findings.push(Finding::NegativeLightIntensity {
+        findings.push(Kind::NegativeLightIntensity {
             item: item_label(item),
         });
     }
@@ -1140,7 +1430,7 @@ fn check_item_behavior(item: &GameItemEnum, findings: &mut Vec<Finding>) {
         let up = unusable(light.fade_speed_up);
         let down = unusable(light.fade_speed_down);
         if up.is_some() || down.is_some() {
-            findings.push(Finding::LightCannotFade {
+            findings.push(Kind::LightCannotFade {
                 item: item_label(item),
                 up,
                 down,
@@ -1154,7 +1444,7 @@ fn check_item_behavior(item: &GameItemEnum, findings: &mut Vec<Finding>) {
         && timer.interval != -2
         && timer.interval < 17
     {
-        findings.push(Finding::FastTimer {
+        findings.push(Kind::FastTimer {
             item: item_label(item),
             interval: timer.interval,
         });
@@ -1166,12 +1456,12 @@ fn check_item_behavior(item: &GameItemEnum, findings: &mut Vec<Finding>) {
 /// VPW tables
 const HUGE_MESH_VERTICES: u32 = 1_000_000;
 
-fn check_mesh_size(item: &GameItemEnum, findings: &mut Vec<Finding>) {
+fn check_mesh_size(item: &GameItemEnum, findings: &mut Vec<Kind>) {
     if let GameItemEnum::Primitive(primitive) = item
         && let Some(vertices) = primitive.num_vertices
         && vertices > HUGE_MESH_VERTICES
     {
-        findings.push(Finding::HugeMesh {
+        findings.push(Kind::HugeMesh {
             item: item_label(item),
             vertices,
             indices: primitive.num_indices.unwrap_or(0),
@@ -1529,7 +1819,7 @@ fn material_names(vpx: &VPX) -> HashSet<String> {
 fn check_duplicates<'a>(
     names: impl Iterator<Item = &'a str>,
     kind: NameKind,
-    findings: &mut Vec<Finding>,
+    findings: &mut Vec<Kind>,
 ) {
     // the first spelling and how often the name occurs, in first seen order
     let mut seen: Vec<(&str, usize)> = Vec::new();
@@ -1548,7 +1838,7 @@ fn check_duplicates<'a>(
     }
     for (name, count) in seen {
         if count > 1 {
-            findings.push(Finding::DuplicateName {
+            findings.push(Kind::DuplicateName {
                 kind,
                 name: name.to_string(),
                 count,
@@ -1583,7 +1873,7 @@ const CORE_FONTS: &[&str] = &[
 /// Textboxes and decals using a font the table does not embed and that
 /// is not one of the core fonts. A font name is looked up as a family, so
 /// a style suffix such as "Arial Narrow" counts as its family.
-fn check_font_availability(vpx: &VPX, findings: &mut Vec<Finding>) {
+fn check_font_availability(vpx: &VPX, findings: &mut Vec<Kind>) {
     let embedded: HashSet<String> = vpx
         .fonts
         .iter()
@@ -1605,7 +1895,7 @@ fn check_font_availability(vpx: &VPX, findings: &mut Vec<Finding>) {
             _ => continue,
         };
         if !font.is_empty() && !available(font) {
-            findings.push(Finding::NonStandardFont {
+            findings.push(Kind::NonStandardFont {
                 item: item_label(item),
                 font: font.to_string(),
             });
@@ -1616,7 +1906,7 @@ fn check_font_availability(vpx: &VPX, findings: &mut Vec<Finding>) {
 /// An embedded font is registered by the names inside the font file, so
 /// those are what a textbox or decal refers to. A font whose names do not
 /// decode is left alone.
-fn check_fonts(vpx: &VPX, findings: &mut Vec<Finding>) {
+fn check_fonts(vpx: &VPX, findings: &mut Vec<Kind>) {
     if vpx.fonts.is_empty() {
         return;
     }
@@ -1641,7 +1931,7 @@ fn check_fonts(vpx: &VPX, findings: &mut Vec<Finding>) {
             used.contains(&face) || script.contains(&face)
         });
         if !referenced {
-            findings.push(Finding::UnusedFont {
+            findings.push(Kind::UnusedFont {
                 font: font.name.clone(),
                 faces,
             });
@@ -1719,7 +2009,7 @@ fn script_code(script: &str) -> String {
 /// Deprecated properties accessed on the table object, by its name
 /// (`Table1.Inclination`); other objects have properties with some of
 /// these names, so only the table qualified form counts
-fn check_deprecated_properties(vpx: &VPX, findings: &mut Vec<Finding>) {
+fn check_deprecated_properties(vpx: &VPX, findings: &mut Vec<Kind>) {
     let table = vpx.gamedata.name.to_lowercase();
     if table.is_empty() {
         return;
@@ -1745,7 +2035,7 @@ fn check_deprecated_properties(vpx: &VPX, findings: &mut Vec<Finding>) {
                 .find(|known| known.eq_ignore_ascii_case(&property))
             && reported.insert(known)
         {
-            findings.push(Finding::DeprecatedTableProperty {
+            findings.push(Kind::DeprecatedTableProperty {
                 property: (*known).to_string(),
             });
         }
@@ -1756,7 +2046,7 @@ fn check_deprecated_properties(vpx: &VPX, findings: &mut Vec<Finding>) {
 /// Controller properties are set on whatever variable holds the
 /// controller, usually inside `With Controller`, so any `.name` member
 /// access counts; the names are specific to VPinMAME
-fn check_deprecated_controller_properties(vpx: &VPX, findings: &mut Vec<Finding>) {
+fn check_deprecated_controller_properties(vpx: &VPX, findings: &mut Vec<Kind>) {
     let code = script_code(&vpx.gamedata.code.string);
     let mut reported: HashSet<&str> = HashSet::new();
     for word in code.split(|c: char| !c.is_alphanumeric() && c != '_' && c != '.') {
@@ -1768,7 +2058,7 @@ fn check_deprecated_controller_properties(vpx: &VPX, findings: &mut Vec<Finding>
             .find(|known| known.eq_ignore_ascii_case(member))
             && reported.insert(known)
         {
-            findings.push(Finding::DeprecatedControllerProperty {
+            findings.push(Kind::DeprecatedControllerProperty {
                 property: (*known).to_string(),
             });
         }
@@ -1948,7 +2238,7 @@ pub(crate) fn sound_call_literals(script: &str) -> Vec<(String, bool)> {
 }
 
 /// Sounds the script plays or stops by name that the table does not have
-fn check_sound_calls(vpx: &VPX, findings: &mut Vec<Finding>) {
+fn check_sound_calls(vpx: &VPX, findings: &mut Vec<Kind>) {
     let sounds = name_set(vpx.sounds.iter().map(|sound| sound.name.as_str()));
     let mut reported: HashSet<String> = HashSet::new();
     for (name, joined) in sound_call_literals(&vpx.gamedata.code.string) {
@@ -1958,7 +2248,7 @@ fn check_sound_calls(vpx: &VPX, findings: &mut Vec<Finding>) {
             sounds.contains(&name)
         };
         if !name.is_empty() && !exists && reported.insert(name.clone()) {
-            findings.push(Finding::MissingSound { sound: name });
+            findings.push(Kind::MissingSound { sound: name });
         }
     }
 }
@@ -1975,11 +2265,11 @@ fn check_sound_calls(vpx: &VPX, findings: &mut Vec<Finding>) {
 /// finding per table.
 /// Images and sounds stored more than once under different names, by
 /// their encoded bytes; a copy under the same name is a duplicate name
-fn check_same_asset_data(vpx: &VPX, findings: &mut Vec<Finding>) {
+fn check_same_asset_data(vpx: &VPX, findings: &mut Vec<Kind>) {
     fn report<'a>(
         kind: NameKind,
         assets: impl Iterator<Item = (&'a str, &'a [u8])>,
-        findings: &mut Vec<Finding>,
+        findings: &mut Vec<Kind>,
     ) {
         // The names per content, in the order the table lists them. Equal
         // data has equal length and almost every asset in a table has a
@@ -2009,7 +2299,7 @@ fn check_same_asset_data(vpx: &VPX, findings: &mut Vec<Finding>) {
                 }
             }
             if distinct.len() > 1 {
-                findings.push(Finding::SameAssetData {
+                findings.push(Kind::SameAssetData {
                     kind,
                     names: distinct,
                 });
@@ -2037,7 +2327,7 @@ fn check_same_asset_data(vpx: &VPX, findings: &mut Vec<Finding>) {
     );
 }
 
-fn check_unused_assets(vpx: &VPX, findings: &mut Vec<Finding>) {
+fn check_unused_assets(vpx: &VPX, findings: &mut Vec<Kind>) {
     let literals = script_literals(&vpx.gamedata.code.string);
     let gamedata = &vpx.gamedata;
 
@@ -2093,7 +2383,7 @@ fn check_unused_assets(vpx: &VPX, findings: &mut Vec<Finding>) {
                         .map(|bits| bits.lzw_compressed_data.len())
                 })
                 .unwrap_or(0);
-            findings.push(Finding::UnusedImage {
+            findings.push(Kind::UnusedImage {
                 image: image.name.clone(),
                 bytes,
             });
@@ -2101,7 +2391,7 @@ fn check_unused_assets(vpx: &VPX, findings: &mut Vec<Finding>) {
     }
     for sound in &vpx.sounds {
         if !script_names(&literals, &sound.name) {
-            findings.push(Finding::UnusedSound {
+            findings.push(Kind::UnusedSound {
                 sound: sound.name.clone(),
                 bytes: sound.data.len(),
             });
@@ -2123,7 +2413,7 @@ fn check_unused_assets(vpx: &VPX, findings: &mut Vec<Finding>) {
         .map(|name| name.to_string())
         .collect();
     if !unused.is_empty() {
-        findings.push(Finding::UnusedMaterials {
+        findings.push(Kind::UnusedMaterials {
             names: unused,
             total: material_names.len(),
         });
@@ -2160,7 +2450,7 @@ fn check_table_settings(
     vpx: &VPX,
     images: &HashSet<String>,
     materials: &HashSet<String>,
-    findings: &mut Vec<Finding>,
+    findings: &mut Vec<Kind>,
 ) {
     let gamedata = &vpx.gamedata;
     let missing = |image: &str| {
@@ -2196,7 +2486,7 @@ fn check_table_settings(
     ];
     for (field, image) in image_fields {
         if missing(image) {
-            findings.push(Finding::MissingImage {
+            findings.push(Kind::MissingImage {
                 item: "table settings".to_string(),
                 field,
                 image: image.to_string(),
@@ -2219,7 +2509,7 @@ fn check_table_settings(
     ];
     for (field, image, fallback) in fallback_fields {
         if missing(image) {
-            findings.push(Finding::MissingImageWithFallback {
+            findings.push(Kind::MissingImageWithFallback {
                 field,
                 image: image.to_string(),
                 fallback,
@@ -2227,7 +2517,7 @@ fn check_table_settings(
         }
     }
     if missing(&gamedata.image_color_grade) {
-        findings.push(Finding::MissingColorGradeImage {
+        findings.push(Kind::MissingColorGradeImage {
             image: gamedata.image_color_grade.clone(),
         });
     }
@@ -2238,7 +2528,7 @@ fn check_table_settings(
             .find(|image| image.name.to_lowercase() == gamedata.image_color_grade.to_lowercase())
         && (image.width, image.height) != (256, 16)
     {
-        findings.push(Finding::ColorGradeLutUnusualSize {
+        findings.push(Kind::ColorGradeLutUnusualSize {
             image: image.name.clone(),
             width: image.width,
             height: image.height,
@@ -2248,7 +2538,7 @@ fn check_table_settings(
         && !gamedata.playfield_material.is_empty()
         && !materials.contains(gamedata.playfield_material.to_lowercase().as_str())
     {
-        findings.push(Finding::MissingMaterial {
+        findings.push(Kind::MissingMaterial {
             item: "table settings".to_string(),
             field: "playfield material",
             material: gamedata.playfield_material.clone(),
@@ -2256,16 +2546,12 @@ fn check_table_settings(
     }
 }
 
-fn check_part_group(
-    item: &GameItemEnum,
-    part_groups: &HashSet<String>,
-    findings: &mut Vec<Finding>,
-) {
+fn check_part_group(item: &GameItemEnum, part_groups: &HashSet<String>, findings: &mut Vec<Kind>) {
     if let Some(part_group) = item.part_group_name()
         && !part_group.is_empty()
         && !part_groups.contains(part_group.to_lowercase().as_str())
     {
-        findings.push(Finding::MissingPartGroup {
+        findings.push(Kind::MissingPartGroup {
             item: item_label(item),
             part_group: part_group.to_string(),
         });
@@ -2277,7 +2563,7 @@ fn check_item_references(
     images: &HashSet<String>,
     materials: &HashSet<String>,
     surfaces: &HashSet<&str>,
-    findings: &mut Vec<Finding>,
+    findings: &mut Vec<Kind>,
 ) {
     let refs = item_references(item);
     for (field, image) in &refs.images {
@@ -2285,7 +2571,7 @@ fn check_item_references(
             && !image.eq_ignore_ascii_case(NONE_SELECTION)
             && !images.contains(image.to_lowercase().as_str())
         {
-            findings.push(Finding::MissingImage {
+            findings.push(Kind::MissingImage {
                 item: item_label(item),
                 field,
                 image: (*image).to_string(),
@@ -2294,7 +2580,7 @@ fn check_item_references(
     }
     for (field, material) in &refs.materials {
         if !material.is_empty() && !materials.contains(material.to_lowercase().as_str()) {
-            findings.push(Finding::MissingMaterial {
+            findings.push(Kind::MissingMaterial {
                 item: item_label(item),
                 field,
                 material: (*material).to_string(),
@@ -2305,7 +2591,7 @@ fn check_item_references(
         && !surface.is_empty()
         && !surfaces.contains(surface)
     {
-        findings.push(Finding::MissingSurface {
+        findings.push(Kind::MissingSurface {
             item: item_label(item),
             surface: surface.to_string(),
         });
@@ -2515,10 +2801,10 @@ mod tests {
         // and a script that plays the sample table's sounds
         vpx.gamedata.set_code("Option Explicit\r\n".to_string());
         // and materials nothing uses
-        let unused: Vec<String> = audit(&vpx)
+        let unused: Vec<String> = audit_kinds(&vpx)
             .into_iter()
             .find_map(|finding| match finding {
-                Finding::UnusedMaterials { names, .. } => Some(names),
+                Kind::UnusedMaterials { names, .. } => Some(names),
                 _ => None,
             })
             .unwrap_or_default();
@@ -2537,14 +2823,14 @@ mod tests {
 
     #[test]
     fn a_clean_table_has_no_findings() {
-        assert_eq!(audit(&clean_vpx()), Vec::new());
+        assert_eq!(audit_kinds(&clean_vpx()), Vec::new());
     }
 
     #[test]
     fn the_blank_template_has_dangling_default_references() {
         // vpinball's blank template keeps the default image names while the
         // images themselves are only present in the sample table
-        let findings: Vec<Finding> = audit(&blank_vpx())
+        let findings: Vec<Kind> = audit_kinds(&blank_vpx())
             .into_iter()
             // the template's score textbox uses a Windows only font, it carries
             // materials nothing uses and a decal without a name, and its
@@ -2553,40 +2839,40 @@ mod tests {
             .filter(|finding| {
                 !matches!(
                     finding,
-                    Finding::NonStandardFont { .. }
-                        | Finding::RndWithoutRandomize
-                        | Finding::HandlersWithoutItem { .. }
-                        | Finding::UnusedMaterials { .. }
-                        | Finding::MissingSound { .. }
-                        | Finding::UnnamedItems { .. }
+                    Kind::NonStandardFont { .. }
+                        | Kind::RndWithoutRandomize
+                        | Kind::HandlersWithoutItem { .. }
+                        | Kind::UnusedMaterials { .. }
+                        | Kind::MissingSound { .. }
+                        | Kind::UnnamedItems { .. }
                 )
             })
             .collect();
         // 6 dangling references and the image nothing refers to
         assert_eq!(findings.len(), 7, "{findings:#?}");
-        let count = |wanted: fn(&Finding) -> bool| findings.iter().filter(|f| wanted(f)).count();
+        let count = |wanted: fn(&Kind) -> bool| findings.iter().filter(|f| wanted(f)).count();
         // the playfield image is the only one without a fallback
-        assert_eq!(count(|f| matches!(f, Finding::MissingImage { .. })), 1);
+        assert_eq!(count(|f| matches!(f, Kind::MissingImage { .. })), 1);
         assert_eq!(
-            count(|f| matches!(f, Finding::MissingImageWithFallback { .. })),
+            count(|f| matches!(f, Kind::MissingImageWithFallback { .. })),
             3
         );
         assert_eq!(
-            count(|f| matches!(f, Finding::MissingColorGradeImage { .. })),
+            count(|f| matches!(f, Kind::MissingColorGradeImage { .. })),
             1
         );
         // pre 10.8 tables implicitly use the legacy ball mapping
-        assert!(findings.contains(&Finding::BallSphericalMapping));
+        assert!(findings.contains(&Kind::BallSphericalMapping));
     }
 
     #[test]
     fn a_missing_image_reference_is_reported() {
         let mut vpx = clean_vpx();
         vpx.gamedata.image = "no_such_image".to_string();
-        let findings = audit(&vpx);
+        let findings = audit_kinds(&vpx);
         assert_eq!(
             findings,
-            vec![Finding::MissingImage {
+            vec![Kind::MissingImage {
                 item: "table settings".to_string(),
                 field: "playfield image",
                 image: "no_such_image".to_string(),
@@ -2607,13 +2893,13 @@ mod tests {
         vpx.gamedata.gameitems_size += 1;
     }
 
-    fn table_setting_references(findings: Vec<Finding>) -> Vec<Finding> {
+    fn table_setting_references(findings: Vec<Kind>) -> Vec<Kind> {
         findings
             .into_iter()
             .filter(|f| {
                 matches!(
                     f,
-                    Finding::MissingImage { item, .. } | Finding::MissingMaterial { item, .. }
+                    Kind::MissingImage { item, .. } | Kind::MissingMaterial { item, .. }
                         if item == "table settings"
                 )
             })
@@ -2626,7 +2912,7 @@ mod tests {
         vpx.gamedata.image = "NGG PF Scan".to_string();
         vpx.gamedata.playfield_material = "no_such_material".to_string();
         with_playfield_mesh(&mut vpx, false);
-        assert_eq!(table_setting_references(audit(&vpx)), vec![]);
+        assert_eq!(table_setting_references(audit_kinds(&vpx)), vec![]);
     }
 
     #[test]
@@ -2636,14 +2922,14 @@ mod tests {
         vpx.gamedata.playfield_material = "no_such_material".to_string();
         with_playfield_mesh(&mut vpx, true);
         assert_eq!(
-            table_setting_references(audit(&vpx)),
+            table_setting_references(audit_kinds(&vpx)),
             vec![
-                Finding::MissingImage {
+                Kind::MissingImage {
                     item: "table settings".to_string(),
                     field: "playfield image",
                     image: "no_such_image".to_string(),
                 },
-                Finding::MissingMaterial {
+                Kind::MissingMaterial {
                     item: "table settings".to_string(),
                     field: "playfield material",
                     material: "no_such_material".to_string(),
@@ -2656,10 +2942,10 @@ mod tests {
     fn a_missing_image_with_a_built_in_fallback_is_a_suggestion() {
         let mut vpx = clean_vpx();
         vpx.gamedata.ball_image = "no_such_image".to_string();
-        let findings = audit(&vpx);
+        let findings = audit_kinds(&vpx);
         assert_eq!(
             findings,
-            vec![Finding::MissingImageWithFallback {
+            vec![Kind::MissingImageWithFallback {
                 field: "ball image",
                 image: "no_such_image".to_string(),
                 fallback: "its built-in ball image",
@@ -2676,10 +2962,10 @@ mod tests {
     fn a_missing_color_grade_image_is_a_warning() {
         let mut vpx = clean_vpx();
         vpx.gamedata.image_color_grade = "ColorGradeLUT256x16_1to1".to_string();
-        let findings = audit(&vpx);
+        let findings = audit_kinds(&vpx);
         assert_eq!(
             findings,
-            vec![Finding::MissingColorGradeImage {
+            vec![Kind::MissingColorGradeImage {
                 image: "ColorGradeLUT256x16_1to1".to_string(),
             }]
         );
@@ -2695,7 +2981,7 @@ mod tests {
         });
         vpx.gamedata.images_size = 1;
         vpx.gamedata.image = "PLAYFIELD".to_string();
-        assert_eq!(audit(&vpx), Vec::new());
+        assert_eq!(audit_kinds(&vpx), Vec::new());
     }
 
     #[test]
@@ -2708,10 +2994,10 @@ mod tests {
             stop_single_events: false,
             group_elements: false,
         });
-        let findings = audit(&vpx);
+        let findings = audit_kinds(&vpx);
         assert_eq!(
             findings,
-            vec![Finding::MissingCollectionItem {
+            vec![Kind::MissingCollectionItem {
                 collection: "Bumpers".to_string(),
                 item: "Bumper1".to_string(),
             }]
@@ -2727,15 +3013,15 @@ mod tests {
             vpx.gameitems.push(GameItemEnum::Decal(Decal::default()));
         }
         vpx.gameitems.push(GameItemEnum::Wall(Wall::default()));
-        let findings = audit(&vpx);
+        let findings = audit_kinds(&vpx);
         assert_eq!(
             findings,
             vec![
-                Finding::UnnamedItems {
+                Kind::UnnamedItems {
                     type_name: "Decal".to_string(),
                     count: 2,
                 },
-                Finding::UnnamedItems {
+                Kind::UnnamedItems {
                     type_name: "Wall".to_string(),
                     count: 1,
                 },
@@ -2773,15 +3059,15 @@ mod tests {
             stop_single_events: false,
             group_elements: false,
         });
-        let findings = audit(&vpx);
+        let findings = audit_kinds(&vpx);
         assert_eq!(
             findings,
             vec![
-                Finding::NameTooLong {
+                Kind::NameTooLong {
                     item: format!("Wall {:?}", "w".repeat(32)),
                     length: 32,
                 },
-                Finding::NameTooLong {
+                Kind::NameTooLong {
                     item: format!("Collection {:?}", "c".repeat(32)),
                     length: 32,
                 },
@@ -2817,24 +3103,24 @@ mod tests {
             stop_single_events: false,
             group_elements: false,
         });
-        let findings: Vec<Finding> = audit(&vpx)
+        let findings: Vec<Kind> = audit_kinds(&vpx)
             .into_iter()
-            .filter(|finding| matches!(finding, Finding::ReservedName { .. }))
+            .filter(|finding| matches!(finding, Kind::ReservedName { .. }))
             .collect();
         assert_eq!(
             findings,
             vec![
-                Finding::ReservedName {
+                Kind::ReservedName {
                     kind: NameKind::GameItem,
                     name: "Timer".to_string(),
                     reserved: ReservedName::VbsBuiltin,
                 },
-                Finding::ReservedName {
+                Kind::ReservedName {
                     kind: NameKind::GameItem,
                     name: "TO".to_string(),
                     reserved: ReservedName::VbsKeyword,
                 },
-                Finding::ReservedName {
+                Kind::ReservedName {
                     kind: NameKind::Collection,
                     name: "GetBalls".to_string(),
                     reserved: ReservedName::TableGlobal,
@@ -2881,13 +3167,13 @@ mod tests {
         // the script names them so nothing is unused
         vpx.gamedata.code.string =
             "PlaySound \"x\": a = \"flash_a\" & \"flash_b\" & \"other\" & \"longer\"".to_string();
-        let findings: Vec<Finding> = audit(&vpx)
+        let findings: Vec<Kind> = audit_kinds(&vpx)
             .into_iter()
-            .filter(|finding| matches!(finding, Finding::SameAssetData { .. }))
+            .filter(|finding| matches!(finding, Kind::SameAssetData { .. }))
             .collect();
         assert_eq!(
             findings,
-            vec![Finding::SameAssetData {
+            vec![Kind::SameAssetData {
                 kind: NameKind::Image,
                 names: vec!["flash_a".to_string(), "flash_b".to_string()],
             }]
@@ -2910,10 +3196,10 @@ mod tests {
         }
         // the duplicates are referenced so only the duplicate is reported
         vpx.gamedata.image = "ding".to_string();
-        let findings = audit(&vpx);
+        let findings = audit_kinds(&vpx);
         assert_eq!(
             findings,
-            vec![Finding::DuplicateName {
+            vec![Kind::DuplicateName {
                 kind: NameKind::Image,
                 name: "ding".to_string(),
                 count: 3,
@@ -2949,13 +3235,13 @@ mod tests {
                 })
                 .collect(),
         );
-        let findings: Vec<Finding> = audit(&vpx)
+        let findings: Vec<Kind> = audit_kinds(&vpx)
             .into_iter()
-            .filter(|finding| matches!(finding, Finding::DuplicateName { .. }))
+            .filter(|finding| matches!(finding, Kind::DuplicateName { .. }))
             .collect();
         assert_eq!(
             findings,
-            vec![Finding::DuplicateName {
+            vec![Kind::DuplicateName {
                 kind: NameKind::Material,
                 name: "Apron".to_string(),
                 count: 2,
@@ -2968,9 +3254,9 @@ mod tests {
 
         // a table from before 10.8 only has the old list
         vpx.gamedata.materials = None;
-        let findings: Vec<Finding> = audit(&vpx)
+        let findings: Vec<Kind> = audit_kinds(&vpx)
             .into_iter()
-            .filter(|finding| matches!(finding, Finding::DuplicateName { .. }))
+            .filter(|finding| matches!(finding, Kind::DuplicateName { .. }))
             .collect();
         assert_eq!(findings.len(), 1);
     }
@@ -2981,10 +3267,10 @@ mod tests {
         let mut screenshot = vec![0u8; 2 * 1024 * 1024];
         screenshot[..4].copy_from_slice(&[0x89, b'P', b'N', b'G']);
         vpx.info.screenshot = Some(screenshot);
-        let findings = audit(&vpx);
+        let findings = audit_kinds(&vpx);
         assert_eq!(
             findings,
-            vec![Finding::LargeScreenshot {
+            vec![Kind::LargeScreenshot {
                 bytes: 2 * 1024 * 1024,
                 png: true,
             }]
@@ -3002,10 +3288,10 @@ mod tests {
             ..Default::default()
         });
         vpx.gamedata.image_color_grade = "LUT".to_string();
-        let findings = audit(&vpx);
+        let findings = audit_kinds(&vpx);
         assert_eq!(
             findings,
-            vec![Finding::ColorGradeLutUnusualSize {
+            vec![Kind::ColorGradeLutUnusualSize {
                 image: "lut".to_string(),
                 width: 512,
                 height: 512,
@@ -3025,12 +3311,9 @@ mod tests {
         vpx.add_game_item(crate::vpx::gameitem::GameItemEnum::Flasher(flasher));
         vpx.gamedata
             .set_code("Option Explicit\r\nSub F1_Timer\r\nEnd Sub\r\n".to_string());
-        let findings = audit(&vpx);
+        let findings = audit_kinds(&vpx);
         assert_eq!(findings.len(), 1, "{findings:#?}");
-        assert!(matches!(
-            &findings[0],
-            Finding::FastTimer { interval: 5, .. }
-        ));
+        assert!(matches!(&findings[0], Kind::FastTimer { interval: 5, .. }));
     }
 
     #[test]
@@ -3042,7 +3325,7 @@ mod tests {
             ..Default::default()
         };
         vpx.add_game_item(crate::vpx::gameitem::GameItemEnum::Light(light));
-        let findings = audit(&vpx);
+        let findings = audit_kinds(&vpx);
         assert_eq!(findings.len(), 1, "{findings:#?}");
         assert_eq!(findings[0].severity(), Severity::Error);
     }
@@ -3052,10 +3335,10 @@ mod tests {
         let mut vpx = clean_vpx();
         vpx.gamedata.glass_top_height = 200.0;
         vpx.gamedata.glass_bottom_height = Some(300.0);
-        let findings = audit(&vpx);
+        let findings = audit_kinds(&vpx);
         assert_eq!(
             findings,
-            vec![Finding::GlassHeightInvalid {
+            vec![Kind::GlassHeightInvalid {
                 detail: "the bottom is higher than the top",
             }]
         );
@@ -3068,10 +3351,10 @@ mod tests {
         // fires, with a bare LF and a bare CR mixed into the CRLF endings
         vpx.gamedata.code.string =
             "Option Explicit\r\nRandomize\nRandomize\rRandomize\r\n".to_string();
-        let findings = audit(&vpx);
+        let findings = audit_kinds(&vpx);
         assert_eq!(
             findings,
-            vec![Finding::MixedScriptLineEndings {
+            vec![Kind::MixedScriptLineEndings {
                 crlf: 2,
                 lf: 1,
                 cr: 1
@@ -3088,7 +3371,7 @@ mod tests {
     fn consistent_lf_line_endings_are_fine() {
         let mut vpx = clean_vpx();
         vpx.gamedata.code.string = "Option Explicit\nRandomize\nRandomize\n".to_string();
-        assert_eq!(audit(&vpx), vec![]);
+        assert_eq!(audit_kinds(&vpx), vec![]);
     }
 
     #[test]
@@ -3113,13 +3396,13 @@ mod tests {
         ];
         vpx.gamedata.gameitems_size = 2;
         // replacing every item leaves the template's materials unused
-        let findings: Vec<Finding> = audit(&vpx)
+        let findings: Vec<Kind> = audit_kinds(&vpx)
             .into_iter()
-            .filter(|finding| !matches!(finding, Finding::UnusedMaterials { .. }))
+            .filter(|finding| !matches!(finding, Kind::UnusedMaterials { .. }))
             .collect();
         assert_eq!(
             findings,
-            vec![Finding::HugeMesh {
+            vec![Kind::HugeMesh {
                 item: "Primitive \"Bake\"".to_string(),
                 vertices: 2_000_000,
                 indices: 2_100_000,
@@ -3156,14 +3439,14 @@ mod tests {
         vpx.gamedata.images_size = 2;
         vpx.gamedata.image = "right".to_string();
         vpx.gamedata.ball_image = "resized".to_string();
-        let findings = audit(&vpx)
+        let findings = audit_kinds(&vpx)
             .into_iter()
             // the fixtures reuse one payload for several names
-            .filter(|finding| !matches!(finding, Finding::SameAssetData { .. }))
+            .filter(|finding| !matches!(finding, Kind::SameAssetData { .. }))
             .collect::<Vec<_>>();
         assert_eq!(
             findings,
-            vec![Finding::ImageDimensionMismatch {
+            vec![Kind::ImageDimensionMismatch {
                 image: "resized".to_string(),
                 stored: (8, 8),
                 actual: (2, 3),
@@ -3203,9 +3486,9 @@ mod tests {
             .push(lit("dark", Some(Fader::Linear), 0.0, 0.0, 0.0));
         vpx.gamedata.gameitems_size = vpx.gameitems.len() as u32;
         // replacing every item leaves the template's materials unused
-        let findings: Vec<Finding> = audit(&vpx)
+        let findings: Vec<Kind> = audit_kinds(&vpx)
             .into_iter()
-            .filter(|finding| !matches!(finding, Finding::UnusedMaterials { .. }))
+            .filter(|finding| !matches!(finding, Kind::UnusedMaterials { .. }))
             .collect();
         let messages: Vec<(String, Severity)> = findings
             .iter()
@@ -3235,7 +3518,7 @@ mod tests {
         );
         assert_eq!(
             findings[0],
-            Finding::LightCannotFade {
+            Kind::LightCannotFade {
                 item: "Light \"stuck\"".to_string(),
                 up: Some("0".to_string()),
                 down: Some("0".to_string()),
@@ -3284,10 +3567,10 @@ mod tests {
             "Option Explicit\r\n' FlexDMD.NewFont(\"Emerald Beacon Italic\", 1)\r\n".to_string(),
         );
 
-        let findings = audit(&vpx);
+        let findings = audit_kinds(&vpx);
         assert_eq!(
             findings,
-            vec![Finding::UnusedFont {
+            vec![Kind::UnusedFont {
                 font: "unused".to_string(),
                 faces: vec!["Nobody Uses This".to_string()],
             }]
@@ -3327,13 +3610,13 @@ mod tests {
             textbox("Credits", "CREDITS 0", None),
         ];
         vpx.gamedata.gameitems_size = 3;
-        let fonts: Vec<Finding> = audit(&vpx)
+        let fonts: Vec<Kind> = audit_kinds(&vpx)
             .into_iter()
-            .filter(|f| matches!(f, Finding::NonStandardFont { .. }))
+            .filter(|f| matches!(f, Kind::NonStandardFont { .. }))
             .collect();
         assert_eq!(
             fonts,
-            vec![Finding::NonStandardFont {
+            vec![Kind::NonStandardFont {
                 item: "TextBox \"Credits\"".to_string(),
                 font: "Lucida Sans Unicode".to_string(),
             }]
@@ -3375,15 +3658,15 @@ mod tests {
         vpx.gamedata.materials_physics_old = None;
         vpx.gamedata.materials_size = 0;
         vpx.gamedata.playfield_material.clear();
-        let findings = audit(&vpx);
+        let findings = audit_kinds(&vpx);
         assert_eq!(
             findings,
             vec![
-                Finding::NonStandardFont {
+                Kind::NonStandardFont {
                     item: "TextBox \"Windows\"".to_string(),
                     font: "Segoe UI".to_string(),
                 },
-                Finding::NonStandardFont {
+                Kind::NonStandardFont {
                     item: "TextBox \"Custom\"".to_string(),
                     font: "Bebas Neue".to_string(),
                 },
@@ -3401,12 +3684,12 @@ mod tests {
                 .to_string(),
         );
         assert_eq!(
-            audit(&vpx),
+            audit_kinds(&vpx),
             vec![
-                Finding::DeprecatedTableProperty {
+                Kind::DeprecatedTableProperty {
                     property: "Inclination".to_string(),
                 },
-                Finding::DeprecatedTableProperty {
+                Kind::DeprecatedTableProperty {
                     property: "Layback".to_string(),
                 },
             ]
@@ -3420,20 +3703,20 @@ mod tests {
             "Option Explicit\r\nWith Controller\r\n    .ShowTitle = False\r\n    .ShowDMDOnly = 1 : .ShowFrame = 0\r\n    .HandleKeyboard = 0\r\n    .Run\r\nEnd With\r\n' .ShowTitle in a comment\r\nx = \"ShowTitle\"\r\n"
                 .to_string(),
         );
-        let findings = audit(&vpx);
+        let findings = audit_kinds(&vpx);
         assert_eq!(
             findings,
             vec![
-                Finding::DeprecatedControllerProperty {
+                Kind::DeprecatedControllerProperty {
                     property: "ShowTitle".to_string(),
                 },
-                Finding::DeprecatedControllerProperty {
+                Kind::DeprecatedControllerProperty {
                     property: "ShowDMDOnly".to_string(),
                 },
-                Finding::DeprecatedControllerProperty {
+                Kind::DeprecatedControllerProperty {
                     property: "ShowFrame".to_string(),
                 },
-                Finding::DeprecatedControllerProperty {
+                Kind::DeprecatedControllerProperty {
                     property: "HandleKeyboard".to_string(),
                 },
             ]
@@ -3523,12 +3806,12 @@ mod tests {
                 .to_string(),
         );
         assert_eq!(
-            audit(&vpx),
+            audit_kinds(&vpx),
             vec![
-                Finding::MissingSound {
+                Kind::MissingSound {
                     sound: "fx_gone".to_string(),
                 },
-                Finding::MissingSound {
+                Kind::MissingSound {
                     sound: "fx_roll".to_string(),
                 },
             ]
@@ -3595,23 +3878,23 @@ mod tests {
                 .to_string(),
         );
 
-        let findings = audit(&vpx)
+        let findings = audit_kinds(&vpx)
             .into_iter()
             // the fixtures reuse one payload for several names
-            .filter(|finding| !matches!(finding, Finding::SameAssetData { .. }))
+            .filter(|finding| !matches!(finding, Kind::SameAssetData { .. }))
             .collect::<Vec<_>>();
         assert_eq!(
             findings,
             vec![
-                Finding::UnusedImage {
+                Kind::UnusedImage {
                     image: "orphan".to_string(),
                     bytes: 0,
                 },
-                Finding::UnusedSound {
+                Kind::UnusedSound {
                     sound: "fx_unused".to_string(),
                     bytes: 2048,
                 },
-                Finding::UnusedMaterials {
+                Kind::UnusedMaterials {
                     names: vec!["Forgotten".to_string(), "Spare".to_string()],
                     total: 4,
                 },
@@ -3642,26 +3925,26 @@ mod tests {
             vpx
         }
 
-        fn script_findings(vpx: &VPX) -> Vec<Finding> {
-            audit(vpx)
+        fn script_findings(vpx: &VPX) -> Vec<Kind> {
+            audit_kinds(vpx)
                 .into_iter()
                 .filter(|f| {
                     matches!(
                         f,
-                        Finding::ScriptParseError { .. }
-                            | Finding::MissingOptionExplicit
-                            | Finding::DuplicateProcedure { .. }
-                            | Finding::ExecuteUsed
-                            | Finding::MissingPinMameTimer
-                            | Finding::MissingVpmInit
-                            | Finding::MissingPulseTimer
-                            | Finding::ScriptNameShadowsItem { .. }
-                            | Finding::RndWithoutRandomize
-                            | Finding::TimerWithoutHandler { .. }
-                            | Finding::HandlersWithoutItem { .. }
-                            | Finding::StaticPrimitiveInScript { .. }
-                            | Finding::UnusedVariables { .. }
-                            | Finding::UnusedLocalVariables { .. }
+                        Kind::ScriptParseError { .. }
+                            | Kind::MissingOptionExplicit
+                            | Kind::DuplicateProcedure { .. }
+                            | Kind::ExecuteUsed
+                            | Kind::MissingPinMameTimer
+                            | Kind::MissingVpmInit
+                            | Kind::MissingPulseTimer
+                            | Kind::ScriptNameShadowsItem { .. }
+                            | Kind::RndWithoutRandomize
+                            | Kind::TimerWithoutHandler { .. }
+                            | Kind::HandlersWithoutItem { .. }
+                            | Kind::StaticPrimitiveInScript { .. }
+                            | Kind::UnusedVariables { .. }
+                            | Kind::UnusedLocalVariables { .. }
                     )
                 })
                 .collect()
@@ -3676,7 +3959,7 @@ mod tests {
             let findings = script_findings(&vpx);
             assert_eq!(
                 findings,
-                vec![Finding::UnusedVariables {
+                vec![Kind::UnusedVariables {
                     names: vec!["dead".to_string(), "alsoDead".to_string()],
                 }]
             );
@@ -3696,7 +3979,7 @@ mod tests {
             let findings = script_findings(&vpx);
             assert_eq!(
                 findings,
-                vec![Finding::UnusedLocalVariables {
+                vec![Kind::UnusedLocalVariables {
                     names: vec!["Table1_Init.y".to_string(), "Twice.tmp".to_string()],
                 }]
             );
@@ -3758,11 +4041,11 @@ mod tests {
             assert_eq!(
                 findings,
                 vec![
-                    Finding::TimerWithoutHandler {
+                    Kind::TimerWithoutHandler {
                         item: "Orphan".to_string(),
                         interval: -1,
                     },
-                    Finding::TimerWithoutHandler {
+                    Kind::TimerWithoutHandler {
                         item: "Lonely".to_string(),
                         interval: 250,
                     },
@@ -3797,7 +4080,7 @@ mod tests {
             let findings = script_findings(&vpx);
             assert_eq!(
                 findings,
-                vec![Finding::HandlersWithoutItem {
+                vec![Kind::HandlersWithoutItem {
                     names: vec!["Arch1_Hit".to_string(), "TBWR_Timer".to_string()],
                 }]
             );
@@ -3831,7 +4114,7 @@ mod tests {
                 group_elements: false,
             });
             vpx.gamedata.collections_size = vpx.collections.len() as u32;
-            let shadows = |name: &str, kind: NameKind| Finding::ScriptNameShadowsItem {
+            let shadows = |name: &str, kind: NameKind| Kind::ScriptNameShadowsItem {
                 name: name.to_string(),
                 kind,
             };
@@ -3843,14 +4126,14 @@ mod tests {
                     shadows("Wall2", NameKind::GameItem),
                     shadows("AllLights", NameKind::Collection),
                     shadows("Wall3", NameKind::GameItem),
-                    Finding::UnusedVariables {
+                    Kind::UnusedVariables {
                         names: vec![
                             "Bumper1".to_string(),
                             "Free".to_string(),
                             "Wall2".to_string(),
                         ],
                     },
-                    Finding::UnusedLocalVariables {
+                    Kind::UnusedLocalVariables {
                         names: vec!["Table1_Init.Wall4".to_string()],
                     },
                 ]
@@ -3860,11 +4143,8 @@ mod tests {
         #[test]
         fn rnd_without_randomize_is_a_suggestion() {
             let vpx = scripted("Sub Table1_Init\n    x = Rnd * 10\nEnd Sub\n");
-            assert_eq!(script_findings(&vpx), vec![Finding::RndWithoutRandomize]);
-            assert_eq!(
-                Finding::RndWithoutRandomize.severity(),
-                Severity::Suggestion
-            );
+            assert_eq!(script_findings(&vpx), vec![Kind::RndWithoutRandomize]);
+            assert_eq!(Kind::RndWithoutRandomize.severity(), Severity::Suggestion);
             let vpx = scripted("Randomize\nSub Table1_Init\n    x = Rnd * 10\nEnd Sub\n");
             assert_eq!(script_findings(&vpx), vec![]);
         }
@@ -3889,7 +4169,8 @@ mod tests {
             let findings = script_findings(&vpx);
             assert_eq!(
                 findings,
-                vec![Finding::StaticPrimitiveInScript {
+                vec![Kind::StaticPrimitiveInScript {
+                    name: "Baked".to_string(),
                     item: "Primitive \"Baked\"".to_string(),
                     script_toggles_prerendering: false,
                 }]
@@ -3913,7 +4194,8 @@ mod tests {
             let findings = script_findings(&vpx);
             assert_eq!(
                 findings,
-                vec![Finding::StaticPrimitiveInScript {
+                vec![Kind::StaticPrimitiveInScript {
+                    name: "Baked".to_string(),
                     item: "Primitive \"Baked\"".to_string(),
                     script_toggles_prerendering: true,
                 }]
@@ -3936,7 +4218,7 @@ mod tests {
             let mut vpx = clean_vpx();
             vpx.gamedata.code.string = "Sub Foo()\r\nEnd Sub\r\n".to_string();
             let findings = script_findings(&vpx);
-            assert_eq!(findings, vec![Finding::MissingOptionExplicit]);
+            assert_eq!(findings, vec![Kind::MissingOptionExplicit]);
             assert_eq!(findings[0].severity(), Severity::Suggestion);
         }
 
@@ -3945,7 +4227,7 @@ mod tests {
             let vpx = scripted("Sub Foo()\nEnd Sub\nSub Foo()\nEnd Sub\n");
             assert_eq!(
                 script_findings(&vpx),
-                vec![Finding::DuplicateProcedure {
+                vec![Kind::DuplicateProcedure {
                     name: "Foo".to_string()
                 }]
             );
@@ -3962,7 +4244,7 @@ mod tests {
         #[test]
         fn execute_is_flagged_but_execute_global_is_not() {
             let executed = scripted("Execute \"x = 1\"\n");
-            assert_eq!(script_findings(&executed), vec![Finding::ExecuteUsed]);
+            assert_eq!(script_findings(&executed), vec![Kind::ExecuteUsed]);
             let global = scripted("ExecuteGlobal \"x = 1\"\n");
             assert_eq!(script_findings(&global), Vec::new());
         }
@@ -3973,14 +4255,209 @@ mod tests {
             vpx.gamedata.code.string = "Sub Foo(\r\n".to_string();
             let findings = script_findings(&vpx);
             assert_eq!(findings.len(), 1, "{findings:#?}");
-            assert!(matches!(findings[0], Finding::ScriptParseError { .. }));
+            assert!(matches!(findings[0], Kind::ScriptParseError { .. }));
         }
+    }
+}
+
+#[cfg(test)]
+mod finding_tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    fn at(line: usize, column: usize) -> Option<ScriptLocation> {
+        Some(ScriptLocation {
+            line,
+            column: Some(column),
+        })
+    }
+
+    #[test]
+    fn a_finding_is_a_severity_a_code_a_message_and_a_location() {
+        let mut vpx = VPX::default();
+        vpx.gamedata.code.string = "Option Explicit\r\nDim x\r\nx = Rnd\r\n".to_string();
+        let finding = Kind::RndWithoutRandomize.finding(&vpx);
+        assert_eq!(finding.severity(), Severity::Suggestion);
+        assert_eq!(finding.code(), "rnd-without-randomize");
+        assert_eq!(
+            finding.message(),
+            "script uses Rnd without Randomize, so every run draws the same numbers"
+        );
+        assert_eq!(finding.location(), at(3, 5));
+        assert_eq!(
+            finding.to_string(),
+            "script line 3, column 5: script uses Rnd without Randomize, so every run draws the same numbers"
+        );
+
+        let finding = Kind::MissingTableName.finding(&vpx);
+        assert_eq!(finding.code(), "missing-table-name");
+        assert_eq!(finding.location(), None);
+        assert_eq!(finding.to_string(), "table info has no table name");
+    }
+
+    #[test]
+    fn codes_are_kebab_case() {
+        let codes = [
+            Kind::MissingImage {
+                item: String::new(),
+                field: "",
+                image: String::new(),
+            }
+            .code(),
+            Kind::MissingPinMameTimer.code(),
+            Kind::TextboxUsedForDmd {
+                item: String::new(),
+            }
+            .code(),
+            Kind::ColorGradeLutUnusualSize {
+                image: String::new(),
+                width: 0,
+                height: 0,
+            }
+            .code(),
+        ];
+        assert_eq!(
+            codes,
+            [
+                "missing-image",
+                "missing-pinmame-timer",
+                "textbox-used-for-dmd",
+                "color-grade-lut-unusual-size"
+            ]
+        );
+        for code in codes {
+            assert!(
+                code.chars().all(|c| c.is_ascii_lowercase() || c == '-'),
+                "{code}"
+            );
+        }
+    }
+
+    #[test]
+    fn words_are_found_in_code_but_not_in_comments_or_strings() {
+        let script = "' Execute here is a comment\r\nx = \"Execute\"\r\n  ExecuteGlobal s\r\n  Execute s\r\n";
+        assert_eq!(find_word(script, "execute"), at(4, 3));
+        assert_eq!(find_word(script, "executeglobal"), at(3, 3));
+        assert_eq!(find_word(script, "missing"), None);
+    }
+
+    #[test]
+    fn member_and_qualified_names_are_bounded_on_the_identifier_side_only() {
+        let script = "With Controller\r\n  .ShowFrame = False\r\n  .ShowFrameRate = 1\r\nEnd With\r\nTable1.Inclination = 5\r\n";
+        assert_eq!(find_word(script, ".showframe"), at(2, 3));
+        assert_eq!(find_word(script, "table1.inclination"), at(5, 1));
+        // a member name stands on a boundary after its dot
+        assert_eq!(find_word(script, "inclination"), at(5, 8));
+        assert_eq!(find_word(script, "clination"), None);
+    }
+
+    #[test]
+    fn a_missing_sound_is_located_at_its_literal() {
+        let script = "PlaySound \"fx_flip\"\r\nPlaySound \"fx_ball\" & i\r\n";
+        let located = |sound: &str| {
+            Kind::MissingSound {
+                sound: sound.to_string(),
+            }
+            .locate(script, "")
+        };
+        assert_eq!(located("fx_flip"), at(1, 11));
+        assert_eq!(located("FX_BALL"), at(2, 11));
+        assert_eq!(located("fx_other"), None);
+    }
+
+    #[test]
+    fn a_duplicate_procedure_is_located_at_its_second_declaration() {
+        let script = "Sub Reset\r\nEnd Sub\r\nFunction Other\r\nEnd Function\r\nPrivate Sub Reset\r\nEnd Sub\r\n";
+        let kind = Kind::DuplicateProcedure {
+            name: "Reset".to_string(),
+        };
+        assert_eq!(kind.locate(script, ""), at(5, 9));
+        let kind = Kind::DuplicateProcedure {
+            name: "Class.Other".to_string(),
+        };
+        assert_eq!(kind.locate(script, ""), None);
+    }
+
+    #[test]
+    fn a_static_primitive_and_a_shadowing_name_are_located_at_their_first_mention() {
+        let script = "Dim Apron\r\nBaked.Visible = False\r\n";
+        let kind = Kind::StaticPrimitiveInScript {
+            name: "Baked".to_string(),
+            item: "Primitive \"Baked\"".to_string(),
+            script_toggles_prerendering: false,
+        };
+        assert_eq!(kind.locate(script, ""), at(2, 1));
+        let kind = Kind::ScriptNameShadowsItem {
+            name: "Apron".to_string(),
+            kind: NameKind::GameItem,
+        };
+        assert_eq!(kind.locate(script, ""), at(1, 5));
+    }
+
+    #[test]
+    fn the_vpinmame_findings_are_located_at_the_load_call() {
+        let script = "LoadVPM \"01560000\", \"sys80.vbs\", 3.1\r\nvpmTimer.PulseSw 1\r\n";
+        assert_eq!(Kind::MissingPinMameTimer.locate(script, ""), at(1, 1));
+        assert_eq!(Kind::MissingVpmInit.locate(script, ""), at(1, 1));
+        assert_eq!(Kind::MissingPulseTimer.locate(script, ""), at(2, 1));
+    }
+
+    #[test]
+    fn a_parse_error_is_located_from_its_text() {
+        let kind = Kind::ScriptParseError {
+            detail: "ParseError at line 12, column 4: unexpected token".to_string(),
+        };
+        assert_eq!(kind.locate("", ""), at(12, 4));
+        let kind = Kind::ScriptParseError {
+            detail: "something else".to_string(),
+        };
+        assert_eq!(kind.locate("", ""), None);
+    }
+
+    #[test]
+    fn mixed_line_endings_are_located_at_the_first_change() {
+        let script = "Option Explicit\r\nRandomize\r\nRandomize\nRandomize\r\n";
+        let kind = Kind::MixedScriptLineEndings {
+            crlf: 3,
+            lf: 1,
+            cr: 0,
+        };
+        assert_eq!(
+            kind.locate(script, ""),
+            Some(ScriptLocation {
+                line: 3,
+                column: None
+            })
+        );
+        assert_eq!(line_ending_change("a\r\nb\r\n"), None);
+    }
+
+    #[test]
+    fn deprecated_properties_are_located_at_their_access() {
+        let script =
+            "' Table1.Inclination\r\nTable1.Inclination = 5\r\nController.ShowFrame = 0\r\n";
+        let kind = Kind::DeprecatedTableProperty {
+            property: "Inclination".to_string(),
+        };
+        assert_eq!(kind.locate(script, "Table1"), at(2, 1));
+        let kind = Kind::DeprecatedControllerProperty {
+            property: "ShowFrame".to_string(),
+        };
+        assert_eq!(kind.locate(script, "Table1"), at(3, 11));
+    }
+
+    #[test]
+    fn grouped_findings_carry_no_location() {
+        let kind = Kind::HandlersWithoutItem {
+            names: vec!["Gone_Hit".to_string()],
+        };
+        assert_eq!(kind.locate("Sub Gone_Hit\r\nEnd Sub\r\n", ""), None);
     }
 }
 
 #[cfg(feature = "script-audit")]
 mod script {
-    use super::{Finding, NameKind, VPX};
+    use super::{Kind, NameKind, VPX};
     use crate::vpx::gameitem::GameItemEnum;
     use std::collections::HashSet;
     use vbscript::parser::Parser;
@@ -4081,7 +4558,7 @@ mod script {
         "collide",
     ];
 
-    pub(super) fn check(vpx: &VPX, findings: &mut Vec<Finding>) {
+    pub(super) fn check(vpx: &VPX, findings: &mut Vec<Kind>) {
         let script = &vpx.gamedata.code.string;
         if script.trim().is_empty() {
             return;
@@ -4089,7 +4566,7 @@ mod script {
         let items = match Parser::new(script).file() {
             Ok(items) => items,
             Err(e) => {
-                findings.push(Finding::ScriptParseError {
+                findings.push(Kind::ScriptParseError {
                     detail: format!("{e:?}"),
                 });
                 return;
@@ -4100,13 +4577,13 @@ mod script {
         scan.items(&items);
 
         if !scan.option_explicit {
-            findings.push(Finding::MissingOptionExplicit);
+            findings.push(Kind::MissingOptionExplicit);
         }
 
         let mut seen: HashSet<String> = HashSet::new();
         for name in &scan.declared {
             if !seen.insert(name.to_lowercase()) {
-                findings.push(Finding::DuplicateProcedure { name: name.clone() });
+                findings.push(Kind::DuplicateProcedure { name: name.clone() });
             }
         }
 
@@ -4115,7 +4592,7 @@ mod script {
         // (tables inject their controller and backglass scripts with it), so
         // flagging it would be noise
         if scan.identifiers.contains("execute") {
-            findings.push(Finding::ExecuteUsed);
+            findings.push(Kind::ExecuteUsed);
         }
 
         let timers: HashSet<String> = vpx
@@ -4131,14 +4608,14 @@ mod script {
             scan.identifiers.contains("loadvpm") || scan.identifiers.contains("loadvpmalt");
         if uses_vpm {
             if !timers.contains("pinmametimer") {
-                findings.push(Finding::MissingPinMameTimer);
+                findings.push(Kind::MissingPinMameTimer);
             }
             if !scan.identifiers.contains("vpminit") {
-                findings.push(Finding::MissingVpmInit);
+                findings.push(Kind::MissingVpmInit);
             }
         }
         if scan.identifiers.contains("vpmtimer") && !timers.contains("pulsetimer") {
-            findings.push(Finding::MissingPulseTimer);
+            findings.push(Kind::MissingPulseTimer);
         }
 
         // a script level name equal to an item or collection name hides it
@@ -4163,7 +4640,7 @@ mod script {
                 continue;
             };
             if reported.insert(lower) {
-                findings.push(Finding::ScriptNameShadowsItem {
+                findings.push(Kind::ScriptNameShadowsItem {
                     name: name.clone(),
                     kind,
                 });
@@ -4171,7 +4648,7 @@ mod script {
         }
 
         if scan.identifiers.contains("rnd") && !scan.identifiers.contains("randomize") {
-            findings.push(Finding::RndWithoutRandomize);
+            findings.push(Kind::RndWithoutRandomize);
         }
 
         // declared and never named again, not even inside a string handed
@@ -4201,7 +4678,7 @@ mod script {
             .cloned()
             .collect();
         if !unused.is_empty() {
-            findings.push(Finding::UnusedVariables { names: unused });
+            findings.push(Kind::UnusedVariables { names: unused });
         }
         let unused_locals: Vec<String> = scan
             .unused_locals
@@ -4213,7 +4690,7 @@ mod script {
             .cloned()
             .collect();
         if !unused_locals.is_empty() {
-            findings.push(Finding::UnusedLocalVariables {
+            findings.push(Kind::UnusedLocalVariables {
                 names: unused_locals,
             });
         }
@@ -4249,7 +4726,7 @@ mod script {
             {
                 continue;
             }
-            findings.push(Finding::TimerWithoutHandler {
+            findings.push(Kind::TimerWithoutHandler {
                 item: item.name().to_string(),
                 interval: timer.interval,
             });
@@ -4272,7 +4749,7 @@ mod script {
             .cloned()
             .collect();
         if !orphans.is_empty() {
-            findings.push(Finding::HandlersWithoutItem { names: orphans });
+            findings.push(Kind::HandlersWithoutItem { names: orphans });
         }
 
         // like vpinball: any mention of a static primitive's name, reading a
@@ -4283,7 +4760,8 @@ mod script {
                 && primitive.static_rendering
                 && scan.identifiers.contains(&primitive.name.to_lowercase())
             {
-                findings.push(Finding::StaticPrimitiveInScript {
+                findings.push(Kind::StaticPrimitiveInScript {
+                    name: primitive.name.clone(),
                     item: super::item_label(item),
                     script_toggles_prerendering,
                 });

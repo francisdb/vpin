@@ -66,25 +66,33 @@ const vpxBytes = assemble(files, (message) => {
 
 Checks the expanded table files for consistency problems: references to
 images, materials, surfaces or collection items that do not exist, duplicate
-or over-long names, and storage suggestions. The checks themselves run in a
-few milliseconds even on very large tables, so it is fine to call this after
-every change; the cost is dominated by reading the files into a table.
+or over-long names, storage suggestions, and script checks (missing
+`Option Explicit`, duplicate procedures, unused variables, timers without a
+handler, VPinMAME setup). The checks themselves run in a few milliseconds
+even on very large tables, so it is fine to call this after every change;
+the cost is dominated by reading the files into a table.
 
 ```typescript
 const findings = audit(files);
 for (const finding of findings) {
-  console.log(`${finding.severity}: ${finding.message}`);
+  const where = finding.line ? ` (line ${finding.line})` : "";
+  console.log(`${finding.severity} [${finding.code}]${where}: ${finding.message}`);
 }
-// warning: Light "L18": placed on missing surface "!l68"
-// suggestion: image "chrome" is stored as a bitmap, consider converting to webp
+// warning [missing-surface]: Light "L18": placed on missing surface "!l68"
+// suggestion [bmp-image]: image "chrome" is stored as a bitmap, consider converting to webp
+// suggestion [execute-used] (line 812): script uses Execute, which runs runtime-built code and can stutter
 ```
+
+`code` names the check and is stable, so findings can be grouped or
+suppressed by it; `line` and `column` (both from 1) are set for findings
+about one place in the script.
 
 **Parameters:**
 
 - `files: VpxFileMap` (`Record<string, Uint8Array>`) - file paths to contents
 - `callback?: (message: string) => void` - Optional progress callback
 
-**Returns:** `{severity: "warning" | "suggestion", message: string}[]` - empty when the table is clean
+**Returns:** `{severity: "error" | "warning" | "suggestion" | "info", code: string, message: string, line?: number, column?: number}[]` - empty when the table is clean
 
 ### export_glb(files, options?, callback?)
 
