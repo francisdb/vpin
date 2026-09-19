@@ -121,13 +121,15 @@ pub fn read(input: &[u8]) -> io::Result<FontData> {
 
 /// Writes a font as the bytes of a `Font<n>` stream.
 pub fn write(font_data: &FontData) -> Vec<u8> {
-    let mut writer = BiffWriter::new();
+    let mut writer = BiffWriter::with_capacity(
+        font_data.data.len() + font_data.name.len() + font_data.path.len() + 64,
+    );
     writer.write_tagged_string("NAME", &font_data.name);
     writer.write_tagged_string("PATH", &font_data.path);
     writer.write_tagged_u32("SIZE", crate::vpx::biff::record_len(font_data.data.len()));
     writer.write_tagged_data("DATA", &font_data.data);
     writer.close(true);
-    writer.get_data().to_owned()
+    writer.into_data()
 }
 
 #[test]

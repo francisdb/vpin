@@ -130,18 +130,20 @@ mod test {
         let options = ExpandOptions::new().mesh_format(PRIMITIVE_MESH_FORMAT);
         vpin::vpx::expanded::write_fs(&original, &extract_dir, &options, &*fs)
             .map_err(io::Error::other)?;
+        // several tables can be in flight at once: keep only the script of
+        // the parsed model while the expanded files are read back
+        let original_code = original.gamedata.code.clone();
+        drop(original);
         let expanded_read =
             vpin::vpx::expanded::read_fs(&extract_dir, &*fs).map_err(io::Error::other)?;
         // special case for comparing code, the diff of the written file
         // would also catch this but with a less precise message
-        if original.gamedata.code != expanded_read.gamedata.code {
+        if original_code != expanded_read.gamedata.code {
             return Err(io::Error::other(
                 "script differs after the expanded round trip",
             ));
         }
-        // several tables can be in flight at once, free the parsed model
-        // and the expanded files before serializing the assembled copy
-        drop(original);
+        // free the expanded files before serializing the assembled copy
         drop(fs);
 
         let test_vpx_bytes = vpin::vpx::to_bytes(&expanded_read)?;

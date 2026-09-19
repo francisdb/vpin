@@ -1,6 +1,7 @@
 use crate::vpx::model::encode_latin1_lossy;
 use encoding_rs::mem::decode_latin1;
 use log::warn;
+use std::borrow::Cow;
 use std::fmt;
 use std::io;
 
@@ -447,8 +448,21 @@ impl BiffWriter {
         BiffWriter::default()
     }
 
+    /// A writer whose buffer holds `capacity` bytes before it has to grow.
+    pub fn with_capacity(capacity: usize) -> BiffWriter {
+        BiffWriter {
+            data: Vec::with_capacity(capacity),
+            ..BiffWriter::default()
+        }
+    }
+
     pub fn get_data(&self) -> &[u8] {
         &self.data
+    }
+
+    /// Consumes the writer and returns the written bytes without copying them.
+    pub fn into_data(self) -> Vec<u8> {
+        self.data
     }
 
     pub fn end_tag(&mut self) {
@@ -526,8 +540,8 @@ impl BiffWriter {
 
     pub fn write_string_with_encoding(&mut self, value: &StringWithEncoding) {
         let d = match value.encoding {
-            StringEncoding::Latin1 => encode_latin1_lossy(&value.string).to_vec(),
-            StringEncoding::Utf8 => value.string.clone().into_bytes(),
+            StringEncoding::Latin1 => encode_latin1_lossy(&value.string),
+            StringEncoding::Utf8 => Cow::Borrowed(value.string.as_bytes()),
         };
         self.write_u32(record_len(d.len()));
         self.write_data(&d);
@@ -634,6 +648,15 @@ impl BiffWriter {
         self.new_tag(tag);
         self.write_data(value);
         self.end_tag_no_size();
+    }
+
+    /// Writes a record whose content is a nested BIFF stream that `f` writes
+    /// directly after it. Like [`Self::write_tagged_data_without_size`], the
+    /// record size only covers the tag.
+    pub fn write_tagged_nested(&mut self, tag: &str, f: impl FnOnce(&mut BiffWriter)) {
+        self.new_tag(tag);
+        self.end_tag_no_size();
+        f(self);
     }
 
     pub fn write_tagged<T: BiffWrite>(&mut self, tag: &str, value: &T) {
