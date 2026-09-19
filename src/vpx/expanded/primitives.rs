@@ -806,8 +806,8 @@ fn compress_vertices_and_indices(
 
     #[cfg(not(feature = "parallel"))]
     let (compressed_vertices, compressed_indices) = (
-        primitive::compress_mesh_data(&vpx_vertices),
-        primitive::compress_mesh_data(&vpx_indices),
+        primitive::compress_mesh_data(vpx_vertices),
+        primitive::compress_mesh_data(vpx_indices),
     );
 
     let compressed_vertices = compressed_vertices?;

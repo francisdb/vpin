@@ -32,6 +32,9 @@ const NONE_SELECTION: &str = "<None>";
 /// `item` names the game item carrying the problem, `field` the property
 /// holding the dangling reference.
 #[derive(Debug, Clone, PartialEq, Eq)]
+// the script checks that construct the script variants only exist with
+// the script-audit feature, the variants stay so the codes are always known
+#[cfg_attr(not(feature = "script-audit"), allow(dead_code))]
 pub(crate) enum Kind {
     /// A game item or table setting references an image that does not exist
     MissingImage {
