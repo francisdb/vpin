@@ -23,8 +23,21 @@ jobs:
         uses: dtolnay/rust-toolchain@1.98.0
         with:
           components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2.9.2
       - name: Run Clippy
         run: cargo clippy --color always --all-targets --all-features
+      # code behind a feature gate can leave items unused in other feature
+      # sets, so the default and the minimal set are checked as well
+      - name: Run Clippy with the default features
+        run: cargo clippy --color always --all-targets
+      - name: Run Clippy without default features
+        run: cargo clippy --color always --all-targets --no-default-features
+      - name: Check the wasm build for compiler warnings
+        run: cargo check --color always --all-targets --target wasm32-unknown-unknown --features wasm
+        env:
+          # RUSTFLAGS replaces the target rustflags in .cargo/config.toml,
+          # so the getrandom backend they select is repeated here
+          RUSTFLAGS: '-Dwarnings --cfg getrandom_backend="wasm_js"'
       - name: Run fmt check
         run: cargo fmt --all --check -- --color=always
