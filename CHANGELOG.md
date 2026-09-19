@@ -6,6 +6,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.34.0](https://github.com/francisdb/vpin/compare/v0.33.1...v0.34.0) - 2026-09-19
+
+### Added
+
+- [**breaking**] select exported items with a shared item filter
+- [**breaking**] report audit findings as severity, code, message and script location
+- *(audit)* report script variables that are never used
+- *(audit)* tone down static primitives when the script toggles prerendering
+- leave dead records out of the extracted json when absent
+- make the GameData default follow vpinball's load defaults
+
+### Fixed
+
+- *(audit)* skip playfield references when the playfield mesh is hidden
+- *(audit)* skip the font check for DMD textboxes
+- read the font style bits as the OLE StdFont format and vpinball define them
+- describe duplicate materials as vpinball handles them since its September 2026 fix, and export the last one like vpinball ([#465](https://github.com/francisdb/vpin/pull/465))
+
+### Other
+
+- cfb 0.15.0
+- *(deps)* bump taiki-e/install-action from 2.87.5 to 2.87.11
+- *(audit)* say when a static primitive in the script is harmless
+- replace the fake based round trips with proptest
+- keep the moved json conversions crate-private
+- move the json conversions next to the types they convert
+- drop the file record comments from the json models
+- build the expected mesh paths with the platform separator
+- cover the derived meshes, animation frames and error paths of the expanded primitives
+- round trip every optional game data record through bytes and json
+- cover the ball and part group json and every item type in the game item helpers
+- document the audit findings, diff types, filesystem and wasm bindings, and guard docs with the missing_docs lint
+- document the table info, collection, version, font, color, render probe and value types
+- document the game item structs, fields and enums
+- document the game data, table, image, sound and material public items
+- say vpinball drops duplicate images and sounds of any case at load since September 2026 ([#469](https://github.com/francisdb/vpin/pull/469))
+- *(deps)* update dirs requirement from 6.0.0 to 7.0.0 ([#468](https://github.com/francisdb/vpin/pull/468))
+
 ## [0.33.1](https://github.com/francisdb/vpin/compare/v0.33.0...v0.33.1) - 2026-09-11
 
 ### Other
