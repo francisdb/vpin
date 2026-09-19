@@ -1149,7 +1149,11 @@ pub(crate) fn write(gameitem: &GameItemEnum) -> Vec<u8> {
         GameItemEnum::LightSequencer(lightsequencer) => {
             write_with_type(ITEM_TYPE_LIGHT_SEQUENCER, lightsequencer)
         }
-        GameItemEnum::Primitive(primitive) => write_with_type(ITEM_TYPE_PRIMITIVE, &**primitive),
+        GameItemEnum::Primitive(primitive) => write_with_type_and_capacity(
+            ITEM_TYPE_PRIMITIVE,
+            &**primitive,
+            primitive.mesh_data_len() + 4096,
+        ),
         GameItemEnum::Flasher(flasher) => write_with_type(ITEM_TYPE_FLASHER, flasher),
         GameItemEnum::Rubber(rubber) => write_with_type(ITEM_TYPE_RUBBER, rubber),
         GameItemEnum::HitTarget(hittarget) => write_with_type(ITEM_TYPE_HIT_TARGET, hittarget),
@@ -1160,10 +1164,18 @@ pub(crate) fn write(gameitem: &GameItemEnum) -> Vec<u8> {
 }
 
 fn write_with_type<T: BiffWrite>(item_type: u32, item: &T) -> Vec<u8> {
-    let mut writer = BiffWriter::new();
+    write_with_type_and_capacity(item_type, item, 1024)
+}
+
+fn write_with_type_and_capacity<T: BiffWrite>(
+    item_type: u32,
+    item: &T,
+    capacity: usize,
+) -> Vec<u8> {
+    let mut writer = BiffWriter::with_capacity(capacity);
     writer.write_u32(item_type);
     item.biff_write(&mut writer);
-    writer.get_data().to_vec()
+    writer.into_data()
 }
 
 #[cfg(test)]

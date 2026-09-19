@@ -482,7 +482,9 @@ pub(crate) fn write_obj(
     obj_file_path: &Path,
     fs: &dyn FileSystem,
 ) -> Result<(), Box<dyn Error>> {
-    let mut buffer = Vec::new();
+    // about the length of the v, vt and vn lines of a vertex and the f line
+    // of a face, so the buffer rarely has to grow
+    let mut buffer = Vec::with_capacity(vertices.len() * 112 + indices.len() * 64 + 256);
     write_obj_to_writer(name, vertices, indices, &mut buffer)?;
 
     let _span = info_span!("fs_write", bytes = buffer.len()).entered();

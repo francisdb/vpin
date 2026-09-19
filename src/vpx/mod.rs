@@ -503,11 +503,31 @@ pub fn from_bytes(slice: &[u8]) -> io::Result<VPX> {
 /// Fails when the compound file or one of its streams cannot be written.
 #[instrument(skip(vpx))]
 pub fn to_bytes(vpx: &VPX) -> io::Result<Vec<u8>> {
-    let buffer = std::io::Cursor::new(Vec::new());
+    let buffer = std::io::Cursor::new(Vec::with_capacity(estimated_file_size(vpx)));
     let mut comp = CompoundFile::create(buffer)?;
     write_vpx(&mut comp, vpx)?;
     comp.flush()?;
     Ok(comp.into_inner().into_inner())
+}
+
+/// A little more than the bytes of the large blobs in a table: images,
+/// sounds, fonts, meshes and the script. Sizing the output up front saves
+/// growing it, and copying it, while the file is written.
+fn estimated_file_size(vpx: &VPX) -> usize {
+    let images: usize = vpx.images.iter().map(ImageData::data_len).sum();
+    let sounds: usize = vpx.sounds.iter().map(|s| s.data.len()).sum();
+    let fonts: usize = vpx.fonts.iter().map(|f| f.data.len()).sum();
+    let meshes: usize = vpx
+        .gameitems
+        .iter()
+        .map(|item| match item {
+            GameItemEnum::Primitive(primitive) => primitive.mesh_data_len(),
+            _ => 0,
+        })
+        .sum();
+    let blobs = images + sounds + fonts + meshes + vpx.gamedata.code.string.len();
+    // room for the records, the directory and the allocation tables
+    blobs + blobs / 32 + 1024 * 1024
 }
 
 /// Writes a VPX file from memory to disk
@@ -1042,7 +1062,9 @@ fn write_sounds<F: Read + Write + Seek>(
             .join("GameStg")
             .join(format!("Sound{index}"));
         let mut stream = comp.create_stream(&path)?;
-        let mut writer = BiffWriter::new();
+        let mut writer = BiffWriter::with_capacity(
+            sound.data.len() + sound.name.len() + sound.path.len() + 1024,
+        );
         sound::write(file_version, sound, &mut writer);
         stream.write_all(writer.get_data())?;
     }
@@ -1125,7 +1147,7 @@ fn write_image<F: Read + Write + Seek>(
     } else {
         comp.create_new_stream(&path)?
     };
-    let mut writer = BiffWriter::new();
+    let mut writer = BiffWriter::with_capacity(image.data_len() + 1024);
     image.biff_write(&mut writer);
     stream.write_all(writer.get_data())?;
     Ok(())

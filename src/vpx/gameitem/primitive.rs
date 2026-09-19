@@ -638,6 +638,20 @@ pub struct ReadMesh {
 }
 
 impl Primitive {
+    /// Bytes of the mesh data this holds, compressed or not, with the
+    /// animation frames.
+    pub(crate) fn mesh_data_len(&self) -> usize {
+        let len = |data: &Option<Vec<u8>>| data.as_ref().map_or(0, Vec::len);
+        len(&self.compressed_vertices_data)
+            + len(&self.compressed_indices_data)
+            + len(&self.vertices_data)
+            + len(&self.indices_data)
+            + self
+                .compressed_animation_vertices_data
+                .as_ref()
+                .map_or(0, |frames| frames.iter().map(Vec::len).sum())
+    }
+
     /// Decodes the stored mesh: the zlib compressed `M3CX` vertex and `M3CI`
     /// index data, or the uncompressed `M3DX`/`M3DI` data written by builds
     /// from before 2015.

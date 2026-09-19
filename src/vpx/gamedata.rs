@@ -2381,7 +2381,8 @@ pub fn game_data_to_json(game_data: &GameData) -> serde_json::Value {
 /// written from 10.8 on, or at a different position depending on it (see
 /// [`GameData::is_10_8_0_beta1_to_beta4`]).
 pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec<u8> {
-    let mut writer = BiffWriter::new();
+    // the script is usually most of the stream
+    let mut writer = BiffWriter::with_capacity(gamedata.code.string.len() + 64 * 1024);
     // order is important
     writer.write_tagged_f32("LEFT", gamedata.left);
     writer.write_tagged_f32("TOPX", gamedata.top);
@@ -2731,8 +2732,7 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
     }
 
     writer.close(true);
-    // TODO how do we get rid of this extra copy?
-    writer.get_data().to_vec()
+    writer.into_data()
 }
 
 /// Read the `GameData` stream.

@@ -248,6 +248,15 @@ fn replace_extension(path: &str, ext: &str) -> String {
 }
 
 impl ImageData {
+    /// Bytes of the image data this holds, JPEG or bitmap.
+    pub(crate) fn data_len(&self) -> usize {
+        self.jpeg.as_ref().map_or(0, |jpeg| jpeg.data.len())
+            + self
+                .bits
+                .as_ref()
+                .map_or(0, |bits| bits.lzw_compressed_data.len())
+    }
+
     const ALPHA_TEST_VALUE_DEFAULT: f32 = -1.0;
 
     pub(crate) fn change_extension(&mut self, ext: &str) {
@@ -546,8 +555,7 @@ fn write(data: &ImageData, writer: &mut BiffWriter) {
         writer.write_tagged_data_without_size("BITS", &bits.lzw_compressed_data);
     }
     if let Some(jpeg) = &data.jpeg {
-        let bits = write_jpg(jpeg);
-        writer.write_tagged_data_without_size("JPEG", &bits);
+        writer.write_tagged_nested("JPEG", |writer| write_jpg(jpeg, writer));
     }
     writer.write_tagged_f32("ALTV", data.alpha_test_value);
     if let Some(md5_hash) = &data.md5_hash {
@@ -591,7 +599,6 @@ fn read_jpeg(reader: &mut BiffReader) -> Result<ImageDataJpeg, BiffError> {
             }
         }
     }
-    let data = data.to_vec();
     Ok(ImageDataJpeg {
         path,
         name,
@@ -601,8 +608,7 @@ fn read_jpeg(reader: &mut BiffReader) -> Result<ImageDataJpeg, BiffError> {
     })
 }
 
-fn write_jpg(img: &ImageDataJpeg) -> Vec<u8> {
-    let mut writer = BiffWriter::new();
+fn write_jpg(img: &ImageDataJpeg, writer: &mut BiffWriter) {
     writer.write_tagged_string("NAME", &img.name);
     if let Some(inme) = &img.internal_name {
         writer.write_tagged_string("INME", inme);
@@ -612,7 +618,6 @@ fn write_jpg(img: &ImageDataJpeg) -> Vec<u8> {
     writer.write_tagged_data("DATA", &img.data);
     // writer.write_tagged_f32("ALTV", img.alpha_test_value);
     writer.close(true);
-    writer.get_data().to_vec()
 }
 
 /// Decode the LZW compressed BGRA bitmap of a `BITS` record.
@@ -729,7 +734,9 @@ mod test {
             data: vec![1, 2, 3],
         };
 
-        let bytes = write_jpg(&img);
+        let mut writer = BiffWriter::new();
+        write_jpg(&img, &mut writer);
+        let bytes = writer.into_data();
 
         let read = read_jpeg(&mut BiffReader::new(&bytes)).unwrap();
 
