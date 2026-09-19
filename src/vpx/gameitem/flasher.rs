@@ -9,6 +9,164 @@ use crate::vpx::{
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// How a flasher is blended over what is behind it. Mirrors vpinball's
+/// `AddBlendMode` (`FlasherData::AB_*`), stored in the `ADDB` record that
+/// was a bool before vpinball added [`AddBlendMode::Absorb`].
+///
+/// Values this library does not know are kept in [`AddBlendMode::Other`] so
+/// the table round-trips unchanged; reading one logs a warning. vpinball
+/// itself clamps them to the range of the named variants.
+#[derive(Debug, PartialEq, Clone, Default)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+pub enum AddBlendMode {
+    /// Plain alpha blending (`AB_NONE`), "Off" in the editor.
+    #[default]
+    None,
+    /// Additive blending that also amplifies the background, the more so
+    /// the brighter the flasher is (`AB_ADD`), "On, amplify" in the editor.
+    /// In the display render modes it also darkens (modulates) the
+    /// background.
+    Add,
+    /// Additive blending that absorbs the background instead of amplifying
+    /// it, like a reflection on glass (`AB_ABSORB`), "On, absorb" in the
+    /// editor. Introduced in vpinball 10.8.1; earlier versions load it as
+    /// [`Self::Add`].
+    Absorb,
+    /// A value not known to this library, kept as is.
+    ///
+    /// Must not be constructed with a value that maps to a named variant:
+    /// it would write the same bytes as the named variant and read back as
+    /// it, breaking round-trip equality. The library itself never does
+    /// (`From` normalizes known values to their named variants).
+    Other(#[cfg_attr(test, proptest(strategy = "3..=u32::MAX"))] u32),
+}
+impl From<u32> for AddBlendMode {
+    fn from(value: u32) -> Self {
+        match value {
+            0 => AddBlendMode::None,
+            1 => AddBlendMode::Add,
+            2 => AddBlendMode::Absorb,
+            other => {
+                warn!("Unknown AddBlendMode value {other}, keeping it as is");
+                AddBlendMode::Other(other)
+            }
+        }
+    }
+}
+impl From<&AddBlendMode> for u32 {
+    fn from(value: &AddBlendMode) -> Self {
+        match value {
+            AddBlendMode::None => 0,
+            AddBlendMode::Add => 1,
+            AddBlendMode::Absorb => 2,
+            AddBlendMode::Other(value) => *value,
+        }
+    }
+}
+/// Serialize to lowercase string, or the raw number for [`AddBlendMode::Other`]
+impl Serialize for AddBlendMode {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            AddBlendMode::None => serializer.serialize_str("none"),
+            AddBlendMode::Add => serializer.serialize_str("add"),
+            AddBlendMode::Absorb => serializer.serialize_str("absorb"),
+            AddBlendMode::Other(value) => serializer.serialize_u32(*value),
+        }
+    }
+}
+/// Deserialize from lowercase string or the raw number. A bool, as written
+/// before the absorb mode existed, reads as [`AddBlendMode::Add`] or
+/// [`AddBlendMode::None`].
+impl<'de> Deserialize<'de> for AddBlendMode {
+    fn deserialize<D>(deserializer: D) -> Result<AddBlendMode, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct AddBlendModeVisitor;
+        impl serde::de::Visitor<'_> for AddBlendModeVisitor {
+            type Value = AddBlendMode;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("an AddBlendMode as lowercase string, number or bool")
+            }
+            fn visit_bool<E>(self, value: bool) -> Result<AddBlendMode, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(if value {
+                    AddBlendMode::Add
+                } else {
+                    AddBlendMode::None
+                })
+            }
+            fn visit_u64<E>(self, value: u64) -> Result<AddBlendMode, E>
+            where
+                E: serde::de::Error,
+            {
+                let value = u32::try_from(value).map_err(|_| {
+                    serde::de::Error::invalid_value(
+                        serde::de::Unexpected::Unsigned(value),
+                        &"a number that fits in u32",
+                    )
+                })?;
+                Ok(AddBlendMode::from(value))
+            }
+            fn visit_str<E>(self, value: &str) -> Result<AddBlendMode, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "none" => Ok(AddBlendMode::None),
+                    "add" => Ok(AddBlendMode::Add),
+                    "absorb" => Ok(AddBlendMode::Absorb),
+                    _ => Err(serde::de::Error::unknown_variant(
+                        value,
+                        &["none", "add", "absorb"],
+                    )),
+                }
+            }
+        }
+        deserializer.deserialize_any(AddBlendModeVisitor)
+    }
+}
+#[cfg(test)]
+mod add_blend_mode_tests {
+    use super::AddBlendMode;
+    use serde_json::json;
+
+    #[test]
+    fn json_names_numbers_and_old_bools() {
+        for (mode, name) in [
+            (AddBlendMode::None, "none"),
+            (AddBlendMode::Add, "add"),
+            (AddBlendMode::Absorb, "absorb"),
+        ] {
+            assert_eq!(serde_json::to_value(&mode).unwrap(), json!(name));
+            assert_eq!(
+                serde_json::from_value::<AddBlendMode>(json!(name)).unwrap(),
+                mode
+            );
+        }
+        let parse = |value| serde_json::from_value::<AddBlendMode>(value).unwrap();
+        assert_eq!(parse(json!(false)), AddBlendMode::None);
+        assert_eq!(parse(json!(true)), AddBlendMode::Add);
+        assert_eq!(parse(json!(2)), AddBlendMode::Absorb);
+        assert!(serde_json::from_value::<AddBlendMode>(json!("amplify")).is_err());
+        assert!(serde_json::from_value::<AddBlendMode>(json!(-1)).is_err());
+    }
+
+    #[test]
+    fn unknown_value_round_trips() {
+        let value = AddBlendMode::from(0xCDCD_CDCD);
+        assert_eq!(value, AddBlendMode::Other(0xCDCD_CDCD));
+        assert_eq!(u32::from(&value), 0xCDCD_CDCD);
+        let json = serde_json::to_value(&value).unwrap();
+        assert_eq!(serde_json::from_value::<AddBlendMode>(json).unwrap(), value);
+    }
+}
+
 /// When a flasher has both `image_a` and `image_b` set, this filter determines
 /// how the two textures are blended together. The blend intensity is controlled
 /// by `filter_amount` (0-100). Mirrors vpinball's `Filters`.
@@ -640,12 +798,12 @@ pub struct Flasher {
     /// BIFF tag `FVIS`
     pub is_visible: bool,
     /// Additive blending: the flasher is added to the frame buffer instead
-    /// of alpha blended over it, giving the glow of a flash lamp. In the
-    /// display render modes it also darkens (modulates) the background.
-    /// Default: `false`.
+    /// of alpha blended over it, giving the glow of a flash lamp, and
+    /// either amplifies or absorbs the background, see [`AddBlendMode`].
+    /// Default: [`AddBlendMode::None`].
     ///
-    /// BIFF tag `ADDB`
-    pub add_blend: bool,
+    /// BIFF tag `ADDB`, a bool before vpinball 10.8.1 added the absorb mode
+    pub add_blend: AddBlendMode,
     /// Indicates if this flasher is a DMD (dot matrix display).
     /// BIFF tag: `IDMD` added in 10.2? Since 10.8.1 no longer written and replaced by RDMD
     pub is_dmd: Option<bool>,
@@ -819,7 +977,7 @@ impl Default for Flasher {
             alpha: 100,
             modulate_vs_add: 0.9,
             is_visible: true,
-            add_blend: false,
+            add_blend: AddBlendMode::None,
             is_dmd: None,
             render_mode: None,
             render_style: None,
@@ -865,7 +1023,7 @@ pub(crate) struct FlasherJson {
     alpha: i32,
     modulate_vs_add: f32,
     is_visible: bool,
-    add_blend: bool,
+    add_blend: AddBlendMode,
     #[serde(skip_serializing_if = "Option::is_none")]
     is_dmd: Option<bool>,
     render_mode: Option<RenderMode>,
@@ -906,7 +1064,7 @@ impl FlasherJson {
             alpha: flasher.alpha,
             modulate_vs_add: flasher.modulate_vs_add,
             is_visible: flasher.is_visible,
-            add_blend: flasher.add_blend,
+            add_blend: flasher.add_blend.clone(),
             is_dmd: flasher.is_dmd,
             render_mode: flasher.render_mode.clone(),
             render_style: flasher.render_style,
@@ -944,7 +1102,7 @@ impl FlasherJson {
             alpha: self.alpha,
             modulate_vs_add: self.modulate_vs_add,
             is_visible: self.is_visible,
-            add_blend: self.add_blend,
+            add_blend: self.add_blend.clone(),
             is_dmd: self.is_dmd,
             render_mode: self.render_mode.clone(),
             render_style: self.render_style,
@@ -1045,7 +1203,7 @@ impl BiffRead for Flasher {
                     flasher.display_texture = reader.get_bool()?;
                 }
                 "ADDB" => {
-                    flasher.add_blend = reader.get_bool()?;
+                    flasher.add_blend = reader.get_u32()?.into();
                 }
                 "IDMD" => {
                     flasher.is_dmd = Some(reader.get_bool()?);
@@ -1134,7 +1292,7 @@ impl BiffWrite for Flasher {
         writer.write_tagged_f32("MOVA", self.modulate_vs_add);
         writer.write_tagged_bool("FVIS", self.is_visible);
         writer.write_tagged_bool("DSPT", self.display_texture);
-        writer.write_tagged_bool("ADDB", self.add_blend);
+        writer.write_tagged_u32("ADDB", (&self.add_blend).into());
         if let Some(is_dmd) = self.is_dmd {
             writer.write_tagged_bool("IDMD", is_dmd);
         }
