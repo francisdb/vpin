@@ -151,12 +151,19 @@ pub(crate) fn write_obj_to_writer<W: io::Write>(
     }
     drop(obj_writer);
     let mut tv_exact = Vec::with_capacity(vpx_vertices.len());
+    let mut line = String::with_capacity(64);
     for VertexWrapper { vertex, .. } in vpx_vertices {
         // vpinball's WriteVertexInfo flips V on write (tv -> 1 - tv).
         // These lines are written manually as the V value may need more
         // precision than the f32 obj writer can provide, see flipped_v.
         let v = flipped_v(vertex.tv);
-        writeln!(writer, "vt {} {}", vertex.tu, v.text)?;
+        line.clear();
+        line.push_str("vt ");
+        push_shortest(vertex.tu, &mut line);
+        line.push(' ');
+        line.push_str(&v.text);
+        line.push('\n');
+        writer.write_all(line.as_bytes())?;
         tv_exact.push(v.exact);
     }
     let mut obj_writer: wavefront_obj_io::IoObjWriter<_, f32> =
@@ -251,6 +258,65 @@ pub(crate) struct FlippedV {
     pub(crate) exact: bool,
 }
 
+/// The shortest text that parses back to `value`, in plain decimal
+/// notation like `Display`: no exponent and no `.0` on whole numbers. Uses
+/// the Żmij algorithm, which is faster than `Display`; when two shortest
+/// texts are equally close the last digit can differ from `Display`.
+fn shortest(value: f32) -> String {
+    let mut text = String::with_capacity(16);
+    push_shortest(value, &mut text);
+    text
+}
+
+/// Appends [`shortest`] text of `value` to `out`.
+fn push_shortest(value: f32, out: &mut String) {
+    use std::fmt::Write as _;
+    if !value.is_finite() {
+        // writing to a String cannot fail
+        let _ = write!(out, "{value}");
+        return;
+    }
+    let mut buffer = zmij::Buffer::new();
+    let text = buffer.format_finite(value);
+    if !text.contains(['e', 'E']) {
+        out.push_str(text.strip_suffix(".0").unwrap_or(text));
+        return;
+    }
+    // exponent notation, written out as plain decimal digits
+    let (negative, unsigned) = match text.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, text),
+    };
+    let (mantissa, exponent) = unsigned.split_once(['e', 'E']).unwrap_or((unsigned, "0"));
+    let exponent: i32 = exponent.parse().unwrap_or_default();
+    let (int_part, frac_part) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    let all_digits = [int_part, frac_part].concat();
+    let leading_zeros = all_digits.len() - all_digits.trim_start_matches('0').len();
+    let digits = all_digits.trim_start_matches('0').trim_end_matches('0');
+    let point = int_part.len() as i32 + exponent - leading_zeros as i32;
+    if negative {
+        out.push('-');
+    }
+    if digits.is_empty() {
+        out.push('0');
+        return;
+    }
+    let len = digits.len() as i32;
+    if point <= 0 {
+        out.push_str("0.");
+        out.extend(std::iter::repeat_n('0', (-point) as usize));
+        out.push_str(digits);
+    } else if point >= len {
+        out.push_str(digits);
+        out.extend(std::iter::repeat_n('0', (point - len) as usize));
+    } else {
+        let (whole, fraction) = digits.split_at(point as usize);
+        out.push_str(whole);
+        out.push('.');
+        out.push_str(fraction);
+    }
+}
+
 pub(crate) fn flipped_v(tv: f32) -> FlippedV {
     if tv.is_nan() {
         // 1 - NaN stays NaN, no text recovers the payload bits
@@ -264,7 +330,7 @@ pub(crate) fn flipped_v(tv: f32) -> FlippedV {
     // the shortest f32 text recovers tv and needs no verification.
     if (0.5..=2.0).contains(&tv) {
         return FlippedV {
-            text: format!("{}", flipped as f32),
+            text: shortest(flipped as f32),
             exact: true,
         };
     }
@@ -272,7 +338,7 @@ pub(crate) fn flipped_v(tv: f32) -> FlippedV {
         |s: &str| matches!(s.parse::<f64>(), Ok(v) if ((1.0 - v) as f32).to_bits() == tv.to_bits());
     // The shortest f32 text (what a plain f32 flip would write) is optimal
     // and usually enough.
-    let short = format!("{}", flipped as f32);
+    let short = shortest(flipped as f32);
     if recovers(&short) {
         return FlippedV {
             text: short,
@@ -888,6 +954,49 @@ pub(crate) fn triangulate_and_dedup(
 
 #[cfg(test)]
 mod test {
+    #[test]
+    fn shortest_is_plain_decimal() {
+        use super::shortest;
+        assert_eq!(shortest(1.0), "1");
+        assert_eq!(shortest(-0.0), "-0");
+        assert_eq!(shortest(0.1), "0.1");
+        assert_eq!(shortest(0.5), "0.5");
+        assert_eq!(shortest(1e-7), "0.0000001");
+        assert_eq!(shortest(-1.5e-5), "-0.000015");
+        assert_eq!(shortest(1e20), "100000000000000000000");
+        assert_eq!(shortest(f32::NAN), "NaN");
+        assert_eq!(shortest(f32::INFINITY), "inf");
+    }
+
+    /// Every f32 tv whose V text is marked exact reads back to the same
+    /// bits through the read side's f64 flip. Takes a minute on all
+    /// cores, so it only runs on request.
+    #[test]
+    #[ignore = "slow, checks every f32 bit pattern"]
+    fn flipped_v_exact_texts_recover_every_f32() {
+        use rayon::prelude::*;
+        let (exact, failures) = (0u32..=u16::MAX as u32)
+            .into_par_iter()
+            .map(|high| {
+                let (mut exact, mut failures) = (0u64, 0u64);
+                for low in 0u32..=u16::MAX as u32 {
+                    let tv = f32::from_bits(high << 16 | low);
+                    let v = super::flipped_v(tv);
+                    if v.exact {
+                        exact += 1;
+                        let recovered = v.text.parse::<f64>().map(|v| (1.0 - v) as f32);
+                        if !matches!(recovered, Ok(r) if r.to_bits() == tv.to_bits()) {
+                            failures += 1;
+                        }
+                    }
+                }
+                (exact, failures)
+            })
+            .reduce(|| (0, 0), |a, b| (a.0 + b.0, a.1 + b.1));
+        eprintln!("{exact} exact V texts");
+        assert_eq!(failures, 0);
+    }
+
     use super::*;
     use crate::filesystem::MemoryFileSystem;
     use pretty_assertions::assert_eq;
