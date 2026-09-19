@@ -57,7 +57,7 @@ crate-type = ["cdylib", "lib"]
 
 [dependencies]
 bytes = "1.11.0"
-cfb = "0.14.0"
+cfb = "0.15.0"
 encoding_rs = { version = "0.8.35" }
 md2 = "0.11.0"
 serde = { version = "1.0.228", features = ["derive"] }

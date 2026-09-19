@@ -433,35 +433,17 @@ pub fn compact<P: AsRef<Path>>(path: P) -> io::Result<()> {
 
 /// Rewrites the whole compound file with the same data causing the file to be compacted.
 fn compact_cfb<P: AsRef<Path>>(in_path: P) -> io::Result<()> {
-    // requested to be added in https://github.com/mdsteele/rust-cfb/issues/55
     let out_path: PathBuf = in_path.as_ref().with_extension("compacting");
     let mut original = cfb::open(&in_path)?;
-    let version = original.version();
     let out_file = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .truncate(true)
         .open(&out_path)?;
-    let mut duplicate = CompoundFile::create_with_version(version, out_file)?;
-    let mut stream_paths = Vec::<PathBuf>::new();
-    for entry in original.walk() {
-        if entry.is_storage() {
-            if !entry.is_root() {
-                duplicate.create_storage(entry.path())?;
-            }
-            duplicate.set_storage_clsid(entry.path(), *entry.clsid())?;
-        } else {
-            stream_paths.push(entry.path().to_path_buf());
-        }
-    }
-    for path in stream_paths.iter() {
-        std::io::copy(
-            &mut original.open_stream(path)?,
-            &mut duplicate.create_new_stream(path)?,
-        )?;
-    }
+    let mut duplicate = original.copy_to(out_file)?;
     duplicate.flush()?;
+    drop(original);
     std::fs::remove_file(&in_path)?;
     std::fs::rename(&out_path, &in_path)
 }
