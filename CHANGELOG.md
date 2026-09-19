@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.35.0](https://github.com/francisdb/vpin/compare/v0.34.1...v0.35.0) - 2026-09-19
+
+### Added
+
+- [**breaking**] read and write the flasher absorb blend mode
+
+### Fixed
+
+- build without warnings when the script-audit or parallel feature is off
+
+### Other
+
+- write the obj texture coordinates with the Zmij shortest formatter
+- fail on warnings with the default features, without them and for wasm
+- copy less and size buffers up front when reading and writing vpx files
+- wavefront-obj-io 0.3.1
+
 ## [0.34.1](https://github.com/francisdb/vpin/compare/v0.34.0...v0.34.1) - 2026-09-19
 
 ### Fixed
