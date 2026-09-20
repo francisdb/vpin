@@ -6,6 +6,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.36.0](https://github.com/francisdb/vpin/compare/v0.35.0...v0.36.0) - 2026-09-20
+
+### Added
+
+- *(audit)* locate the findings about a name the script declares
+- audit primitives whose translucency vpinball discards
+- name the game item an audit finding is about
+
+### Fixed
+
+- *(audit)* see the item of a built event through parentheses
+- *(audit)* scan the properties of a class
+- drop translucency of pre-10.8 primitives without a material in the glb export
+- *(audit)* take the parse error position from the parser
+
+### Other
+
+- update vbscript to 0.5.0
+- run only the integration test targets in the integration job
+- *(audit)* scan the script with the vbscript visitor
+- update vbscript to 0.3.1
+
 ## [0.35.0](https://github.com/francisdb/vpin/compare/v0.34.1...v0.35.0) - 2026-09-19
 
 ### Added
