@@ -4844,7 +4844,8 @@ mod script {
     use crate::vpx::gameitem::GameItemEnum;
     use std::collections::HashSet;
     use vbscript::parser::Parser;
-    use vbscript::parser::ast::{Expr, FullIdent, Item, Stmt};
+    use vbscript::parser::ast::{Expr, ExprKind, Item, ItemKind, MemberAccess, Stmt, StmtKind};
+    use vbscript::parser::visit::{Visitor, walk_expr, walk_item, walk_items, walk_stmt};
 
     /// What one pass over the script collected
     #[derive(Default)]
@@ -4963,7 +4964,7 @@ mod script {
         };
 
         let mut scan = Scan::default();
-        scan.items(&items);
+        walk_items(&mut scan, &items);
 
         if !scan.option_explicit {
             findings.push(Kind::MissingOptionExplicit);
@@ -5158,49 +5159,43 @@ mod script {
         }
     }
 
-    impl Scan {
-        fn items(&mut self, items: &[Item]) {
-            for item in items {
-                match item {
-                    Item::OptionExplicit => self.option_explicit = true,
-                    Item::Class { name, methods, .. } => {
-                        self.script_level.push(name.clone());
-                        self.current_class = Some(name.clone());
-                        self.stmts(methods);
-                        self.current_class = None;
-                    }
-                    Item::Statement(stmt) => self.stmt(stmt),
-                    Item::Const { values, .. } => {
-                        self.script_level
-                            .extend(values.iter().map(|(name, _)| name.clone()));
-                    }
-                    Item::Variable { vars, .. } => {
-                        self.script_level
-                            .extend(vars.iter().map(|(name, _)| name.clone()));
-                        self.variables
-                            .extend(vars.iter().map(|(name, _)| name.clone()));
-                    }
+    impl<'ast> Visitor<'ast> for Scan {
+        fn visit_item(&mut self, item: &'ast Item) {
+            match &item.node {
+                ItemKind::OptionExplicit => self.option_explicit = true,
+                ItemKind::Class { name, .. } => {
+                    self.script_level.push(name.to_string());
+                    self.current_class = Some(name.to_string());
+                    walk_item(self, item);
+                    self.current_class = None;
+                    return;
+                }
+                ItemKind::Statement(_) => {}
+                ItemKind::Const { values, .. } => {
+                    self.script_level
+                        .extend(values.iter().map(|(name, _)| name.to_string()));
+                }
+                ItemKind::Variable { vars, .. } => {
+                    self.script_level
+                        .extend(vars.iter().map(|var| var.name.to_string()));
+                    self.variables
+                        .extend(vars.iter().map(|var| var.name.to_string()));
                 }
             }
+            walk_item(self, item);
         }
 
-        fn stmts(&mut self, stmts: &[Stmt]) {
-            for stmt in stmts {
-                self.stmt(stmt);
-            }
-        }
+        /// The properties of a class are not scanned
+        fn visit_member_access(&mut self, _member_access: &'ast MemberAccess) {}
 
-        fn stmt(&mut self, stmt: &Stmt) {
-            match stmt {
-                Stmt::Sub { name, body, .. } | Stmt::Function { name, body, .. } => {
-                    let qualified = match &self.current_class {
-                        Some(class) => format!("{class}.{name}"),
-                        None => name.clone(),
-                    };
+        fn visit_stmt(&mut self, stmt: &'ast Stmt) {
+            match &stmt.node {
+                StmtKind::Sub { name, .. } | StmtKind::Function { name, .. } => {
+                    let qualified = self.qualified(name);
                     if self.current_class.is_none() {
-                        self.script_level.push(name.clone());
+                        self.script_level.push(name.to_string());
                         if self.depth == 0 {
-                            self.procedures.push(name.clone());
+                            self.procedures.push(name.to_string());
                         }
                     }
                     self.declared.push(qualified.clone());
@@ -5210,7 +5205,7 @@ mod script {
                         identifiers: HashSet::new(),
                     });
                     self.depth += 1;
-                    self.stmts(body);
+                    walk_stmt(self, stmt);
                     self.depth -= 1;
                     if let Some(procedure) = self.procedure.take() {
                         for dim in &procedure.dims {
@@ -5221,137 +5216,73 @@ mod script {
                         }
                     }
                     self.procedure = outer;
+                    return;
                 }
                 // a Dim inside a procedure is local, but VBScript hoists
                 // nothing: only script level declarations shadow items
-                Stmt::Dim { vars } if self.current_class.is_none() && self.depth == 0 => {
+                StmtKind::Dim { vars } if self.current_class.is_none() && self.depth == 0 => {
                     self.script_level
-                        .extend(vars.iter().map(|(name, _)| name.clone()));
+                        .extend(vars.iter().map(|var| var.name.to_string()));
                     self.variables
-                        .extend(vars.iter().map(|(name, _)| name.clone()));
+                        .extend(vars.iter().map(|var| var.name.to_string()));
+                    return;
                 }
-                Stmt::Dim { vars } => {
+                StmtKind::Dim { vars } => {
                     if let Some(procedure) = &mut self.procedure {
                         procedure
                             .dims
-                            .extend(vars.iter().map(|(name, _)| name.clone()));
+                            .extend(vars.iter().map(|var| var.name.to_string()));
+                    }
+                    return;
+                }
+                StmtKind::ReDim { vars, .. } => {
+                    for var in vars {
+                        self.ident(&var.name);
                     }
                 }
-                Stmt::ReDim { var_bounds, .. } => {
-                    for (name, bounds) in var_bounds {
-                        self.ident(name);
-                        for bound in bounds {
-                            self.expr(bound);
-                        }
-                    }
-                }
-                Stmt::Const(values) if self.current_class.is_none() && self.depth == 0 => {
+                StmtKind::Const(values) if self.current_class.is_none() && self.depth == 0 => {
                     self.script_level
-                        .extend(values.iter().map(|(name, _)| name.clone()));
+                        .extend(values.iter().map(|(name, _)| name.to_string()));
                 }
-                Stmt::Assignment { full_ident, value } => {
-                    self.full_ident(full_ident);
-                    self.expr(value);
-                }
-                Stmt::Set { var, rhs } => {
-                    self.full_ident(var);
-                    if let vbscript::parser::ast::SetRhs::Expr(e) = rhs {
-                        self.expr(e);
-                    }
-                }
-                Stmt::SubCall { fn_name, args } => {
-                    self.built_event(&fn_name.0, args);
-                    self.full_ident(fn_name);
-                    self.args(args);
-                }
-                Stmt::Call(fi) => {
-                    if let Expr::FnApplication { callee, args } = &*fi.0 {
+                StmtKind::SubCall { fn_name, args } => self.built_event(&fn_name.0, args),
+                StmtKind::Call(fi) => {
+                    if let ExprKind::FnApplication { callee, args } = &fi.0.node {
                         self.built_event(callee, args);
                     }
-                    self.full_ident(fi);
                 }
-                Stmt::IfStmt {
-                    condition,
-                    body,
-                    elseif_statements,
-                    else_stmt,
-                } => {
-                    self.expr(condition);
-                    self.stmts(body);
-                    for (cond, block) in elseif_statements {
-                        self.expr(cond);
-                        self.stmts(block);
-                    }
-                    if let Some(block) = else_stmt {
-                        self.stmts(block);
-                    }
-                }
-                Stmt::WhileStmt { condition, body } => {
-                    self.expr(condition);
-                    self.stmts(body);
-                }
-                Stmt::ForStmt {
-                    counter,
-                    start,
-                    end,
-                    step,
-                    body,
-                } => {
-                    self.ident(counter);
-                    self.expr(start);
-                    self.expr(end);
-                    if let Some(step) = step {
-                        self.expr(step);
-                    }
-                    self.stmts(body);
-                }
-                Stmt::ForEachStmt {
-                    element,
-                    group,
-                    body,
-                } => {
-                    self.ident(element);
-                    self.expr(group);
-                    self.stmts(body);
-                }
-                Stmt::DoLoop { check, body } => {
-                    use vbscript::parser::ast::{DoLoopCheck, DoLoopCondition};
-                    if let DoLoopCheck::Pre(condition) | DoLoopCheck::Post(condition) = check {
-                        let (DoLoopCondition::While(expr) | DoLoopCondition::Until(expr)) =
-                            condition;
-                        self.expr(expr);
-                    }
-                    self.stmts(body);
-                }
-                Stmt::SelectCase {
-                    test_expr,
-                    cases,
-                    else_stmt,
-                } => {
-                    self.expr(test_expr);
-                    for case in cases {
-                        for test in &case.tests {
-                            self.expr(test);
-                        }
-                        self.stmts(&case.body);
-                    }
-                    if let Some(block) = else_stmt {
-                        self.stmts(block);
-                    }
-                }
-                Stmt::With { object, body } => {
-                    self.full_ident(object);
-                    self.stmts(body);
+                StmtKind::ForStmt { counter, .. } => self.ident(counter),
+                StmtKind::ForEachStmt { element, .. } => self.ident(element),
+                _ => {}
+            }
+            walk_stmt(self, stmt);
+        }
+
+        fn visit_expr(&mut self, expr: &'ast Expr) {
+            match &expr.node {
+                ExprKind::Ident(name) => self.ident(name),
+                ExprKind::New(name) | ExprKind::MemberExpression { property: name, .. } => {
+                    self.identifiers.insert(name.to_lowercase());
                 }
                 _ => {}
+            }
+            walk_expr(self, expr);
+        }
+    }
+
+    impl Scan {
+        /// The name of a procedure, with the class it is in
+        fn qualified(&self, name: &str) -> String {
+            match &self.current_class {
+                Some(class) => format!("{class}.{name}"),
+                None => name.to_string(),
             }
         }
 
         /// `vpmBuildEvent item, ...` and `vpmTimer.InitTimer item, ...` give
         /// the item a handler at runtime
         fn built_event(&mut self, callee: &Expr, args: &[Option<Expr>]) {
-            let name = match callee {
-                Expr::Ident(name) | Expr::MemberExpression { property: name, .. } => name,
+            let name = match &callee.node {
+                ExprKind::Ident(name) | ExprKind::MemberExpression { property: name, .. } => name,
                 _ => return,
             };
             if !name.eq_ignore_ascii_case("vpmbuildevent")
@@ -5359,19 +5290,11 @@ mod script {
             {
                 return;
             }
-            if let Some(Some(Expr::Ident(item))) = args.first() {
+            if let Some(Some(item)) = args.first()
+                && let ExprKind::Ident(item) = &item.node
+            {
                 self.built_events.insert(item.to_lowercase());
             }
-        }
-
-        fn args(&mut self, args: &[Option<Expr>]) {
-            for arg in args.iter().flatten() {
-                self.expr(arg);
-            }
-        }
-
-        fn full_ident(&mut self, fi: &FullIdent) {
-            self.expr(&fi.0);
         }
 
         /// A name the script uses, for the script and for the procedure
@@ -5382,29 +5305,6 @@ mod script {
                 procedure.identifiers.insert(lower.clone());
             }
             self.identifiers.insert(lower);
-        }
-
-        fn expr(&mut self, expr: &Expr) {
-            match expr {
-                Expr::Ident(name) => self.ident(name),
-                Expr::New(name) => {
-                    self.identifiers.insert(name.to_lowercase());
-                }
-                Expr::MemberExpression { base, property } => {
-                    self.expr(base);
-                    self.identifiers.insert(property.to_lowercase());
-                }
-                Expr::FnApplication { callee, args } => {
-                    self.expr(callee);
-                    self.args(args);
-                }
-                Expr::PrefixOp { expr, .. } => self.expr(expr),
-                Expr::InfixOp { lhs, rhs, .. } => {
-                    self.expr(lhs);
-                    self.expr(rhs);
-                }
-                Expr::Literal(_) | Expr::WithScoped => {}
-            }
         }
     }
 }
