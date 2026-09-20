@@ -29,7 +29,8 @@
 //!   `static_rendering = true`, `disable_lighting_below = 1.0`,
 //!   `depth_bias = 100000.0`, `backfaces_enabled = false`.
 //! - **Any primitive with an opaque material**
-//!   (`!opacity_active || opacity == 1.0`): forced
+//!   (`!opacity_active || opacity == 1.0`, which includes a missing
+//!   material, vpinball's opaque dummy): forced
 //!   `disable_lighting_below = 1.0` to compensate for vpinball
 //!   discarding the texture alpha channel under those material
 //!   conditions pre-10.8.
@@ -111,8 +112,8 @@ pub fn primitive_backfaces_enabled(primitive: &Primitive, version: &Version) -> 
 
 /// Resolve `(opacity_active, opacity)` for a material by name,
 /// looking in the new `MATR` chunk first and falling back to the
-/// legacy `MATE` chunk. `None` for empty/unknown names - mirrors
-/// vpinball's `GetMaterial`, which returns null in that case.
+/// legacy `MATE` chunk. `None` for empty/unknown names, where
+/// vpinball's `GetMaterial` hands out its opaque dummy material.
 /// Feeds [`primitive_disable_lighting_below`].
 pub fn material_opacity(vpx: &VPX, name: &str) -> Option<(bool, f32)> {
     if name.is_empty() {
@@ -143,8 +144,9 @@ pub fn material_opacity(vpx: &VPX, name: &str) -> Option<(bool, f32)> {
 ///
 /// `material_opacity` is `Some((opacity_active, opacity))` when the
 /// caller resolved the primitive's material, `None` when no
-/// material was found - matching vpinball's `if (mat && ...)`
-/// null check, which skips the force when the material is missing.
+/// material was found. vpinball's `GetMaterial` never returns null:
+/// an empty or unknown name resolves to its dummy material, which
+/// is opaque, so a missing material forces the value too.
 pub fn primitive_disable_lighting_below(
     primitive: &Primitive,
     material_opacity: Option<(bool, f32)>,
@@ -154,9 +156,8 @@ pub fn primitive_disable_lighting_below(
         if primitive.is_playfield() {
             return Some(1.0);
         }
-        if let Some((opacity_active, opacity)) = material_opacity
-            && (!opacity_active || opacity == 1.0)
-        {
+        let (opacity_active, opacity) = material_opacity.unwrap_or((false, 1.0));
+        if !opacity_active || opacity == 1.0 {
             return Some(1.0);
         }
     }
@@ -330,13 +331,19 @@ mod tests {
     }
 
     #[test]
-    fn pre_10_8_missing_material_does_not_force() {
-        // Mirrors vpinball's `if (mat && ...)` null check - missing
-        // material means the opaque-material rule doesn't fire.
-        let p = primitive("Other");
+    fn pre_10_8_missing_material_forces_like_an_opaque_one() {
+        // vpinball's `GetMaterial` resolves an empty or unknown name
+        // to its opaque dummy material, never to null.
+        let mut p = primitive("Other");
+        p.disable_lighting_below = Some(0.25);
         assert_eq!(
             primitive_disable_lighting_below(&p, None, &version("1072")),
-            None
+            Some(1.0)
+        );
+        // 10.8+ trusts the stored value.
+        assert_eq!(
+            primitive_disable_lighting_below(&p, None, &version("1080")),
+            Some(0.25)
         );
     }
 
