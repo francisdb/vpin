@@ -75,4 +75,10 @@ jobs:
           cd "tables/vpe/VisualPinball.Engine.Test/Fixtures~"
           rm -f TroughTest.vpx MappingsTest.vpx KickerTest.vpx MetalWireGuideTest.vpx
       - name: Run the integration tests
-        run: TABLES_DIR="tables" cargo test --release --all-features -- --ignored --nocapture
+        # only the targets under tests/: --ignored alone also picks up the
+        # ignored unit tests, and the exhaustive one below takes nine
+        # minutes on a runner
+        run: TABLES_DIR="tables" cargo test --release --all-features --test '*' -- --ignored --nocapture
+      - name: Run the exhaustive unit tests
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: cargo test --release --all-features --lib -- --ignored --nocapture
