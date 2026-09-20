@@ -408,21 +408,27 @@ pub(crate) enum Kind {
         /// Name of the sub or function, spelled as the repeated declaration
         /// writes it
         name: String,
+        /// Where the repeated declaration names it
+        location: ScriptLocation,
     },
     /// Script level variables the script declares with `Dim`, `Public` or
     /// `Private` and never names again, not even inside a string handed
     /// to `Eval` or `Execute`: dead declarations. Constants are left
     /// alone, and so are the globals the standard scripts read, such as
-    /// `BallSize` or `UseVPMDMD`. Reported once per table
-    UnusedVariables {
-        /// Names of the variables, as the script declares them
-        names: Vec<String>,
+    /// `BallSize` or `UseVPMDMD`. Reported per variable
+    UnusedVariable {
+        /// Name of the variable, as the script declares it
+        name: String,
+        /// Where the script declares it
+        location: ScriptLocation,
     },
-    /// Variables a sub or function declares with `Dim` and never names in
-    /// its body: dead declarations. Reported once per table
-    UnusedLocalVariables {
+    /// A variable a sub, function or property declares with `Dim` and never
+    /// names in its body: a dead declaration. Reported per variable
+    UnusedLocalVariable {
         /// `procedure.variable`, both as the script spells them
-        names: Vec<String>,
+        name: String,
+        /// Where the procedure declares it
+        location: ScriptLocation,
     },
     /// The script uses `Execute`, which runs code built at runtime; vpinball
     /// warns this triggers security checks and can stutter. `ExecuteGlobal`
@@ -443,6 +449,8 @@ pub(crate) enum Kind {
         name: String,
         /// Whether a game item or a collection is hidden
         kind: NameKind,
+        /// Where the script declares it
+        location: ScriptLocation,
     },
     /// The script uses `Rnd` without calling `Randomize`, so every run
     /// draws the same sequence
@@ -463,11 +471,13 @@ pub(crate) enum Kind {
     /// Event handlers such as `<name>_Hit` or `<name>_Timer` whose item,
     /// collection or table does not exist and that nothing calls by name:
     /// dead code, typically a sound package pasted in without its
-    /// collections, or an item that was renamed. Reported once per table
-    HandlersWithoutItem {
-        /// Names of the handlers, such as `Bumper1_Hit`, as the script
-        /// spells them
-        names: Vec<String>,
+    /// collections, or an item that was renamed. Reported per handler
+    HandlerWithoutItem {
+        /// Name of the handler, such as `Bumper1_Hit`, as the script spells
+        /// it
+        name: String,
+        /// Where the script declares it
+        location: ScriptLocation,
     },
 }
 
@@ -504,12 +514,12 @@ impl Kind {
             Kind::ImageDimensionMismatch { .. } => Severity::Info,
             Kind::NegativeLightIntensity { .. } | Kind::StereoTableSound { .. } => Severity::Error,
             Kind::MissingOptionExplicit | Kind::RndWithoutRandomize => Severity::Suggestion,
-            Kind::TimerWithoutHandler { .. } | Kind::HandlersWithoutItem { .. } => Severity::Info,
+            Kind::TimerWithoutHandler { .. } | Kind::HandlerWithoutItem { .. } => Severity::Info,
             Kind::StaticPrimitiveInScript {
                 script_toggles_prerendering: true,
                 ..
             } => Severity::Info,
-            Kind::UnusedVariables { .. } | Kind::UnusedLocalVariables { .. } => Severity::Info,
+            Kind::UnusedVariable { .. } | Kind::UnusedLocalVariable { .. } => Severity::Info,
             Kind::UnnamedItems { type_name, .. } if type_name == "Decal" => Severity::Suggestion,
             Kind::LightCannotFade { lit: false, .. } => Severity::Suggestion,
             Kind::ReservedName { reserved, .. } => match reserved {
@@ -812,28 +822,15 @@ impl fmt::Display for Kind {
                     "script has no 'Option Explicit', typos create silent new variables"
                 )
             }
-            Kind::DuplicateProcedure { name } => {
+            Kind::DuplicateProcedure { name, .. } => {
                 write!(f, "script declares {name:?} more than once")
             }
-            Kind::UnusedVariables { names } => write!(
+            Kind::UnusedVariable { name, .. } => {
+                write!(f, "script declares the variable {name:?} and never uses it")
+            }
+            Kind::UnusedLocalVariable { name, .. } => write!(
                 f,
-                "script declares {} variables it never uses: {}",
-                names.len(),
-                names
-                    .iter()
-                    .map(|name| format!("{name:?}"))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            Kind::UnusedLocalVariables { names } => write!(
-                f,
-                "script declares {} local variables their procedure never uses: {}",
-                names.len(),
-                names
-                    .iter()
-                    .map(|name| format!("{name:?}"))
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                "script declares the local variable {name:?} and its procedure never uses it"
             ),
             Kind::ExecuteUsed => {
                 write!(
@@ -851,7 +848,7 @@ impl fmt::Display for Kind {
                     "script uses a VPinMAME controller but never calls vpmInit"
                 )
             }
-            Kind::ScriptNameShadowsItem { name, kind } => write!(
+            Kind::ScriptNameShadowsItem { name, kind, .. } => write!(
                 f,
                 "script declares {name:?}, which hides the {kind} of that name"
             ),
@@ -871,15 +868,9 @@ impl fmt::Display for Kind {
                 }
                 write!(f, " but the script has no {item}_Timer handler")
             }
-            Kind::HandlersWithoutItem { names } => write!(
+            Kind::HandlerWithoutItem { name, .. } => write!(
                 f,
-                "script has {} event handlers for items that do not exist: {}",
-                names.len(),
-                names
-                    .iter()
-                    .map(|name| format!("{name:?}"))
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                "script has the event handler {name:?} for an item that does not exist"
             ),
         }
     }
@@ -1005,8 +996,10 @@ impl Kind {
             Kind::ScriptParseError { .. } => "script-parse-error",
             Kind::MissingOptionExplicit => "missing-option-explicit",
             Kind::DuplicateProcedure { .. } => "duplicate-procedure",
-            Kind::UnusedVariables { .. } => "unused-variables",
-            Kind::UnusedLocalVariables { .. } => "unused-local-variables",
+            // the codes are from when these were reported once per table,
+            // kept for whoever filters on them
+            Kind::UnusedVariable { .. } => "unused-variables",
+            Kind::UnusedLocalVariable { .. } => "unused-local-variables",
             Kind::ExecuteUsed => "execute-used",
             Kind::MissingPinMameTimer => "missing-pinmame-timer",
             Kind::MissingVpmInit => "missing-vpm-init",
@@ -1014,7 +1007,7 @@ impl Kind {
             Kind::ScriptNameShadowsItem { .. } => "script-name-shadows-item",
             Kind::RndWithoutRandomize => "rnd-without-randomize",
             Kind::TimerWithoutHandler { .. } => "timer-without-handler",
-            Kind::HandlersWithoutItem { .. } => "handlers-without-item",
+            Kind::HandlerWithoutItem { .. } => "handlers-without-item",
         }
     }
 
@@ -1063,6 +1056,7 @@ impl Kind {
             | Kind::ScriptNameShadowsItem {
                 kind: NameKind::GameItem,
                 name,
+                ..
             } => Some(ItemRef::Name(name)),
             _ => None,
         }
@@ -1080,14 +1074,12 @@ impl Kind {
                 find_word(script, "loadvpm").or_else(|| find_word(script, "loadvpmalt"))
             }
             Kind::MissingPulseTimer => find_word(script, "vpmtimer"),
-            Kind::DuplicateProcedure { name } => {
-                let name = name.rsplit('.').next().unwrap_or(name);
-                let mut declarations = script_matches(script, &format!("sub {name}"), true);
-                declarations.extend(script_matches(script, &format!("function {name}"), true));
-                declarations.sort();
-                declarations.into_iter().nth(1)
-            }
-            Kind::ScriptNameShadowsItem { name, .. } => find_word(script, name),
+            // the parser knows where these names are declared
+            Kind::DuplicateProcedure { location, .. }
+            | Kind::ScriptNameShadowsItem { location, .. }
+            | Kind::UnusedVariable { location, .. }
+            | Kind::UnusedLocalVariable { location, .. }
+            | Kind::HandlerWithoutItem { location, .. } => Some(*location),
             Kind::StaticPrimitiveInScript { name, .. } => find_word(script, name),
             Kind::DeprecatedTableProperty { property } => {
                 find_word(script, &format!("{table_name}.{property}"))
@@ -3016,7 +3008,7 @@ mod tests {
                     finding,
                     Kind::NonStandardFont { .. }
                         | Kind::RndWithoutRandomize
-                        | Kind::HandlersWithoutItem { .. }
+                        | Kind::HandlerWithoutItem { .. }
                         | Kind::UnusedMaterials { .. }
                         | Kind::MissingSound { .. }
                         | Kind::UnnamedItems { .. }
@@ -4248,13 +4240,36 @@ mod tests {
                             | Kind::ScriptNameShadowsItem { .. }
                             | Kind::RndWithoutRandomize
                             | Kind::TimerWithoutHandler { .. }
-                            | Kind::HandlersWithoutItem { .. }
+                            | Kind::HandlerWithoutItem { .. }
                             | Kind::StaticPrimitiveInScript { .. }
-                            | Kind::UnusedVariables { .. }
-                            | Kind::UnusedLocalVariables { .. }
+                            | Kind::UnusedVariable { .. }
+                            | Kind::UnusedLocalVariable { .. }
                     )
                 })
                 .collect()
+        }
+
+        /// A location in the script. Line 1 is the `Option Explicit` that
+        /// `scripted` puts before the body
+        fn at(line: usize, column: usize) -> ScriptLocation {
+            ScriptLocation {
+                line,
+                column: Some(column),
+            }
+        }
+
+        fn unused(name: &str, location: ScriptLocation) -> Kind {
+            Kind::UnusedVariable {
+                name: name.to_string(),
+                location,
+            }
+        }
+
+        fn unused_local(name: &str, location: ScriptLocation) -> Kind {
+            Kind::UnusedLocalVariable {
+                name: name.to_string(),
+                location,
+            }
         }
 
         #[test]
@@ -4264,16 +4279,15 @@ mod tests {
                  Sub Table1_Init\n    used = Eval(\"viaEval\")\nEnd Sub\n",
             );
             let findings = script_findings(&vpx);
+            // each at the name, not at its `Dim` or `Private`
             assert_eq!(
                 findings,
-                vec![Kind::UnusedVariables {
-                    names: vec!["dead".to_string(), "alsoDead".to_string()],
-                }]
+                vec![unused("dead", at(2, 11)), unused("alsoDead", at(3, 9))]
             );
             assert_eq!(findings[0].severity(), Severity::Info);
             assert_eq!(
                 findings[0].to_string(),
-                "script declares 2 variables it never uses: \"dead\", \"alsoDead\""
+                "script declares the variable \"dead\" and never uses it"
             );
         }
 
@@ -4293,12 +4307,8 @@ mod tests {
                 script_findings(&vpx),
                 vec![
                     // `counter` is only named in the property
-                    Kind::UnusedVariables {
-                        names: vec!["dead".to_string()],
-                    },
-                    Kind::UnusedLocalVariables {
-                        names: vec!["Foo.Count.unusedLocal".to_string()],
-                    },
+                    unused("dead", at(2, 14)),
+                    unused_local("Foo.Count.unusedLocal", at(5, 13)),
                 ]
             );
         }
@@ -4312,11 +4322,16 @@ mod tests {
             let findings = script_findings(&vpx);
             assert_eq!(
                 findings,
-                vec![Kind::UnusedLocalVariables {
-                    names: vec!["Table1_Init.y".to_string(), "Twice.tmp".to_string()],
-                }]
+                vec![
+                    unused_local("Table1_Init.y", at(3, 12)),
+                    unused_local("Twice.tmp", at(7, 9)),
+                ]
             );
             assert_eq!(findings[0].severity(), Severity::Info);
+            assert_eq!(
+                findings[0].to_string(),
+                "script declares the local variable \"Table1_Init.y\" and its procedure never uses it"
+            );
         }
 
         #[test]
@@ -4413,7 +4428,7 @@ mod tests {
         }
 
         #[test]
-        fn handlers_for_missing_items_are_reported_once() {
+        fn handlers_for_missing_items_are_reported() {
             use crate::vpx::gameitem::wall::Wall;
             let mut vpx = scripted(
                 "Sub Bumper1_Hit\nEnd Sub\n\
@@ -4434,11 +4449,22 @@ mod tests {
             let findings = script_findings(&vpx);
             assert_eq!(
                 findings,
-                vec![Kind::HandlersWithoutItem {
-                    names: vec!["Arch1_Hit".to_string(), "TBWR_Timer".to_string()],
-                }]
+                vec![
+                    Kind::HandlerWithoutItem {
+                        name: "Arch1_Hit".to_string(),
+                        location: at(4, 5),
+                    },
+                    Kind::HandlerWithoutItem {
+                        name: "TBWR_Timer".to_string(),
+                        location: at(6, 5),
+                    },
+                ]
             );
             assert_eq!(findings[0].severity(), Severity::Info);
+            assert_eq!(
+                findings[0].to_string(),
+                "script has the event handler \"Arch1_Hit\" for an item that does not exist"
+            );
         }
 
         #[test]
@@ -4468,28 +4494,26 @@ mod tests {
                 group_elements: false,
             });
             vpx.gamedata.collections_size = vpx.collections.len() as u32;
-            let shadows = |name: &str, kind: NameKind| Kind::ScriptNameShadowsItem {
-                name: name.to_string(),
-                kind,
+            let shadows = |name: &str, kind: NameKind, location: ScriptLocation| {
+                Kind::ScriptNameShadowsItem {
+                    name: name.to_string(),
+                    kind,
+                    location,
+                }
             };
+            // located where the script declares the name, whatever declares it
             assert_eq!(
                 script_findings(&vpx),
                 vec![
-                    shadows("Bumper1", NameKind::GameItem),
-                    shadows("Wall1", NameKind::GameItem),
-                    shadows("Wall2", NameKind::GameItem),
-                    shadows("AllLights", NameKind::Collection),
-                    shadows("Wall3", NameKind::GameItem),
-                    Kind::UnusedVariables {
-                        names: vec![
-                            "Bumper1".to_string(),
-                            "Free".to_string(),
-                            "Wall2".to_string(),
-                        ],
-                    },
-                    Kind::UnusedLocalVariables {
-                        names: vec!["Table1_Init.Wall4".to_string()],
-                    },
+                    shadows("Bumper1", NameKind::GameItem, at(2, 5)),
+                    shadows("Wall1", NameKind::GameItem, at(3, 7)),
+                    shadows("Wall2", NameKind::GameItem, at(4, 8)),
+                    shadows("AllLights", NameKind::Collection, at(5, 5)),
+                    shadows("Wall3", NameKind::GameItem, at(7, 7)),
+                    unused("Bumper1", at(2, 5)),
+                    unused("Free", at(2, 14)),
+                    unused("Wall2", at(4, 8)),
+                    unused_local("Table1_Init.Wall4", at(10, 9)),
                 ]
             );
         }
@@ -4582,7 +4606,27 @@ mod tests {
             assert_eq!(
                 script_findings(&vpx),
                 vec![Kind::DuplicateProcedure {
-                    name: "Foo".to_string()
+                    name: "Foo".to_string(),
+                    location: at(4, 5),
+                }]
+            );
+        }
+
+        #[test]
+        fn a_duplicate_procedure_is_located_at_the_name_of_its_second_declaration() {
+            // not at the first one, not at a function of another name, and at the name
+            // instead of the `Private Sub` before it
+            let mut vpx = scripted(
+                "Sub Reset\nEnd Sub\nFunction Other\nEnd Function\n\
+                 Private Sub Reset\nEnd Sub\n\
+                 Sub Table1_Init\n    Reset\n    x = Other\nEnd Sub\n",
+            );
+            vpx.gamedata.name = "Table1".to_string();
+            assert_eq!(
+                script_findings(&vpx),
+                vec![Kind::DuplicateProcedure {
+                    name: "Reset".to_string(),
+                    location: at(6, 13),
                 }]
             );
         }
@@ -4790,20 +4834,7 @@ mod finding_tests {
     }
 
     #[test]
-    fn a_duplicate_procedure_is_located_at_its_second_declaration() {
-        let script = "Sub Reset\r\nEnd Sub\r\nFunction Other\r\nEnd Function\r\nPrivate Sub Reset\r\nEnd Sub\r\n";
-        let kind = Kind::DuplicateProcedure {
-            name: "Reset".to_string(),
-        };
-        assert_eq!(kind.locate(script, ""), at(5, 9));
-        let kind = Kind::DuplicateProcedure {
-            name: "Class.Other".to_string(),
-        };
-        assert_eq!(kind.locate(script, ""), None);
-    }
-
-    #[test]
-    fn a_static_primitive_and_a_shadowing_name_are_located_at_their_first_mention() {
+    fn a_static_primitive_is_located_at_its_first_mention() {
         let script = "Dim Apron\r\nBaked.Visible = False\r\n";
         let kind = Kind::StaticPrimitiveInScript {
             name: "Baked".to_string(),
@@ -4811,11 +4842,6 @@ mod finding_tests {
             script_toggles_prerendering: false,
         };
         assert_eq!(kind.locate(script, ""), at(2, 1));
-        let kind = Kind::ScriptNameShadowsItem {
-            name: "Apron".to_string(),
-            kind: NameKind::GameItem,
-        };
-        assert_eq!(kind.locate(script, ""), at(1, 5));
     }
 
     #[test]
@@ -4877,11 +4903,16 @@ mod finding_tests {
     }
 
     #[test]
-    fn grouped_findings_carry_no_location() {
-        let kind = Kind::HandlersWithoutItem {
-            names: vec!["Gone_Hit".to_string()],
+    fn a_finding_about_a_declared_name_carries_its_location() {
+        // the parser found it, the script is not searched for the name
+        let kind = Kind::HandlerWithoutItem {
+            name: "Gone_Hit".to_string(),
+            location: ScriptLocation {
+                line: 7,
+                column: Some(5),
+            },
         };
-        assert_eq!(kind.locate("Sub Gone_Hit\r\nEnd Sub\r\n", ""), None);
+        assert_eq!(kind.locate("", ""), at(7, 5));
     }
 }
 
@@ -4890,48 +4921,59 @@ mod script {
     use super::{Kind, NameKind, ScriptLocation, VPX};
     use crate::vpx::gameitem::GameItemEnum;
     use std::collections::HashSet;
+    use vbscript::lexer::LineIndex;
     use vbscript::parser::Parser;
-    use vbscript::parser::ast::{Expr, ExprKind, Item, ItemKind, MemberAccess, Stmt, StmtKind};
+    use vbscript::parser::ast::{
+        Expr, ExprKind, Item, ItemKind, MemberAccess, Name, Stmt, StmtKind,
+    };
     use vbscript::parser::visit::{
         Visitor, walk_expr, walk_item, walk_items, walk_member_access, walk_stmt,
     };
 
+    /// A name the script declares, as it spells it, and where it does
+    #[derive(Clone)]
+    struct Declared {
+        name: String,
+        location: ScriptLocation,
+    }
+
     /// What one pass over the script collected
-    #[derive(Default)]
-    struct Scan {
+    struct Scan<'script> {
+        /// to find the line and column of a name
+        index: LineIndex<'script>,
         option_explicit: bool,
         /// every identifier seen, lowercased, like vpinball's audit bag
         identifiers: HashSet<String>,
         /// declared sub/function names, qualified by class so that a method
         /// name reused across classes is not a duplicate
-        declared: Vec<String>,
+        declared: Vec<Declared>,
         /// the class currently being scanned, if any
         current_class: Option<String>,
         /// names declared at script level: variables, constants, subs,
         /// functions and classes, which all live in the namespace the
         /// table items are in
-        script_level: Vec<String>,
+        script_level: Vec<Declared>,
         /// how many procedures deep the scan is
         depth: usize,
         /// subs and functions declared at script level, the only ones
         /// vpinball can dispatch events to
-        procedures: Vec<String>,
+        procedures: Vec<Declared>,
         /// items handed to core.vbs `vpmBuildEvent` or `InitTimer`, which
         /// build the timer handler at runtime
         built_events: HashSet<String>,
         /// variables declared at script level, in declaration order
-        variables: Vec<String>,
+        variables: Vec<Declared>,
         /// the sub or function being scanned, with what it declares and
         /// names
         procedure: Option<Procedure>,
         /// `procedure.variable` for every local a procedure declares and
         /// never names
-        unused_locals: Vec<String>,
+        unused_locals: Vec<Declared>,
     }
 
     struct Procedure {
         name: String,
-        dims: Vec<String>,
+        dims: Vec<Declared>,
         identifiers: HashSet<String>,
     }
 
@@ -5012,7 +5054,7 @@ mod script {
             }
         };
 
-        let mut scan = Scan::default();
+        let mut scan = Scan::new(script);
         walk_items(&mut scan, &items);
 
         if !scan.option_explicit {
@@ -5020,9 +5062,12 @@ mod script {
         }
 
         let mut seen: HashSet<String> = HashSet::new();
-        for name in &scan.declared {
-            if !seen.insert(name.to_lowercase()) {
-                findings.push(Kind::DuplicateProcedure { name: name.clone() });
+        for procedure in &scan.declared {
+            if !seen.insert(procedure.name.to_lowercase()) {
+                findings.push(Kind::DuplicateProcedure {
+                    name: procedure.name.clone(),
+                    location: procedure.location,
+                });
             }
         }
 
@@ -5069,8 +5114,8 @@ mod script {
             .map(|collection| collection.name.to_lowercase())
             .collect();
         let mut reported: HashSet<String> = HashSet::new();
-        for name in &scan.script_level {
-            let lower = name.to_lowercase();
+        for declared in &scan.script_level {
+            let lower = declared.name.to_lowercase();
             let kind = if items.contains(&lower) {
                 NameKind::GameItem
             } else if collections.contains(&lower) {
@@ -5080,8 +5125,9 @@ mod script {
             };
             if reported.insert(lower) {
                 findings.push(Kind::ScriptNameShadowsItem {
-                    name: name.clone(),
+                    name: declared.name.clone(),
                     kind,
+                    location: declared.location,
                 });
             }
         }
@@ -5104,41 +5150,34 @@ mod script {
             })
             .collect();
         let mut seen: HashSet<String> = HashSet::new();
-        let unused: Vec<String> = scan
-            .variables
-            .iter()
-            .filter(|name| {
-                let lower = name.to_lowercase();
-                seen.insert(lower.clone())
-                    && !scan.identifiers.contains(&lower)
-                    && !literal_words.contains(&lower)
-                    && !STANDARD_SCRIPT_GLOBALS.contains(&lower.as_str())
-            })
-            .cloned()
-            .collect();
-        if !unused.is_empty() {
-            findings.push(Kind::UnusedVariables { names: unused });
+        for variable in &scan.variables {
+            let lower = variable.name.to_lowercase();
+            if seen.insert(lower.clone())
+                && !scan.identifiers.contains(&lower)
+                && !literal_words.contains(&lower)
+                && !STANDARD_SCRIPT_GLOBALS.contains(&lower.as_str())
+            {
+                findings.push(Kind::UnusedVariable {
+                    name: variable.name.clone(),
+                    location: variable.location,
+                });
+            }
         }
-        let unused_locals: Vec<String> = scan
-            .unused_locals
-            .iter()
-            .filter(|qualified| {
-                let variable = qualified.rsplit('.').next().unwrap_or(qualified);
-                !literal_words.contains(&variable.to_lowercase())
-            })
-            .cloned()
-            .collect();
-        if !unused_locals.is_empty() {
-            findings.push(Kind::UnusedLocalVariables {
-                names: unused_locals,
-            });
+        for local in &scan.unused_locals {
+            let variable = local.name.rsplit('.').next().unwrap_or(&local.name);
+            if !literal_words.contains(&variable.to_lowercase()) {
+                findings.push(Kind::UnusedLocalVariable {
+                    name: local.name.clone(),
+                    location: local.location,
+                });
+            }
         }
 
         // enabled timers nothing handles, and handlers nothing fires
         let procedures: HashSet<String> = scan
             .procedures
             .iter()
-            .map(|name| name.to_lowercase())
+            .map(|procedure| procedure.name.to_lowercase())
             .collect();
         let handled_by_collection: HashSet<String> = vpx
             .collections
@@ -5171,24 +5210,22 @@ mod script {
             });
         }
         let table = vpx.gamedata.name.to_lowercase();
-        let orphans: Vec<String> = scan
-            .procedures
-            .iter()
-            .filter(|name| {
-                let lower = name.to_lowercase();
-                lower.rsplit_once('_').is_some_and(|(object, event)| {
-                    !object.is_empty()
-                        && EVENTS.contains(&event)
-                        && object != table
-                        && !items.contains(object)
-                        && !collections.contains(object)
-                        && !scan.identifiers.contains(&lower)
-                })
-            })
-            .cloned()
-            .collect();
-        if !orphans.is_empty() {
-            findings.push(Kind::HandlersWithoutItem { names: orphans });
+        for handler in &scan.procedures {
+            let lower = handler.name.to_lowercase();
+            let orphan = lower.rsplit_once('_').is_some_and(|(object, event)| {
+                !object.is_empty()
+                    && EVENTS.contains(&event)
+                    && object != table
+                    && !items.contains(object)
+                    && !collections.contains(object)
+                    && !scan.identifiers.contains(&lower)
+            });
+            if orphan {
+                findings.push(Kind::HandlerWithoutItem {
+                    name: handler.name.clone(),
+                    location: handler.location,
+                });
+            }
         }
 
         // like vpinball: any mention of a static primitive's name, reading a
@@ -5208,12 +5245,13 @@ mod script {
         }
     }
 
-    impl<'ast> Visitor<'ast> for Scan {
+    impl<'ast> Visitor<'ast> for Scan<'_> {
         fn visit_item(&mut self, item: &'ast Item) {
             match &item.node {
                 ItemKind::OptionExplicit => self.option_explicit = true,
                 ItemKind::Class { name, .. } => {
-                    self.script_level.push(name.to_string());
+                    let class = self.declare(name);
+                    self.script_level.push(class);
                     self.current_class = Some(name.to_string());
                     walk_item(self, item);
                     self.current_class = None;
@@ -5221,14 +5259,13 @@ mod script {
                 }
                 ItemKind::Statement(_) => {}
                 ItemKind::Const { values, .. } => {
-                    self.script_level
-                        .extend(values.iter().map(|(name, _)| name.to_string()));
+                    let constants = self.declare_all(values.iter().map(|(name, _)| name));
+                    self.script_level.extend(constants);
                 }
                 ItemKind::Variable { vars, .. } => {
-                    self.script_level
-                        .extend(vars.iter().map(|var| var.name.to_string()));
-                    self.variables
-                        .extend(vars.iter().map(|var| var.name.to_string()));
+                    let variables = self.declare_all(vars.iter().map(|var| &var.name));
+                    self.script_level.extend(variables.iter().cloned());
+                    self.variables.extend(variables);
                 }
             }
             walk_item(self, item);
@@ -5245,30 +5282,32 @@ mod script {
             match &stmt.node {
                 StmtKind::Sub { name, .. } | StmtKind::Function { name, .. } => {
                     let qualified = self.qualified(name);
+                    let procedure = self.declare(name);
                     if self.current_class.is_none() {
-                        self.script_level.push(name.to_string());
+                        self.script_level.push(procedure.clone());
                         if self.depth == 0 {
-                            self.procedures.push(name.to_string());
+                            self.procedures.push(procedure.clone());
                         }
                     }
-                    self.declared.push(qualified.clone());
+                    self.declared.push(Declared {
+                        name: qualified.clone(),
+                        location: procedure.location,
+                    });
                     self.procedure(qualified, |scan| walk_stmt(scan, stmt));
                     return;
                 }
                 // a Dim inside a procedure is local, but VBScript hoists
                 // nothing: only script level declarations shadow items
                 StmtKind::Dim { vars } if self.current_class.is_none() && self.depth == 0 => {
-                    self.script_level
-                        .extend(vars.iter().map(|var| var.name.to_string()));
-                    self.variables
-                        .extend(vars.iter().map(|var| var.name.to_string()));
+                    let variables = self.declare_all(vars.iter().map(|var| &var.name));
+                    self.script_level.extend(variables.iter().cloned());
+                    self.variables.extend(variables);
                     return;
                 }
                 StmtKind::Dim { vars } => {
+                    let locals = self.declare_all(vars.iter().map(|var| &var.name));
                     if let Some(procedure) = &mut self.procedure {
-                        procedure
-                            .dims
-                            .extend(vars.iter().map(|var| var.name.to_string()));
+                        procedure.dims.extend(locals);
                     }
                     return;
                 }
@@ -5278,8 +5317,8 @@ mod script {
                     }
                 }
                 StmtKind::Const(values) if self.current_class.is_none() && self.depth == 0 => {
-                    self.script_level
-                        .extend(values.iter().map(|(name, _)| name.to_string()));
+                    let constants = self.declare_all(values.iter().map(|(name, _)| name));
+                    self.script_level.extend(constants);
                 }
                 StmtKind::SubCall { fn_name, args } => self.built_event(&fn_name.0, args),
                 StmtKind::Call(fi) => {
@@ -5306,7 +5345,40 @@ mod script {
         }
     }
 
-    impl Scan {
+    impl<'script> Scan<'script> {
+        fn new(script: &'script str) -> Self {
+            Scan {
+                index: LineIndex::new(script),
+                option_explicit: false,
+                identifiers: HashSet::new(),
+                declared: Vec::new(),
+                current_class: None,
+                script_level: Vec::new(),
+                depth: 0,
+                procedures: Vec::new(),
+                built_events: HashSet::new(),
+                variables: Vec::new(),
+                procedure: None,
+                unused_locals: Vec::new(),
+            }
+        }
+
+        /// A name with the line and column the script declares it at
+        fn declare(&self, name: &Name) -> Declared {
+            let (line, column) = self.index.line_column(name.span.start);
+            Declared {
+                name: name.to_string(),
+                location: ScriptLocation {
+                    line,
+                    column: Some(column),
+                },
+            }
+        }
+
+        fn declare_all<'a>(&self, names: impl Iterator<Item = &'a Name>) -> Vec<Declared> {
+            names.map(|name| self.declare(name)).collect()
+        }
+
         /// The name of a procedure, with the class it is in
         fn qualified(&self, name: &str) -> String {
             match &self.current_class {
@@ -5328,9 +5400,11 @@ mod script {
             self.depth -= 1;
             if let Some(procedure) = self.procedure.take() {
                 for dim in &procedure.dims {
-                    if !procedure.identifiers.contains(&dim.to_lowercase()) {
-                        self.unused_locals
-                            .push(format!("{}.{}", procedure.name, dim));
+                    if !procedure.identifiers.contains(&dim.name.to_lowercase()) {
+                        self.unused_locals.push(Declared {
+                            name: format!("{}.{}", procedure.name, dim.name),
+                            location: dim.location,
+                        });
                     }
                 }
             }
