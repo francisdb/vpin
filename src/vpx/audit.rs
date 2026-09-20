@@ -384,8 +384,10 @@ pub(crate) enum Kind {
     },
     /// The script could not be parsed, so the script-level checks could not run
     ScriptParseError {
-        /// The parser's error, rendered as debug text
+        /// The parser's description of what went wrong, without the position
         detail: String,
+        /// Where the parser gave up, when it knows
+        location: Option<ScriptLocation>,
     },
     /// The script has no `Option Explicit`, so a typo in a variable name
     /// silently creates a new variable instead of being caught
@@ -787,7 +789,7 @@ impl fmt::Display for Kind {
                     *bytes as f64 / 1e6
                 )
             }
-            Kind::ScriptParseError { detail } => {
+            Kind::ScriptParseError { detail, .. } => {
                 write!(f, "script could not be parsed: {detail}")
             }
             Kind::MissingOptionExplicit => {
@@ -1054,7 +1056,7 @@ impl Kind {
     /// point at one place. Findings that list several names carry none.
     fn locate(&self, script: &str, table_name: &str) -> Option<ScriptLocation> {
         match self {
-            Kind::ScriptParseError { detail } => parse_error_location(detail),
+            Kind::ScriptParseError { location, .. } => *location,
             Kind::MixedScriptLineEndings { .. } => line_ending_change(script),
             Kind::ExecuteUsed => find_word(script, "execute"),
             Kind::RndWithoutRandomize => find_word(script, "rnd"),
@@ -1127,18 +1129,6 @@ impl<'a> ItemIndex<'a> {
         }
         .map(|name| name.to_string())
     }
-}
-
-/// The location in a vbscript parse error, whose text reads `ParseError at
-/// line 12, column 4: ...`
-fn parse_error_location(detail: &str) -> Option<ScriptLocation> {
-    let rest = detail.strip_prefix("ParseError at line ")?;
-    let (line, rest) = rest.split_once(", column ")?;
-    let (column, _) = rest.split_once(':')?;
-    Some(ScriptLocation {
-        line: line.trim().parse().ok()?,
-        column: column.trim().parse().ok(),
-    })
 }
 
 /// The first line whose ending differs from the one the script starts with
@@ -4344,7 +4334,12 @@ mod tests {
             vpx.gamedata.code.string = "Sub Foo(\r\n".to_string();
             let findings = script_findings(&vpx);
             assert_eq!(findings.len(), 1, "{findings:#?}");
-            assert!(matches!(findings[0], Kind::ScriptParseError { .. }));
+            let Kind::ScriptParseError { detail, location } = &findings[0] else {
+                panic!("{findings:#?}");
+            };
+            // the position is in the location, not repeated in the text
+            assert!(location.is_some(), "{findings:#?}");
+            assert!(!detail.contains("line "), "{detail}");
         }
     }
 }
@@ -4557,13 +4552,19 @@ mod finding_tests {
     }
 
     #[test]
-    fn a_parse_error_is_located_from_its_text() {
+    fn a_parse_error_carries_the_location_the_parser_gave() {
         let kind = Kind::ScriptParseError {
-            detail: "ParseError at line 12, column 4: unexpected token".to_string(),
+            detail: "unexpected token".to_string(),
+            location: at(12, 4),
         };
         assert_eq!(kind.locate("", ""), at(12, 4));
+        assert_eq!(
+            kind.to_string(),
+            "script could not be parsed: unexpected token"
+        );
         let kind = Kind::ScriptParseError {
-            detail: "something else".to_string(),
+            detail: "unexpected token".to_string(),
+            location: None,
         };
         assert_eq!(kind.locate("", ""), None);
     }
@@ -4611,7 +4612,7 @@ mod finding_tests {
 
 #[cfg(feature = "script-audit")]
 mod script {
-    use super::{Kind, NameKind, VPX};
+    use super::{Kind, NameKind, ScriptLocation, VPX};
     use crate::vpx::gameitem::GameItemEnum;
     use std::collections::HashSet;
     use vbscript::parser::Parser;
@@ -4720,8 +4721,14 @@ mod script {
         let items = match Parser::new(script).file() {
             Ok(items) => items,
             Err(e) => {
+                // the parser counts from 1, 0 stands for unknown
+                let location = (e.line() > 0).then(|| ScriptLocation {
+                    line: e.line(),
+                    column: (e.column() > 0).then_some(e.column()),
+                });
                 findings.push(Kind::ScriptParseError {
-                    detail: format!("{e:?}"),
+                    detail: e.message().to_string(),
+                    location,
                 });
                 return;
             }
