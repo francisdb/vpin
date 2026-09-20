@@ -4335,6 +4335,27 @@ mod tests {
         }
 
         #[test]
+        fn a_timer_handed_over_in_parentheses_has_a_handler() {
+            use crate::vpx::gameitem::timer::Timer;
+            // parentheses around an argument pass it by value, it is the same item
+            let mut vpx = scripted(
+                "Sub Table1_Init\n    vpmTimer.InitTimer (Pulsed), True\n    vpmBuildEvent(Built)\nEnd Sub\n",
+            );
+            // vpmTimer needs the PulseTimer, which core.vbs handles
+            for (name, interval) in [("Pulsed", 100), ("Built", 100), ("PulseTimer", 1)] {
+                let mut timer = Timer {
+                    name: name.to_string(),
+                    ..Timer::default()
+                };
+                timer.timer.is_enabled = true;
+                timer.timer.interval = interval;
+                vpx.gameitems.push(GameItemEnum::Timer(timer));
+            }
+            vpx.gamedata.gameitems_size = vpx.gameitems.len() as u32;
+            assert_eq!(script_findings(&vpx), vec![]);
+        }
+
+        #[test]
         fn an_enabled_timer_without_a_handler_is_reported() {
             use crate::vpx::collection::Collection;
             use crate::vpx::gameitem::timer::Timer;
@@ -5328,10 +5349,15 @@ mod script {
             {
                 return;
             }
-            if let Some(Some(item)) = args.first()
-                && let ExprKind::Ident(item) = &item.node
-            {
-                self.built_events.insert(item.to_lowercase());
+            if let Some(Some(item)) = args.first() {
+                // `InitTimer (item), True` hands the item over by value
+                let mut item = item;
+                while let ExprKind::Paren(inner) = &item.node {
+                    item = inner;
+                }
+                if let ExprKind::Ident(item) = &item.node {
+                    self.built_events.insert(item.to_lowercase());
+                }
             }
         }
 
