@@ -330,6 +330,16 @@ pub(crate) enum Kind {
         /// Type and name of the light
         item: String,
     },
+    /// A primitive lets light from below through (its `disable lighting
+    /// from below` is under 1) while nothing about it is see-through: its
+    /// material has no active opacity under 1 and its image has no
+    /// transparency. vpinball discards the translucency and warns about
+    /// it in its own table audit. A static primitive is left alone,
+    /// vpinball renders those without translucency by design
+    OpaquePrimitiveTranslucency {
+        /// Type and name of the primitive
+        item: String,
+    },
     /// A primitive is marked static, which bakes it at load, while the
     /// script refers to it. Writes to most of its properties are lost
     /// once it is baked, which happens on the first frame, after `Init`
@@ -745,6 +755,10 @@ impl fmt::Display for Kind {
             Kind::NegativeLightIntensity { item } => {
                 write!(f, "{item}: negative light intensity")
             }
+            Kind::OpaquePrimitiveTranslucency { item } => write!(
+                f,
+                "{item}: uses translucency (lighting from below) while it is fully opaque, vpinball discards the translucency"
+            ),
             Kind::StaticPrimitiveInScript {
                 item,
                 script_toggles_prerendering: true,
@@ -981,6 +995,7 @@ impl Kind {
             Kind::TextboxUsedForDmd { .. } => "textbox-used-for-dmd",
             Kind::FastTimer { .. } => "fast-timer",
             Kind::NegativeLightIntensity { .. } => "negative-light-intensity",
+            Kind::OpaquePrimitiveTranslucency { .. } => "opaque-primitive-translucency",
             Kind::StaticPrimitiveInScript { .. } => "static-primitive-in-script",
             Kind::LightCannotFade { .. } => "light-cannot-fade",
             Kind::StereoTableSound { .. } => "stereo-table-sound",
@@ -1029,6 +1044,7 @@ impl Kind {
             | Kind::TextboxUsedForDmd { item }
             | Kind::FastTimer { item, .. }
             | Kind::NegativeLightIntensity { item }
+            | Kind::OpaquePrimitiveTranslucency { item }
             | Kind::StaticPrimitiveInScript { item, .. }
             | Kind::LightCannotFade { item, .. } => Some(ItemRef::Label(item)),
             Kind::TimerWithoutHandler { item, .. } => Some(ItemRef::Name(item)),
@@ -1430,6 +1446,7 @@ fn audit_kinds(vpx: &VPX) -> Vec<Kind> {
         check_item_behavior(item, &mut findings);
         check_mesh_size(item, &mut findings);
     }
+    check_primitive_translucency(vpx, &mut findings);
     for sound in &vpx.sounds {
         if sound.output_target == crate::vpx::sound::OutputTarget::Table
             && sound.wave_form.channels > 1
@@ -1556,6 +1573,85 @@ fn check_mesh_size(item: &GameItemEnum, findings: &mut Vec<Kind>) {
             indices: primitive.num_indices.unwrap_or(0),
         });
     }
+}
+
+/// vpinball's own audit of the same (pintable.cpp `AuditTable`). The
+/// translucency is the effective one: vpinball already switches it off at
+/// load for an opaque material in a table saved before 10.8
+fn check_primitive_translucency(vpx: &VPX, findings: &mut Vec<Kind>) {
+    // images repeat across primitives and telling whether one is opaque
+    // can mean decoding it
+    let mut opaque_images: HashMap<String, bool> = HashMap::new();
+    for item in &vpx.gameitems {
+        let GameItemEnum::Primitive(primitive) = item else {
+            continue;
+        };
+        if !primitive.is_visible || primitive.static_rendering {
+            continue;
+        }
+        // vpinball resolves a missing material to its default, which is
+        // opaque
+        let (opacity_active, opacity) =
+            crate::vpx::compat::material_opacity(vpx, &primitive.material).unwrap_or((false, 1.0));
+        let below = crate::vpx::compat::primitive_disable_lighting_below(
+            primitive,
+            Some((opacity_active, opacity)),
+            &vpx.version,
+        );
+        if below.unwrap_or(1.0) == 1.0 || (opacity_active && opacity != 1.0) {
+            continue;
+        }
+        let image_is_opaque = *opaque_images
+            .entry(primitive.image.to_lowercase())
+            .or_insert_with(|| {
+                vpx.images
+                    .iter()
+                    .find(|image| image.name.eq_ignore_ascii_case(&primitive.image))
+                    // a picture that does not decode is left alone
+                    .is_none_or(|image| picture_is_opaque(image).unwrap_or(false))
+            });
+        if image_is_opaque {
+            findings.push(Kind::OpaquePrimitiveTranslucency {
+                item: item_label(item),
+            });
+        }
+    }
+}
+
+/// Whether the picture has no transparency, as vpinball's
+/// `Texture::IsOpaque` tells it: the flag vpinball stores with the image
+/// since 10.8, or else a look at the alpha channel. A bitmap keeps its
+/// alpha channel only when some value is neither 0 nor 255. `None` when
+/// the picture does not decode.
+fn picture_is_opaque(image: &crate::vpx::image::ImageData) -> Option<bool> {
+    if let Some(is_opaque) = image.is_opaque {
+        return Some(is_opaque);
+    }
+    if let Some(jpeg) = &image.jpeg {
+        use ::image::ImageDecoder;
+        let mut reader = ::image::ImageReader::new(std::io::Cursor::new(&jpeg.data));
+        if let Some(format) = ::image::ImageFormat::from_extension(image.ext()) {
+            reader.set_format(format);
+        }
+        let decoder = reader.with_guessed_format().ok()?.into_decoder().ok()?;
+        // most pictures have no alpha channel, which the header tells
+        if !decoder.color_type().has_alpha() {
+            return Some(true);
+        }
+        let picture = ::image::DynamicImage::from_decoder(decoder).ok()?;
+        return Some(picture.to_rgba8().pixels().all(|pixel| pixel[3] == 255));
+    }
+    if let Some(bits) = &image.bits {
+        let bytes = crate::vpx::lzw::from_lzw_blocks(&bits.lzw_compressed_data).ok()?;
+        return Some(
+            bytes
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| pixel[3] == 0 || pixel[3] == 255),
+        );
+    }
+    None
 }
 
 /// The size of the encoded picture, read from its header only; a bitmap
@@ -3542,6 +3638,138 @@ mod tests {
             }]
         );
         assert_eq!(findings[0].severity(), Severity::Info);
+    }
+
+    fn translucent_primitives(vpx: &VPX) -> Vec<Kind> {
+        audit_kinds(vpx)
+            .into_iter()
+            .filter(|finding| matches!(finding, Kind::OpaquePrimitiveTranslucency { .. }))
+            .collect()
+    }
+
+    #[test]
+    fn translucency_on_an_opaque_primitive_is_reported() {
+        use crate::vpx::gameitem::primitive::Primitive;
+        use crate::vpx::image::{ImageData, ImageDataJpeg};
+        let image = |name: &str, alpha: u8, is_opaque: Option<bool>| {
+            let mut png = Vec::new();
+            ::image::RgbaImage::from_pixel(2, 2, ::image::Rgba([1, 2, 3, alpha]))
+                .write_to(
+                    &mut std::io::Cursor::new(&mut png),
+                    ::image::ImageFormat::Png,
+                )
+                .expect("encodes");
+            ImageData {
+                name: name.to_string(),
+                path: format!("{name}.png"),
+                width: 2,
+                height: 2,
+                is_opaque,
+                jpeg: Some(ImageDataJpeg {
+                    path: format!("{name}.png"),
+                    name: name.to_string(),
+                    internal_name: None,
+                    data: png,
+                }),
+                ..Default::default()
+            }
+        };
+        let translucent = |name: &str| Primitive {
+            name: name.to_string(),
+            disable_lighting_below: Some(0.5),
+            ..Primitive::default()
+        };
+        let mut vpx = clean_vpx();
+        vpx.version = crate::vpx::version::Version::new(1080);
+        vpx.images = vec![
+            image("solid", 255, None),
+            image("cutout", 128, None),
+            // the stored flag wins over the pixels
+            image("flagged", 255, Some(false)),
+        ];
+        let mut clear = crate::vpx::material::Material::default();
+        clear.name = "Clear".to_string();
+        clear.opacity_active = true;
+        clear.opacity = 0.5;
+        vpx.gamedata
+            .materials
+            .get_or_insert_with(Vec::new)
+            .push(clear);
+        vpx.gameitems = vec![
+            translucent("Bare"),
+            Primitive {
+                image: "Solid".to_string(),
+                ..translucent("Textured")
+            },
+            Primitive {
+                disable_lighting_below: None,
+                ..translucent("Default")
+            },
+            Primitive {
+                static_rendering: true,
+                ..translucent("Static")
+            },
+            Primitive {
+                is_visible: false,
+                ..translucent("Hidden")
+            },
+            Primitive {
+                material: "clear".to_string(),
+                ..translucent("Glass")
+            },
+            Primitive {
+                image: "cutout".to_string(),
+                ..translucent("Cutout")
+            },
+            Primitive {
+                image: "flagged".to_string(),
+                ..translucent("Flagged")
+            },
+        ]
+        .into_iter()
+        .map(|primitive| GameItemEnum::Primitive(Box::new(primitive)))
+        .collect();
+        let findings = translucent_primitives(&vpx);
+        assert_eq!(
+            findings,
+            vec![
+                Kind::OpaquePrimitiveTranslucency {
+                    item: "Primitive \"Bare\"".to_string(),
+                },
+                Kind::OpaquePrimitiveTranslucency {
+                    item: "Primitive \"Textured\"".to_string(),
+                },
+            ]
+        );
+        assert_eq!(findings[0].severity(), Severity::Warning);
+    }
+
+    #[test]
+    fn a_table_from_before_10_8_has_its_translucency_switched_off_at_load() {
+        use crate::vpx::gameitem::primitive::Primitive;
+        let mut vpx = clean_vpx();
+        let mut plastic = crate::vpx::material::Material::default();
+        plastic.name = "Plastic".to_string();
+        vpx.gamedata
+            .materials
+            .get_or_insert_with(Vec::new)
+            .push(plastic);
+        vpx.gameitems = vec![GameItemEnum::Primitive(Box::new(Primitive {
+            name: "Ramp".to_string(),
+            material: "Plastic".to_string(),
+            disable_lighting_below: Some(0.5),
+            ..Primitive::default()
+        }))];
+        vpx.gameitems
+            .push(GameItemEnum::Primitive(Box::new(Primitive {
+                name: "Bare".to_string(),
+                disable_lighting_below: Some(0.5),
+                ..Primitive::default()
+            })));
+        vpx.version = crate::vpx::version::Version::new(1080);
+        assert_eq!(translucent_primitives(&vpx).len(), 2);
+        vpx.version = crate::vpx::version::Version::new(1072);
+        assert_eq!(translucent_primitives(&vpx), vec![]);
     }
 
     #[test]

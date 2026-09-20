@@ -592,33 +592,6 @@ fn calculate_transmission_factor(disable_lighting_below: Option<f32>) -> Option<
         .map(|v| (1.0 - v) * MAX_TRANSMISSION)
 }
 
-/// Resolve `(opacity_active, opacity)` for a material by name,
-/// looking in the new `MATR` chunk first and falling back to the
-/// legacy `MATE` chunk. `None` for empty/unknown names - mirrors
-/// vpinball's `GetMaterial`, which returns null in that case.
-/// Used by the pre-10.8 compat helper
-/// [`crate::vpx::compat::primitive_disable_lighting_below`].
-fn lookup_material_opacity(vpx: &VPX, name: &str) -> Option<(bool, f32)> {
-    if name.is_empty() {
-        return None;
-    }
-    if let Some(mats) = &vpx.gamedata.materials
-        && let Some(m) = mats
-            .iter()
-            .rev()
-            .find(|m| m.name.eq_ignore_ascii_case(name))
-    {
-        return Some((m.opacity_active, m.opacity));
-    }
-    for m in vpx.gamedata.materials_old.iter().rev() {
-        if m.name.eq_ignore_ascii_case(name) {
-            let opacity_active = (m.opacity_active_edge_alpha & 1) != 0;
-            return Some((opacity_active, m.opacity));
-        }
-    }
-    None
-}
-
 /// Calculate playfield roughness from VPinball's reflection strength.
 ///
 /// VPinball's playfield reflections are a separate screen-space effect that renders
@@ -865,7 +838,8 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                     // disable_lighting_below to 1.0 for the playfield, and
                     // for any primitive whose material is fully opaque
                     // (alpha-discard compensation, pintable.cpp:1984-1990).
-                    let material_opacity = lookup_material_opacity(vpx, &primitive.material);
+                    let material_opacity =
+                        crate::vpx::compat::material_opacity(vpx, &primitive.material);
                     let effective_disable_lighting_below =
                         crate::vpx::compat::primitive_disable_lighting_below(
                             primitive,
