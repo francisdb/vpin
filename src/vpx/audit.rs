@@ -4278,6 +4278,32 @@ mod tests {
         }
 
         #[test]
+        fn a_property_of_a_class_is_scanned_like_a_procedure() {
+            let vpx = scripted(
+                "Dim counter, dead\n\
+                 Class Foo\n\
+                 \x20   Public Property Get Count()\n\
+                 \x20       Dim unusedLocal, usedLocal\n\
+                 \x20       usedLocal = counter\n\
+                 \x20       Count = usedLocal\n\
+                 \x20   End Property\n\
+                 End Class\n",
+            );
+            assert_eq!(
+                script_findings(&vpx),
+                vec![
+                    // `counter` is only named in the property
+                    Kind::UnusedVariables {
+                        names: vec!["dead".to_string()],
+                    },
+                    Kind::UnusedLocalVariables {
+                        names: vec!["Foo.Count.unusedLocal".to_string()],
+                    },
+                ]
+            );
+        }
+
+        #[test]
         fn locals_a_procedure_never_names_are_reported() {
             let vpx = scripted(
                 "Sub Table1_Init\n    Dim x, y\n    x = 1\nEnd Sub\n\
@@ -4845,7 +4871,9 @@ mod script {
     use std::collections::HashSet;
     use vbscript::parser::Parser;
     use vbscript::parser::ast::{Expr, ExprKind, Item, ItemKind, MemberAccess, Stmt, StmtKind};
-    use vbscript::parser::visit::{Visitor, walk_expr, walk_item, walk_items, walk_stmt};
+    use vbscript::parser::visit::{
+        Visitor, walk_expr, walk_item, walk_items, walk_member_access, walk_stmt,
+    };
 
     /// What one pass over the script collected
     #[derive(Default)]
@@ -5185,8 +5213,12 @@ mod script {
             walk_item(self, item);
         }
 
-        /// The properties of a class are not scanned
-        fn visit_member_access(&mut self, _member_access: &'ast MemberAccess) {}
+        /// A `Property Get`, `Let` or `Set`. They share a name, so they do
+        /// not count as declared more than once
+        fn visit_member_access(&mut self, member_access: &'ast MemberAccess) {
+            let qualified = self.qualified(&member_access.name);
+            self.procedure(qualified, |scan| walk_member_access(scan, member_access));
+        }
 
         fn visit_stmt(&mut self, stmt: &'ast Stmt) {
             match &stmt.node {
@@ -5199,23 +5231,7 @@ mod script {
                         }
                     }
                     self.declared.push(qualified.clone());
-                    let outer = self.procedure.replace(Procedure {
-                        name: qualified,
-                        dims: Vec::new(),
-                        identifiers: HashSet::new(),
-                    });
-                    self.depth += 1;
-                    walk_stmt(self, stmt);
-                    self.depth -= 1;
-                    if let Some(procedure) = self.procedure.take() {
-                        for dim in &procedure.dims {
-                            if !procedure.identifiers.contains(&dim.to_lowercase()) {
-                                self.unused_locals
-                                    .push(format!("{}.{}", procedure.name, dim));
-                            }
-                        }
-                    }
-                    self.procedure = outer;
+                    self.procedure(qualified, |scan| walk_stmt(scan, stmt));
                     return;
                 }
                 // a Dim inside a procedure is local, but VBScript hoists
@@ -5276,6 +5292,28 @@ mod script {
                 Some(class) => format!("{class}.{name}"),
                 None => name.to_string(),
             }
+        }
+
+        /// Scans the body of a sub, function or property with `walk` and
+        /// reports the locals it declares but never names
+        fn procedure(&mut self, name: String, walk: impl FnOnce(&mut Self)) {
+            let outer = self.procedure.replace(Procedure {
+                name,
+                dims: Vec::new(),
+                identifiers: HashSet::new(),
+            });
+            self.depth += 1;
+            walk(self);
+            self.depth -= 1;
+            if let Some(procedure) = self.procedure.take() {
+                for dim in &procedure.dims {
+                    if !procedure.identifiers.contains(&dim.to_lowercase()) {
+                        self.unused_locals
+                            .push(format!("{}.{}", procedure.name, dim));
+                    }
+                }
+            }
+            self.procedure = outer;
         }
 
         /// `vpmBuildEvent item, ...` and `vpmTimer.InitTimer item, ...` give
