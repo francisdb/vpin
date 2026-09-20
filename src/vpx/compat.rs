@@ -46,6 +46,7 @@
 //! - **Table glass**: `glass_bottom_height = glass_top_height`
 //!   (glass was horizontal until 10.8).
 
+use crate::vpx::VPX;
 use crate::vpx::gameitem::light::Light;
 use crate::vpx::gameitem::primitive::Primitive;
 use crate::vpx::version::Version;
@@ -106,6 +107,32 @@ pub fn primitive_backfaces_enabled(primitive: &Primitive, version: &Version) -> 
         return Some(false);
     }
     primitive.backfaces_enabled
+}
+
+/// Resolve `(opacity_active, opacity)` for a material by name,
+/// looking in the new `MATR` chunk first and falling back to the
+/// legacy `MATE` chunk. `None` for empty/unknown names - mirrors
+/// vpinball's `GetMaterial`, which returns null in that case.
+/// Feeds [`primitive_disable_lighting_below`].
+pub fn material_opacity(vpx: &VPX, name: &str) -> Option<(bool, f32)> {
+    if name.is_empty() {
+        return None;
+    }
+    if let Some(mats) = &vpx.gamedata.materials
+        && let Some(m) = mats
+            .iter()
+            .rev()
+            .find(|m| m.name.eq_ignore_ascii_case(name))
+    {
+        return Some((m.opacity_active, m.opacity));
+    }
+    for m in vpx.gamedata.materials_old.iter().rev() {
+        if m.name.eq_ignore_ascii_case(name) {
+            let opacity_active = (m.opacity_active_edge_alpha & 1) != 0;
+            return Some((opacity_active, m.opacity));
+        }
+    }
+    None
 }
 
 /// Effective `disable_lighting_below`. Two pre-10.8 rules combine:
