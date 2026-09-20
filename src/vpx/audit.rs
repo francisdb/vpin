@@ -4924,7 +4924,7 @@ mod script {
     use vbscript::lexer::LineIndex;
     use vbscript::parser::Parser;
     use vbscript::parser::ast::{
-        Expr, ExprKind, Item, ItemKind, MemberAccess, Name, Stmt, StmtKind,
+        Expr, ExprKind, Item, ItemKind, MemberAccess, Name, Spanned, Stmt, StmtKind,
     };
     use vbscript::parser::visit::{
         Visitor, walk_expr, walk_item, walk_items, walk_member_access, walk_stmt,
@@ -5273,7 +5273,7 @@ mod script {
 
         /// A `Property Get`, `Let` or `Set`. They share a name, so they do
         /// not count as declared more than once
-        fn visit_member_access(&mut self, member_access: &'ast MemberAccess) {
+        fn visit_member_access(&mut self, member_access: &'ast Spanned<MemberAccess>) {
             let qualified = self.qualified(&member_access.name);
             self.procedure(qualified, |scan| walk_member_access(scan, member_access));
         }
