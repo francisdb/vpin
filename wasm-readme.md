@@ -84,15 +84,16 @@ for (const finding of findings) {
 ```
 
 `code` names the check and is stable, so findings can be grouped or
-suppressed by it; `line` and `column` (both from 1) are set for findings
-about one place in the script.
+suppressed by it; `item` is the name of the game item a finding is about,
+to select it in an editor; `line` and `column` (both from 1) are set for
+findings about one place in the script.
 
 **Parameters:**
 
 - `files: VpxFileMap` (`Record<string, Uint8Array>`) - file paths to contents
 - `callback?: (message: string) => void` - Optional progress callback
 
-**Returns:** `{severity: "error" | "warning" | "suggestion" | "info", code: string, message: string, line?: number, column?: number}[]` - empty when the table is clean
+**Returns:** `{severity: "error" | "warning" | "suggestion" | "info", code: string, message: string, item?: string, line?: number, column?: number}[]` - empty when the table is clean
 
 ### export_glb(files, options?, callback?)
 

@@ -892,15 +892,16 @@ impl fmt::Display for ScriptLocation {
 /// A single consistency problem found by [`audit`].
 ///
 /// A finding is a severity, a stable code and a message meant to be shown
-/// as is, plus the place in the script it is about when it has one. The
-/// code names the check in kebab case, `missing-image` for instance, and is
-/// what to group or suppress findings by. New checks add codes; they do not
-/// change this type.
+/// as is, plus the game item and the place in the script it is about when
+/// it has one. The code names the check in kebab case, `missing-image` for
+/// instance, and is what to group or suppress findings by. New checks add
+/// codes; they do not change this type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
     severity: Severity,
     code: &'static str,
     message: String,
+    item: Option<String>,
     location: Option<ScriptLocation>,
 }
 
@@ -919,6 +920,14 @@ impl Finding {
     /// What is wrong, in one sentence, without the location
     pub fn message(&self) -> &str {
         &self.message
+    }
+
+    /// Name of the game item the finding is about, as the table spells it,
+    /// for findings about one game item that exists. This is what to select
+    /// or jump to; the message already names the item. When several items
+    /// share the name it stands for the first one
+    pub fn item(&self) -> Option<&str> {
+        self.item.as_deref()
     }
 
     /// Where in the script the finding is, for findings about the script
@@ -992,15 +1001,52 @@ impl Kind {
         }
     }
 
-    /// The flat form of this finding, with the place in the script it is
-    /// about when it has one
-    fn finding(self, vpx: &VPX) -> Finding {
+    /// The flat form of this finding, with the game item and the place in
+    /// the script it is about when it has one
+    fn finding(self, vpx: &VPX, items: &ItemIndex) -> Finding {
         let location = self.locate(&vpx.gamedata.code.string, &vpx.gamedata.name);
         Finding {
             severity: self.severity(),
             code: self.code(),
             message: self.to_string(),
+            item: self.item_ref().and_then(|item| items.resolve(item)),
             location,
+        }
+    }
+
+    /// The game item this finding is about, for the findings about one.
+    /// A missing collection item names an item that does not exist and
+    /// carries none.
+    fn item_ref(&self) -> Option<ItemRef<'_>> {
+        match self {
+            Kind::MissingImage { item, .. }
+            | Kind::MissingMaterial { item, .. }
+            | Kind::MissingSurface { item, .. }
+            | Kind::MissingPartGroup { item, .. }
+            | Kind::NameTooLong { item, .. }
+            | Kind::NonStandardFont { item, .. }
+            | Kind::HugeMesh { item, .. }
+            | Kind::TextboxUsedForDmd { item }
+            | Kind::FastTimer { item, .. }
+            | Kind::NegativeLightIntensity { item }
+            | Kind::StaticPrimitiveInScript { item, .. }
+            | Kind::LightCannotFade { item, .. } => Some(ItemRef::Label(item)),
+            Kind::TimerWithoutHandler { item, .. } => Some(ItemRef::Name(item)),
+            Kind::DuplicateName {
+                kind: NameKind::GameItem,
+                name,
+                ..
+            }
+            | Kind::ReservedName {
+                kind: NameKind::GameItem,
+                name,
+                ..
+            }
+            | Kind::ScriptNameShadowsItem {
+                kind: NameKind::GameItem,
+                name,
+            } => Some(ItemRef::Name(name)),
+            _ => None,
         }
     }
 
@@ -1041,6 +1087,45 @@ impl Kind {
                 }),
             _ => None,
         }
+    }
+}
+
+/// How a [`Kind`] names the game item it is about
+enum ItemRef<'a> {
+    /// Type and name, as [`item_label`] writes them; a label that is no
+    /// game item, `table settings` or a collection, resolves to nothing
+    Label(&'a str),
+    /// The bare name, in any case
+    Name(&'a str),
+}
+
+/// The named game items of a table by label and by lower cased name, to
+/// resolve the item a finding is about. The first item wins a shared name,
+/// like vpinball's lookups.
+struct ItemIndex<'a> {
+    by_label: HashMap<String, &'a str>,
+    by_name: HashMap<String, &'a str>,
+}
+
+impl<'a> ItemIndex<'a> {
+    fn new(vpx: &'a VPX) -> Self {
+        let mut by_label = HashMap::new();
+        let mut by_name = HashMap::new();
+        for item in vpx.gameitems.iter().filter(|item| !item.name().is_empty()) {
+            by_label.entry(item_label(item)).or_insert(item.name());
+            by_name
+                .entry(item.name().to_lowercase())
+                .or_insert(item.name());
+        }
+        ItemIndex { by_label, by_name }
+    }
+
+    fn resolve(&self, item: ItemRef) -> Option<String> {
+        match item {
+            ItemRef::Label(label) => self.by_label.get(label),
+            ItemRef::Name(name) => self.by_name.get(name.to_lowercase().as_str()),
+        }
+        .map(|name| name.to_string())
     }
 }
 
@@ -1159,9 +1244,10 @@ fn searchable_line(line: &str, in_code: bool) -> Vec<char> {
 ///
 /// Name comparisons are case insensitive, like vpinball's own lookups.
 pub fn audit(vpx: &VPX) -> Vec<Finding> {
+    let items = ItemIndex::new(vpx);
     audit_kinds(vpx)
         .into_iter()
-        .map(|kind| kind.finding(vpx))
+        .map(|kind| kind.finding(vpx, &items))
         .collect()
 }
 
@@ -4279,7 +4365,8 @@ mod finding_tests {
     fn a_finding_is_a_severity_a_code_a_message_and_a_location() {
         let mut vpx = VPX::default();
         vpx.gamedata.code.string = "Option Explicit\r\nDim x\r\nx = Rnd\r\n".to_string();
-        let finding = Kind::RndWithoutRandomize.finding(&vpx);
+        let items = ItemIndex::new(&vpx);
+        let finding = Kind::RndWithoutRandomize.finding(&vpx, &items);
         assert_eq!(finding.severity(), Severity::Suggestion);
         assert_eq!(finding.code(), "rnd-without-randomize");
         assert_eq!(
@@ -4292,10 +4379,74 @@ mod finding_tests {
             "script line 3, column 5: script uses Rnd without Randomize, so every run draws the same numbers"
         );
 
-        let finding = Kind::MissingTableName.finding(&vpx);
+        let finding = Kind::MissingTableName.finding(&vpx, &items);
         assert_eq!(finding.code(), "missing-table-name");
         assert_eq!(finding.location(), None);
         assert_eq!(finding.to_string(), "table info has no table name");
+    }
+
+    #[test]
+    fn a_finding_about_a_game_item_names_it() {
+        let mut vpx = VPX::default();
+        for name in ["Apron", "apron"] {
+            vpx.add_game_item(GameItemEnum::Wall(crate::vpx::gameitem::wall::Wall {
+                name: name.to_string(),
+                ..Default::default()
+            }));
+        }
+        let items = ItemIndex::new(&vpx);
+        let item = |kind: Kind| kind.finding(&vpx, &items).item().map(str::to_string);
+
+        let labelled = Kind::MissingSurface {
+            item: "Wall \"Apron\"".to_string(),
+            surface: "Gone".to_string(),
+        };
+        assert_eq!(item(labelled), Some("Apron".to_string()));
+        // a bare name resolves case insensitively, to the first item
+        let named = Kind::TimerWithoutHandler {
+            item: "APRON".to_string(),
+            interval: 100,
+        };
+        assert_eq!(item(named), Some("Apron".to_string()));
+        let duplicate = Kind::DuplicateName {
+            kind: NameKind::GameItem,
+            name: "Apron".to_string(),
+            count: 2,
+        };
+        assert_eq!(item(duplicate), Some("Apron".to_string()));
+    }
+
+    #[test]
+    fn a_finding_about_anything_else_names_no_item() {
+        let mut vpx = VPX::default();
+        vpx.add_game_item(GameItemEnum::Wall(crate::vpx::gameitem::wall::Wall {
+            name: "Apron".to_string(),
+            ..Default::default()
+        }));
+        let items = ItemIndex::new(&vpx);
+        let item = |kind: Kind| kind.finding(&vpx, &items).item().map(str::to_string);
+
+        // an image that shares its name with a game item
+        let image = Kind::BmpImage {
+            image: "Apron".to_string(),
+        };
+        assert_eq!(item(image), None);
+        let table = Kind::MissingMaterial {
+            item: "table settings".to_string(),
+            field: "playfield material",
+            material: "Gone".to_string(),
+        };
+        assert_eq!(item(table), None);
+        let collection = Kind::NameTooLong {
+            item: "Collection \"Apron\"".to_string(),
+            length: 40,
+        };
+        assert_eq!(item(collection), None);
+        let missing = Kind::MissingCollectionItem {
+            collection: "Targets".to_string(),
+            item: "Gone".to_string(),
+        };
+        assert_eq!(item(missing), None);
     }
 
     #[test]

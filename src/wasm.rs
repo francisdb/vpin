@@ -59,6 +59,11 @@ export type AuditFinding = {
   code: string;
   /** What is wrong, without the location */
   message: string;
+  /**
+   * Name of the game item the finding is about, as the table spells it,
+   * for findings about one game item that exists
+   */
+  item?: string;
   /** Script line the finding is about, from 1, when it points at one */
   line?: number;
   /** Script column of the first character, from 1, when known */
@@ -206,6 +211,9 @@ pub struct AuditFinding {
     pub code: String,
     /// Human readable description of the finding, without the location
     pub message: String,
+    /// Name of the game item the finding is about, when it is about one
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub item: Option<String>,
     /// Script line the finding is about, from 1, when it points at one
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<usize>,
@@ -217,7 +225,7 @@ pub struct AuditFinding {
 /// Checks the expanded table files for consistency problems: references to
 /// images, materials, surfaces or collection items that do not exist,
 /// duplicate or over-long names, storage suggestions and script checks.
-/// Returns an array of `{severity, code, message, line?, column?}` objects,
+/// Returns an array of `{severity, code, message, item?, line?, column?}` objects,
 /// empty when the table is clean.
 #[wasm_bindgen]
 pub fn audit(
@@ -250,6 +258,7 @@ pub fn audit(
             },
             code: finding.code().to_string(),
             message: finding.message().to_string(),
+            item: finding.item().map(str::to_string),
             line: finding.location().map(|location| location.line),
             column: finding.location().and_then(|location| location.column),
         })
