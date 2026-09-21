@@ -3316,7 +3316,7 @@ mod tests {
         let mut vpx = clean_vpx();
         let png = |name: &str, data: &[u8]| crate::vpx::image::ImageData {
             name: name.to_string(),
-            jpeg: Some(crate::vpx::image::ImageDataJpeg {
+            jpeg: Some(crate::vpx::pinbinary::PinBinary {
                 path: format!("C:\\{name}.png"),
                 name: name.to_string(),
                 internal_name: None,
@@ -3580,7 +3580,8 @@ mod tests {
 
     #[test]
     fn stale_image_dimensions_are_informational() {
-        use crate::vpx::image::{ImageData, ImageDataJpeg};
+        use crate::vpx::image::ImageData;
+        use crate::vpx::pinbinary::PinBinary;
         let mut png = Vec::new();
         ::image::RgbaImage::from_pixel(2, 3, ::image::Rgba([1, 2, 3, 255]))
             .write_to(
@@ -3593,7 +3594,7 @@ mod tests {
             path: format!("{name}.png"),
             width,
             height,
-            jpeg: Some(ImageDataJpeg {
+            jpeg: Some(PinBinary {
                 path: format!("{name}.png"),
                 name: name.to_string(),
                 internal_name: None,
@@ -3632,7 +3633,8 @@ mod tests {
     #[test]
     fn translucency_on_an_opaque_primitive_is_reported() {
         use crate::vpx::gameitem::primitive::Primitive;
-        use crate::vpx::image::{ImageData, ImageDataJpeg};
+        use crate::vpx::image::ImageData;
+        use crate::vpx::pinbinary::PinBinary;
         let image = |name: &str, alpha: u8, is_opaque: Option<bool>| {
             let mut png = Vec::new();
             ::image::RgbaImage::from_pixel(2, 2, ::image::Rgba([1, 2, 3, alpha]))
@@ -3647,7 +3649,7 @@ mod tests {
                 width: 2,
                 height: 2,
                 is_opaque,
-                jpeg: Some(ImageDataJpeg {
+                jpeg: Some(PinBinary {
                     path: format!("{name}.png"),
                     name: name.to_string(),
                     internal_name: None,
@@ -3828,12 +3830,13 @@ mod tests {
 
     #[test]
     fn an_unused_embedded_font_is_reported() {
-        use crate::vpx::font::FontData;
         use crate::vpx::gameitem::font::Font;
         use crate::vpx::gameitem::textbox::TextBox;
+        use crate::vpx::pinbinary::PinBinary;
         use crate::vpx::ttf::font_with_names;
-        let font_data = |name: &str, family: &str, full: &str| FontData {
+        let font_data = |name: &str, family: &str, full: &str| PinBinary {
             name: name.to_string(),
+            internal_name: None,
             path: format!("{name}.ttf"),
             data: font_with_names(family, full),
         };
@@ -3842,8 +3845,9 @@ mod tests {
             font_data("led", "Advanced LED Board-7", "Advanced LED Board-7"),
             font_data("script_only", "Emerald Beacon", "Emerald Beacon Italic"),
             font_data("unused", "Nobody Uses This", "Nobody Uses This"),
-            FontData {
+            PinBinary {
                 name: "junk".to_string(),
+                internal_name: None,
                 path: "junk.ttf".to_string(),
                 data: vec![1, 2, 3],
             },
@@ -3924,9 +3928,9 @@ mod tests {
 
     #[test]
     fn a_font_that_is_neither_embedded_nor_standard_is_reported() {
-        use crate::vpx::font::FontData;
         use crate::vpx::gameitem::font::Font;
         use crate::vpx::gameitem::textbox::TextBox;
+        use crate::vpx::pinbinary::PinBinary;
         use crate::vpx::ttf::font_with_names;
         let textbox = |name: &str, font: &str| {
             GameItemEnum::TextBox(TextBox {
@@ -3936,8 +3940,9 @@ mod tests {
             })
         };
         let mut vpx = clean_vpx();
-        vpx.fonts = vec![FontData {
+        vpx.fonts = vec![PinBinary {
             name: "led".to_string(),
+            internal_name: None,
             path: "led.ttf".to_string(),
             data: font_with_names("Digital Readout", "Digital Readout Upright"),
         }];

@@ -1,7 +1,7 @@
 //! Font reading and writing for expanded VPX format
 
 use crate::filesystem::FileSystem;
-use crate::vpx::font::{FontData, FontDataJson};
+use crate::vpx::pinbinary::{PinBinary, PinBinaryJson};
 use log::info;
 use std::io;
 use std::path::Path;
@@ -9,11 +9,11 @@ use std::path::Path;
 use super::util::{read_json, sanitize_filename};
 use super::{FONTS_DIR, Output, WriteError};
 
-pub(super) fn write_fonts(fonts: &[FontData], out: &Output) -> Result<(), WriteError> {
+pub(super) fn write_fonts(fonts: &[PinBinary], out: &Output) -> Result<(), WriteError> {
     out.write_json(Path::new("fonts.json"), || {
         fonts
             .iter()
-            .map(FontDataJson::from_font_data)
+            .map(PinBinaryJson::from_pin_binary)
             .collect::<Vec<_>>()
     })?;
 
@@ -28,19 +28,19 @@ pub(super) fn write_fonts(fonts: &[FontData], out: &Output) -> Result<(), WriteE
 pub(super) fn read_fonts<P: AsRef<Path>>(
     expanded_dir: &P,
     fs: &dyn FileSystem,
-) -> io::Result<Vec<FontData>> {
+) -> io::Result<Vec<PinBinary>> {
     let fonts_index_path = expanded_dir.as_ref().join("fonts.json");
     if !fs.exists(&fonts_index_path) {
         info!("No fonts.json found");
         return Ok(vec![]);
     }
-    let fonts_json: Vec<FontDataJson> = read_json(fonts_index_path, fs)?;
-    let fonts_index: Vec<FontData> = fonts_json
+    let fonts_json: Vec<PinBinaryJson> = read_json(fonts_index_path, fs)?;
+    let fonts_index: Vec<PinBinary> = fonts_json
         .iter()
-        .map(|font_data_json| font_data_json.to_font_data())
+        .map(|font_data_json| font_data_json.to_pin_binary())
         .collect();
     let fonts_dir = expanded_dir.as_ref().join("fonts");
-    let fonts: io::Result<Vec<FontData>> = fonts_index
+    let fonts: io::Result<Vec<PinBinary>> = fonts_index
         .into_iter()
         .map(|mut font| {
             let sanitized_name = sanitize_filename(&font.name);
@@ -75,13 +75,15 @@ mod tests {
         let expanded_dir = Path::new("/expanded");
 
         let fonts = vec![
-            FontData {
+            PinBinary {
                 name: "TestFont".to_string(),
+                internal_name: None,
                 path: "c:\\test.ttf".to_string(),
                 data: vec![0, 1, 2, 3],
             },
-            FontData {
+            PinBinary {
                 name: "AnotherFont".to_string(),
+                internal_name: None,
                 path: "c:\\AnotherFont.ttf".to_string(),
                 data: vec![4, 5, 6, 7],
             },

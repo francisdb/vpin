@@ -39,7 +39,6 @@
 
 use super::super::VPX;
 use super::super::collection::Collection;
-use super::super::font::FontData;
 use super::super::gamedata::GameData;
 use super::super::gameitem::GameItemEnum;
 use super::super::gameitem::primitive::Primitive;
@@ -48,6 +47,7 @@ use super::super::lzw::from_lzw_blocks;
 use super::super::material::{Material, MaterialType, SaveMaterial, SavePhysicsMaterial};
 use super::super::math::dequantize_u8;
 use super::super::obj::VpxFace;
+use super::super::pinbinary::PinBinary;
 use super::super::renderprobe::RenderProbeJson;
 use super::super::sound::{SoundData, SoundDataJson};
 use super::zlib_decompress;
@@ -901,7 +901,7 @@ fn describe_sound(sound: &SoundData) -> String {
     format!("{description}, {size}")
 }
 
-fn font_leaves(original: &FontData, modified: &FontData) -> Vec<Leaf> {
+fn font_leaves(original: &PinBinary, modified: &PinBinary) -> Vec<Leaf> {
     let mut leaves = Vec::new();
     if original.path != modified.path {
         leaves.push(Leaf::new(
@@ -1313,8 +1313,8 @@ mod tests {
     use crate::vpx::gameitem::primitive::compress_mesh_data;
     use crate::vpx::gameitem::timer::Timer;
     use crate::vpx::gameitem::wall::Wall;
-    use crate::vpx::image::ImageDataJpeg;
     use crate::vpx::model::Vertex3dNoTex2;
+    use crate::vpx::pinbinary::PinBinary;
     use crate::vpx::sound::{OutputTarget, WaveForm};
     use crate::vpx::version::Version;
     use pretty_assertions::assert_eq;
@@ -1351,7 +1351,7 @@ mod tests {
             alpha_test_value: -1.0,
             is_opaque: None,
             is_signed: None,
-            jpeg: Some(ImageDataJpeg {
+            jpeg: Some(PinBinary {
                 path: format!("C:\\{name}.png"),
                 name: name.to_string(),
                 internal_name: None,

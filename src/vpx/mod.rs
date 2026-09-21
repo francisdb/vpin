@@ -29,7 +29,7 @@ use log::{debug, info, warn};
 use md2::{Digest, Md2};
 use tracing::{info_span, instrument};
 
-use crate::vpx::image::{ImageDataJpeg, vpx_image_to_dynamic_image};
+use crate::vpx::image::vpx_image_to_dynamic_image;
 use crate::vpx::tableinfo::read_tableinfo;
 use tableinfo::{TableInfo, write_tableinfo};
 use version::Version;
@@ -37,10 +37,10 @@ use version::Version;
 use self::biff::{BiffError, BiffRead, BiffWrite, BiffWriter};
 use self::collection::Collection;
 use self::custominfotags::CustomInfoTags;
-use self::font::FontData;
 use self::gamedata::GameData;
 use self::gameitem::GameItemEnum;
 use self::image::ImageData;
+use self::pinbinary::PinBinary;
 use self::sound::SoundData;
 use self::version::{read_version, write_version};
 
@@ -56,8 +56,6 @@ pub(crate) mod compat;
 pub mod custominfotags;
 pub mod diff;
 pub mod expanded;
-/// Font files embedded in a table.
-pub mod font;
 pub mod gamedata;
 /// The game items (walls, ramps, flippers, lights, ...) that make up a
 /// table, one submodule per item type.
@@ -72,6 +70,9 @@ pub mod math;
 /// Value types shared across the format: vertices and strings that
 /// remember their original encoding.
 pub mod model;
+/// Files embedded in a table unchanged: the fonts and the original file of
+/// every image.
+pub mod pinbinary;
 /// Sounds embedded in a table and their playback settings.
 pub mod sound;
 /// The table metadata (name, author, rules, screenshot, ...) stored in
@@ -140,7 +141,7 @@ pub struct VPX {
     /// Sounds in file order, read from the `GameStg/SoundN` streams.
     pub sounds: Vec<SoundData>,
     /// Fonts in file order, read from the `GameStg/FontN` streams.
-    pub fonts: Vec<FontData>,
+    pub fonts: Vec<PinBinary>,
     /// Collections in file order, read from the `GameStg/CollectionN`
     /// streams.
     pub collections: Vec<Collection>,
@@ -397,7 +398,7 @@ impl<F: Read + Seek> VpxFile<F> {
     /// # Errors
     ///
     /// Fails when the game data or a font stream is missing or invalid.
-    pub fn read_fonts(&mut self) -> io::Result<Vec<FontData>> {
+    pub fn read_fonts(&mut self) -> io::Result<Vec<PinBinary>> {
         let gamedata = self.read_gamedata()?;
         read_fonts(&mut self.compound_file, &gamedata)
     }
@@ -1223,7 +1224,7 @@ fn images_to_webp<F: Read + Write + Seek>(
                     dynamic_image
                         .write_to(&mut cursor, ImageFormat::WebP)
                         .map_err(|e| io::Error::other(e.to_string()))?;
-                    let jpg = ImageDataJpeg {
+                    let jpg = PinBinary {
                         path: image_data.path.clone(),
                         name: image_data.name.clone(),
                         internal_name: None,
@@ -1248,26 +1249,26 @@ fn images_to_webp<F: Read + Write + Seek>(
 fn read_fonts<F: Read + Seek>(
     comp: &mut CompoundFile<F>,
     gamedata: &GameData,
-) -> io::Result<Vec<FontData>> {
+) -> io::Result<Vec<PinBinary>> {
     (0..gamedata.fonts_size)
         .map(|index| {
             let path = format!("GameStg/Font{index}");
             let mut input = Vec::new();
             let mut stream = comp.open_stream(&path)?;
             stream.read_to_end(&mut input)?;
-            font::read(&input).map_err(|e| with_context(e, &path))
+            pinbinary::read(&input).map_err(|e| with_context(e, &path))
         })
         .collect()
 }
 
 fn write_fonts<F: Read + Write + Seek>(
     comp: &mut CompoundFile<F>,
-    fonts: &[FontData],
+    fonts: &[PinBinary],
 ) -> io::Result<()> {
     for (index, font) in fonts.iter().enumerate() {
         let path = format!("GameStg/Font{index}");
         let mut stream = comp.create_stream(&path)?;
-        let data = font::write(font);
+        let data = pinbinary::write(font);
         stream.write_all(&data)?;
     }
     Ok(())
@@ -1666,7 +1667,7 @@ mod tests {
             path: "test.png".to_string(),
             width: 1000,
             height: 1000,
-            jpeg: Some(ImageDataJpeg {
+            jpeg: Some(PinBinary {
                 path: "pngimage".to_string(),
                 name: "test.png".to_string(),
                 internal_name: None,
