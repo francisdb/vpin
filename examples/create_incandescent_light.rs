@@ -14,7 +14,7 @@ use std::path::Path;
 use vpin::vpx;
 use vpin::vpx::VPX;
 use vpin::vpx::color::Color;
-use vpin::vpx::gamedata::ViewLayoutMode;
+use vpin::vpx::gamedata::{ViewLayoutMode, ViewSetupId};
 use vpin::vpx::gameitem::GameItemEnum;
 use vpin::vpx::gameitem::dragpoint::DragPoint;
 use vpin::vpx::gameitem::light::{Fader, Light, ShadowMode};
@@ -122,11 +122,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     vpx.gamedata.light0_emission = Color::from_rgb(0xFFFFF0);
 
     // Camera — 45° inclination gives a typical desktop pinball viewing angle
-    vpx.gamedata.bg_view_mode_desktop = Some(ViewLayoutMode::Legacy);
-    vpx.gamedata.bg_inclination_desktop = 45.0;
-    vpx.gamedata.bg_fov_desktop = 45.0;
-    vpx.gamedata.bg_offset_y_desktop = 30.0;
-    vpx.gamedata.bg_offset_z_desktop = -200.0;
+    let desktop = &mut vpx.gamedata.view_setups[ViewSetupId::Desktop];
+    desktop.mode = Some(ViewLayoutMode::Legacy);
+    desktop.look_at = Some(45.0);
+    desktop.fov = Some(45.0);
+    desktop.view_y = Some(30.0);
+    desktop.view_z = Some(-200.0);
 
     //vpx.gamedata.bloom_strength = 10.0;
     vpx.gamedata.use_ao = Some(1);

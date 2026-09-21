@@ -1309,6 +1309,7 @@ fn describe_bytes(bytes: usize) -> String {
 mod tests {
     use super::*;
     use crate::vpx;
+    use crate::vpx::gamedata::ViewSetupId;
     use crate::vpx::gameitem::dragpoint::DragPoint;
     use crate::vpx::gameitem::primitive::compress_mesh_data;
     use crate::vpx::gameitem::timer::Timer;
@@ -1433,7 +1434,7 @@ mod tests {
         let original = blank_table();
         let mut modified = blank_table();
         modified.gamedata.name = "renamed".to_string();
-        modified.gamedata.bg_fov_desktop = 50.5;
+        modified.gamedata.view_setups[ViewSetupId::Desktop].fov = Some(50.5);
 
         let changes = diff(&original, &modified);
         assert_eq!(
@@ -1443,7 +1444,7 @@ mod tests {
                 fields: vec![
                     FieldChange {
                         field: "bg_fov_desktop".to_string(),
-                        original: Some(original.gamedata.bg_fov_desktop.to_string()),
+                        original: Some("45".to_string()),
                         modified: Some("50.5".to_string()),
                     },
                     FieldChange {
@@ -1457,8 +1458,8 @@ mod tests {
         assert_eq!(
             changes[0].to_string(),
             format!(
-                "table settings: bg fov desktop {} -> 50.5, name \"{}\" -> \"renamed\"",
-                original.gamedata.bg_fov_desktop, original.gamedata.name
+                "table settings: bg fov desktop 45 -> 50.5, name \"{}\" -> \"renamed\"",
+                original.gamedata.name
             )
         );
     }
