@@ -679,12 +679,12 @@ mod tests {
     use super::*;
     use crate::filesystem::MemoryFileSystem;
     use crate::vpx::collection::Collection;
-    use crate::vpx::font::FontData;
     use crate::vpx::gamedata::GameData;
     use crate::vpx::gameitem;
     use crate::vpx::gameitem::GameItemEnum;
     use crate::vpx::gameitem::primitive::Primitive;
-    use crate::vpx::image::{ImageData, ImageDataBits, ImageDataJpeg};
+    use crate::vpx::image::{ImageData, ImageDataBits};
+    use crate::vpx::pinbinary::PinBinary;
     use crate::vpx::sound::{OutputTarget, SoundData, WaveForm};
     use crate::vpx::tableinfo::TableInfo;
     use crate::vpx::version::Version;
@@ -1022,7 +1022,7 @@ mod tests {
                     alpha_test_value: 0.0,
                     is_opaque: Some(true),
                     is_signed: Some(false),
-                    jpeg: Some(ImageDataJpeg {
+                    jpeg: Some(PinBinary {
                         path: "test.png jpeg".to_string(),
                         name: "test image jpeg".to_string(),
                         internal_name: None,
@@ -1042,7 +1042,7 @@ mod tests {
                     alpha_test_value: 0.0,
                     is_opaque: Some(true),
                     is_signed: Some(false),
-                    jpeg: Some(ImageDataJpeg {
+                    jpeg: Some(PinBinary {
                         path: "replace.png jpeg".to_string(),
                         name: "test image replaced jpeg".to_string(),
                         internal_name: None,
@@ -1101,13 +1101,15 @@ mod tests {
                 },
             ],
             fonts: vec![
-                FontData {
+                PinBinary {
                     name: "test font".to_string(),
+                    internal_name: None,
                     path: "test.ttf".to_string(),
                     data: vec![0, 1, 2, 3],
                 },
-                FontData {
+                PinBinary {
                     name: "test font2".to_string(),
+                    internal_name: Some("test font2 inme".to_string()),
                     path: "test2.ttf".to_string(),
                     data: vec![5, 6, 7],
                 },
@@ -1178,7 +1180,7 @@ mod tests {
                 alpha_test_value: 0.0,
                 is_opaque: Some(true),
                 is_signed: Some(false),
-                jpeg: Some(ImageDataJpeg {
+                jpeg: Some(PinBinary {
                     path: "test.png jpeg".to_string(),
                     name: "L\u{00F6}cher image jpeg".to_string(),
                     internal_name: None,
@@ -1206,8 +1208,9 @@ mod tests {
                 balance: 0,
                 output_target: OutputTarget::Table,
             }],
-            fonts: vec![FontData {
+            fonts: vec![PinBinary {
                 name: "L\u{00F6}cher font".to_string(),
+                internal_name: None,
                 path: "test.ttf".to_string(),
                 data: vec![0, 1, 2, 3],
             }],
@@ -1315,7 +1318,7 @@ mod tests {
             images: vec![ImageData {
                 name: "test image".to_string(),
                 path: "test.png".to_string(),
-                jpeg: Some(ImageDataJpeg {
+                jpeg: Some(PinBinary {
                     path: "test.png".to_string(),
                     name: "test image".to_string(),
                     internal_name: None,

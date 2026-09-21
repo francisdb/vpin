@@ -1,64 +1,11 @@
 use super::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite, BiffWriter};
+use super::pinbinary::PinBinary;
 use crate::vpx::lzw::from_lzw_blocks;
 use image::DynamicImage;
 use log::warn;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::io;
-
-/// The original image file of an [`ImageData`], as it was imported.
-///
-/// Despite the name this holds any format vpinball can decode (JPEG, PNG,
-/// WEBP, EXR, HDR, ...): the file bytes are stored unchanged. vpinball keeps
-/// them as a `PinBinary` and writes that as a nested record inside the
-/// image's `JPEG` record (`PinBinary::Save` in `src/parts/pinbinary.cpp`,
-/// `Texture::Save` in `src/renderer/Texture.cpp`).
-///
-/// BIFF tag `JPEG`
-#[derive(PartialEq, Clone)]
-pub struct ImageDataJpeg {
-    /// Path of the file the image was imported from (`PinBinary::m_path`).
-    ///
-    /// In files written by vpinball this is the same as [`ImageData::path`].
-    ///
-    /// BIFF tag `PATH`
-    pub path: String,
-    /// Name of the binary (`PinBinary::m_name`).
-    ///
-    /// In files written by vpinball this is the same as [`ImageData::name`].
-    ///
-    /// BIFF tag `NAME`
-    pub name: String,
-    /// Lowercased copy of the name that old vpinball versions wrote inside
-    /// the binary record. Current vpinball neither reads nor writes it; this
-    /// library keeps it so such files round-trip unchanged. `None` when the
-    /// record is absent, which is the case for every current file.
-    ///
-    /// BIFF tag `INME`
-    pub internal_name: Option<String>,
-    // alpha_test_value: f32,
-    /// The bytes of the original image file, in whatever format it was
-    /// imported in.
-    ///
-    /// Stored as a `SIZE` record holding the length followed by a `DATA`
-    /// record holding the raw bytes; vpinball needs `SIZE` first to allocate
-    /// the buffer.
-    ///
-    /// BIFF tags `SIZE` and `DATA`
-    pub data: Vec<u8>,
-}
-
-impl fmt::Debug for ImageDataJpeg {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // avoid writing the data to the debug output
-        f.debug_struct("ImageDataJpeg")
-            .field("path", &self.path)
-            .field("name", &self.name)
-            // .field("alpha_test_value", &self.alpha_test_value)
-            .field("data", &self.data.len())
-            .finish()
-    }
-}
 
 /**
  * A bitmap blob, typically used by textures.
@@ -213,8 +160,15 @@ pub struct ImageData {
     /// BIFF tag: `SIGN`
     pub is_signed: Option<bool>,
     // TODO we can probably only have one of jpeg or bits so we can make an enum
-    /// This field is named jpeg, but it's actually used for any image that is not a bitmap
-    pub jpeg: Option<ImageDataJpeg>,
+    /// The original image file, as it was imported. This field is named
+    /// jpeg after its record, but it holds any format vpinball can decode
+    /// (JPEG, PNG, WEBP, EXR, HDR, ...); only old bitmaps are in
+    /// [`ImageData::bits`] instead. vpinball keeps the file as a `PinBinary`
+    /// and writes that as a nested record inside the `JPEG` record
+    /// (`Texture::Save` in `src/renderer/Texture.cpp`).
+    ///
+    /// BIFF tag `JPEG`
+    pub jpeg: Option<PinBinary>,
     /// LZW compressed raw 32-bit BGRA bitmap, the way vpinball older than
     /// 10.8.1 stored imported BMP files.
     ///
@@ -230,7 +184,7 @@ pub struct ImageData {
     ///
     /// vpinball uses it as the identity of the image data
     /// (`Texture::GetMD5Hash`); `Texture::UpdateMD5` hashes
-    /// `PinBinary::m_buffer`, the same bytes as [`ImageDataJpeg::data`].
+    /// `PinBinary::m_buffer`, the same bytes as [`PinBinary::data`].
     /// vpinball 10.8 and later write it for every image so it need not be
     /// recomputed on load. `None` when the record is absent (older files).
     ///
@@ -382,7 +336,7 @@ impl ImageDataJson {
             };
             let internal_name = self.jpeg_internal_name.clone();
 
-            jpeg = Some(ImageDataJpeg {
+            jpeg = Some(PinBinary {
                 path,
                 name,
                 internal_name,
@@ -512,7 +466,7 @@ fn read(reader: &mut BiffReader) -> Result<ImageData, BiffError> {
                 // these have zero as length
                 // Strangely, raw data are pushed outside the JPEG tag (breaking the BIFF structure of the file)
                 let mut sub_reader = reader.child_reader();
-                let jpeg_data = read_jpeg(&mut sub_reader)?;
+                let jpeg_data = PinBinary::biff_read(&mut sub_reader)?;
                 image_data.jpeg = Some(jpeg_data);
                 let pos = sub_reader.pos();
                 reader.skip_end_tag(pos)?;
@@ -555,7 +509,7 @@ fn write(data: &ImageData, writer: &mut BiffWriter) {
         writer.write_tagged_data_without_size("BITS", &bits.lzw_compressed_data);
     }
     if let Some(jpeg) = &data.jpeg {
-        writer.write_tagged_nested("JPEG", |writer| write_jpg(jpeg, writer));
+        writer.write_tagged_nested("JPEG", |writer| jpeg.biff_write(writer));
     }
     writer.write_tagged_f32("ALTV", data.alpha_test_value);
     if let Some(md5_hash) = &data.md5_hash {
@@ -567,56 +521,6 @@ fn write(data: &ImageData, writer: &mut BiffWriter) {
     if let Some(is_signed) = data.is_signed {
         writer.write_tagged_bool("SIGN", is_signed);
     }
-    writer.close(true);
-}
-
-fn read_jpeg(reader: &mut BiffReader) -> Result<ImageDataJpeg, BiffError> {
-    // I do wonder why all the tags are duplicated here
-    let mut size_opt: Option<u32> = None;
-    let mut path: String = "".to_string();
-    let mut name: String = "".to_string();
-    let mut data: Vec<u8> = vec![];
-    // let mut alpha_test_value: f32 = 0.0;
-    let mut internal_name: Option<String> = None;
-    while let Some(tag) = reader.next(biff::WARN)? {
-        let tag_str = tag.as_str();
-        match tag_str {
-            "SIZE" => {
-                size_opt = Some(reader.get_u32()?);
-            }
-            "DATA" => match size_opt {
-                Some(size) => data = reader.get_data(size as usize)?.to_vec(),
-                None => return Err(reader.err("DATA tag without SIZE tag")),
-            },
-            "NAME" => name = reader.get_string()?,
-            "PATH" => path = reader.get_string()?,
-            // "ALTV" => alpha_test_value = reader.get_f32()?, // TODO why are these duplicated?
-            "INME" => internal_name = Some(reader.get_string()?),
-            _ => {
-                // skip this record
-                warn!("skipping tag inside JPEG {tag}");
-                reader.skip_tag()?;
-            }
-        }
-    }
-    Ok(ImageDataJpeg {
-        path,
-        name,
-        internal_name,
-        // alpha_test_value,
-        data,
-    })
-}
-
-fn write_jpg(img: &ImageDataJpeg, writer: &mut BiffWriter) {
-    writer.write_tagged_string("NAME", &img.name);
-    if let Some(inme) = &img.internal_name {
-        writer.write_tagged_string("INME", inme);
-    }
-    writer.write_tagged_string("PATH", &img.path);
-    writer.write_tagged_u32("SIZE", crate::vpx::biff::record_len(img.data.len()));
-    writer.write_tagged_data("DATA", &img.data);
-    // writer.write_tagged_f32("ALTV", img.alpha_test_value);
     writer.close(true);
 }
 
@@ -725,25 +629,6 @@ mod test {
     use pretty_assertions::assert_eq;
 
     #[test]
-    fn test_write_read_jpeg() {
-        let img = ImageDataJpeg {
-            path: "path_value".to_string(),
-            name: "name_value".to_string(),
-            internal_name: Some("inme_value".to_string()),
-            // alpha_test_value: 1.0,
-            data: vec![1, 2, 3],
-        };
-
-        let mut writer = BiffWriter::new();
-        write_jpg(&img, &mut writer);
-        let bytes = writer.into_data();
-
-        let read = read_jpeg(&mut BiffReader::new(&bytes)).unwrap();
-
-        assert_eq!(read, img);
-    }
-
-    #[test]
     fn test_write_jpeg_should_have_tag_size_zero() {
         let image: ImageData = ImageData {
             name: "name_value".to_string(),
@@ -755,11 +640,10 @@ mod test {
             alpha_test_value: 1.0,
             is_opaque: Some(true),
             is_signed: Some(false),
-            jpeg: Some(ImageDataJpeg {
+            jpeg: Some(PinBinary {
                 path: "path_value".to_string(),
                 name: "name_value".to_string(),
                 internal_name: Some("inme_value".to_string()),
-                // alpha_test_value: 1.0,
                 data: vec![1, 2, 3],
             }),
             bits: None,
@@ -792,11 +676,10 @@ mod test {
             alpha_test_value: 1.0,
             is_opaque: Some(true),
             is_signed: Some(false),
-            jpeg: Some(ImageDataJpeg {
+            jpeg: Some(PinBinary {
                 path: "path_value".to_string(),
                 name: "name_value".to_string(),
                 internal_name: Some("inme_value".to_string()),
-                // alpha_test_value: 1.0,
                 data: vec![1, 2, 3],
             }),
             bits: None,
@@ -820,11 +703,10 @@ mod test {
             alpha_test_value: 1.0,
             is_opaque: Some(true),
             is_signed: Some(false),
-            jpeg: Some(ImageDataJpeg {
+            jpeg: Some(PinBinary {
                 path: "path_value".to_string(),
                 name: "name_value".to_string(),
                 internal_name: Some("inme_value".to_string()),
-                // alpha_test_value: 1.0,
                 data: vec![1, 2, 3],
             }),
             bits: None,
@@ -857,7 +739,7 @@ mod corrupt_input_tests {
             alpha_test_value: 1.0,
             is_opaque: Some(true),
             is_signed: Some(false),
-            jpeg: Some(ImageDataJpeg {
+            jpeg: Some(PinBinary {
                 path: "path_value.png".to_string(),
                 name: "name_value".to_string(),
                 internal_name: None,
