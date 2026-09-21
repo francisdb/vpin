@@ -9,7 +9,7 @@
 
 use super::gltf_export::GLTF_AXES;
 use crate::vpx::VPX;
-use crate::vpx::gamedata::ViewLayoutMode;
+use crate::vpx::gamedata::{ViewLayoutMode, ViewSetupId};
 use crate::vpx::units::{ExportUnits, vpu_to_units};
 use log::warn;
 use serde_json::json;
@@ -187,7 +187,7 @@ pub(crate) struct ViewSettings {
 impl ViewSettings {
     /// Extract Desktop view settings from VPX gamedata
     ///
-    /// ## Default values (legacy VPX format):
+    /// ## Default values (legacy VPX format, used when not present):
     /// - FOV: 45 degrees
     /// - Inclination: 0 degrees
     /// - Offset X: 0 VPU
@@ -195,26 +195,24 @@ impl ViewSettings {
     /// - Offset Z: -200 VPU (~-10.8 cm)
     /// - Scale: 1.0, 1.0, 1.0
     pub fn desktop_from_vpx(vpx: &VPX) -> Self {
+        let view_setup = &vpx.gamedata.view_setups[ViewSetupId::Desktop];
         Self {
             mode: ViewMode::Desktop,
-            layout_mode: vpx
-                .gamedata
-                .bg_view_mode_desktop
-                .unwrap_or(ViewLayoutMode::Legacy),
-            fov: vpx.gamedata.bg_fov_desktop.max(1.0),
-            inclination: vpx.gamedata.bg_inclination_desktop,
-            offset_x: vpx.gamedata.bg_offset_x_desktop,
-            offset_y: vpx.gamedata.bg_offset_y_desktop,
-            offset_z: vpx.gamedata.bg_offset_z_desktop,
-            scale_x: vpx.gamedata.bg_scale_x_desktop,
-            scale_y: vpx.gamedata.bg_scale_y_desktop,
-            scale_z: vpx.gamedata.bg_scale_z_desktop,
+            layout_mode: view_setup.mode.unwrap_or(ViewLayoutMode::Legacy),
+            fov: view_setup.fov.unwrap_or(45.0).max(1.0),
+            inclination: view_setup.look_at.unwrap_or(0.0),
+            offset_x: view_setup.view_x.unwrap_or(0.0),
+            offset_y: view_setup.view_y.unwrap_or(30.0),
+            offset_z: view_setup.view_z.unwrap_or(-200.0),
+            scale_x: view_setup.scene_scale_x.unwrap_or(1.0),
+            scale_y: view_setup.scene_scale_y.unwrap_or(1.0),
+            scale_z: view_setup.scene_scale_z.unwrap_or(1.0),
         }
     }
 
     /// Extract Fullscreen view settings from VPX gamedata
     ///
-    /// ## Default values (legacy VPX format):
+    /// ## Default values (legacy VPX format, used when not present):
     /// - FOV: 45 degrees
     /// - Inclination: 0 degrees
     /// - Offset X: 110 VPU (~5.9 cm)
@@ -222,20 +220,18 @@ impl ViewSettings {
     /// - Offset Z: 400 VPU (~21.6 cm)
     /// - Scale: 1.3, 1.41, 1.0
     pub fn fullscreen_from_vpx(vpx: &VPX) -> Self {
+        let view_setup = &vpx.gamedata.view_setups[ViewSetupId::Fullscreen];
         Self {
             mode: ViewMode::Fullscreen,
-            layout_mode: vpx
-                .gamedata
-                .bg_view_mode_fullscreen
-                .unwrap_or(ViewLayoutMode::Legacy),
-            fov: vpx.gamedata.bg_fov_fullscreen.max(1.0),
-            inclination: vpx.gamedata.bg_inclination_fullscreen,
-            offset_x: vpx.gamedata.bg_offset_x_fullscreen,
-            offset_y: vpx.gamedata.bg_offset_y_fullscreen,
-            offset_z: vpx.gamedata.bg_offset_z_fullscreen,
-            scale_x: vpx.gamedata.bg_scale_x_fullscreen,
-            scale_y: vpx.gamedata.bg_scale_y_fullscreen,
-            scale_z: vpx.gamedata.bg_scale_z_fullscreen,
+            layout_mode: view_setup.mode.unwrap_or(ViewLayoutMode::Legacy),
+            fov: view_setup.fov.unwrap_or(45.0).max(1.0),
+            inclination: view_setup.look_at.unwrap_or(0.0),
+            offset_x: view_setup.view_x.unwrap_or(110.0),
+            offset_y: view_setup.view_y.unwrap_or(-86.0),
+            offset_z: view_setup.view_z.unwrap_or(400.0),
+            scale_x: view_setup.scene_scale_x.unwrap_or(1.3),
+            scale_y: view_setup.scene_scale_y.unwrap_or(1.41),
+            scale_z: view_setup.scene_scale_z.unwrap_or(1.0),
         }
     }
 
@@ -249,27 +245,18 @@ impl ViewSettings {
     /// - Offset Z: -50 VPU (~-2.7 cm)
     /// - Scale: 1.2, 1.1, 1.0
     pub fn fss_from_vpx(vpx: &VPX) -> Self {
+        let view_setup = &vpx.gamedata.view_setups[ViewSetupId::FullSingleScreen];
         Self {
             mode: ViewMode::Fss,
-            layout_mode: vpx
-                .gamedata
-                .bg_view_mode_full_single_screen
-                .unwrap_or(ViewLayoutMode::Legacy),
-            fov: vpx
-                .gamedata
-                .bg_fov_full_single_screen
-                .unwrap_or(45.0)
-                .max(1.0),
-            inclination: vpx
-                .gamedata
-                .bg_inclination_full_single_screen
-                .unwrap_or(52.0),
-            offset_x: vpx.gamedata.bg_offset_x_full_single_screen.unwrap_or(0.0),
-            offset_y: vpx.gamedata.bg_offset_y_full_single_screen.unwrap_or(30.0),
-            offset_z: vpx.gamedata.bg_offset_z_full_single_screen.unwrap_or(-50.0),
-            scale_x: vpx.gamedata.bg_scale_x_full_single_screen.unwrap_or(1.2),
-            scale_y: vpx.gamedata.bg_scale_y_full_single_screen.unwrap_or(1.1),
-            scale_z: vpx.gamedata.bg_scale_z_full_single_screen.unwrap_or(1.0),
+            layout_mode: view_setup.mode.unwrap_or(ViewLayoutMode::Legacy),
+            fov: view_setup.fov.unwrap_or(45.0).max(1.0),
+            inclination: view_setup.look_at.unwrap_or(52.0),
+            offset_x: view_setup.view_x.unwrap_or(0.0),
+            offset_y: view_setup.view_y.unwrap_or(30.0),
+            offset_z: view_setup.view_z.unwrap_or(-50.0),
+            scale_x: view_setup.scene_scale_x.unwrap_or(1.2),
+            scale_y: view_setup.scene_scale_y.unwrap_or(1.1),
+            scale_z: view_setup.scene_scale_z.unwrap_or(1.0),
         }
     }
 

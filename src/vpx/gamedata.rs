@@ -185,67 +185,305 @@ mod view_layout_mode_open_enum_tests {
     }
 }
 
-// TODO switch to a array of 3 view modes like in the original code
-/// One of the three camera / view setups of a table, mirroring vpinball's
-/// `ViewSetup` class (`src/renderer/ViewSetup.h`).
+/// Identifies one of the three view setups of a table, mirroring vpinball's
+/// `ViewSetupID` enum (`src/renderer/ViewSetup.h`).
 ///
-/// vpinball keeps an array of three of these: desktop, fullscreen (cabinet)
-/// and full single screen. This crate does not use the struct for the file
-/// format yet; the per-view values live as flat `bg_*` fields on
-/// [`GameData`]. The commented-out members below list the remaining vpinball
-/// fields and their defaults for reference.
-#[derive(Debug, PartialEq)]
-pub struct ViewSetup {
-    // ViewLayoutMode mMode = VLM_LEGACY;
-
-    // // Overall scene scale
-    // float mSceneScaleZ = 1.0f;
-
-    // // View position (relative to table bounds for legacy mode, relative to the bottom center of the table for others)
-    // float mViewX = 0.f;
-    // float mViewY = CMTOVPU(20.f);
-    // float mViewZ = CMTOVPU(70.f);
-    // float mLookAt = 0.25f; // Look at expressed as a camera inclination for legacy, or a percent of the table height, starting from bottom (0.25 is around top of slingshots)
-
-    // // Viewport adjustments
-    // float mViewportRotation = 0.f;
-    // float mSceneScaleX = 1.0f;
-    // float mSceneScaleY = 1.0f;
-
-    // // View properties
-    // float mFOV = 45.0f; // Camera & Legacy: Field of view, in degrees
-    // float mLayback = 0.0f; // Legacy: A skewing angle that deform the table to make it look 'good'
-    // float mViewHOfs = 0.0f; // Camera & Window: horizontal frustrum offset
-    // float mViewVOfs = 0.0f; // Camera & Window: vertical frustrum offset
-
-    // // Magic Window mode properties
-    // float mWindowTopXOfs = 0.0f; // Upper window border offset from left and right table bounds
-    // float mWindowTopYOfs = 0.0f; // Upper window border Y coordinate, relative to table top
-    // float mWindowTopZOfs = CMTOVPU(20.0f); // Upper window border Z coordinate, relative to table playfield Z
-    // float mWindowBottomXOfs = 0.0f; // Lower window border offset from left and right table bounds
-    // float mWindowBottomYOfs = 0.0f; // Lower window border Y coordinate, relative to table bottom
-    // float mWindowBottomZOfs = CMTOVPU(7.5f); // Lower window border Z coordinate, relative to table playfield Z
-    /// The view layout mode: how the viewer position and the projection are
-    /// interpreted (legacy, camera or window).
-    ///
-    /// Default: [`ViewLayoutMode::Legacy`].
-    ///
-    /// BIFF tag `VSM0`, `VSM1` or `VSM2`, depending on the view set
-    pub mode: ViewLayoutMode,
+/// Indexes [`GameData::view_setups`]:
+///
+/// ```
+/// use vpin::vpx::gamedata::{GameData, ViewSetupId};
+///
+/// let gamedata = GameData::default();
+/// assert_eq!(gamedata.view_setups[ViewSetupId::Desktop].fov, Some(45.0));
+/// ```
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+pub enum ViewSetupId {
+    /// The desktop view (`BG_DESKTOP`), for playing on a single computer
+    /// monitor. The table fills the screen from top to bottom and anything
+    /// that would be shown on the backglass is shown on the left or the
+    /// right of the playfield.
+    Desktop,
+    /// The fullscreen view (`BG_FULLSCREEN`), for a pinball cabinet with a
+    /// separate monitor for the backglass: the playfield is displayed on a
+    /// monitor in landscape orientation and the backglass on a second
+    /// monitor above it.
+    Fullscreen,
+    /// The full single screen view (`BG_FSS`), for setups where the
+    /// playfield and a 3D backglass are displayed on one monitor in
+    /// portrait orientation (for example a mobile phone). Only used when
+    /// [`GameData::bg_enable_fss`] is set.
+    FullSingleScreen,
 }
 
-impl ViewSetup {
-    /// Creates a view setup with vpinball's defaults (legacy layout mode).
-    pub fn new() -> Self {
-        ViewSetup {
-            mode: ViewLayoutMode::Legacy,
+impl ViewSetupId {
+    /// The three view setups, in the order of [`GameData::view_setups`].
+    pub const ALL: [ViewSetupId; 3] = [
+        ViewSetupId::Desktop,
+        ViewSetupId::Fullscreen,
+        ViewSetupId::FullSingleScreen,
+    ];
+
+    /// The position of the view setup in [`GameData::view_setups`], which is
+    /// the value of the vpinball enum.
+    pub const fn index(self) -> usize {
+        match self {
+            ViewSetupId::Desktop => 0,
+            ViewSetupId::Fullscreen => 1,
+            ViewSetupId::FullSingleScreen => 2,
         }
     }
 }
 
-impl Default for ViewSetup {
-    fn default() -> Self {
-        Self::new()
+impl std::ops::Index<ViewSetupId> for [ViewSetup; 3] {
+    type Output = ViewSetup;
+
+    fn index(&self, id: ViewSetupId) -> &ViewSetup {
+        &self[id.index()]
+    }
+}
+
+impl std::ops::IndexMut<ViewSetupId> for [ViewSetup; 3] {
+    fn index_mut(&mut self, id: ViewSetupId) -> &mut ViewSetup {
+        &mut self[id.index()]
+    }
+}
+
+/// One of the three camera / view setups of a table, mirroring vpinball's
+/// `ViewSetup` class (`src/renderer/ViewSetup.h`).
+///
+/// vpinball keeps an array of three of these, see [`ViewSetupId`] and
+/// [`GameData::view_setups`].
+///
+/// Every field is an `Option` because every record is optional in the file:
+/// `None` means the record was absent and it is not written back. vpinball
+/// always writes the rotation, inclination, layback, field of view, offsets
+/// and scales of the desktop and the fullscreen view. The same records of
+/// the full single screen view were added later (10.?), and the layout mode,
+/// the frustum offsets and the window offsets came with 10.8. vpinball
+/// 10.8 no longer writes the window X and Y offsets.
+///
+/// The values [`GameData::default`] uses, which are the legacy file defaults
+/// in VPU:
+///
+/// | | desktop | fullscreen | full single screen |
+/// |---|---|---|---|
+/// | rotation, inclination, layback | 0 | 0 | absent |
+/// | fov | 45 | 45 | absent |
+/// | offset x, y, z | 0, 30, -200 | 110, -86, 400 | absent |
+/// | scale x, y, z | 1, 1, 1 | 1.3, 1.41, 1 | absent |
+/// | everything else | absent | absent | absent |
+///
+/// The legacy file defaults of the full single screen view were an
+/// inclination of 52, offsets of 0, 30 and -50 and scales of 1.2, 1.1 and 1.
+/// vpinball 10.8 `ViewSetup.h` has its own defaults for new tables, in
+/// centimeters where a length: a look-at of 0.25, a field of view of 45, a
+/// view position of 0, 20 cm and 70 cm, scales of 1, a window top Z offset
+/// of 20 cm (about 370.6 VPU) and a window bottom Z offset of 7.5 cm (about
+/// 139 VPU). The file always stores VPU.
+#[derive(Debug, PartialEq, Clone, Default)]
+pub struct ViewSetup {
+    /// The view layout mode: how the viewer position and the projection are
+    /// interpreted. Added in 10.8.x.
+    /// - Legacy: viewer position relative to fitted bounding vertices, perspective projection with layback
+    /// - Camera: viewer position relative to table bottom center, standard perspective projection
+    /// - Window: viewer position relative to screen bottom center, oblique projection
+    ///
+    /// vpinball default: [`ViewLayoutMode::Legacy`].
+    ///
+    /// BIFF tag `VSM0`, `VSM1` or `VSM2`
+    pub mode: Option<ViewLayoutMode>,
+    /// Viewport rotation in degrees (`ViewSetup::mViewportRotation`).
+    /// Rotates the entire viewport, useful for portrait/landscape orientations
+    ///
+    /// BIFF tag `ROTA`, `ROTF` or `ROFS`
+    pub viewport_rotation: Option<f32>,
+    /// Look-at setting (`ViewSetup::mLookAt`), the inclination of older
+    /// vpinball versions.
+    /// - Legacy mode: look-at as percent of table height from top 0% to table front 100%
+    /// - Camera mode: look-at as percent of table height from bottom (0.25 = around slingshots)
+    ///
+    /// BIFF tag `INCL`, `INCF` or `INFS`
+    pub look_at: Option<f32>,
+    /// Layback angle in degrees.
+    /// Legacy mode only: skewing angle that deforms the table perspective
+    ///
+    /// BIFF tag `LAYB`, `LAYF` or `LAFS`
+    pub layback: Option<f32>,
+    /// Field of view in degrees.
+    /// Camera & Legacy modes: vertical field of view
+    ///
+    /// BIFF tag `FOVX`, `FOVF` or `FOFS`
+    pub fov: Option<f32>,
+    /// Camera X position in VPU
+    /// - Legacy mode: offset from fitted camera position
+    /// - Camera/Window mode: position relative to table bottom center
+    ///
+    /// BIFF tag `XLTX`, `XLFX` or `XLXS`
+    pub view_x: Option<f32>,
+    /// Camera Y position in VPU
+    /// - Legacy mode: offset from fitted camera position
+    /// - Camera/Window mode: position relative to table bottom center
+    ///
+    /// BIFF tag `XLTY`, `XLFY` or `XLYS`
+    pub view_y: Option<f32>,
+    /// Camera Z position in VPU
+    /// - Legacy mode: offset from fitted camera position (negative moves camera back)
+    /// - Camera/Window mode: height relative to table playfield
+    ///
+    /// BIFF tag `XLTZ`, `XLFZ` or `XLZS`
+    pub view_z: Option<f32>,
+    /// Scene scale X, a multiplier
+    ///
+    /// BIFF tag `SCLX`, `SCFX` or `SCXS`
+    pub scene_scale_x: Option<f32>,
+    /// Scene scale Y, a multiplier
+    ///
+    /// BIFF tag `SCLY`, `SCFY` or `SCYS`
+    pub scene_scale_y: Option<f32>,
+    /// Scene scale Z, a multiplier
+    ///
+    /// BIFF tag `SCLZ`, `SCFZ` or `SCZS`
+    pub scene_scale_z: Option<f32>,
+    /// Horizontal frustum offset, added in 10.8.x.
+    /// Camera & Window modes: shifts the view frustum horizontally
+    ///
+    /// BIFF tag `HOF0`, `HOF1` or `HOF2`
+    pub view_horizontal_offset: Option<f32>,
+    /// Vertical frustum offset, added in 10.8.x.
+    /// Camera & Window modes: shifts the view frustum vertically
+    ///
+    /// BIFF tag `VOF0`, `VOF1` or `VOF2`
+    pub view_vertical_offset: Option<f32>,
+    /// Window mode: top edge X offset in VPU, added in 10.8.x
+    ///
+    /// BIFF tag `WTX0`, `WTX1` or `WTX2`
+    pub window_top_x_offset: Option<f32>,
+    /// Window mode: top edge Y offset in VPU, added in 10.8.x
+    ///
+    /// BIFF tag `WTY0`, `WTY1` or `WTY2`
+    pub window_top_y_offset: Option<f32>,
+    /// Window mode: top edge Z offset in VPU, added in 10.8.x.
+    /// Height of upper window/glass border above playfield
+    ///
+    /// BIFF tag `WTZ0`, `WTZ1` or `WTZ2`
+    pub window_top_z_offset: Option<f32>,
+    /// Window mode: bottom edge X offset in VPU, added in 10.8.x
+    ///
+    /// BIFF tag `WBX0`, `WBX1` or `WBX2`
+    pub window_bottom_x_offset: Option<f32>,
+    /// Window mode: bottom edge Y offset in VPU, added in 10.8.x
+    ///
+    /// BIFF tag `WBY0`, `WBY1` or `WBY2`
+    pub window_bottom_y_offset: Option<f32>,
+    /// Window mode: bottom edge Z offset in VPU, added in 10.8.x.
+    /// Height of lower window/glass border above playfield
+    ///
+    /// BIFF tag `WBZ0`, `WBZ1` or `WBZ2`
+    pub window_bottom_z_offset: Option<f32>,
+}
+
+/// BIFF tags of the records of each view setup, in the order vpinball writes
+/// them: the layout mode, then the values in the order of
+/// [`ViewSetup::values`]. Mirrors `vsFields` in vpinball's
+/// `PinTable::SaveData`.
+const VIEW_SETUP_TAGS: [[&str; 19]; 3] = [
+    [
+        "VSM0", "ROTA", "INCL", "LAYB", "FOVX", "XLTX", "XLTY", "XLTZ", "SCLX", "SCLY", "SCLZ",
+        "HOF0", "VOF0", "WTX0", "WTY0", "WTZ0", "WBX0", "WBY0", "WBZ0",
+    ],
+    [
+        "VSM1", "ROTF", "INCF", "LAYF", "FOVF", "XLFX", "XLFY", "XLFZ", "SCFX", "SCFY", "SCFZ",
+        "HOF1", "VOF1", "WTX1", "WTY1", "WTZ1", "WBX1", "WBY1", "WBZ1",
+    ],
+    [
+        "VSM2", "ROFS", "INFS", "LAFS", "FOFS", "XLXS", "XLYS", "XLZS", "SCXS", "SCYS", "SCZS",
+        "HOF2", "VOF2", "WTX2", "WTY2", "WTZ2", "WBX2", "WBY2", "WBZ2",
+    ],
+];
+
+impl ViewSetup {
+    /// The float records in the order they are written, which is the order
+    /// of [`VIEW_SETUP_TAGS`] after the layout mode.
+    fn values(&self) -> [Option<f32>; 18] {
+        [
+            self.viewport_rotation,
+            self.look_at,
+            self.layback,
+            self.fov,
+            self.view_x,
+            self.view_y,
+            self.view_z,
+            self.scene_scale_x,
+            self.scene_scale_y,
+            self.scene_scale_z,
+            self.view_horizontal_offset,
+            self.view_vertical_offset,
+            self.window_top_x_offset,
+            self.window_top_y_offset,
+            self.window_top_z_offset,
+            self.window_bottom_x_offset,
+            self.window_bottom_y_offset,
+            self.window_bottom_z_offset,
+        ]
+    }
+
+    /// Same as [`values`](Self::values), for the reader to fill.
+    fn values_mut(&mut self) -> [&mut Option<f32>; 18] {
+        [
+            &mut self.viewport_rotation,
+            &mut self.look_at,
+            &mut self.layback,
+            &mut self.fov,
+            &mut self.view_x,
+            &mut self.view_y,
+            &mut self.view_z,
+            &mut self.scene_scale_x,
+            &mut self.scene_scale_y,
+            &mut self.scene_scale_z,
+            &mut self.view_horizontal_offset,
+            &mut self.view_vertical_offset,
+            &mut self.window_top_x_offset,
+            &mut self.window_top_y_offset,
+            &mut self.window_top_z_offset,
+            &mut self.window_bottom_x_offset,
+            &mut self.window_bottom_y_offset,
+            &mut self.window_bottom_z_offset,
+        ]
+    }
+
+    /// Reads the record `tag` into the view setup it belongs to. Returns
+    /// `false`, without reading, when it is not a view setup record.
+    fn read_record(
+        view_setups: &mut [ViewSetup; 3],
+        tag: &str,
+        reader: &mut BiffReader<'_>,
+    ) -> io::Result<bool> {
+        for (setup, tags) in view_setups.iter_mut().zip(&VIEW_SETUP_TAGS) {
+            match tags.iter().position(|candidate| *candidate == tag) {
+                Some(0) => setup.mode = Some(reader.get_u32()?.into()),
+                Some(index) => *setup.values_mut()[index - 1] = Some(reader.get_f32()?),
+                None => continue,
+            }
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    /// Writes the layout mode record, which comes first.
+    fn write_mode(&self, id: ViewSetupId, writer: &mut BiffWriter) {
+        if let Some(mode) = &self.mode {
+            writer.write_tagged_u32(VIEW_SETUP_TAGS[id.index()][0], mode.into());
+        }
+    }
+
+    /// Writes the records that follow the layout mode.
+    fn write_values(&self, id: ViewSetupId, writer: &mut BiffWriter) {
+        let tags = &VIEW_SETUP_TAGS[id.index()][1..];
+        for (tag, value) in tags.iter().zip(self.values()) {
+            if let Some(value) = value {
+                writer.write_tagged_f32(tag, value);
+            }
+        }
     }
 }
 
@@ -440,279 +678,23 @@ pub struct GameData {
     pub bottom: f32,
     /// CLMO
     /// During the 10.8.0 development cycle, this field was added but later again removed
-    /// Has meanwhile been replaced by the new [`GameData::bg_view_mode_desktop`],
-    /// [`GameData::bg_view_mode_fullscreen`] and [`GameData::bg_view_mode_full_single_screen`] fields
+    /// Has meanwhile been replaced by the new [`ViewSetup::mode`] of each view setup
     /// See [the related commit](https://github.com/vpinball/vpinball/commit/5087b3c51b99676f91b02ee4b0c0af4b89b6afda)
     /// CLM_RELATIVE = 0, // All tables before 10.8 used a camera position relative to a fitting of a set of bounding vertices (not all parts)
     /// CLM_ABSOLUTE = 1 // Position camera relative to the bottom center of the table
     pub camera_layout_mode: Option<u32>,
 
-    // =====================================================================================
-    // DESKTOP VIEW SETTINGS (BG_DESKTOP)
-    //
-    // These settings are used for the main desktop view when playing on a single computer monitor.
-    // The table fills the screen from top to bottom and anything that would be shown on the
-    // backglass is shown on the left or the right of the playfield.
-    //
-    // Default values (legacy VPX format, stored in VPU):
-    // - Mode: Legacy (VLM_LEGACY) when not set
-    // - Rotation: 0 degrees
-    // - Inclination: 0 degrees (legacy) / 0.25 (camera mode, 25% from bottom)
-    // - Layback: 0 degrees
-    // - FOV: 45 degrees
-    // - Offset X: 0 VPU
-    // - Offset Y: 30 VPU (about 1.6 cm)
-    // - Offset Z: -200 VPU (about -10.8 cm, negative moves camera back in legacy mode)
-    // - Scale X/Y/Z: 1.0
-    //
-    // Note: VPinball 10.8+ ViewSetup.h uses defaults in centimeters (20cm Y, 70cm Z)
-    // for new tables, but VPX files store values in VPU.
-    // =====================================================================================
-    /// View layout mode for desktop view (VSM0, added in 10.8.x)
-    /// - Legacy: viewer position relative to fitted bounding vertices, perspective projection with layback
-    /// - Camera: viewer position relative to table bottom center, standard perspective projection
-    /// - Window: viewer position relative to screen bottom center, oblique projection
-    pub bg_view_mode_desktop: Option<ViewLayoutMode>,
-    /// Viewport rotation in degrees (ROTA)
-    /// Rotates the entire viewport, useful for portrait/landscape orientations
-    /// Default: 0 degrees
-    pub bg_rotation_desktop: f32,
-    /// Look-at / inclination setting (INCL)
-    /// - Legacy mode: look-at as percent of table height from top 0% to table front 100%
-    /// - Camera mode: look-at as percent of table height from bottom (0.25 = around slingshots)
+    /// Enable Full Single Screen mode.
+    /// When true, the [`ViewSetupId::FullSingleScreen`] view setup is used
+    /// when available.
     ///
-    /// Default: 0 degrees (legacy mode)
-    pub bg_inclination_desktop: f32,
-    /// Layback angle in degrees (LAYB)
-    /// Legacy mode only: skewing angle that deforms the table perspective
-    /// Default: 0 degrees
-    pub bg_layback_desktop: f32,
-    /// Field of view in degrees (FOVX)
-    /// Camera & Legacy modes: vertical field of view
-    /// Default: 45 degrees
-    pub bg_fov_desktop: f32,
-    /// Camera X position in VPU (XLTX)
-    /// - Legacy mode: offset from fitted camera position
-    /// - Camera/Window mode: position relative to table bottom center
-    ///
-    /// Default: 0 VPU
-    pub bg_offset_x_desktop: f32,
-    /// Camera Y position in VPU (XLTY)
-    /// - Legacy mode: offset from fitted camera position
-    /// - Camera/Window mode: position relative to table bottom center
-    ///
-    /// Default: 30 VPU (about 1.6 cm)
-    pub bg_offset_y_desktop: f32,
-    /// Camera Z position in VPU (XLTZ)
-    /// - Legacy mode: offset from fitted camera position (negative moves camera back)
-    /// - Camera/Window mode: height relative to table playfield
-    ///
-    /// Default: -200 VPU (about -10.8 cm)
-    pub bg_offset_z_desktop: f32,
-    /// Scene scale X (SCLX) - multiplier
-    /// Default: 1.0
-    pub bg_scale_x_desktop: f32,
-    /// Scene scale Y (SCLY) - multiplier
-    /// Default: 1.0
-    pub bg_scale_y_desktop: f32,
-    /// Scene scale Z (SCLZ) - multiplier
-    /// Default: 1.0
-    pub bg_scale_z_desktop: f32,
-    /// Enable Full Single Screen mode (EFSS)
-    /// When true, FSS view settings are used when available
+    /// BIFF tag `EFSS`, see [`is_10_8_0_beta1_to_beta4`](Self::is_10_8_0_beta1_to_beta4)
+    /// for its position in the file.
     pub bg_enable_fss: Option<bool>,
-    /// Horizontal frustum offset (HOF0, added in 10.8.x)
-    /// Camera & Window modes: shifts the view frustum horizontally
-    /// Default: 0
-    pub bg_view_horizontal_offset_desktop: Option<f32>,
-    /// Vertical frustum offset (VOF0, added in 10.8.x)
-    /// Camera & Window modes: shifts the view frustum vertically
-    /// Default: 0
-    pub bg_view_vertical_offset_desktop: Option<f32>,
-    /// Window mode: top edge X offset in VPU (WTX0, added in 10.8.x)
-    pub bg_window_top_x_offset_desktop: Option<f32>,
-    /// Window mode: top edge Y offset in VPU (WTY0, added in 10.8.x)
-    pub bg_window_top_y_offset_desktop: Option<f32>,
-    /// Window mode: top edge Z offset in VPU (WTZ0, added in 10.8.x)
-    /// Height of upper window/glass border above playfield
-    /// Default: 20 cm → ~370.6 VPU (from ViewSetup.h)
-    pub bg_window_top_z_offset_desktop: Option<f32>,
-    /// Window mode: bottom edge X offset in VPU (WBX0, added in 10.8.x)
-    pub bg_window_bottom_x_offset_desktop: Option<f32>,
-    /// Window mode: bottom edge Y offset in VPU (WBY0, added in 10.8.x)
-    pub bg_window_bottom_y_offset_desktop: Option<f32>,
-    /// Window mode: bottom edge Z offset in VPU (WBZ0, added in 10.8.x)
-    /// Height of lower window/glass border above playfield
-    /// Default: 7.5 cm → ~139 VPU (from ViewSetup.h)
-    pub bg_window_bottom_z_offset_desktop: Option<f32>,
+    /// The desktop, fullscreen and full single screen view setups, indexed
+    /// by [`ViewSetupId`] like vpinball's `PinTable::mViewSetups`.
+    pub view_setups: [ViewSetup; 3],
 
-    // =====================================================================================
-    // FULLSCREEN VIEW SETTINGS (BG_FULLSCREEN)
-    // This is for use with a pinball cabinet setup with a separate monitor for the backglass,
-    // where the playfield is displayed on a monitor in landscape orientation,
-    // and the backglass on a second monitor in portrait orientation above it.
-    //
-    // Default values (legacy VPX format, stored in VPU):
-    // - Mode: Legacy (VLM_LEGACY) when not set
-    // - Rotation: 0 degrees
-    // - Inclination: 0 degrees
-    // - Layback: 0 degrees
-    // - FOV: 45 degrees
-    // - Offset X: 110 VPU (about 5.9 cm)
-    // - Offset Y: -86 VPU (about -4.6 cm)
-    // - Offset Z: 400 VPU (about 21.6 cm)
-    // - Scale X: 1.3, Scale Y: 1.41, Scale Z: 1.0
-    // =====================================================================================
-    /// View layout mode for fullscreen view (VSM1, added in 10.8.x)
-    pub bg_view_mode_fullscreen: Option<ViewLayoutMode>,
-    /// Viewport rotation in degrees (ROTF)
-    /// Default: 0 degrees
-    pub bg_rotation_fullscreen: f32,
-    /// Look-at / inclination setting (INCF)
-    /// - Legacy mode: look-at as percent of table height from top 0% to table front 100%
-    /// - Camera mode: look-at as percent of table height from bottom
-    ///
-    /// Default: 0 degrees
-    pub bg_inclination_fullscreen: f32,
-    /// Layback angle in degrees (LAYF) - Legacy mode only
-    /// Default: 0 degrees
-    pub bg_layback_fullscreen: f32,
-    /// Field of view in degrees (FOVF)
-    /// Default: 45 degrees
-    pub bg_fov_fullscreen: f32,
-    /// Camera X position in VPU (XLFX)
-    /// Default: 110 VPU (about 5.9 cm)
-    pub bg_offset_x_fullscreen: f32,
-    /// Camera Y position in VPU (XLFY)
-    /// Default: -86 VPU (about -4.6 cm)
-    pub bg_offset_y_fullscreen: f32,
-    /// Camera Z position in VPU (XLFZ)
-    /// Default: 400 VPU (about 21.6 cm)
-    pub bg_offset_z_fullscreen: f32,
-    /// Scene scale X (SCFX) - multiplier
-    /// Default: 1.3
-    pub bg_scale_x_fullscreen: f32,
-    /// Scene scale Y (SCFY) - multiplier
-    /// Default: 1.41
-    pub bg_scale_y_fullscreen: f32,
-    /// Scene scale Z (SCFZ) - multiplier
-    /// Default: 1.0
-    pub bg_scale_z_fullscreen: f32,
-    /// Horizontal frustum offset (HOF1, added in 10.8.x)
-    /// Default: 0
-    pub bg_view_horizontal_offset_fullscreen: Option<f32>,
-    /// Vertical frustum offset (VOF1, added in 10.8.x)
-    /// Default: 0
-    pub bg_view_vertical_offset_fullscreen: Option<f32>,
-    /// Window mode: top edge X offset in VPU (WTX1, added in 10.8.x)
-    pub bg_window_top_x_offset_fullscreen: Option<f32>,
-    /// Window mode: top edge Y offset in VPU (WTY1, added in 10.8.x)
-    pub bg_window_top_y_offset_fullscreen: Option<f32>,
-    /// Window mode: top edge Z offset in VPU (WTZ1, added in 10.8.x)
-    /// Default: 20 cm → ~370.6 VPU (from ViewSetup.h)
-    pub bg_window_top_z_offset_fullscreen: Option<f32>,
-    /// Window mode: bottom edge X offset in VPU (WBX1, added in 10.8.x)
-    pub bg_window_bottom_x_offset_fullscreen: Option<f32>,
-    /// Window mode: bottom edge Y offset in VPU (WBY1, added in 10.8.x)
-    pub bg_window_bottom_y_offset_fullscreen: Option<f32>,
-    /// Window mode: bottom edge Z offset in VPU (WBZ1, added in 10.8.x)
-    /// Default: 7.5 cm → ~139 VPU (from ViewSetup.h)
-    pub bg_window_bottom_z_offset_fullscreen: Option<f32>,
-
-    // =====================================================================================
-    // FULL SINGLE SCREEN (FSS) VIEW SETTINGS (BG_FSS)
-    // This view is designed for single-screen setups where the playfield
-    // and 3d backglass are displayed on one monitor in portrait orientation. (e.g. mobile phone)
-    //
-    // Default values (from ViewSetup.h):
-    // Note: ViewSetup.h specifies defaults in centimeters, converted to VPU internally.
-    // The values stored in VPX files are in VPU.
-    //
-    // - Mode: Legacy (VLM_LEGACY)
-    // - Rotation: 0 degrees
-    // - Inclination/LookAt: 0.25 (legacy: degrees, camera: 25% from bottom)
-    // - Layback: 0 degrees
-    // - FOV: 45 degrees
-    // - Offset X: 0 cm → 0 VPU
-    // - Offset Y: 20 cm → ~370.6 VPU (position relative to table bottom center)
-    // - Offset Z: 70 cm → ~1297 VPU (camera height)
-    // - Scale X/Y/Z: 1.0
-    // - Horizontal/Vertical offset: 0
-    // - Window Top Z: 20 cm → ~370.6 VPU (glass top height above playfield)
-    // - Window Bottom Z: 7.5 cm → ~139 VPU (glass bottom height above playfield)
-    //
-    // Note: The commented defaults in Default::default() (52, 30, -50, 1.2, 1.1)
-    // are legacy VPX file defaults, different from the ViewSetup struct defaults.
-    // =====================================================================================
-    /// View layout mode for FSS view (VSM2, added in 10.8.x)
-    /// Default: Legacy (VLM_LEGACY)
-    pub bg_view_mode_full_single_screen: Option<ViewLayoutMode>,
-    /// Viewport rotation in degrees (ROFS, added in 10.?)
-    /// Default: 0 degrees
-    pub bg_rotation_full_single_screen: Option<f32>,
-    /// Look-at / inclination setting (INFS, added in 10.?)
-    /// - Legacy mode:look-at as percent of table height from top 0% to table front 100%
-    /// - Camera mode: look-at as percent of table height from bottom
-    ///
-    /// Default: 0.25 (legacy file default was 52 percent)
-    pub bg_inclination_full_single_screen: Option<f32>,
-    /// Layback angle in degrees (LAFS, added in 10.?) - Legacy mode only
-    /// Default: 0 degrees
-    pub bg_layback_full_single_screen: Option<f32>,
-    /// Field of view in degrees (FOFS, added in 10.?)
-    /// Default: 45 degrees
-    pub bg_fov_full_single_screen: Option<f32>,
-    /// Camera X position in VPU (XLXS, added in 10.?)
-    /// Default: 0 cm → 0 VPU
-    pub bg_offset_x_full_single_screen: Option<f32>,
-    /// Camera Y position in VPU (XLYS, added in 10.?)
-    /// - Legacy mode: offset from fitted camera position
-    /// - Camera/Window mode: position relative to table bottom center
-    ///   Default: 20 cm → ~370.6 VPU (legacy file default was 30 VPU)
-    pub bg_offset_y_full_single_screen: Option<f32>,
-    /// Camera Z position in VPU (XLZS, added in 10.?)
-    /// - Legacy mode: offset from fitted camera position (negative moves back)
-    /// - Camera/Window mode: height relative to playfield
-    ///
-    /// Default: 70 cm → ~1297 VPU (legacy file default was -50 VPU)
-    pub bg_offset_z_full_single_screen: Option<f32>,
-    /// Scene scale X (SCXS, added in 10.?) - multiplier
-    /// Default: 1.0 (legacy file default was 1.2)
-    pub bg_scale_x_full_single_screen: Option<f32>,
-    /// Scene scale Y (SCYS, added in 10.?) - multiplier
-    /// Default: 1.0 (legacy file default was 1.1)
-    pub bg_scale_y_full_single_screen: Option<f32>,
-    /// Scene scale Z (SCZS, added in 10.?) - multiplier
-    /// Default: 1.0
-    pub bg_scale_z_full_single_screen: Option<f32>,
-    /// Horizontal frustum offset as percentage (HOF2, added in 10.8.x)
-    /// Camera & Window modes only
-    /// Default: 0
-    pub bg_view_horizontal_offset_full_single_screen: Option<f32>,
-    /// Vertical frustum offset as percentage (VOF2, added in 10.8.x)
-    /// Camera & Window modes only
-    /// Default: 0
-    pub bg_view_vertical_offset_full_single_screen: Option<f32>,
-    /// Window mode: top edge X offset in VPU (WTX2, added in 10.8.x)
-    pub bg_window_top_x_offset_full_single_screen: Option<f32>,
-    /// Window mode: top edge Y offset in VPU (WTY2, added in 10.8.x)
-    pub bg_window_top_y_offset_full_single_screen: Option<f32>,
-    /// Window mode: top edge Z offset in VPU (WTZ2, added in 10.8.x)
-    /// Height of upper window/glass border above playfield
-    /// Default: 20 cm → ~370.6 VPU
-    pub bg_window_top_z_offset_full_single_screen: Option<f32>,
-    /// Window mode: bottom edge X offset in VPU (WBX2, added in 10.8.x)
-    pub bg_window_bottom_x_offset_full_single_screen: Option<f32>,
-    /// Window mode: bottom edge Y offset in VPU (WBY2, added in 10.8.x)
-    pub bg_window_bottom_y_offset_full_single_screen: Option<f32>,
-    /// Window mode: bottom edge Z offset in VPU (WBZ2, added in 10.8.x)
-    /// Height of lower window/glass border above playfield
-    /// Default: 7.5 cm → ~139 VPU
-    pub bg_window_bottom_z_offset_full_single_screen: Option<f32>,
-
-    // =====================================================================================
-    // END OF VIEW SETTINGS
-    // =====================================================================================
     /// Which of the user's physics override sets applies to this table.
     ///
     /// `0` disables the override and the table's own physics values are
@@ -1644,6 +1626,46 @@ pub struct GameData {
     pub is_10_8_0_beta1_to_beta4: bool,
 }
 
+impl ViewSetup {
+    /// The view setups of a table without any view setup record, which are
+    /// the values [`GameData::default`] starts from.
+    pub(crate) fn legacy_defaults() -> [ViewSetup; 3] {
+        [
+            ViewSetup {
+                viewport_rotation: Some(0.0),
+                look_at: Some(0.0),
+                layback: Some(0.0),
+                fov: Some(45.0),
+                view_x: Some(0.0),
+                view_y: Some(30.0),
+                view_z: Some(-200.0),
+                scene_scale_x: Some(1.0),
+                scene_scale_y: Some(1.0),
+                scene_scale_z: Some(1.0),
+                ..ViewSetup::default()
+            },
+            ViewSetup {
+                viewport_rotation: Some(0.0),
+                look_at: Some(0.0),
+                layback: Some(0.0),
+                fov: Some(45.0),
+                view_x: Some(110.0),
+                view_y: Some(-86.0),
+                view_z: Some(400.0),
+                scene_scale_x: Some(1.3),
+                scene_scale_y: Some(1.41),
+                scene_scale_z: Some(1.0),
+                ..ViewSetup::default()
+            },
+            // no records; the legacy file defaults were an inclination
+            // of 52, offsets of 0, 30 and -50 and scales of 1.2, 1.1 and 1
+            ViewSetup::default(),
+        ]
+    }
+}
+
+/// The json model of [`GameData`], the `gamedata.json` of an extracted
+/// table. The view setups keep their flat `bg_<field>_<view>` keys.
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct GameDataJson {
     pub left: f32,
@@ -1819,72 +1841,72 @@ impl GameDataJson {
             right: self.right,
             bottom: self.bottom,
             camera_layout_mode: self.camera_layout_mode,
-            bg_view_mode_desktop: self.bg_view_mode_desktop,
-            bg_rotation_desktop: self.bg_rotation_desktop,
-            bg_inclination_desktop: self.bg_inclination_desktop,
-            bg_layback_desktop: self.bg_layback_desktop,
-            bg_fov_desktop: self.bg_fov_desktop,
-            bg_offset_x_desktop: self.bg_offset_x_desktop,
-            bg_offset_y_desktop: self.bg_offset_y_desktop,
-            bg_offset_z_desktop: self.bg_offset_z_desktop,
-            bg_scale_x_desktop: self.bg_scale_x_desktop,
-            bg_scale_y_desktop: self.bg_scale_y_desktop,
-            bg_scale_z_desktop: self.bg_scale_z_desktop,
             bg_enable_fss: self.bg_enable_fss,
-            bg_view_horizontal_offset_desktop: self.bg_view_horizontal_offset_desktop,
-            bg_view_vertical_offset_desktop: self.bg_view_vertical_offset_desktop,
-            bg_window_top_x_offset_desktop: self.bg_window_top_x_offset_desktop,
-            bg_window_top_y_offset_desktop: self.bg_window_top_y_offset_desktop,
-            bg_window_top_z_offset_desktop: self.bg_window_top_z_offset_desktop,
-            bg_window_bottom_x_offset_desktop: self.bg_window_bottom_x_offset_desktop,
-            bg_window_bottom_y_offset_desktop: self.bg_window_bottom_y_offset_desktop,
-            bg_window_bottom_z_offset_desktop: self.bg_window_bottom_z_offset_desktop,
-            bg_view_mode_fullscreen: self.bg_view_mode_fullscreen,
-            bg_rotation_fullscreen: self.bg_rotation_fullscreen,
-            bg_inclination_fullscreen: self.bg_inclination_fullscreen,
-            bg_layback_fullscreen: self.bg_layback_fullscreen,
-            bg_fov_fullscreen: self.bg_fov_fullscreen,
-            bg_offset_x_fullscreen: self.bg_offset_x_fullscreen,
-            bg_offset_y_fullscreen: self.bg_offset_y_fullscreen,
-            bg_offset_z_fullscreen: self.bg_offset_z_fullscreen,
-            bg_scale_x_fullscreen: self.bg_scale_x_fullscreen,
-            bg_scale_y_fullscreen: self.bg_scale_y_fullscreen,
-            bg_scale_z_fullscreen: self.bg_scale_z_fullscreen,
-            bg_view_horizontal_offset_fullscreen: self.bg_view_horizontal_offset_fullscreen,
-            bg_view_vertical_offset_fullscreen: self.bg_view_vertical_offset_fullscreen,
-            bg_window_top_x_offset_fullscreen: self.bg_window_top_x_offset_fullscreen,
-            bg_window_top_y_offset_fullscreen: self.bg_window_top_y_offset_fullscreen,
-            bg_window_top_z_offset_fullscreen: self.bg_window_top_z_offset_fullscreen,
-            bg_window_bottom_x_offset_fullscreen: self.bg_window_bottom_x_offset_fullscreen,
-            bg_window_bottom_y_offset_fullscreen: self.bg_window_bottom_y_offset_fullscreen,
-            bg_window_bottom_z_offset_fullscreen: self.bg_window_bottom_z_offset_fullscreen,
-            bg_view_mode_full_single_screen: self.bg_view_mode_full_single_screen,
-            bg_rotation_full_single_screen: self.bg_rotation_full_single_screen,
-            bg_inclination_full_single_screen: self.bg_inclination_full_single_screen,
-            bg_layback_full_single_screen: self.bg_layback_full_single_screen,
-            bg_fov_full_single_screen: self.bg_fov_full_single_screen,
-            bg_offset_x_full_single_screen: self.bg_offset_x_full_single_screen,
-            bg_offset_y_full_single_screen: self.bg_offset_y_full_single_screen.map(f32::from),
-            bg_offset_z_full_single_screen: self.bg_offset_z_full_single_screen,
-            bg_scale_x_full_single_screen: self.bg_scale_x_full_single_screen,
-            bg_scale_y_full_single_screen: self.bg_scale_y_full_single_screen.map(f32::from),
-            bg_scale_z_full_single_screen: self.bg_scale_z_full_single_screen,
-            bg_view_horizontal_offset_full_single_screen: self
-                .bg_view_horizontal_offset_full_single_screen,
-            bg_view_vertical_offset_full_single_screen: self
-                .bg_view_vertical_offset_full_single_screen,
-            bg_window_top_x_offset_full_single_screen: self
-                .bg_window_top_x_offset_full_single_screen,
-            bg_window_top_y_offset_full_single_screen: self
-                .bg_window_top_y_offset_full_single_screen,
-            bg_window_top_z_offset_full_single_screen: self
-                .bg_window_top_z_offset_full_single_screen,
-            bg_window_bottom_x_offset_full_single_screen: self
-                .bg_window_bottom_x_offset_full_single_screen,
-            bg_window_bottom_y_offset_full_single_screen: self
-                .bg_window_bottom_y_offset_full_single_screen,
-            bg_window_bottom_z_offset_full_single_screen: self
-                .bg_window_bottom_z_offset_full_single_screen,
+            view_setups: [
+                ViewSetup {
+                    mode: self.bg_view_mode_desktop,
+                    viewport_rotation: Some(self.bg_rotation_desktop),
+                    look_at: Some(self.bg_inclination_desktop),
+                    layback: Some(self.bg_layback_desktop),
+                    fov: Some(self.bg_fov_desktop),
+                    view_x: Some(self.bg_offset_x_desktop),
+                    view_y: Some(self.bg_offset_y_desktop),
+                    view_z: Some(self.bg_offset_z_desktop),
+                    scene_scale_x: Some(self.bg_scale_x_desktop),
+                    scene_scale_y: Some(self.bg_scale_y_desktop),
+                    scene_scale_z: Some(self.bg_scale_z_desktop),
+                    view_horizontal_offset: self.bg_view_horizontal_offset_desktop,
+                    view_vertical_offset: self.bg_view_vertical_offset_desktop,
+                    window_top_x_offset: self.bg_window_top_x_offset_desktop,
+                    window_top_y_offset: self.bg_window_top_y_offset_desktop,
+                    window_top_z_offset: self.bg_window_top_z_offset_desktop,
+                    window_bottom_x_offset: self.bg_window_bottom_x_offset_desktop,
+                    window_bottom_y_offset: self.bg_window_bottom_y_offset_desktop,
+                    window_bottom_z_offset: self.bg_window_bottom_z_offset_desktop,
+                },
+                ViewSetup {
+                    mode: self.bg_view_mode_fullscreen,
+                    viewport_rotation: Some(self.bg_rotation_fullscreen),
+                    look_at: Some(self.bg_inclination_fullscreen),
+                    layback: Some(self.bg_layback_fullscreen),
+                    fov: Some(self.bg_fov_fullscreen),
+                    view_x: Some(self.bg_offset_x_fullscreen),
+                    view_y: Some(self.bg_offset_y_fullscreen),
+                    view_z: Some(self.bg_offset_z_fullscreen),
+                    scene_scale_x: Some(self.bg_scale_x_fullscreen),
+                    scene_scale_y: Some(self.bg_scale_y_fullscreen),
+                    scene_scale_z: Some(self.bg_scale_z_fullscreen),
+                    view_horizontal_offset: self.bg_view_horizontal_offset_fullscreen,
+                    view_vertical_offset: self.bg_view_vertical_offset_fullscreen,
+                    window_top_x_offset: self.bg_window_top_x_offset_fullscreen,
+                    window_top_y_offset: self.bg_window_top_y_offset_fullscreen,
+                    window_top_z_offset: self.bg_window_top_z_offset_fullscreen,
+                    window_bottom_x_offset: self.bg_window_bottom_x_offset_fullscreen,
+                    window_bottom_y_offset: self.bg_window_bottom_y_offset_fullscreen,
+                    window_bottom_z_offset: self.bg_window_bottom_z_offset_fullscreen,
+                },
+                ViewSetup {
+                    mode: self.bg_view_mode_full_single_screen,
+                    viewport_rotation: self.bg_rotation_full_single_screen,
+                    look_at: self.bg_inclination_full_single_screen,
+                    layback: self.bg_layback_full_single_screen,
+                    fov: self.bg_fov_full_single_screen,
+                    view_x: self.bg_offset_x_full_single_screen,
+                    view_y: self.bg_offset_y_full_single_screen.map(f32::from),
+                    view_z: self.bg_offset_z_full_single_screen,
+                    scene_scale_x: self.bg_scale_x_full_single_screen,
+                    scene_scale_y: self.bg_scale_y_full_single_screen.map(f32::from),
+                    scene_scale_z: self.bg_scale_z_full_single_screen,
+                    view_horizontal_offset: self.bg_view_horizontal_offset_full_single_screen,
+                    view_vertical_offset: self.bg_view_vertical_offset_full_single_screen,
+                    window_top_x_offset: self.bg_window_top_x_offset_full_single_screen,
+                    window_top_y_offset: self.bg_window_top_y_offset_full_single_screen,
+                    window_top_z_offset: self.bg_window_top_z_offset_full_single_screen,
+                    window_bottom_x_offset: self.bg_window_bottom_x_offset_full_single_screen,
+                    window_bottom_y_offset: self.bg_window_bottom_y_offset_full_single_screen,
+                    window_bottom_z_offset: self.bg_window_bottom_z_offset_full_single_screen,
+                },
+            ],
             override_physics: self.override_physics,
             override_physics_flipper: self.override_physics_flipper,
             gravity: self.gravity,
@@ -1990,82 +2012,132 @@ impl GameDataJson {
     }
 
     pub fn from_game_data(game_data: &GameData) -> GameDataJson {
+        let [desktop, fullscreen, full_single_screen] = &game_data.view_setups;
+        // the json always carries the values vpinball always writes
+        let [default_desktop, default_fullscreen, _] = ViewSetup::legacy_defaults();
         GameDataJson {
             left: game_data.left,
             top: game_data.top,
             right: game_data.right,
             bottom: game_data.bottom,
             camera_layout_mode: game_data.camera_layout_mode,
-            bg_view_mode_desktop: game_data.bg_view_mode_desktop,
-            bg_rotation_desktop: game_data.bg_rotation_desktop,
-            bg_inclination_desktop: game_data.bg_inclination_desktop,
-            bg_layback_desktop: game_data.bg_layback_desktop,
-            bg_fov_desktop: game_data.bg_fov_desktop,
-            bg_offset_x_desktop: game_data.bg_offset_x_desktop,
-            bg_offset_y_desktop: game_data.bg_offset_y_desktop,
-            bg_offset_z_desktop: game_data.bg_offset_z_desktop,
-            bg_scale_x_desktop: game_data.bg_scale_x_desktop,
-            bg_scale_y_desktop: game_data.bg_scale_y_desktop,
-            bg_scale_z_desktop: game_data.bg_scale_z_desktop,
             bg_enable_fss: game_data.bg_enable_fss,
-            bg_view_horizontal_offset_desktop: game_data.bg_view_horizontal_offset_desktop,
-            bg_view_vertical_offset_desktop: game_data.bg_view_vertical_offset_desktop,
-            bg_window_top_x_offset_desktop: game_data.bg_window_top_x_offset_desktop,
-            bg_window_top_y_offset_desktop: game_data.bg_window_top_y_offset_desktop,
-            bg_window_top_z_offset_desktop: game_data.bg_window_top_z_offset_desktop,
-            bg_window_bottom_x_offset_desktop: game_data.bg_window_bottom_x_offset_desktop,
-            bg_window_bottom_y_offset_desktop: game_data.bg_window_bottom_y_offset_desktop,
-            bg_window_bottom_z_offset_desktop: game_data.bg_window_bottom_z_offset_desktop,
-            bg_view_mode_fullscreen: game_data.bg_view_mode_fullscreen,
-            bg_rotation_fullscreen: game_data.bg_rotation_fullscreen,
-            bg_inclination_fullscreen: game_data.bg_inclination_fullscreen,
-            bg_layback_fullscreen: game_data.bg_layback_fullscreen,
-            bg_fov_fullscreen: game_data.bg_fov_fullscreen,
-            bg_offset_x_fullscreen: game_data.bg_offset_x_fullscreen,
-            bg_offset_y_fullscreen: game_data.bg_offset_y_fullscreen,
-            bg_offset_z_fullscreen: game_data.bg_offset_z_fullscreen,
-            bg_scale_x_fullscreen: game_data.bg_scale_x_fullscreen,
-            bg_scale_y_fullscreen: game_data.bg_scale_y_fullscreen,
-            bg_scale_z_fullscreen: game_data.bg_scale_z_fullscreen,
-            bg_view_horizontal_offset_fullscreen: game_data.bg_view_horizontal_offset_fullscreen,
-            bg_view_vertical_offset_fullscreen: game_data.bg_view_vertical_offset_fullscreen,
-            bg_window_top_x_offset_fullscreen: game_data.bg_window_top_x_offset_fullscreen,
-            bg_window_top_y_offset_fullscreen: game_data.bg_window_top_y_offset_fullscreen,
-            bg_window_top_z_offset_fullscreen: game_data.bg_window_top_z_offset_fullscreen,
-            bg_window_bottom_x_offset_fullscreen: game_data.bg_window_bottom_x_offset_fullscreen,
-            bg_window_bottom_y_offset_fullscreen: game_data.bg_window_bottom_y_offset_fullscreen,
-            bg_window_bottom_z_offset_fullscreen: game_data.bg_window_bottom_z_offset_fullscreen,
-            bg_view_mode_full_single_screen: game_data.bg_view_mode_full_single_screen,
-            bg_rotation_full_single_screen: game_data.bg_rotation_full_single_screen,
-            bg_inclination_full_single_screen: game_data.bg_inclination_full_single_screen,
-            bg_layback_full_single_screen: game_data.bg_layback_full_single_screen,
-            bg_fov_full_single_screen: game_data.bg_fov_full_single_screen,
-            bg_offset_x_full_single_screen: game_data.bg_offset_x_full_single_screen,
-            bg_offset_y_full_single_screen: game_data
-                .bg_offset_y_full_single_screen
+            bg_view_mode_desktop: desktop.mode,
+            bg_rotation_desktop: desktop
+                .viewport_rotation
+                .or(default_desktop.viewport_rotation)
+                .unwrap_or_default(),
+            bg_inclination_desktop: desktop
+                .look_at
+                .or(default_desktop.look_at)
+                .unwrap_or_default(),
+            bg_layback_desktop: desktop
+                .layback
+                .or(default_desktop.layback)
+                .unwrap_or_default(),
+            bg_fov_desktop: desktop.fov.or(default_desktop.fov).unwrap_or_default(),
+            bg_offset_x_desktop: desktop
+                .view_x
+                .or(default_desktop.view_x)
+                .unwrap_or_default(),
+            bg_offset_y_desktop: desktop
+                .view_y
+                .or(default_desktop.view_y)
+                .unwrap_or_default(),
+            bg_offset_z_desktop: desktop
+                .view_z
+                .or(default_desktop.view_z)
+                .unwrap_or_default(),
+            bg_scale_x_desktop: desktop
+                .scene_scale_x
+                .or(default_desktop.scene_scale_x)
+                .unwrap_or_default(),
+            bg_scale_y_desktop: desktop
+                .scene_scale_y
+                .or(default_desktop.scene_scale_y)
+                .unwrap_or_default(),
+            bg_scale_z_desktop: desktop
+                .scene_scale_z
+                .or(default_desktop.scene_scale_z)
+                .unwrap_or_default(),
+            bg_view_horizontal_offset_desktop: desktop.view_horizontal_offset,
+            bg_view_vertical_offset_desktop: desktop.view_vertical_offset,
+            bg_window_top_x_offset_desktop: desktop.window_top_x_offset,
+            bg_window_top_y_offset_desktop: desktop.window_top_y_offset,
+            bg_window_top_z_offset_desktop: desktop.window_top_z_offset,
+            bg_window_bottom_x_offset_desktop: desktop.window_bottom_x_offset,
+            bg_window_bottom_y_offset_desktop: desktop.window_bottom_y_offset,
+            bg_window_bottom_z_offset_desktop: desktop.window_bottom_z_offset,
+            bg_view_mode_fullscreen: fullscreen.mode,
+            bg_rotation_fullscreen: fullscreen
+                .viewport_rotation
+                .or(default_fullscreen.viewport_rotation)
+                .unwrap_or_default(),
+            bg_inclination_fullscreen: fullscreen
+                .look_at
+                .or(default_fullscreen.look_at)
+                .unwrap_or_default(),
+            bg_layback_fullscreen: fullscreen
+                .layback
+                .or(default_fullscreen.layback)
+                .unwrap_or_default(),
+            bg_fov_fullscreen: fullscreen
+                .fov
+                .or(default_fullscreen.fov)
+                .unwrap_or_default(),
+            bg_offset_x_fullscreen: fullscreen
+                .view_x
+                .or(default_fullscreen.view_x)
+                .unwrap_or_default(),
+            bg_offset_y_fullscreen: fullscreen
+                .view_y
+                .or(default_fullscreen.view_y)
+                .unwrap_or_default(),
+            bg_offset_z_fullscreen: fullscreen
+                .view_z
+                .or(default_fullscreen.view_z)
+                .unwrap_or_default(),
+            bg_scale_x_fullscreen: fullscreen
+                .scene_scale_x
+                .or(default_fullscreen.scene_scale_x)
+                .unwrap_or_default(),
+            bg_scale_y_fullscreen: fullscreen
+                .scene_scale_y
+                .or(default_fullscreen.scene_scale_y)
+                .unwrap_or_default(),
+            bg_scale_z_fullscreen: fullscreen
+                .scene_scale_z
+                .or(default_fullscreen.scene_scale_z)
+                .unwrap_or_default(),
+            bg_view_horizontal_offset_fullscreen: fullscreen.view_horizontal_offset,
+            bg_view_vertical_offset_fullscreen: fullscreen.view_vertical_offset,
+            bg_window_top_x_offset_fullscreen: fullscreen.window_top_x_offset,
+            bg_window_top_y_offset_fullscreen: fullscreen.window_top_y_offset,
+            bg_window_top_z_offset_fullscreen: fullscreen.window_top_z_offset,
+            bg_window_bottom_x_offset_fullscreen: fullscreen.window_bottom_x_offset,
+            bg_window_bottom_y_offset_fullscreen: fullscreen.window_bottom_y_offset,
+            bg_window_bottom_z_offset_fullscreen: fullscreen.window_bottom_z_offset,
+            bg_view_mode_full_single_screen: full_single_screen.mode,
+            bg_rotation_full_single_screen: full_single_screen.viewport_rotation,
+            bg_inclination_full_single_screen: full_single_screen.look_at,
+            bg_layback_full_single_screen: full_single_screen.layback,
+            bg_fov_full_single_screen: full_single_screen.fov,
+            bg_offset_x_full_single_screen: full_single_screen.view_x,
+            bg_offset_y_full_single_screen: full_single_screen.view_y.map(F32WithNanInf::from),
+            bg_offset_z_full_single_screen: full_single_screen.view_z,
+            bg_scale_x_full_single_screen: full_single_screen.scene_scale_x,
+            bg_scale_y_full_single_screen: full_single_screen
+                .scene_scale_y
                 .map(F32WithNanInf::from),
-            bg_offset_z_full_single_screen: game_data.bg_offset_z_full_single_screen,
-            bg_scale_x_full_single_screen: game_data.bg_scale_x_full_single_screen,
-            bg_scale_y_full_single_screen: game_data
-                .bg_scale_y_full_single_screen
-                .map(F32WithNanInf::from),
-            bg_scale_z_full_single_screen: game_data.bg_scale_z_full_single_screen,
-            bg_view_horizontal_offset_full_single_screen: game_data
-                .bg_view_horizontal_offset_full_single_screen,
-            bg_view_vertical_offset_full_single_screen: game_data
-                .bg_view_vertical_offset_full_single_screen,
-            bg_window_top_x_offset_full_single_screen: game_data
-                .bg_window_top_x_offset_full_single_screen,
-            bg_window_top_y_offset_full_single_screen: game_data
-                .bg_window_top_y_offset_full_single_screen,
-            bg_window_top_z_offset_full_single_screen: game_data
-                .bg_window_top_z_offset_full_single_screen,
-            bg_window_bottom_x_offset_full_single_screen: game_data
-                .bg_window_bottom_x_offset_full_single_screen,
-            bg_window_bottom_y_offset_full_single_screen: game_data
-                .bg_window_bottom_y_offset_full_single_screen,
-            bg_window_bottom_z_offset_full_single_screen: game_data
-                .bg_window_bottom_z_offset_full_single_screen,
+            bg_scale_z_full_single_screen: full_single_screen.scene_scale_z,
+            bg_view_horizontal_offset_full_single_screen: full_single_screen.view_horizontal_offset,
+            bg_view_vertical_offset_full_single_screen: full_single_screen.view_vertical_offset,
+            bg_window_top_x_offset_full_single_screen: full_single_screen.window_top_x_offset,
+            bg_window_top_y_offset_full_single_screen: full_single_screen.window_top_y_offset,
+            bg_window_top_z_offset_full_single_screen: full_single_screen.window_top_z_offset,
+            bg_window_bottom_x_offset_full_single_screen: full_single_screen.window_bottom_x_offset,
+            bg_window_bottom_y_offset_full_single_screen: full_single_screen.window_bottom_y_offset,
+            bg_window_bottom_z_offset_full_single_screen: full_single_screen.window_bottom_z_offset,
             override_physics: game_data.override_physics,
             override_physics_flipper: game_data.override_physics_flipper,
             gravity: game_data.gravity,
@@ -2202,39 +2274,9 @@ impl Default for GameData {
             right: 952.0,
             bottom: 2162.0,
             camera_layout_mode: None,
-            bg_view_mode_desktop: None,
-            bg_rotation_desktop: 0.0,
-            bg_inclination_desktop: 0.0,
-            bg_layback_desktop: 0.0,
-            bg_fov_desktop: 45.0,
-            bg_offset_x_desktop: 0.0,
-            bg_offset_y_desktop: 30.0,
-            bg_offset_z_desktop: -200.0,
-            bg_scale_x_desktop: 1.0,
-            bg_scale_y_desktop: 1.0,
-            bg_scale_z_desktop: 1.0,
             bg_enable_fss: None, //false,
             is_10_8_0_beta1_to_beta4: false,
-            bg_rotation_fullscreen: 0.0,
-            bg_inclination_fullscreen: 0.0,
-            bg_layback_fullscreen: 0.0,
-            bg_fov_fullscreen: 45.0,
-            bg_offset_x_fullscreen: 110.0,
-            bg_offset_y_fullscreen: -86.0,
-            bg_offset_z_fullscreen: 400.0,
-            bg_scale_x_fullscreen: 1.3,
-            bg_scale_y_fullscreen: 1.41,
-            bg_scale_z_fullscreen: 1.0,
-            bg_rotation_full_single_screen: None,    //0.0,
-            bg_inclination_full_single_screen: None, //52.0,
-            bg_layback_full_single_screen: None,     //0.0,
-            bg_fov_full_single_screen: None,         //45.0,
-            bg_offset_x_full_single_screen: None,    //0.0,
-            bg_offset_y_full_single_screen: None,    //30.0,
-            bg_offset_z_full_single_screen: None,    //-50.0,
-            bg_scale_x_full_single_screen: None,     //1.2,
-            bg_scale_y_full_single_screen: None,     //1.1,
-            bg_scale_z_full_single_screen: None,     //1.0,
+            view_setups: ViewSetup::legacy_defaults(),
             override_physics: 0,
             override_physics_flipper: None, //false,
             gravity: 1.762985,
@@ -2324,32 +2366,6 @@ impl Default for GameData {
             custom_colors: [Color::BLACK; 16],
             protection_data: None,
             code: StringWithEncoding::empty(),
-            bg_view_horizontal_offset_desktop: None,
-            bg_view_vertical_offset_desktop: None,
-            bg_window_top_x_offset_desktop: None,
-            bg_window_top_y_offset_desktop: None,
-            bg_window_top_z_offset_desktop: None,
-            bg_window_bottom_x_offset_desktop: None,
-            bg_window_bottom_y_offset_desktop: None,
-            bg_window_bottom_z_offset_desktop: None,
-            bg_view_mode_fullscreen: None,
-            bg_view_horizontal_offset_fullscreen: None,
-            bg_view_vertical_offset_fullscreen: None,
-            bg_window_top_x_offset_fullscreen: None,
-            bg_window_top_y_offset_fullscreen: None,
-            bg_window_top_z_offset_fullscreen: None,
-            bg_window_bottom_x_offset_fullscreen: None,
-            bg_window_bottom_y_offset_fullscreen: None,
-            bg_window_bottom_z_offset_fullscreen: None,
-            bg_view_mode_full_single_screen: None,
-            bg_view_horizontal_offset_full_single_screen: None,
-            bg_view_vertical_offset_full_single_screen: None,
-            bg_window_top_x_offset_full_single_screen: None,
-            bg_window_top_y_offset_full_single_screen: None,
-            bg_window_top_z_offset_full_single_screen: None,
-            bg_window_bottom_x_offset_full_single_screen: None,
-            bg_window_bottom_y_offset_full_single_screen: None,
-            bg_window_bottom_z_offset_full_single_screen: None,
             locked: None,
         }
     }
@@ -2392,151 +2408,21 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
         writer.write_tagged_u32("CLMO", clmo);
     }
 
-    if version.u32() >= 1080
-        && !gamedata.is_10_8_0_beta1_to_beta4
-        && let Some(efss) = gamedata.bg_enable_fss
-    {
+    // beta 1 to 4 of 10.8.0 still wrote EFSS where 10.7 did
+    let efss_before_view_setups = version.u32() >= 1080 && !gamedata.is_10_8_0_beta1_to_beta4;
+    if efss_before_view_setups && let Some(efss) = gamedata.bg_enable_fss {
         writer.write_tagged_bool("EFSS", efss);
     }
-    if let Some(vsm0) = &gamedata.bg_view_mode_desktop {
-        writer.write_tagged_u32("VSM0", vsm0.into());
-    }
-    writer.write_tagged_f32("ROTA", gamedata.bg_rotation_desktop);
-    writer.write_tagged_f32("INCL", gamedata.bg_inclination_desktop);
-    writer.write_tagged_f32("LAYB", gamedata.bg_layback_desktop);
-    writer.write_tagged_f32("FOVX", gamedata.bg_fov_desktop);
-    writer.write_tagged_f32("XLTX", gamedata.bg_offset_x_desktop);
-    writer.write_tagged_f32("XLTY", gamedata.bg_offset_y_desktop);
-    writer.write_tagged_f32("XLTZ", gamedata.bg_offset_z_desktop);
-    writer.write_tagged_f32("SCLX", gamedata.bg_scale_x_desktop);
-    writer.write_tagged_f32("SCLY", gamedata.bg_scale_y_desktop);
-    writer.write_tagged_f32("SCLZ", gamedata.bg_scale_z_desktop);
-
-    if let Some(hof0) = gamedata.bg_view_horizontal_offset_desktop {
-        writer.write_tagged_f32("HOF0", hof0);
-    }
-    if let Some(vof0) = gamedata.bg_view_vertical_offset_desktop {
-        writer.write_tagged_f32("VOF0", vof0);
-    }
-    if let Some(wtx0) = gamedata.bg_window_top_x_offset_desktop {
-        writer.write_tagged_f32("WTX0", wtx0);
-    }
-    if let Some(wty0) = gamedata.bg_window_top_y_offset_desktop {
-        writer.write_tagged_f32("WTY0", wty0);
-    }
-    if let Some(wtz0) = gamedata.bg_window_top_z_offset_desktop {
-        writer.write_tagged_f32("WTZ0", wtz0);
-    }
-    if let Some(wbx0) = gamedata.bg_window_bottom_x_offset_desktop {
-        writer.write_tagged_f32("WBX0", wbx0);
-    }
-    if let Some(wby0) = gamedata.bg_window_bottom_y_offset_desktop {
-        writer.write_tagged_f32("WBY0", wby0);
-    }
-    if let Some(wbz0) = gamedata.bg_window_bottom_z_offset_desktop {
-        writer.write_tagged_f32("WBZ0", wbz0);
-    }
-
-    if let Some(vsm1) = &gamedata.bg_view_mode_fullscreen {
-        writer.write_tagged_u32("VSM1", vsm1.into());
-    }
-
-    if (version.u32() < 1080 || gamedata.is_10_8_0_beta1_to_beta4)
-        && let Some(efss) = gamedata.bg_enable_fss
-    {
-        writer.write_tagged_bool("EFSS", efss);
-    }
-    writer.write_tagged_f32("ROTF", gamedata.bg_rotation_fullscreen);
-    writer.write_tagged_f32("INCF", gamedata.bg_inclination_fullscreen);
-    writer.write_tagged_f32("LAYF", gamedata.bg_layback_fullscreen);
-    writer.write_tagged_f32("FOVF", gamedata.bg_fov_fullscreen);
-    writer.write_tagged_f32("XLFX", gamedata.bg_offset_x_fullscreen);
-    writer.write_tagged_f32("XLFY", gamedata.bg_offset_y_fullscreen);
-    writer.write_tagged_f32("XLFZ", gamedata.bg_offset_z_fullscreen);
-    writer.write_tagged_f32("SCFX", gamedata.bg_scale_x_fullscreen);
-    writer.write_tagged_f32("SCFY", gamedata.bg_scale_y_fullscreen);
-    writer.write_tagged_f32("SCFZ", gamedata.bg_scale_z_fullscreen);
-    if let Some(hof1) = gamedata.bg_view_horizontal_offset_fullscreen {
-        writer.write_tagged_f32("HOF1", hof1);
-    }
-    if let Some(vof1) = gamedata.bg_view_vertical_offset_fullscreen {
-        writer.write_tagged_f32("VOF1", vof1);
-    }
-    if let Some(wtx1) = gamedata.bg_window_top_x_offset_fullscreen {
-        writer.write_tagged_f32("WTX1", wtx1);
-    }
-    if let Some(wty1) = gamedata.bg_window_top_y_offset_fullscreen {
-        writer.write_tagged_f32("WTY1", wty1);
-    }
-    if let Some(wtz1) = gamedata.bg_window_top_z_offset_fullscreen {
-        writer.write_tagged_f32("WTZ1", wtz1);
-    }
-    if let Some(wbx1) = gamedata.bg_window_bottom_x_offset_fullscreen {
-        writer.write_tagged_f32("WBX1", wbx1);
-    }
-    if let Some(wby1) = gamedata.bg_window_bottom_y_offset_fullscreen {
-        writer.write_tagged_f32("WBY1", wby1);
-    }
-    if let Some(wbz1) = gamedata.bg_window_bottom_z_offset_fullscreen {
-        writer.write_tagged_f32("WBZ1", wbz1);
-    }
-
-    if let Some(vsm2) = &gamedata.bg_view_mode_full_single_screen {
-        writer.write_tagged_u32("VSM2", vsm2.into());
-    }
-    if let Some(rofs) = gamedata.bg_rotation_full_single_screen {
-        writer.write_tagged_f32("ROFS", rofs);
-    }
-    if let Some(infs) = gamedata.bg_inclination_full_single_screen {
-        writer.write_tagged_f32("INFS", infs);
-    }
-    if let Some(lafs) = gamedata.bg_layback_full_single_screen {
-        writer.write_tagged_f32("LAFS", lafs);
-    }
-    if let Some(fofs) = gamedata.bg_fov_full_single_screen {
-        writer.write_tagged_f32("FOFS", fofs);
-    }
-    if let Some(xlxs) = gamedata.bg_offset_x_full_single_screen {
-        writer.write_tagged_f32("XLXS", xlxs);
-    }
-    if let Some(xlys) = gamedata.bg_offset_y_full_single_screen {
-        writer.write_tagged_f32("XLYS", xlys);
-    }
-    if let Some(xlzs) = gamedata.bg_offset_z_full_single_screen {
-        writer.write_tagged_f32("XLZS", xlzs);
-    }
-    if let Some(scxs) = gamedata.bg_scale_x_full_single_screen {
-        writer.write_tagged_f32("SCXS", scxs);
-    }
-    if let Some(scys) = gamedata.bg_scale_y_full_single_screen {
-        writer.write_tagged_f32("SCYS", scys);
-    }
-    if let Some(sczs) = gamedata.bg_scale_z_full_single_screen {
-        writer.write_tagged_f32("SCZS", sczs);
-    }
-    if let Some(hof2) = gamedata.bg_view_horizontal_offset_full_single_screen {
-        writer.write_tagged_f32("HOF2", hof2);
-    }
-    if let Some(vof2) = gamedata.bg_view_vertical_offset_full_single_screen {
-        writer.write_tagged_f32("VOF2", vof2);
-    }
-    if let Some(wtx2) = gamedata.bg_window_top_x_offset_full_single_screen {
-        writer.write_tagged_f32("WTX2", wtx2);
-    }
-    if let Some(wty2) = gamedata.bg_window_top_y_offset_full_single_screen {
-        writer.write_tagged_f32("WTY2", wty2);
-    }
-    if let Some(wtz2) = gamedata.bg_window_top_z_offset_full_single_screen {
-        writer.write_tagged_f32("WTZ2", wtz2);
-    }
-    if let Some(wbx2) = gamedata.bg_window_bottom_x_offset_full_single_screen {
-        writer.write_tagged_f32("WBX2", wbx2);
-    }
-    if let Some(wby2) = gamedata.bg_window_bottom_y_offset_full_single_screen {
-        writer.write_tagged_f32("WBY2", wby2);
-    }
-    if let Some(wbz2) = gamedata.bg_window_bottom_z_offset_full_single_screen {
-        writer.write_tagged_f32("WBZ2", wbz2);
+    for id in ViewSetupId::ALL {
+        let view_setup = &gamedata.view_setups[id];
+        view_setup.write_mode(id, &mut writer);
+        if id == ViewSetupId::Fullscreen
+            && !efss_before_view_setups
+            && let Some(efss) = gamedata.bg_enable_fss
+        {
+            writer.write_tagged_bool("EFSS", efss);
+        }
+        view_setup.write_values(id, &mut writer);
     }
 
     writer.write_tagged_u32("ORRP", gamedata.override_physics);
@@ -2741,7 +2627,11 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
 /// structurally invalid instead of panicking.
 pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> io::Result<GameData> {
     let mut reader = BiffReader::new(input);
-    let mut gamedata = GameData::default();
+    let mut gamedata = GameData {
+        // every view setup record is optional, the absent ones stay absent
+        view_setups: Default::default(),
+        ..GameData::default()
+    };
     let mut previous_tag = String::new();
     while let Some(tag) = reader.next(biff::WARN)? {
         let reader: &mut BiffReader<'_> = &mut reader;
@@ -2752,76 +2642,11 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> io::Result<
             "RGHT" => gamedata.right = reader.get_f32()?,
             "BOTM" => gamedata.bottom = reader.get_f32()?,
             "CLMO" => gamedata.camera_layout_mode = Some(reader.get_u32()?),
-            "VSM0" => gamedata.bg_view_mode_desktop = Some(reader.get_u32()?.into()),
-            "ROTA" => gamedata.bg_rotation_desktop = reader.get_f32()?,
-            "INCL" => gamedata.bg_inclination_desktop = reader.get_f32()?,
-            "LAYB" => gamedata.bg_layback_desktop = reader.get_f32()?,
-            "FOVX" => gamedata.bg_fov_desktop = reader.get_f32()?,
-            "XLTX" => gamedata.bg_offset_x_desktop = reader.get_f32()?,
-            "XLTY" => gamedata.bg_offset_y_desktop = reader.get_f32()?,
-            "XLTZ" => gamedata.bg_offset_z_desktop = reader.get_f32()?,
-            "SCLX" => gamedata.bg_scale_x_desktop = reader.get_f32()?,
-            "SCLY" => gamedata.bg_scale_y_desktop = reader.get_f32()?,
-            "SCLZ" => gamedata.bg_scale_z_desktop = reader.get_f32()?,
             "EFSS" => {
                 if version.u32() == 1080 && previous_tag != "BOTM" {
                     gamedata.is_10_8_0_beta1_to_beta4 = true;
                 }
                 gamedata.bg_enable_fss = Some(reader.get_bool()?)
-            }
-            "HOF0" => gamedata.bg_view_horizontal_offset_desktop = Some(reader.get_f32()?),
-            "VOF0" => gamedata.bg_view_vertical_offset_desktop = Some(reader.get_f32()?),
-            "WTX0" => gamedata.bg_window_top_x_offset_desktop = Some(reader.get_f32()?),
-            "WTY0" => gamedata.bg_window_top_y_offset_desktop = Some(reader.get_f32()?),
-            "WTZ0" => gamedata.bg_window_top_z_offset_desktop = Some(reader.get_f32()?),
-            "WBX0" => gamedata.bg_window_bottom_x_offset_desktop = Some(reader.get_f32()?),
-            "WBY0" => gamedata.bg_window_bottom_y_offset_desktop = Some(reader.get_f32()?),
-            "WBZ0" => gamedata.bg_window_bottom_z_offset_desktop = Some(reader.get_f32()?),
-            "VSM1" => gamedata.bg_view_mode_fullscreen = Some(reader.get_u32()?.into()),
-            "ROTF" => gamedata.bg_rotation_fullscreen = reader.get_f32()?,
-            "INCF" => gamedata.bg_inclination_fullscreen = reader.get_f32()?,
-            "LAYF" => gamedata.bg_layback_fullscreen = reader.get_f32()?,
-            "FOVF" => gamedata.bg_fov_fullscreen = reader.get_f32()?,
-            "XLFX" => gamedata.bg_offset_x_fullscreen = reader.get_f32()?,
-            "XLFY" => gamedata.bg_offset_y_fullscreen = reader.get_f32()?,
-            "XLFZ" => gamedata.bg_offset_z_fullscreen = reader.get_f32()?,
-            "SCFX" => gamedata.bg_scale_x_fullscreen = reader.get_f32()?,
-            "SCFY" => gamedata.bg_scale_y_fullscreen = reader.get_f32()?,
-            "SCFZ" => gamedata.bg_scale_z_fullscreen = reader.get_f32()?,
-            "HOF1" => gamedata.bg_view_horizontal_offset_fullscreen = Some(reader.get_f32()?),
-            "VOF1" => gamedata.bg_view_vertical_offset_fullscreen = Some(reader.get_f32()?),
-            "WTX1" => gamedata.bg_window_top_x_offset_fullscreen = Some(reader.get_f32()?),
-            "WTY1" => gamedata.bg_window_top_y_offset_fullscreen = Some(reader.get_f32()?),
-            "WTZ1" => gamedata.bg_window_top_z_offset_fullscreen = Some(reader.get_f32()?),
-            "WBX1" => gamedata.bg_window_bottom_x_offset_fullscreen = Some(reader.get_f32()?),
-            "WBY1" => gamedata.bg_window_bottom_y_offset_fullscreen = Some(reader.get_f32()?),
-            "WBZ1" => gamedata.bg_window_bottom_z_offset_fullscreen = Some(reader.get_f32()?),
-            "VSM2" => gamedata.bg_view_mode_full_single_screen = Some(reader.get_u32()?.into()),
-            "ROFS" => gamedata.bg_rotation_full_single_screen = Some(reader.get_f32()?),
-            "INFS" => gamedata.bg_inclination_full_single_screen = Some(reader.get_f32()?),
-            "LAFS" => gamedata.bg_layback_full_single_screen = Some(reader.get_f32()?),
-            "FOFS" => gamedata.bg_fov_full_single_screen = Some(reader.get_f32()?),
-            "XLXS" => gamedata.bg_offset_x_full_single_screen = Some(reader.get_f32()?),
-            "XLYS" => gamedata.bg_offset_y_full_single_screen = Some(reader.get_f32()?),
-            "XLZS" => gamedata.bg_offset_z_full_single_screen = Some(reader.get_f32()?),
-            "SCXS" => gamedata.bg_scale_x_full_single_screen = Some(reader.get_f32()?),
-            "SCYS" => gamedata.bg_scale_y_full_single_screen = Some(reader.get_f32()?),
-            "SCZS" => gamedata.bg_scale_z_full_single_screen = Some(reader.get_f32()?),
-            "HOF2" => {
-                gamedata.bg_view_horizontal_offset_full_single_screen = Some(reader.get_f32()?)
-            }
-            "VOF2" => gamedata.bg_view_vertical_offset_full_single_screen = Some(reader.get_f32()?),
-            "WTX2" => gamedata.bg_window_top_x_offset_full_single_screen = Some(reader.get_f32()?),
-            "WTY2" => gamedata.bg_window_top_y_offset_full_single_screen = Some(reader.get_f32()?),
-            "WTZ2" => gamedata.bg_window_top_z_offset_full_single_screen = Some(reader.get_f32()?),
-            "WBX2" => {
-                gamedata.bg_window_bottom_x_offset_full_single_screen = Some(reader.get_f32()?)
-            }
-            "WBY2" => {
-                gamedata.bg_window_bottom_y_offset_full_single_screen = Some(reader.get_f32()?)
-            }
-            "WBZ2" => {
-                gamedata.bg_window_bottom_z_offset_full_single_screen = Some(reader.get_f32()?)
             }
             "ORRP" => gamedata.override_physics = reader.get_u32()?,
             "ORPF" => gamedata.override_physics_flipper = Some(reader.get_bool()?),
@@ -2961,8 +2786,11 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> io::Result<
             }
             "TLCK" => gamedata.locked = Some(reader.get_u32()?),
             other => {
-                let data = reader.get_record_data(false)?;
-                warn!("unhandled gamedata tag {} {} bytes", other, data.len());
+                // the records of the three view setups
+                if !ViewSetup::read_record(&mut gamedata.view_setups, other, reader)? {
+                    let data = reader.get_record_data(false)?;
+                    warn!("unhandled gamedata tag {} {} bytes", other, data.len());
+                }
             }
         };
         previous_tag = tag;
@@ -3067,38 +2895,51 @@ mod tests {
             top: 3.0,
             bottom: 4.0,
             camera_layout_mode: None,
-            bg_view_mode_desktop: Some(ViewLayoutMode::Camera),
-            bg_rotation_desktop: 1.0,
-            bg_inclination_desktop: 2.0,
-            bg_layback_desktop: 3.0,
-            bg_fov_desktop: 4.0,
-            bg_offset_x_desktop: 1.0,
-            bg_offset_y_desktop: 2.0,
-            bg_offset_z_desktop: 3.0,
-            bg_scale_x_desktop: 3.3,
-            bg_scale_y_desktop: 2.2,
-            bg_scale_z_desktop: 1.1,
             bg_enable_fss: Some(true),
-            bg_rotation_fullscreen: 1.0,
-            bg_inclination_fullscreen: 2.0,
-            bg_layback_fullscreen: 3.0,
-            bg_fov_fullscreen: 4.0,
-            bg_offset_x_fullscreen: 1.0,
-            bg_offset_y_fullscreen: 2.0,
-            bg_offset_z_fullscreen: 3.0,
-            bg_scale_x_fullscreen: 3.3,
-            bg_scale_y_fullscreen: 2.2,
-            bg_scale_z_fullscreen: 1.1,
-            bg_rotation_full_single_screen: Some(1.0),
-            bg_inclination_full_single_screen: Some(2.0),
-            bg_layback_full_single_screen: Some(3.0),
-            bg_fov_full_single_screen: Some(4.0),
-            bg_offset_x_full_single_screen: Some(1.0),
-            bg_offset_y_full_single_screen: Some(2.0),
-            bg_offset_z_full_single_screen: Some(3.0),
-            bg_scale_x_full_single_screen: Some(3.3),
-            bg_scale_y_full_single_screen: Some(2.2),
-            bg_scale_z_full_single_screen: Some(1.1),
+            view_setups: [
+                ViewSetup {
+                    mode: Some(ViewLayoutMode::Camera),
+                    viewport_rotation: Some(1.0),
+                    look_at: Some(2.0),
+                    layback: Some(3.0),
+                    fov: Some(4.0),
+                    view_x: Some(1.0),
+                    view_y: Some(2.0),
+                    view_z: Some(3.0),
+                    scene_scale_x: Some(3.3),
+                    scene_scale_y: Some(2.2),
+                    scene_scale_z: Some(1.1),
+                    ..ViewSetup::default()
+                },
+                ViewSetup {
+                    mode: Some(ViewLayoutMode::Legacy),
+                    viewport_rotation: Some(1.0),
+                    look_at: Some(2.0),
+                    layback: Some(3.0),
+                    fov: Some(4.0),
+                    view_x: Some(1.0),
+                    view_y: Some(2.0),
+                    view_z: Some(3.0),
+                    scene_scale_x: Some(3.3),
+                    scene_scale_y: Some(2.2),
+                    scene_scale_z: Some(1.1),
+                    ..ViewSetup::default()
+                },
+                ViewSetup {
+                    mode: Some(ViewLayoutMode::Window),
+                    viewport_rotation: Some(1.0),
+                    look_at: Some(2.0),
+                    layback: Some(3.0),
+                    fov: Some(4.0),
+                    view_x: Some(1.0),
+                    view_y: Some(2.0),
+                    view_z: Some(3.0),
+                    scene_scale_x: Some(3.3),
+                    scene_scale_y: Some(2.2),
+                    scene_scale_z: Some(1.1),
+                    ..ViewSetup::default()
+                },
+            ],
             override_physics: 1,
             override_physics_flipper: Some(true),
             gravity: 1.0,
@@ -3206,32 +3047,6 @@ mod tests {
             custom_colors: [Color::RED; 16],
             protection_data: None,
             code: StringWithEncoding::from("test code wit some unicode: Ǣ"),
-            bg_view_horizontal_offset_desktop: None,
-            bg_view_vertical_offset_desktop: None,
-            bg_window_top_x_offset_desktop: None,
-            bg_window_top_y_offset_desktop: None,
-            bg_window_top_z_offset_desktop: None,
-            bg_window_bottom_x_offset_desktop: None,
-            bg_window_bottom_y_offset_desktop: None,
-            bg_window_bottom_z_offset_desktop: None,
-            bg_view_mode_fullscreen: Some(ViewLayoutMode::Legacy),
-            bg_view_horizontal_offset_fullscreen: None,
-            bg_view_vertical_offset_fullscreen: None,
-            bg_window_top_x_offset_fullscreen: None,
-            bg_window_top_y_offset_fullscreen: None,
-            bg_window_top_z_offset_fullscreen: None,
-            bg_window_bottom_x_offset_fullscreen: None,
-            bg_window_bottom_y_offset_fullscreen: None,
-            bg_window_bottom_z_offset_fullscreen: None,
-            bg_view_mode_full_single_screen: Some(ViewLayoutMode::Window),
-            bg_view_horizontal_offset_full_single_screen: None,
-            bg_view_vertical_offset_full_single_screen: None,
-            bg_window_top_x_offset_full_single_screen: None,
-            bg_window_top_y_offset_full_single_screen: None,
-            bg_window_top_z_offset_full_single_screen: None,
-            bg_window_bottom_x_offset_full_single_screen: None,
-            bg_window_bottom_y_offset_full_single_screen: None,
-            bg_window_bottom_z_offset_full_single_screen: None,
             locked: Some(1),
             is_10_8_0_beta1_to_beta4: false,
         }
@@ -3260,35 +3075,47 @@ mod tests {
     /// view offsets of the three view setups, the camera layout mode,
     /// the 10.8 material records and the old protection blob.
     fn gamedata_with_every_optional_record() -> GameData {
+        let sample = sample_gamedata();
         GameData {
             camera_layout_mode: Some(1),
-            bg_view_horizontal_offset_desktop: Some(1.5),
-            bg_view_vertical_offset_desktop: Some(2.5),
-            bg_window_top_x_offset_desktop: Some(3.5),
-            bg_window_top_y_offset_desktop: Some(4.5),
-            bg_window_top_z_offset_desktop: Some(5.5),
-            bg_window_bottom_x_offset_desktop: Some(6.5),
-            bg_window_bottom_y_offset_desktop: Some(7.5),
-            bg_window_bottom_z_offset_desktop: Some(8.5),
-            bg_view_horizontal_offset_fullscreen: Some(11.5),
-            bg_view_vertical_offset_fullscreen: Some(12.5),
-            bg_window_top_x_offset_fullscreen: Some(13.5),
-            bg_window_top_y_offset_fullscreen: Some(14.5),
-            bg_window_top_z_offset_fullscreen: Some(15.5),
-            bg_window_bottom_x_offset_fullscreen: Some(16.5),
-            bg_window_bottom_y_offset_fullscreen: Some(17.5),
-            bg_window_bottom_z_offset_fullscreen: Some(18.5),
-            bg_view_horizontal_offset_full_single_screen: Some(21.5),
-            bg_view_vertical_offset_full_single_screen: Some(22.5),
-            bg_window_top_x_offset_full_single_screen: Some(23.5),
-            bg_window_top_y_offset_full_single_screen: Some(24.5),
-            bg_window_top_z_offset_full_single_screen: Some(25.5),
-            bg_window_bottom_x_offset_full_single_screen: Some(26.5),
-            bg_window_bottom_y_offset_full_single_screen: Some(27.5),
-            bg_window_bottom_z_offset_full_single_screen: Some(28.5),
+            view_setups: [
+                ViewSetup {
+                    view_horizontal_offset: Some(1.5),
+                    view_vertical_offset: Some(2.5),
+                    window_top_x_offset: Some(3.5),
+                    window_top_y_offset: Some(4.5),
+                    window_top_z_offset: Some(5.5),
+                    window_bottom_x_offset: Some(6.5),
+                    window_bottom_y_offset: Some(7.5),
+                    window_bottom_z_offset: Some(8.5),
+                    ..sample.view_setups[ViewSetupId::Desktop].clone()
+                },
+                ViewSetup {
+                    view_horizontal_offset: Some(11.5),
+                    view_vertical_offset: Some(12.5),
+                    window_top_x_offset: Some(13.5),
+                    window_top_y_offset: Some(14.5),
+                    window_top_z_offset: Some(15.5),
+                    window_bottom_x_offset: Some(16.5),
+                    window_bottom_y_offset: Some(17.5),
+                    window_bottom_z_offset: Some(18.5),
+                    ..sample.view_setups[ViewSetupId::Fullscreen].clone()
+                },
+                ViewSetup {
+                    view_horizontal_offset: Some(21.5),
+                    view_vertical_offset: Some(22.5),
+                    window_top_x_offset: Some(23.5),
+                    window_top_y_offset: Some(24.5),
+                    window_top_z_offset: Some(25.5),
+                    window_bottom_x_offset: Some(26.5),
+                    window_bottom_y_offset: Some(27.5),
+                    window_bottom_z_offset: Some(28.5),
+                    ..sample.view_setups[ViewSetupId::FullSingleScreen].clone()
+                },
+            ],
             materials: Some(vec![Material::default(), Material::default()]),
             protection_data: Some(vec![1, 2, 3, 4, 5, 6, 7, 8]),
-            ..sample_gamedata()
+            ..sample
         }
     }
 
@@ -3296,14 +3123,20 @@ mod tests {
     /// json model so a new optional field cannot slip past the round trip
     /// tests unnoticed.
     fn assert_no_optional_record_absent(gamedata: &GameData) {
+        fn collect_absent(path: &str, json: &serde_json::Value, absent: &mut Vec<String>) {
+            match json {
+                serde_json::Value::Null => absent.push(path.to_string()),
+                serde_json::Value::Object(fields) => {
+                    for (key, value) in fields {
+                        collect_absent(&format!("{path}/{key}"), value, absent);
+                    }
+                }
+                _ => {}
+            }
+        }
         let json = serde_json::to_value(GameDataJson::from_game_data(gamedata)).unwrap();
-        let absent: Vec<&String> = json
-            .as_object()
-            .unwrap()
-            .iter()
-            .filter(|(_, value)| value.is_null())
-            .map(|(key, _)| key)
-            .collect();
+        let mut absent = Vec::new();
+        collect_absent("", &json, &mut absent);
         assert!(
             absent.is_empty(),
             "optional records left absent: {absent:?}"
@@ -3333,6 +3166,84 @@ mod tests {
         let bytes = write_all_gamedata_records(&gamedata, &version);
         let read = read_all_gamedata_records(&bytes, &version).unwrap();
         assert_eq!(gamedata, read);
+    }
+
+    /// The tags of the records from `BOTM` up to `ORRP`: the view setups
+    /// and the `EFSS` that moves around them.
+    fn view_setup_tags_written(gamedata: &GameData, version: u32) -> Vec<String> {
+        let bytes = write_all_gamedata_records(gamedata, &Version::new(version));
+        let mut reader = BiffReader::new(&bytes);
+        let mut tags = Vec::new();
+        while let Some(tag) = reader.next(biff::WARN).unwrap() {
+            if tag == "ORRP" {
+                break;
+            }
+            reader.get_record_data(false).unwrap();
+            tags.push(tag);
+        }
+        let start = tags.iter().position(|tag| tag == "BOTM").unwrap() + 1;
+        tags[start..].to_vec()
+    }
+
+    #[test]
+    fn view_setup_records_are_written_in_the_vpinball_order() {
+        let desktop = VIEW_SETUP_TAGS[0].to_vec();
+        let (fullscreen_mode, fullscreen) = VIEW_SETUP_TAGS[1].split_at(1);
+        let full_single_screen = VIEW_SETUP_TAGS[2].to_vec();
+        // from 10.8.0 beta 5 on EFSS comes before the view setups
+        let efss_first = [
+            vec!["CLMO", "EFSS"],
+            desktop.clone(),
+            fullscreen_mode.to_vec(),
+            fullscreen.to_vec(),
+            full_single_screen.clone(),
+        ]
+        .concat();
+        // before that it sat between the desktop and the fullscreen
+        // records, where 10.8.0 beta 1 to 4 put VSM1 in front of it
+        let efss_in_fullscreen = [
+            vec!["CLMO"],
+            desktop,
+            fullscreen_mode.to_vec(),
+            vec!["EFSS"],
+            fullscreen.to_vec(),
+            full_single_screen,
+        ]
+        .concat();
+
+        let gamedata = gamedata_with_every_optional_record();
+        assert_eq!(view_setup_tags_written(&gamedata, 1081), efss_first);
+        assert_eq!(view_setup_tags_written(&gamedata, 1080), efss_first);
+        assert_eq!(view_setup_tags_written(&gamedata, 1074), efss_in_fullscreen);
+        let beta = GameData {
+            is_10_8_0_beta1_to_beta4: true,
+            ..gamedata
+        };
+        assert_eq!(view_setup_tags_written(&beta, 1080), efss_in_fullscreen);
+    }
+
+    #[test]
+    fn absent_view_setup_records_are_not_written_back() {
+        // only the records that are in the file, not the defaults
+        let mut writer = BiffWriter::new();
+        writer.write_tagged_f32("ROTA", 270.0);
+        writer.write_tagged_f32("FOFS", 50.0);
+        writer.close(true);
+        let version = Version::new(1074);
+        let read = read_all_gamedata_records(writer.get_data(), &version).unwrap();
+        let expected = [
+            ViewSetup {
+                viewport_rotation: Some(270.0),
+                ..ViewSetup::default()
+            },
+            ViewSetup::default(),
+            ViewSetup {
+                fov: Some(50.0),
+                ..ViewSetup::default()
+            },
+        ];
+        assert_eq!(read.view_setups, expected);
+        assert_eq!(view_setup_tags_written(&read, 1074), ["ROTA", "FOFS"]);
     }
 
     #[test]
@@ -3368,6 +3279,27 @@ mod tests {
             ..gamedata
         };
         assert_eq!(expected, back.to_game_data());
+    }
+
+    #[test]
+    fn view_setups_keep_their_flat_json_keys() {
+        // vpx-editor reads these keys, the json must not follow the model
+        let gamedata = gamedata_with_every_optional_record();
+        let json = serde_json::to_value(GameDataJson::from_game_data(&gamedata)).unwrap();
+        let fields = json.as_object().unwrap();
+        assert!(!fields.contains_key("view_setups"));
+        assert_eq!(fields["bg_view_mode_desktop"], serde_json::json!("camera"));
+        for key in [
+            "bg_rotation_desktop",
+            "bg_inclination_fullscreen",
+            "bg_offset_x_full_single_screen",
+            "bg_scale_z_desktop",
+            "bg_window_top_z_offset_full_single_screen",
+        ] {
+            assert!(fields[key].is_number(), "{key}");
+        }
+        let back: GameDataJson = serde_json::from_value(json).unwrap();
+        assert_eq!(gamedata.view_setups, back.to_game_data().view_setups);
     }
 
     #[test]
