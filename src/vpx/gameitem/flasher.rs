@@ -739,14 +739,20 @@ pub struct Flasher {
     /// This is added to the z coordinate after rotation is applied.
     /// BIFF tag: `FHEI`
     pub height: f32,
-    /// X position of the flasher center in table coordinates.
-    /// Changing this moves all drag points by the same delta.
-    /// BIFF tag: `FLAX`
-    pub pos_x: f32,
-    /// Y position of the flasher center in table coordinates.
-    /// Changing this moves all drag points by the same delta.
-    /// BIFF tag: `FLAY`
-    pub pos_y: f32,
+    /// X position of the flasher center in table coordinates, as stored in
+    /// the file. Informational only: vpinball has always computed the center
+    /// from the bounding box of [`drag_points`](Self::drag_points) and
+    /// ignores this value on load.
+    ///
+    /// BIFF tag: `FLAX`, no longer written since 10.8.1, `None` when the
+    /// record is absent
+    pub pos_x: Option<f32>,
+    /// Y position of the flasher center in table coordinates, as stored in
+    /// the file. Informational only, see [`pos_x`](Self::pos_x).
+    ///
+    /// BIFF tag: `FLAY`, no longer written since 10.8.1, `None` when the
+    /// record is absent
+    pub pos_y: Option<f32>,
     /// Rotation around the X axis in degrees.
     /// BIFF tag: `FROX`
     pub rot_x: f32,
@@ -890,12 +896,10 @@ pub struct Flasher {
     /// are stored as absolute positions in table space. The z coordinate of each
     /// drag point is typically 0.
     ///
-    /// Relationship with `pos_x`/`pos_y`:
-    /// - `pos_x`/`pos_y` define the center of the flasher
-    /// - When `pos_x`/`pos_y` change in the editor, all drag points are moved by
-    ///   the same delta (they move together as a group)
-    /// - The rotation center for `rot_x`/`rot_y`/`rot_z` is calculated from the
-    ///   bounding box of these drag points
+    /// The center of the flasher, which is also the rotation center for
+    /// `rot_x`/`rot_y`/`rot_z`, is calculated from the bounding box of these
+    /// drag points; moving the flasher in the editor moves all drag points
+    /// by the same delta. The stored `pos_x`/`pos_y` play no part in this.
     ///
     /// The mesh generation process:
     /// 1. Vertices are created from these drag points
@@ -964,8 +968,8 @@ impl Default for Flasher {
     fn default() -> Self {
         Self {
             height: 50.0,
-            pos_x: 0.0,
-            pos_y: 0.0,
+            pos_x: None,
+            pos_y: None,
             rot_x: 0.0,
             rot_y: 0.0,
             rot_z: 0.0,
@@ -1009,8 +1013,10 @@ impl Default for Flasher {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct FlasherJson {
     height: f32,
-    pos_x: f32,
-    pos_y: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pos_x: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pos_y: Option<f32>,
     rot_x: f32,
     rot_y: f32,
     rot_z: f32,
@@ -1164,10 +1170,10 @@ impl BiffRead for Flasher {
                     flasher.height = reader.get_f32()?;
                 }
                 "FLAX" => {
-                    flasher.pos_x = reader.get_f32()?;
+                    flasher.pos_x = Some(reader.get_f32()?);
                 }
                 "FLAY" => {
-                    flasher.pos_y = reader.get_f32()?;
+                    flasher.pos_y = Some(reader.get_f32()?);
                 }
                 "FROX" => {
                     flasher.rot_x = reader.get_f32()?;
@@ -1278,8 +1284,12 @@ impl BiffRead for Flasher {
 impl BiffWrite for Flasher {
     fn biff_write(&self, writer: &mut biff::BiffWriter) {
         writer.write_tagged_f32("FHEI", self.height);
-        writer.write_tagged_f32("FLAX", self.pos_x);
-        writer.write_tagged_f32("FLAY", self.pos_y);
+        if let Some(pos_x) = self.pos_x {
+            writer.write_tagged_f32("FLAX", pos_x);
+        }
+        if let Some(pos_y) = self.pos_y {
+            writer.write_tagged_f32("FLAY", pos_y);
+        }
         writer.write_tagged_f32("FROX", self.rot_x);
         writer.write_tagged_f32("FROY", self.rot_y);
         writer.write_tagged_f32("FROZ", self.rot_z);
@@ -1362,6 +1372,25 @@ mod tests {
             let read = Flasher::biff_read(&mut BiffReader::new(writer.get_data())).unwrap();
             prop_assert_eq!(debug(&flasher), debug(&read));
         }
+    }
+
+    #[test]
+    fn absent_center_is_not_written() {
+        let flasher = Flasher::default();
+        let mut writer = BiffWriter::new();
+        Flasher::biff_write(&flasher, &mut writer);
+        let data = writer.get_data();
+        assert!(!data.windows(4).any(|w| w == b"FLAX" || w == b"FLAY"));
+        let read = Flasher::biff_read(&mut BiffReader::new(data)).unwrap();
+        assert_eq!(read.pos_x, None);
+        assert_eq!(read.pos_y, None);
+
+        let mut json = serde_json::to_value(&flasher).unwrap();
+        assert_eq!(json.get("pos_x"), None);
+        json["pos_x"] = serde_json::json!(1.5);
+        let read: Flasher = serde_json::from_value(json).unwrap();
+        assert_eq!(read.pos_x, Some(1.5));
+        assert_eq!(read.pos_y, None);
     }
 
     #[test]
