@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.0](https://github.com/francisdb/vpin/compare/v0.36.0...v0.37.0) - 2026-09-21
+
+### Added
+
+- *(audit)* report references the file cannot store ([#517](https://github.com/francisdb/vpin/pull/517))
+
+### Fixed
+
+- *(flasher)* [**breaking**] make the stored center optional
+
+### Other
+
+- [**breaking**] model the view setups as an array of ViewSetup ([#516](https://github.com/francisdb/vpin/pull/516))
+- [**breaking**] share one PinBinary struct between image blobs and fonts
+
 ## [0.36.0](https://github.com/francisdb/vpin/compare/v0.35.0...v0.36.0) - 2026-09-20
 
 ### Added
