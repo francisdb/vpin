@@ -121,4 +121,4 @@ opt-level = 1
 # only the tests need randomness on this target, through proptest; the
 # rustflags in .cargo/config.toml select the same backend
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
-getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom = { version = "0.4", features = ["wasm_js"] }
