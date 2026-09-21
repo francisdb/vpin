@@ -126,6 +126,20 @@ pub(crate) enum Kind {
         /// How many entries carry the name
         count: usize,
     },
+    /// An image, material or surface reference of a game item holds a
+    /// character that is lost when the table is saved. The vpx file stores
+    /// these records as one byte per character, so anything above `U+00FF`
+    /// is written as `?` and the reference no longer matches its target.
+    /// A table read from a vpx file never has such text; it comes from an
+    /// edit or from the json of an extracted table
+    UnstorableText {
+        /// Type and name of the game item, such as `Wall "Apron"`
+        item: String,
+        /// The field holding the text, such as `image` or `top material`
+        field: &'static str,
+        /// The text as it is now
+        text: String,
+    },
     /// A game item or collection name is longer than vpinball's editor
     /// allows. vpinball cuts a collection name at load and a game item
     /// name as soon as it is edited, and the script's reference to the
@@ -652,6 +666,16 @@ impl fmt::Display for Kind {
                 };
                 write!(f, "{kind} {name:?} {consequence}")
             }
+            Kind::UnstorableText { item, field, text } => {
+                let saved: String = text
+                    .chars()
+                    .map(|c| if u32::from(c) > 0xFF { '?' } else { c })
+                    .collect();
+                write!(
+                    f,
+                    "{item}: {field} {text:?} will be saved to the vpx file as {saved:?}, which stores one byte per character"
+                )
+            }
             Kind::NameTooLong { item, length } => write!(
                 f,
                 "{item}: name is {length} characters, vpinball cuts names at {MAX_NAME_LENGTH}"
@@ -965,6 +989,7 @@ impl Kind {
             Kind::MissingPartGroup { .. } => "missing-part-group",
             Kind::MissingCollectionItem { .. } => "missing-collection-item",
             Kind::DuplicateName { .. } => "duplicate-name",
+            Kind::UnstorableText { .. } => "unstorable-text",
             Kind::NameTooLong { .. } => "name-too-long",
             Kind::ReservedName { .. } => "reserved-name",
             Kind::UnnamedItems { .. } => "unnamed-items",
@@ -1034,6 +1059,7 @@ impl Kind {
             | Kind::MissingSurface { item, .. }
             | Kind::MissingPartGroup { item, .. }
             | Kind::NameTooLong { item, .. }
+            | Kind::UnstorableText { item, .. }
             | Kind::NonStandardFont { item, .. }
             | Kind::HugeMesh { item, .. }
             | Kind::TextboxUsedForDmd { item }
@@ -2763,6 +2789,16 @@ fn check_item_references(
             surface: surface.to_string(),
         });
     }
+    let texts = refs.images.iter().chain(&refs.materials).copied();
+    for (field, text) in texts.chain(refs.surface.map(|surface| ("surface", surface))) {
+        if text.chars().any(|c| u32::from(c) > 0xFF) {
+            findings.push(Kind::UnstorableText {
+                item: item_label(item),
+                field,
+                text: text.to_string(),
+            });
+        }
+    }
 }
 
 /// The image, material and surface references an item carries, straight
@@ -3203,6 +3239,43 @@ mod tests {
         assert_eq!(
             findings[1].to_string(),
             "1 Wall item has no name, they cannot be reached from the script"
+        );
+    }
+
+    #[test]
+    fn references_the_file_cannot_store_are_reported() {
+        use crate::vpx::gameitem::wall::Wall;
+        let mut vpx = clean_vpx();
+        // Latin-1 text fits one byte per character, Cyrillic does not
+        for (name, surface_of_other) in [("fits", "Ap\u{e9}ro"), ("lost", "\u{41c}\u{435}\u{442}")]
+        {
+            vpx.gameitems.push(GameItemEnum::Wall(Wall {
+                name: name.to_string(),
+                ..Default::default()
+            }));
+            vpx.gameitems
+                .push(GameItemEnum::Bumper(crate::vpx::gameitem::bumper::Bumper {
+                    name: format!("bumper_{name}"),
+                    surface: surface_of_other.to_string(),
+                    ..Default::default()
+                }));
+        }
+        let unstorable: Vec<Kind> = audit_kinds(&vpx)
+            .into_iter()
+            .filter(|kind| matches!(kind, Kind::UnstorableText { .. }))
+            .collect();
+        assert_eq!(
+            unstorable,
+            vec![Kind::UnstorableText {
+                item: "Bumper \"bumper_lost\"".to_string(),
+                field: "surface",
+                text: "\u{41c}\u{435}\u{442}".to_string(),
+            }]
+        );
+        assert_eq!(unstorable[0].code(), "unstorable-text");
+        assert_eq!(
+            unstorable[0].to_string(),
+            "Bumper \"bumper_lost\": surface \"\u{41c}\u{435}\u{442}\" will be saved to the vpx file as \"???\", which stores one byte per character"
         );
     }
 
