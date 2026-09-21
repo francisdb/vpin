@@ -127,10 +127,11 @@ pub(crate) enum Kind {
         count: usize,
     },
     /// An image, material or surface reference of a game item holds a
-    /// character its record cannot store. These records hold one byte per
-    /// character, so anything above `U+00FF` is written as `?` and the
-    /// reference no longer matches its target. A file never reads back
-    /// with such text; it comes from an edit or an import
+    /// character that is lost when the table is saved. The vpx file stores
+    /// these records as one byte per character, so anything above `U+00FF`
+    /// is written as `?` and the reference no longer matches its target.
+    /// A table read from a vpx file never has such text; it comes from an
+    /// edit or from the json of an extracted table
     UnstorableText {
         /// Type and name of the game item, such as `Wall "Apron"`
         item: String,
@@ -665,10 +666,16 @@ impl fmt::Display for Kind {
                 };
                 write!(f, "{kind} {name:?} {consequence}")
             }
-            Kind::UnstorableText { item, field, text } => write!(
-                f,
-                "{item}: {field} {text:?} has characters the file cannot store, they are written as '?'"
-            ),
+            Kind::UnstorableText { item, field, text } => {
+                let saved: String = text
+                    .chars()
+                    .map(|c| if u32::from(c) > 0xFF { '?' } else { c })
+                    .collect();
+                write!(
+                    f,
+                    "{item}: {field} {text:?} will be saved to the vpx file as {saved:?}, which stores one byte per character"
+                )
+            }
             Kind::NameTooLong { item, length } => write!(
                 f,
                 "{item}: name is {length} characters, vpinball cuts names at {MAX_NAME_LENGTH}"
@@ -3266,6 +3273,10 @@ mod tests {
             }]
         );
         assert_eq!(unstorable[0].code(), "unstorable-text");
+        assert_eq!(
+            unstorable[0].to_string(),
+            "Bumper \"bumper_lost\": surface \"\u{41c}\u{435}\u{442}\" will be saved to the vpx file as \"???\", which stores one byte per character"
+        );
     }
 
     #[test]
