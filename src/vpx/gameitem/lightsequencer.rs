@@ -1,6 +1,7 @@
 use super::vertex2d::Vertex2D;
 use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::TimerData;
+use crate::vpx::latin1::Latin1String;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -76,11 +77,7 @@ pub struct LightSequencer {
     /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
     ///
     /// BIFF tag: `LANR`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub editor_layer_name: Option<String>,
+    pub editor_layer_name: Option<Latin1String>,
     // LANR (added in 10.7?) default "Layer_{editor_layer + 1}"
     /// Whether the legacy editor layer is shown in the editor.
     /// Editor-only; has no runtime effect. `None` when absent.
@@ -88,11 +85,7 @@ pub struct LightSequencer {
     /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>, // LVIS (added in 10.7?)
     /// Added in 10.8.1
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub part_group_name: Option<String>,
+    pub part_group_name: Option<Latin1String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -109,7 +102,7 @@ struct LightSequencerJson {
     name: String,
     backglass: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    part_group_name: Option<String>,
+    part_group_name: Option<Latin1String>,
 }
 
 impl LightSequencerJson {
@@ -224,13 +217,13 @@ impl BiffRead for LightSequencer {
                     light_sequencer.editor_layer = Some(reader.get_u32()?);
                 }
                 "LANR" => {
-                    light_sequencer.editor_layer_name = Some(reader.get_string()?);
+                    light_sequencer.editor_layer_name = Some(reader.get_latin1_string()?);
                 }
                 "LVIS" => {
                     light_sequencer.editor_layer_visibility = Some(reader.get_bool()?);
                 }
                 "GRUP" => {
-                    light_sequencer.part_group_name = Some(reader.get_string()?);
+                    light_sequencer.part_group_name = Some(reader.get_latin1_string()?);
                 }
                 _ => {
                     if !light_sequencer.timer.biff_read_tag(tag_str, reader)? {

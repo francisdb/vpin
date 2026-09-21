@@ -1,4 +1,5 @@
 use crate::vpx::biff::{self, BiffError};
+use crate::vpx::latin1::Latin1String;
 use serde::{Deserialize, Serialize};
 
 // TODO create the read side of this trait
@@ -27,9 +28,9 @@ pub(crate) trait HasSharedAttributes {
     fn set_is_locked(&mut self, locked: bool);
     /// in 10.8.1 Deprecated and replaced by part groups
     fn set_editor_layer(&mut self, layer: Option<u32>);
-    fn set_editor_layer_name(&mut self, name: Option<String>);
+    fn set_editor_layer_name(&mut self, name: Option<Latin1String>);
     fn set_editor_layer_visibility(&mut self, visibility: Option<bool>);
-    fn set_part_group_name(&mut self, name: Option<String>);
+    fn set_part_group_name(&mut self, name: Option<Latin1String>);
 }
 
 /// Timer data shared by most game items.
@@ -143,7 +144,7 @@ where
                 Ok(true)
             }
             "LANR" => {
-                self.set_editor_layer_name(Some(reader.get_string()?));
+                self.set_editor_layer_name(Some(reader.get_latin1_string()?));
                 Ok(true)
             }
             "LVIS" => {
@@ -151,7 +152,7 @@ where
                 Ok(true)
             }
             "GRUP" => {
-                self.set_part_group_name(Some(reader.get_string()?));
+                self.set_part_group_name(Some(reader.get_latin1_string()?));
                 Ok(true)
             }
             _ => Ok(false),
@@ -164,9 +165,9 @@ where
 /// - name: `String`
 /// - is_locked: `bool`
 /// - editor_layer: `Option<u32>`
-/// - editor_layer_name: `Option<String>`
+/// - editor_layer_name: `Option<Latin1String>`
 /// - editor_layer_visibility: `Option<bool>`
-/// - part_group_name: `Option<String>`
+/// - part_group_name: `Option<Latin1String>`
 macro_rules! impl_shared_attributes {
     ($ty:ty) => {
         impl $crate::vpx::gameitem::select::HasSharedAttributes for $ty {
@@ -195,13 +196,13 @@ macro_rules! impl_shared_attributes {
             fn set_editor_layer(&mut self, layer: Option<u32>) {
                 self.editor_layer = layer;
             }
-            fn set_editor_layer_name(&mut self, name: Option<String>) {
+            fn set_editor_layer_name(&mut self, name: Option<Latin1String>) {
                 self.editor_layer_name = name;
             }
             fn set_editor_layer_visibility(&mut self, visibility: Option<bool>) {
                 self.editor_layer_visibility = visibility;
             }
-            fn set_part_group_name(&mut self, name: Option<String>) {
+            fn set_part_group_name(&mut self, name: Option<Latin1String>) {
                 self.part_group_name = name;
             }
         }

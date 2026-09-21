@@ -143,6 +143,7 @@ pub(super) fn read_renderprobes<P: AsRef<Path>>(
 mod tests {
     use super::*;
     use crate::vpx::expanded::{ExpandOptions, Output};
+    use crate::vpx::latin1::Latin1String;
     use crate::vpx::model::StringWithEncoding;
     use crate::vpx::renderprobe::{RenderProbe, RenderProbeType};
     use pretty_assertions::assert_eq;
@@ -240,7 +241,7 @@ mod tests {
         let expanded_dir = PathBuf::from("test_renderprobes");
 
         let mut render_probe = RenderProbe::default();
-        render_probe.name = "Test Render Probe".to_string();
+        render_probe.name = Latin1String::from_lossy("Test Render Probe");
         render_probe.type_ = RenderProbeType::PlaneReflection;
 
         let render_probes = vec![

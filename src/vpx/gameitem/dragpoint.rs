@@ -1,5 +1,6 @@
 use super::GameItem;
 use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
+use crate::vpx::latin1::Latin1String;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -74,11 +75,7 @@ pub struct DragPoint {
     /// `"Layer_{editor_layer + 1}"` when unset. `None` when absent.
     ///
     /// BIFF tag: `LANR`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub editor_layer_name: Option<String>,
+    pub editor_layer_name: Option<Latin1String>,
     /// Whether the legacy editor layer is visible in the editor. `None` when
     /// absent. Editor-only; has no effect at runtime.
     ///
@@ -99,7 +96,7 @@ pub(crate) struct DragPointJson {
     #[serde(skip_serializing_if = "Option::is_none")]
     editor_layer: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    editor_layer_name: Option<String>,
+    editor_layer_name: Option<Latin1String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     editor_layer_visibility: Option<bool>,
 }
@@ -150,7 +147,7 @@ impl Default for DragPoint {
         // these are shared between all items
         let is_locked: bool = false;
         let editor_layer: Option<u32> = None;
-        let editor_layer_name: Option<String> = None;
+        let editor_layer_name: Option<Latin1String> = None;
         let editor_layer_visibility: Option<bool> = None;
         Self {
             x,
@@ -229,7 +226,7 @@ impl BiffRead for DragPoint {
                     dragpoint.editor_layer = Some(sub_data.get_u32()?);
                 }
                 "LANR" => {
-                    dragpoint.editor_layer_name = Some(sub_data.get_string()?);
+                    dragpoint.editor_layer_name = Some(sub_data.get_latin1_string()?);
                 }
                 "LVIS" => {
                     dragpoint.editor_layer_visibility = Some(sub_data.get_bool()?);
@@ -300,7 +297,7 @@ mod tests {
             tex_coord: 4.0,
             is_locked: true,
             editor_layer: Some(1),
-            editor_layer_name: Some("test layer".to_string()),
+            editor_layer_name: Some(Latin1String::from_lossy("test layer")),
             editor_layer_visibility: Some(true),
         };
         let mut writer = BiffWriter::new();

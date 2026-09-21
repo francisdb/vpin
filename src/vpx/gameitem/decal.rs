@@ -1,6 +1,7 @@
 use super::{GameItem, font::Font, font::FontJson, vertex2d::Vertex2D};
 use crate::vpx::gameitem::select::WriteSharedAttributes;
 use crate::vpx::gameitem::select::impl_shared_attributes;
+use crate::vpx::latin1::Latin1String;
 use crate::vpx::{
     biff::{self, BiffError, BiffRead, BiffReader, BiffWrite},
     color::Color,
@@ -289,15 +290,13 @@ pub struct Decal {
     /// material only. Default: empty.
     ///
     /// BIFF tag `IMAG`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub image: String,
+    pub image: Latin1String,
     /// The name of the surface (wall, ramp, or empty for playfield) that this decal sits on.
     /// Used to determine the Z height of the decal via `GetSurfaceHeight()`.
     /// The decal is rendered at surface_height + 0.2 units.
     ///
     /// BIFF tag: `SURF`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub surface: String,
+    pub surface: Latin1String,
     /// Name of the decal, its identifier in the editor and in scripts.
     /// Stored as a wide string.
     ///
@@ -310,8 +309,7 @@ pub struct Decal {
     /// empty.
     ///
     /// BIFF tag `TEXT`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub text: String,
+    pub text: Latin1String,
     /// Whether the decal shows its [`text`](Self::text) or its
     /// [`image`](Self::image), see [`DecalType`]. Default:
     /// [`DecalType::Image`].
@@ -325,8 +323,7 @@ pub struct Decal {
     /// the dynamic pass. Default: empty (the default material).
     ///
     /// BIFF tag `MATR`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub material: String,
+    pub material: Latin1String,
     /// Color of the text of a text decal (`FontColor` in script); ignored
     /// for image decals.
     ///
@@ -392,11 +389,7 @@ pub struct Decal {
     /// follows. `None` when the record is absent.
     ///
     /// BIFF tag `LANR`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub editor_layer_name: Option<String>,
+    pub editor_layer_name: Option<Latin1String>,
     /// Whether the item is shown in the editor (the 10.7 layer visibility,
     /// stored per item). Editor-only; has no runtime effect. `None` when
     /// the record is absent.
@@ -411,11 +404,7 @@ pub struct Decal {
     /// is not in a group).
     ///
     /// BIFF tag `GRUP`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub part_group_name: Option<String>,
+    pub part_group_name: Option<Latin1String>,
 }
 impl_shared_attributes!(Decal);
 
@@ -425,18 +414,18 @@ struct DecalJson {
     width: f32,
     height: f32,
     rotation: f32,
-    image: String,
-    surface: String,
+    image: Latin1String,
+    surface: Latin1String,
     name: String,
-    text: String,
+    text: Latin1String,
     decal_type: DecalType,
-    material: String,
+    material: Latin1String,
     color: Color,
     sizing_type: SizingType,
     vertical_text: bool,
     backglass: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    part_group_name: Option<String>,
+    part_group_name: Option<Latin1String>,
     font: FontJson,
 }
 
@@ -563,22 +552,22 @@ impl BiffRead for Decal {
                     decal.rotation = reader.get_f32()?;
                 }
                 "IMAG" => {
-                    decal.image = reader.get_string()?;
+                    decal.image = reader.get_latin1_string()?;
                 }
                 "SURF" => {
-                    decal.surface = reader.get_string()?;
+                    decal.surface = reader.get_latin1_string()?;
                 }
                 "NAME" => {
                     decal.name = reader.get_wide_string()?;
                 }
                 "TEXT" => {
-                    decal.text = reader.get_string()?;
+                    decal.text = reader.get_latin1_string()?;
                 }
                 "TYPE" => {
                     decal.decal_type = reader.get_u32()?.into();
                 }
                 "MATR" => {
-                    decal.material = reader.get_string()?;
+                    decal.material = reader.get_latin1_string()?;
                 }
                 "COLR" => {
                     decal.color = Color::biff_read(reader)?;

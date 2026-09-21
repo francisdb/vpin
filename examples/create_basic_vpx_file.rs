@@ -5,6 +5,7 @@ use vpin::vpx::color::Color;
 use vpin::vpx::gameitem::GameItemEnum;
 use vpin::vpx::gameitem::bumper::Bumper;
 use vpin::vpx::gameitem::flipper::Flipper;
+use vpin::vpx::latin1::Latin1String;
 use vpin::vpx::material::Material;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -15,7 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // playfield material
     let mut material = Material::default();
-    material.name = "Playfield".to_string();
+    material.name = Latin1String::from_lossy("Playfield");
     // material defaults to purple
     material.base_color = Color::from_rgb(0x966F33); // Wood
     vpx.gamedata.materials = Some(vec![material]);

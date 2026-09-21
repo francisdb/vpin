@@ -2,6 +2,7 @@ use super::vertex2d::Vertex2D;
 use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::impl_shared_attributes;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
+use crate::vpx::latin1::Latin1String;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -110,8 +111,7 @@ pub struct Spinner {
     /// Default: empty string (uses default material)
     ///
     /// BIFF tag: MATR
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub material: String,
+    pub material: Latin1String,
     /// Image/texture name for the spinner plate.
     ///
     /// References an image defined in the table's image list.
@@ -123,14 +123,12 @@ pub struct Spinner {
     /// Default: empty string (no texture)
     ///
     /// BIFF tag: IMGF
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub image: String,
+    pub image: Latin1String,
     /// Name of the surface (ramp or wall top) this spinner sits on.
     /// Used to determine the spinner's base height (z position).
     /// If empty, the spinner sits on the playfield.
     /// BIFF tag: SURF
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub surface: String,
+    pub surface: Latin1String,
     /// Whether this spinner appears in playfield reflections.
     ///
     /// When `true`, the ball is rendered in the reflection pass.
@@ -157,22 +155,14 @@ pub struct Spinner {
     /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
     ///
     /// BIFF tag: `LANR`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub editor_layer_name: Option<String>,
+    pub editor_layer_name: Option<Latin1String>,
     /// Whether the legacy editor layer is shown in the editor.
     /// Editor-only; has no runtime effect. `None` when absent.
     ///
     /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub part_group_name: Option<String>,
+    pub part_group_name: Option<Latin1String>,
 }
 impl_shared_attributes!(Spinner);
 
@@ -194,13 +184,13 @@ struct SpinnerJson {
     show_bracket: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     legacy_overhang: Option<f32>,
-    material: String,
-    image: String,
-    surface: String,
+    material: Latin1String,
+    image: Latin1String,
+    surface: Latin1String,
     name: String,
     is_reflection_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    part_group_name: Option<String>,
+    part_group_name: Option<Latin1String>,
 }
 
 impl SpinnerJson {
@@ -347,13 +337,13 @@ impl BiffRead for Spinner {
                     spinner.legacy_overhang = Some(reader.get_f32()?);
                 }
                 "MATR" => {
-                    spinner.material = reader.get_string()?;
+                    spinner.material = reader.get_latin1_string()?;
                 }
                 "IMGF" => {
-                    spinner.image = reader.get_string()?;
+                    spinner.image = reader.get_latin1_string()?;
                 }
                 "SURF" => {
-                    spinner.surface = reader.get_string()?;
+                    spinner.surface = reader.get_latin1_string()?;
                 }
                 "NAME" => {
                     spinner.name = reader.get_wide_string()?;

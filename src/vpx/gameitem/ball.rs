@@ -3,6 +3,7 @@ use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::color::Color;
 use crate::vpx::gameitem::select::impl_shared_attributes;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
+use crate::vpx::latin1::Latin1String;
 use log::warn;
 use serde::{Deserialize, Serialize};
 
@@ -96,8 +97,7 @@ pub struct Ball {
     /// The mapping method is controlled by `spherical_mapping`.
     ///
     /// BIFF tag: `IMAG`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub image: String,
+    pub image: Latin1String,
 
     /// Decal/overlay image name for the ball.
     ///
@@ -109,8 +109,7 @@ pub struct Ball {
     /// If empty, falls back to `gamedata.ball_image_front`.
     ///
     /// BIFF tag: `DIMG`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub image_decal: String,
+    pub image_decal: Latin1String,
 
     /// Scale factor for bulb light intensity on the ball surface.
     ///
@@ -175,11 +174,7 @@ pub struct Ball {
     /// `"Layer_{editor_layer + 1}"` when unset. `None` when absent.
     ///
     /// BIFF tag: `LANR`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub editor_layer_name: Option<String>,
+    pub editor_layer_name: Option<Latin1String>,
     /// Whether the legacy editor layer is visible in the editor. `None` when
     /// absent. Editor-only; has no effect at runtime.
     ///
@@ -189,11 +184,7 @@ pub struct Ball {
     /// replacing editor layers). `None` for tables written by older versions.
     ///
     /// BIFF tag: `GRUP`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub part_group_name: Option<String>,
+    pub part_group_name: Option<Latin1String>,
 }
 impl_shared_attributes!(Ball);
 
@@ -204,8 +195,8 @@ struct BallJson {
     mass: f32,
     force_reflection: bool,
     decal_mode: bool,
-    image: String,
-    image_decal: String,
+    image: Latin1String,
+    image_decal: Latin1String,
     bulb_intensity_scale: f32,
     playfield_reflection_strength: f32,
     color: Color,
@@ -217,7 +208,7 @@ struct BallJson {
     pub timer: TimerData,
     name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    part_group_name: Option<String>,
+    part_group_name: Option<Latin1String>,
 }
 
 impl From<&Ball> for BallJson {
@@ -336,10 +327,10 @@ impl BiffRead for Ball {
                     ball.decal_mode = reader.get_bool()?;
                 }
                 "IMAG" => {
-                    ball.image = reader.get_string()?;
+                    ball.image = reader.get_latin1_string()?;
                 }
                 "DIMG" => {
-                    ball.image_decal = reader.get_string()?;
+                    ball.image_decal = reader.get_latin1_string()?;
                 }
                 "BISC" => {
                     ball.bulb_intensity_scale = reader.get_f32()?;
@@ -415,8 +406,8 @@ mod tests {
             mass: 2.5,
             force_reflection: true,
             decal_mode: true,
-            image: "test_image".to_string(),
-            image_decal: "test_decal".to_string(),
+            image: Latin1String::from_lossy("test_image"),
+            image_decal: Latin1String::from_lossy("test_decal"),
             bulb_intensity_scale: 1.5,
             playfield_reflection_strength: 0.8,
             color: Color::rgb(128, 64, 32),
@@ -429,9 +420,9 @@ mod tests {
             name: "test ball".to_string(),
             is_locked: true,
             editor_layer: Some(3),
-            editor_layer_name: Some("layer".to_string()),
+            editor_layer_name: Some(Latin1String::from_lossy("layer")),
             editor_layer_visibility: Some(true),
-            part_group_name: Some("part group".to_string()),
+            part_group_name: Some(Latin1String::from_lossy("part group")),
         };
         let mut writer = BiffWriter::new();
         Ball::biff_write(&ball, &mut writer);
@@ -447,8 +438,8 @@ mod tests {
             mass: 2.5,
             force_reflection: true,
             decal_mode: true,
-            image: "test_image".to_string(),
-            image_decal: "test_decal".to_string(),
+            image: Latin1String::from_lossy("test_image"),
+            image_decal: Latin1String::from_lossy("test_decal"),
             bulb_intensity_scale: 1.5,
             playfield_reflection_strength: 0.8,
             color: Color::rgb(128, 64, 32),
@@ -461,9 +452,9 @@ mod tests {
             name: "test ball".to_string(),
             is_locked: true,
             editor_layer: Some(3),
-            editor_layer_name: Some("layer".to_string()),
+            editor_layer_name: Some(Latin1String::from_lossy("layer")),
             editor_layer_visibility: Some(true),
-            part_group_name: Some("part group".to_string()),
+            part_group_name: Some(Latin1String::from_lossy("part group")),
         };
         let json = serde_json::to_value(&ball).unwrap();
         // the lock and editor layer attributes live in a separate file of

@@ -2,6 +2,7 @@ use crate::vpx::biff;
 use crate::vpx::biff::{BiffError, BiffRead, BiffReader, BiffWrite, BiffWriter};
 use crate::vpx::color::Color;
 use crate::vpx::json::F32WithNanInf;
+use crate::vpx::latin1::Latin1String;
 use crate::vpx::math::quantize_u8;
 use crate::vpx::model::encode_latin1_lossy;
 use bytes::{Buf, BufMut, BytesMut};
@@ -25,8 +26,11 @@ pub const MAX_NAME_LENGTH: usize = MAX_NAME_BUFFER - 1;
 /// byte per character plus the terminator, so this is shorter than
 /// `test_support::latin1_string`.
 #[cfg(test)]
-fn legacy_name_string() -> impl proptest::strategy::Strategy<Value = String> {
-    proptest::string::string_regex(&format!("[ -~\u{A0}-\u{FF}]{{0,{MAX_NAME_LENGTH}}}")).unwrap()
+fn legacy_name_string() -> impl proptest::strategy::Strategy<Value = Latin1String> {
+    use proptest::strategy::Strategy;
+    proptest::string::string_regex(&format!("[ -~\u{A0}-\u{FF}]{{0,{MAX_NAME_LENGTH}}}"))
+        .unwrap()
+        .prop_map(|name| Latin1String::from_lossy(&name))
 }
 
 /// Why a material name cannot be stored as it is
@@ -226,7 +230,7 @@ pub struct SaveMaterial {
     /// bytes, so at most [`MAX_NAME_LENGTH`] characters; a longer name is
     /// truncated on write. See [`check_name`].
     #[cfg_attr(test, proptest(strategy = "legacy_name_string()"))]
-    pub name: String,
+    pub name: Latin1String,
     /**
      * Base color of the material
      * Can be overridden by texture on object itself
@@ -343,7 +347,7 @@ impl From<&Material> for SaveMaterial {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct SaveMaterialJson {
-    name: String,
+    name: Latin1String,
     base_color: Color,
     glossy_color: Color,
     clearcoat_color: Color,
@@ -486,7 +490,7 @@ pub struct SavePhysicsMaterial {
     /// Latin-1 string in a fixed buffer of 32 bytes, so at most
     /// [`MAX_NAME_LENGTH`] characters; a longer name is truncated on write.
     #[cfg_attr(test, proptest(strategy = "legacy_name_string()"))]
-    pub name: String,
+    pub name: Latin1String,
     /// Coefficient of restitution of the ball against a part using this
     /// material, see [`Material::elasticity`].
     pub elasticity: f32,
@@ -514,7 +518,7 @@ impl From<&Material> for SavePhysicsMaterial {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct SavePhysicsMaterialJson {
-    name: String,
+    name: Latin1String,
     elasticity: F32WithNanInf,
     elasticity_falloff: F32WithNanInf,
     friction: F32WithNanInf,
@@ -604,12 +608,12 @@ fn write_padded_cstring_truncate(str: &str, bytes: &mut BytesMut, len: usize) {
  * Reads a padded cstring from bytes and returns the string
  * Drops remaining bytes (which may contain random padding data in vpx files)
  */
-fn read_padded_cstring(bytes: &mut BytesMut, len: usize) -> Result<String, io::Error> {
+fn read_padded_cstring(bytes: &mut BytesMut, len: usize) -> Result<Latin1String, io::Error> {
     let cname = bytes.copy_to_bytes(len);
     let cstr = CStr::from_bytes_until_nul(&cname)
         .map_err(|_e| io::Error::other("Failed to read null-padded string from bytes"))?;
     let s = decode_latin1(cstr.to_bytes());
-    Ok(s.to_string())
+    Ok(Latin1String::from_decoded(s.to_string()))
 }
 
 fn get_padding_3_validate(bytes: &mut BytesMut) {
@@ -641,8 +645,7 @@ pub struct Material {
     /// Default: `dummyMaterial`.
     ///
     /// BIFF tag `NAME`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub name: String,
+    pub name: Latin1String,
 
     // shading properties
     /// Shading model of the material.
@@ -772,7 +775,7 @@ pub struct Material {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct MaterialJson {
-    name: String,
+    name: Latin1String,
     #[serde(rename = "type", alias = "type_")]
     type_: MaterialType,
     wrap_lighting: f32,
@@ -860,7 +863,7 @@ impl Default for Material {
             friction: 0.0,
             scatter_angle: 0.0,
             refraction_tint: Color::WHITE,
-            name: "dummyMaterial".to_string(),
+            name: Latin1String::from_lossy("dummyMaterial"),
         }
     }
 }
@@ -868,7 +871,7 @@ impl Default for Material {
 impl Default for SaveMaterial {
     fn default() -> Self {
         SaveMaterial {
-            name: "dummyMaterial".to_string(),
+            name: Latin1String::from_lossy("dummyMaterial"),
             base_color: Color::from_rgb(0xB469FF),
             glossy_color: Color::BLACK,
             clearcoat_color: Color::BLACK,
@@ -887,7 +890,7 @@ impl Default for SaveMaterial {
 impl Default for SavePhysicsMaterial {
     fn default() -> Self {
         SavePhysicsMaterial {
-            name: "dummyMaterial".to_string(),
+            name: Latin1String::from_lossy("dummyMaterial"),
             elasticity: 0.0,
             elasticity_falloff: 0.0,
             friction: 0.0,
@@ -922,7 +925,7 @@ impl BiffRead for Material {
             let tag_str = tag.as_str();
             match tag_str {
                 "TYPE" => material.type_ = reader.get_i32()?.into(),
-                "NAME" => material.name = reader.get_string()?,
+                "NAME" => material.name = reader.get_latin1_string()?,
                 "WLIG" => material.wrap_lighting = reader.get_f32()?,
                 "ROUG" => material.roughness = reader.get_f32()?,
                 "GIML" => material.glossy_image_lerp = reader.get_f32()?,
@@ -1049,7 +1052,7 @@ mod tests {
     #[test]
     fn test_material_to_save_material() {
         let material = Material {
-            name: "test".to_string(),
+            name: Latin1String::from_lossy("test"),
             type_: MaterialType::Basic,
             wrap_lighting: 0.5,
             roughness: 0.5,

@@ -2,6 +2,7 @@ use super::dragpoint::DragPoint;
 use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
 use crate::vpx::gameitem::select::impl_shared_attributes;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
+use crate::vpx::latin1::Latin1String;
 use crate::vpx::{
     biff::{self, BiffError, BiffRead, BiffReader, BiffWrite},
     color::Color,
@@ -774,16 +775,14 @@ pub struct Flasher {
     /// When both image_a and image_b are set, they are blended together using
     /// the `filter` and `modulate_vs_add` settings.
     /// BIFF tag: `IMAG`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub image_a: String,
+    pub image_a: Latin1String,
     /// Secondary texture for blending with image_a.
     /// When set along with image_a, both textures are blended together in the shader
     /// based on `filter` (None, Additive, Overlay, Multiply, Screen) and
     /// `modulate_vs_add` settings. If only image_b is set (no image_a), it acts
     /// as the primary texture.
     /// BIFF tag: `IMAB`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub image_b: String,
+    pub image_b: Latin1String,
     /// Overall alpha/opacity of the flasher (0-100).
     /// BIFF tag: `FALP`
     pub alpha: i32,
@@ -845,11 +844,7 @@ pub struct Flasher {
     pub glass_pad_right: Option<f32>,
     /// Image source link for display content (default source is script).
     /// BIFF tag: `LINK` Since 10.8.1
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub image_src_link: Option<String>,
+    pub image_src_link: Option<Latin1String>,
     /// Whether to display the texture in the VPinball editor preview.
     /// This does NOT affect runtime rendering — textures are always rendered if set.
     /// Also used on: [`Wall`](crate::vpx::gameitem::wall::Wall), [`Primitive`](crate::vpx::gameitem::primitive::Primitive).
@@ -876,11 +871,7 @@ pub struct Flasher {
     /// BIFF tag: `FIAM`
     pub filter_amount: u32,
     /// BIFF tag: `LMAP` added in 10.8
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub light_map: Option<String>,
+    pub light_map: Option<Latin1String>,
     /// BIFF tag: `BGLS` added in 10.8.1
     pub backglass: Option<bool>,
 
@@ -933,11 +924,7 @@ pub struct Flasher {
     /// follows. `None` when the record is absent.
     ///
     /// BIFF tag `LANR`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub editor_layer_name: Option<String>,
+    pub editor_layer_name: Option<Latin1String>,
     /// Whether the item is shown in the editor (the 10.7 layer visibility,
     /// stored per item). Editor-only; has no runtime effect. `None` when
     /// the record is absent.
@@ -952,11 +939,7 @@ pub struct Flasher {
     /// is not in a group).
     ///
     /// BIFF tag `GRUP`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub part_group_name: Option<String>,
+    pub part_group_name: Option<Latin1String>,
 }
 impl_shared_attributes!(Flasher);
 
@@ -972,8 +955,8 @@ impl Default for Flasher {
             color: Color::WHITE,
             timer: TimerData::default(),
             name: "".to_string(),
-            image_a: "".to_string(),
-            image_b: "".to_string(),
+            image_a: Latin1String::new(),
+            image_b: Latin1String::new(),
             alpha: 100,
             modulate_vs_add: 0.9,
             is_visible: true,
@@ -1018,8 +1001,8 @@ pub(crate) struct FlasherJson {
     #[serde(flatten)]
     pub timer: TimerData,
     name: String,
-    image_a: String,
-    image_b: String,
+    image_a: Latin1String,
+    image_b: Latin1String,
     alpha: i32,
     modulate_vs_add: f32,
     is_visible: bool,
@@ -1034,16 +1017,16 @@ pub(crate) struct FlasherJson {
     glass_pad_bottom: Option<f32>,
     glass_pad_left: Option<f32>,
     glass_pad_right: Option<f32>,
-    image_src_link: Option<String>,
+    image_src_link: Option<Latin1String>,
     display_texture: bool,
     depth_bias: f32,
     image_alignment: RampImageAlignment,
     filter: Filter,
     filter_amount: u32,
-    light_map: Option<String>,
+    light_map: Option<Latin1String>,
     backglass: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    part_group_name: Option<String>,
+    part_group_name: Option<Latin1String>,
     drag_points: Vec<DragPoint>,
 }
 
@@ -1185,10 +1168,10 @@ impl BiffRead for Flasher {
                     flasher.name = reader.get_wide_string()?;
                 }
                 "IMAG" => {
-                    flasher.image_a = reader.get_string()?;
+                    flasher.image_a = reader.get_latin1_string()?;
                 }
                 "IMAB" => {
-                    flasher.image_b = reader.get_string()?;
+                    flasher.image_b = reader.get_latin1_string()?;
                 }
                 "FALP" => {
                     flasher.alpha = reader.get_i32()?;
@@ -1233,7 +1216,7 @@ impl BiffRead for Flasher {
                     flasher.glass_pad_right = Some(reader.get_f32()?);
                 }
                 "LINK" => {
-                    flasher.image_src_link = Some(reader.get_string()?);
+                    flasher.image_src_link = Some(reader.get_latin1_string()?);
                 }
                 "FLDB" => {
                     flasher.depth_bias = reader.get_f32()?;
@@ -1248,7 +1231,7 @@ impl BiffRead for Flasher {
                     flasher.filter_amount = reader.get_u32()?;
                 }
                 "LMAP" => {
-                    flasher.light_map = Some(reader.get_string()?);
+                    flasher.light_map = Some(reader.get_latin1_string()?);
                 }
                 "BGLS" => {
                     flasher.backglass = Some(reader.get_bool()?);

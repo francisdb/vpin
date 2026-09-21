@@ -69,6 +69,7 @@ use super::{dragpoint::DragPoint, vertex2d::Vertex2D};
 use crate::vpx::gameitem::select::impl_shared_attributes;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use crate::vpx::json::F32WithNanInf;
+use crate::vpx::latin1::Latin1String;
 use crate::vpx::{
     biff::{self, BiffError, BiffRead, BiffReader, BiffWrite},
     color::Color,
@@ -429,8 +430,7 @@ pub struct Light {
     /// `"10"` (alternating on/off)
     ///
     /// BIFF tag: `BPAT`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub blink_pattern: String,
+    pub blink_pattern: Latin1String,
     /// Texture image name displayed on the light's polygon mesh (Classic mode only).
     ///
     /// In VPinball this is the "Image" property (COM: `get_Image`/`put_Image`),
@@ -466,8 +466,7 @@ pub struct Light {
     /// Empty string (no image)
     ///
     /// BIFF tag: `IMG1`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub image: String,
+    pub image: Latin1String,
     /// Time in milliseconds between each step of the blink pattern.
     ///
     /// Controls the speed of the blinking animation when the light state is "blinking"
@@ -549,8 +548,7 @@ pub struct Light {
     /// Used to determine the light's base height (z position).
     /// If empty, the light sits on the playfield.
     /// BIFF tag: SURF
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub surface: String,
+    pub surface: Latin1String,
     /// Whether the light is part of the desktop backdrop (the 2D backglass
     /// area of desktop mode) instead of the playfield.
     ///
@@ -790,11 +788,7 @@ pub struct Light {
     /// follows. `None` when the record is absent.
     ///
     /// BIFF tag `LANR`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub editor_layer_name: Option<String>,
+    pub editor_layer_name: Option<Latin1String>,
     /// Whether the item is shown in the editor (the 10.7 layer visibility,
     /// stored per item). Editor-only; has no runtime effect. `None` when
     /// the record is absent.
@@ -809,11 +803,7 @@ pub struct Light {
     /// is not in a group).
     ///
     /// BIFF tag `GRUP`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub part_group_name: Option<String>,
+    pub part_group_name: Option<Latin1String>,
 
     /// Control points of the polygon that forms the lit area, in table
     /// coordinates (VPU). Written last in the record, after the shared
@@ -836,13 +826,13 @@ struct LightJson {
     color2: Color,
     #[serde(flatten)]
     pub timer: TimerData,
-    blink_pattern: String,
+    blink_pattern: Latin1String,
     #[serde(alias = "off_image")]
-    image: String,
+    image: Latin1String,
     blink_interval: u32,
     intensity: f32,
     transmission_scale: f32,
-    surface: String,
+    surface: Latin1String,
     name: String,
     is_backglass: bool,
     depth_bias: f32,
@@ -861,7 +851,7 @@ struct LightJson {
     fader: Option<Fader>,
     visible: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    part_group_name: Option<String>,
+    part_group_name: Option<Latin1String>,
     drag_points: Vec<DragPoint>,
 }
 
@@ -984,12 +974,12 @@ impl Default for Light {
         // Default to 2700K incandescent bulb (burst is useless since VPX is HDR)
         let color2: Color = Color::rgb(255, 169, 87);
         let timer = TimerData::default();
-        let blink_pattern: String = "10".to_owned();
-        let image: String = Default::default();
+        let blink_pattern: Latin1String = Latin1String::from_lossy("10");
+        let image: Latin1String = Default::default();
         let blink_interval: u32 = Default::default();
         let intensity: f32 = 1.0;
         let transmission_scale: f32 = 0.5;
-        let surface: String = Default::default();
+        let surface: Latin1String = Default::default();
         let is_backglass: bool = false;
         let depth_bias: f32 = Default::default();
         let fade_speed_up: f32 = 0.2;
@@ -1009,9 +999,9 @@ impl Default for Light {
         // these are shared between all items
         let is_locked: bool = false;
         let editor_layer: Option<u32> = None;
-        let editor_layer_name: Option<String> = None;
+        let editor_layer_name: Option<Latin1String> = None;
         let editor_layer_visibility: Option<bool> = None;
-        let part_group_name: Option<String> = None;
+        let part_group_name: Option<Latin1String> = None;
         Self {
             center,
             height,
@@ -1068,12 +1058,12 @@ impl BiffRead for Light {
                 "STTF" => light.state = Some(reader.get_f32()?),
                 "COLR" => light.color = Color::biff_read(reader)?,
                 "COL2" => light.color2 = Color::biff_read(reader)?,
-                "BPAT" => light.blink_pattern = reader.get_string()?,
-                "IMG1" => light.image = reader.get_string()?,
+                "BPAT" => light.blink_pattern = reader.get_latin1_string()?,
+                "IMG1" => light.image = reader.get_latin1_string()?,
                 "BINT" => light.blink_interval = reader.get_u32()?,
                 "BWTH" => light.intensity = reader.get_f32()?,
                 "TRMS" => light.transmission_scale = reader.get_f32()?,
-                "SURF" => light.surface = reader.get_string()?,
+                "SURF" => light.surface = reader.get_latin1_string()?,
                 "NAME" => light.name = reader.get_wide_string()?,
 
                 "BGLS" => light.is_backglass = reader.get_bool()?,

@@ -3,6 +3,7 @@ use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::ramp_image_alignment::RampImageAlignment;
 use crate::vpx::gameitem::select::impl_shared_attributes;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
+use crate::vpx::latin1::Latin1String;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -198,8 +199,7 @@ pub struct Ramp {
     /// material.
     ///
     /// BIFF tag `MATR`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub material: String,
+    pub material: Latin1String,
     /// Shape of the ramp, see [`RampType`]: a flat ramp or one of the wire
     /// ramps. vpinball default [`RampType::Flat`].
     ///
@@ -215,8 +215,7 @@ pub struct Ramp {
     /// Mapped as chosen by [`image_alignment`](Self::image_alignment).
     ///
     /// BIFF tag `IMAG`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub image: String,
+    pub image: Latin1String,
     /// Controls how the texture is mapped onto the ramp surface.
     /// - [`World`](RampImageAlignment::World): UVs are based on table coordinates.
     /// - [`Wrap`](RampImageAlignment::Wrap): UVs are based on the ramp bounding box
@@ -360,11 +359,7 @@ pub struct Ramp {
     /// materials existed).
     ///
     /// BIFF tag `MAPH`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub physics_material: Option<String>,
+    pub physics_material: Option<Latin1String>,
     /// Whether the ramp's own [`elasticity`](Self::elasticity),
     /// [`friction`](Self::friction) and [`scatter`](Self::scatter) are used
     /// instead of those of [`physics_material`](Self::physics_material).
@@ -402,22 +397,14 @@ pub struct Ramp {
     /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
     ///
     /// BIFF tag `LANR`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub editor_layer_name: Option<String>,
+    pub editor_layer_name: Option<Latin1String>,
     /// Whether the legacy editor layer is shown in the editor.
     /// Editor-only; has no runtime effect. `None` when absent.
     ///
     /// BIFF tag `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub part_group_name: Option<String>,
+    pub part_group_name: Option<Latin1String>,
 }
 impl_shared_attributes!(Ramp);
 
@@ -427,12 +414,12 @@ struct RampJson {
     height_top: f32,
     width_bottom: f32,
     width_top: f32,
-    material: String,
+    material: Latin1String,
     #[serde(flatten)]
     pub timer: TimerData,
     ramp_type: RampType,
     name: String,
-    image: String,
+    image: Latin1String,
     image_alignment: RampImageAlignment,
     image_walls: bool,
     left_wall_height: f32,
@@ -451,11 +438,11 @@ struct RampJson {
     wire_distance_x: f32,
     wire_distance_y: f32,
     is_reflection_enabled: Option<bool>,
-    physics_material: Option<String>,
+    physics_material: Option<Latin1String>,
     overwrite_physics: Option<bool>,
     drag_points: Vec<DragPoint>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    part_group_name: Option<String>,
+    part_group_name: Option<Latin1String>,
 }
 
 impl RampJson {
@@ -621,7 +608,7 @@ impl BiffRead for Ramp {
                     ramp.width_top = reader.get_f32()?;
                 }
                 "MATR" => {
-                    ramp.material = reader.get_string()?;
+                    ramp.material = reader.get_latin1_string()?;
                 }
                 "TYPE" => {
                     ramp.ramp_type = reader.get_u32()?.into();
@@ -630,7 +617,7 @@ impl BiffRead for Ramp {
                     ramp.name = reader.get_wide_string()?;
                 }
                 "IMAG" => {
-                    ramp.image = reader.get_string()?;
+                    ramp.image = reader.get_latin1_string()?;
                 }
                 "ALGN" => {
                     ramp.image_alignment = reader.get_u32()?.into();
@@ -687,7 +674,7 @@ impl BiffRead for Ramp {
                     ramp.is_reflection_enabled = Some(reader.get_bool()?);
                 }
                 "MAPH" => {
-                    ramp.physics_material = Some(reader.get_string()?);
+                    ramp.physics_material = Some(reader.get_latin1_string()?);
                 }
                 "OVPH" => {
                     ramp.overwrite_physics = Some(reader.get_bool()?);

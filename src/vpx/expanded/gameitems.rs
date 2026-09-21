@@ -2,6 +2,7 @@
 
 use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::{GameItemEnum, MAX_NAME_LENGTH};
+use crate::vpx::latin1::Latin1String;
 use log::{info, warn};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -28,7 +29,7 @@ pub(super) struct GameItemInfoJson {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) editor_layer: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) editor_layer_name: Option<String>,
+    pub(super) editor_layer_name: Option<Latin1String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) editor_layer_visibility: Option<bool>,
 }

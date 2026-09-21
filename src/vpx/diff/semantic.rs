@@ -680,7 +680,7 @@ fn materials(gamedata: &GameData) -> Vec<(String, Value)> {
     if let Some(materials) = &gamedata.materials {
         return materials
             .iter()
-            .map(|material| (material.name.clone(), to_value(material)))
+            .map(|material| (material.name.to_string(), to_value(material)))
             .collect();
     }
     let physics: HashMap<&str, &SavePhysicsMaterial> = gamedata
@@ -694,7 +694,7 @@ fn materials(gamedata: &GameData) -> Vec<(String, Value)> {
         .iter()
         .map(|material| {
             let full = full_material(material, physics.get(material.name.as_str()).copied());
-            (material.name.clone(), to_value(&full))
+            (material.name.to_string(), to_value(&full))
         })
         .collect()
 }
@@ -739,7 +739,7 @@ fn render_probes(gamedata: &GameData) -> Vec<(String, Value)> {
             let mut json = to_value(RenderProbeJson::from_renderprobe(probe));
             // bytes vpinball writes past the end of the record
             remove_keys(&mut json, &["trailing_data"]);
-            (probe.render_probe.name.clone(), json)
+            (probe.render_probe.name.to_string(), json)
         })
         .collect()
 }
@@ -1314,6 +1314,7 @@ mod tests {
     use crate::vpx::gameitem::timer::Timer;
     use crate::vpx::gameitem::wall::Wall;
     use crate::vpx::image::ImageDataJpeg;
+    use crate::vpx::latin1::Latin1String;
     use crate::vpx::model::Vertex3dNoTex2;
     use crate::vpx::sound::{OutputTarget, WaveForm};
     use crate::vpx::version::Version;
@@ -1517,7 +1518,7 @@ mod tests {
             ..Wall::default()
         };
         changed.height_top += 10.0;
-        changed.top_material = "Metal".to_string();
+        changed.top_material = Latin1String::from_lossy("Metal");
         // C removed, D added, B changed, order of A and B swapped
         modified.gameitems = vec![GameItemEnum::Wall(changed), wall("A"), wall("D")];
 
@@ -1832,7 +1833,7 @@ mod tests {
                 name: name.to_string(),
                 ..Wall::default()
             };
-            wall.editor_layer_name = Some(layer.to_string());
+            wall.editor_layer_name = Some(Latin1String::from_lossy(layer));
             wall.elasticity_falloff = Some(falloff);
             wall.drag_points = [1.0, 2.0, 3.0, 4.0]
                 .map(|x| DragPoint {
@@ -1905,7 +1906,7 @@ mod tests {
 
         // the layer itself is part of the table
         if let GameItemEnum::Wall(wall) = &mut modified.gameitems[0] {
-            wall.editor_layer_name = Some("Lights".to_string());
+            wall.editor_layer_name = Some(Latin1String::from_lossy("Lights"));
         }
         assert_eq!(
             diff(&original, &modified)[0].to_string(),
@@ -1945,7 +1946,7 @@ mod tests {
     fn old_and_new_material_layouts_compare_equal() {
         let material = |friction: f32| {
             let mut material = Material::default();
-            material.name = "Rubber".to_string();
+            material.name = Latin1String::from_lossy("Rubber");
             material.type_ = MaterialType::Metal;
             material.thickness = 0.2;
             material.glossy_image_lerp = 0.0;

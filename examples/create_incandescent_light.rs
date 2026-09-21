@@ -20,6 +20,7 @@ use vpin::vpx::gameitem::dragpoint::DragPoint;
 use vpin::vpx::gameitem::light::{Fader, Light, ShadowMode};
 use vpin::vpx::gameitem::vertex2d::Vertex2D;
 use vpin::vpx::gameitem::wall::Wall;
+use vpin::vpx::latin1::Latin1String;
 use vpin::vpx::material::Material;
 use vpin::vpx::units::mm_to_vpu;
 
@@ -28,8 +29,8 @@ fn wall_segment(name: &str, x1: f32, y1: f32, x2: f32, y2: f32, material: &str) 
     Wall {
         name: name.to_string(),
         height_top: 50.0,
-        top_material: material.to_string(),
-        side_material: material.to_string(),
+        top_material: Latin1String::from_lossy(material),
+        side_material: Latin1String::from_lossy(material),
         drag_points: vec![
             DragPoint {
                 x: x1,
@@ -106,12 +107,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut vpx = VPX::default();
 
     let mut playfield_mat = Material::default();
-    playfield_mat.name = "Playfield".to_string();
+    playfield_mat.name = Latin1String::from_lossy("Playfield");
     playfield_mat.base_color = Color::from_rgb(0x202020);
 
     // Wood-colored wall material
     let mut wall_mat = Material::default();
-    wall_mat.name = "Wood".to_string();
+    wall_mat.name = Latin1String::from_lossy("Wood");
     wall_mat.base_color = Color::from_rgb(0x966F33);
 
     vpx.gamedata.materials = Some(vec![playfield_mat, wall_mat]);

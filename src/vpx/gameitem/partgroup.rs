@@ -2,6 +2,7 @@ use crate::vpx::biff;
 use crate::vpx::biff::{BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::TimerData;
 use crate::vpx::gameitem::vertex2d::Vertex2D;
+use crate::vpx::latin1::Latin1String;
 use log::warn;
 use serde::{Deserialize, Serialize};
 
@@ -303,11 +304,7 @@ pub struct PartGroup {
     /// the file. Editor-only. `None` when the record is absent.
     ///
     /// BIFF tag `LANR`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub editor_layer_name: Option<String>,
+    pub editor_layer_name: Option<Latin1String>,
     /// Whether the group is shown in the editor (the 10.7 layer
     /// visibility, stored per item). Editor-only; has no runtime effect.
     /// `None` when the record is absent.
@@ -349,7 +346,7 @@ struct PartGroupJson {
     player_mode_visibility_mask: Option<u32>,
     is_locked: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    editor_layer_name: Option<String>,
+    editor_layer_name: Option<Latin1String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     editor_layer_visibility: Option<bool>,
 }
@@ -433,7 +430,7 @@ impl BiffRead for PartGroup {
                     part_group.is_locked = reader.get_bool()?;
                 }
                 "LANR" => {
-                    part_group.editor_layer_name = Some(reader.get_string()?);
+                    part_group.editor_layer_name = Some(reader.get_latin1_string()?);
                 }
                 "LVIS" => {
                     part_group.editor_layer_visibility = Some(reader.get_bool()?);
@@ -507,7 +504,7 @@ mod tests {
             space_reference: SpaceReference::Cabinet,
             player_mode_visibility_mask: Some(0x00FF),
             is_locked: true,
-            editor_layer_name: Some("Layer 1".to_string()),
+            editor_layer_name: Some(Latin1String::from_lossy("Layer 1")),
             editor_layer_visibility: Some(true),
         };
 
@@ -531,7 +528,7 @@ mod tests {
             space_reference: SpaceReference::Cabinet,
             player_mode_visibility_mask: Some(0x00FF),
             is_locked: true,
-            editor_layer_name: Some("Layer 1".to_string()),
+            editor_layer_name: Some(Latin1String::from_lossy("Layer 1")),
             editor_layer_visibility: Some(true),
         };
         let json = serde_json::to_value(&part_group).unwrap();

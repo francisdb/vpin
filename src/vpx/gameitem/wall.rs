@@ -2,6 +2,7 @@ use super::dragpoint::DragPoint;
 use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite, BiffWriter};
 use crate::vpx::gameitem::select::impl_shared_attributes;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
+use crate::vpx::latin1::Latin1String;
 use crate::vpx::math::{dequantize_unsigned, quantize_unsigned};
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -55,29 +56,24 @@ pub struct Wall {
     /// Empty for none.
     ///
     /// BIFF tag: `IMAG` (legacy tables use `IMGF`)
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub image: String,
+    pub image: Latin1String,
     /// Name of the texture image mapped onto the side faces of the wall.
     /// Empty for none.
     ///
     /// BIFF tag: `SIMG` (legacy tables use `IMGS`)
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub side_image: String,
+    pub side_image: Latin1String,
     /// Name of the material applied to the side faces of the wall.
     ///
     /// BIFF tag: `SIMA` (legacy tables use `MATR`)
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub side_material: String,
+    pub side_material: Latin1String,
     /// Name of the material applied to the top face of the wall.
     ///
     /// BIFF tag: `TOMA` (legacy tables use `MATP`)
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub top_material: String,
+    pub top_material: Latin1String,
     /// Name of the material used to render the slingshot segments of the wall.
     ///
     /// BIFF tag: `SLMA` (legacy tables use `MATL`)
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub slingshot_material: String,
+    pub slingshot_material: Latin1String,
     /// Height of the bottom edge of the wall above the playfield, in VP units.
     /// Default: `0.0`.
     ///
@@ -184,11 +180,7 @@ pub struct Wall {
     /// on older tables that predate this field.
     ///
     /// BIFF tag: `MAPH` (legacy tables use `PMAT`)
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub physics_material: Option<String>,
+    pub physics_material: Option<Latin1String>,
     /// When `true`, the wall's own `elasticity`, `elasticity_falloff`,
     /// `friction` and `scatter` values are used; when `false`, the named
     /// `physics_material` is used instead. `None` on older tables that predate
@@ -217,11 +209,7 @@ pub struct Wall {
     /// all game items.
     ///
     /// BIFF tag: `LANR`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub editor_layer_name: Option<String>,
+    pub editor_layer_name: Option<Latin1String>,
     /// Whether the item's editor layer is currently visible in the editor.
     /// `None` when absent. Editor-only attribute shared by all game items.
     ///
@@ -231,11 +219,7 @@ pub struct Wall {
     /// `None` when absent. Editor-only attribute shared by all game items.
     ///
     /// BIFF tag: `GRUP`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub part_group_name: Option<String>,
+    pub part_group_name: Option<Latin1String>,
 
     /// The ordered drag points defining the outline (polygon) of the wall on
     /// the playfield.
@@ -258,11 +242,11 @@ struct WallJson {
     /// item's script `_Timer` events. See [`TimerData`].
     pub timer: TimerData,
     threshold: f32,
-    image: String,
-    side_image: String,
-    side_material: String,
-    top_material: String,
-    slingshot_material: String,
+    image: Latin1String,
+    side_image: Latin1String,
+    side_material: Latin1String,
+    top_material: Latin1String,
+    slingshot_material: Latin1String,
     height_bottom: f32,
     height_top: f32,
     name: String,
@@ -281,11 +265,11 @@ struct WallJson {
     disable_lighting_top: Option<f32>,
     disable_lighting_below: Option<f32>,
     is_reflection_enabled: Option<bool>,
-    physics_material: Option<String>,
+    physics_material: Option<Latin1String>,
     overwrite_physics: Option<bool>,
     drag_points: Vec<DragPoint>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    part_group_name: Option<String>,
+    part_group_name: Option<Latin1String>,
 }
 
 impl WallJson {
@@ -463,19 +447,19 @@ impl BiffRead for Wall {
                     wall.threshold = reader.get_f32()?;
                 }
                 "IMGF" => {
-                    wall.image = reader.get_string()?;
+                    wall.image = reader.get_latin1_string()?;
                 }
                 "IMGS" => {
-                    wall.side_image = reader.get_string()?;
+                    wall.side_image = reader.get_latin1_string()?;
                 }
                 "MATR" => {
-                    wall.side_material = reader.get_string()?;
+                    wall.side_material = reader.get_latin1_string()?;
                 }
                 "MATP" => {
-                    wall.top_material = reader.get_string()?;
+                    wall.top_material = reader.get_latin1_string()?;
                 }
                 "MATL" => {
-                    wall.slingshot_material = reader.get_string()?;
+                    wall.slingshot_material = reader.get_latin1_string()?;
                 }
                 "HTBT" => {
                     wall.height_bottom = reader.get_f32()?;
@@ -529,7 +513,7 @@ impl BiffRead for Wall {
                     wall.timer.is_enabled = reader.get_bool()?;
                 }
                 "PMAT" => {
-                    wall.physics_material = Some(reader.get_string()?);
+                    wall.physics_material = Some(reader.get_latin1_string()?);
                 }
                 "ISBS" => {
                     wall.is_bottom_solid = reader.get_bool()?;
@@ -557,25 +541,25 @@ impl BiffRead for Wall {
                     wall.disable_lighting_below = Some(reader.get_f32()?);
                 }
                 "MAPH" => {
-                    wall.physics_material = Some(reader.get_string()?);
+                    wall.physics_material = Some(reader.get_latin1_string()?);
                 }
                 "REEN" => {
                     wall.is_reflection_enabled = Some(reader.get_bool()?);
                 }
                 "IMAG" => {
-                    wall.image = reader.get_string()?;
+                    wall.image = reader.get_latin1_string()?;
                 }
                 "SIMG" => {
-                    wall.side_image = reader.get_string()?;
+                    wall.side_image = reader.get_latin1_string()?;
                 }
                 "SIMA" => {
-                    wall.side_material = reader.get_string()?;
+                    wall.side_material = reader.get_latin1_string()?;
                 }
                 "TOMA" => {
-                    wall.top_material = reader.get_string()?;
+                    wall.top_material = reader.get_latin1_string()?;
                 }
                 "SLMA" => {
-                    wall.slingshot_material = reader.get_string()?;
+                    wall.slingshot_material = reader.get_latin1_string()?;
                 }
                 "HTTP" => {
                     wall.height_top = reader.get_f32()?;

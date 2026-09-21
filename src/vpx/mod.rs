@@ -67,6 +67,8 @@ pub mod image;
 /// Deprecated re-exports of the JSON conversions, which now live next to
 /// the types they convert.
 pub mod jsonmodel;
+/// The string type of the fields whose record is Latin-1.
+pub mod latin1;
 pub(crate) mod le;
 pub mod math;
 /// Value types shared across the format: vertices and strings that

@@ -1,6 +1,7 @@
 use super::vertex2d::Vertex2D;
 use crate::vpx::gameitem::select::impl_shared_attributes;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
+use crate::vpx::latin1::Latin1String;
 use crate::vpx::{
     biff::{self, BiffError, BiffRead, BiffReader, BiffWrite},
     color::Color,
@@ -46,14 +47,12 @@ pub struct Reel {
     /// editor.
     ///
     /// BIFF tag: `IMAG`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub image: String,
+    pub image: Latin1String,
     /// Name of the sound to play for each single-digit click as a reel turns.
     /// Empty or `<None>` means no sound.
     ///
     /// BIFF tag: `SOUN`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub sound: String,
+    pub sound: Latin1String,
     /// Name of this game item.
     ///
     /// BIFF tag: `NAME`
@@ -133,22 +132,14 @@ pub struct Reel {
     /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
     ///
     /// BIFF tag: `LANR`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub editor_layer_name: Option<String>,
+    pub editor_layer_name: Option<Latin1String>,
     /// Whether the legacy editor layer is shown in the editor.
     /// Editor-only; has no runtime effect. `None` when absent.
     ///
     /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub part_group_name: Option<String>,
+    pub part_group_name: Option<Latin1String>,
 }
 impl_shared_attributes!(Reel);
 
@@ -162,8 +153,8 @@ struct ReelJson {
     /// item's script `_Timer` events. See [`TimerData`].
     pub timer: TimerData,
     is_transparent: bool,
-    image: String,
-    sound: String,
+    image: Latin1String,
+    sound: Latin1String,
     name: String,
     width: f32,
     height: f32,
@@ -176,7 +167,7 @@ struct ReelJson {
     is_visible: bool,
     images_per_grid_row: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
-    part_group_name: Option<String>,
+    part_group_name: Option<Latin1String>,
 }
 
 impl ReelJson {
@@ -305,10 +296,10 @@ impl BiffRead for Reel {
                     reel.is_transparent = reader.get_bool()?;
                 }
                 "IMAG" => {
-                    reel.image = reader.get_string()?;
+                    reel.image = reader.get_latin1_string()?;
                 }
                 "SOUN" => {
-                    reel.sound = reader.get_string()?;
+                    reel.sound = reader.get_latin1_string()?;
                 }
                 "NAME" => {
                     reel.name = reader.get_wide_string()?;

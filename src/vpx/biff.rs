@@ -1,3 +1,4 @@
+use crate::vpx::latin1::Latin1String;
 use crate::vpx::model::encode_latin1_lossy;
 use encoding_rs::mem::decode_latin1;
 use log::warn;
@@ -247,6 +248,10 @@ impl<'a> BiffReader<'a> {
     pub fn get_string(&mut self) -> Result<String, BiffError> {
         let size = self.get_u32()? as usize;
         self.get_str(size)
+    }
+
+    pub fn get_latin1_string(&mut self) -> Result<Latin1String, BiffError> {
+        self.get_string().map(Latin1String::from_decoded)
     }
 
     pub fn get_string_no_remaining_update(&mut self) -> Result<String, BiffError> {

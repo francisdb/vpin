@@ -2,6 +2,7 @@ use super::vertex3d::Vertex3D;
 use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::impl_shared_attributes;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
+use crate::vpx::latin1::Latin1String;
 use crate::vpx::math::{dequantize_unsigned, quantize_unsigned};
 use log::warn;
 use serde::{Deserialize, Serialize};
@@ -215,8 +216,7 @@ pub struct HitTarget {
     /// Name of the texture rendered on the target; empty for none.
     ///
     /// BIFF tag `IMAG`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub image: String,
+    pub image: Latin1String,
     /// Shape and kind of the target, see [`TargetType`].
     ///
     /// vpinball default [`TargetType::DropTargetSimple`], which it also
@@ -228,8 +228,7 @@ pub struct HitTarget {
     /// material.
     ///
     /// BIFF tag `MATR`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub material: String,
+    pub material: Latin1String,
     /// Whether the target is rendered.
     ///
     /// An invisible target is not animated either, so a hidden drop target
@@ -388,11 +387,7 @@ pub struct HitTarget {
     /// targets in June 2016 (10.2), older tables lack it.
     ///
     /// BIFF tag `MAPH`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub physics_material: Option<String>,
+    pub physics_material: Option<Latin1String>,
     /// Whether the target's own [`elasticity`](Self::elasticity),
     /// [`elasticity_falloff`](Self::elasticity_falloff),
     /// [`friction`](Self::friction) and [`scatter`](Self::scatter) are used
@@ -424,22 +419,14 @@ pub struct HitTarget {
     /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
     ///
     /// BIFF tag `LANR`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub editor_layer_name: Option<String>,
+    pub editor_layer_name: Option<Latin1String>,
     /// Whether the legacy editor layer is shown in the editor.
     /// Editor-only; has no runtime effect. `None` when absent.
     ///
     /// BIFF tag `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub part_group_name: Option<String>,
+    pub part_group_name: Option<Latin1String>,
 }
 impl_shared_attributes!(HitTarget);
 
@@ -448,10 +435,10 @@ impl Default for HitTarget {
         let position: Vertex3D = Default::default();
         let size = Vertex3D::new(32.0, 32.0, 32.0);
         let rot_z: f32 = 0.0;
-        let image: String = Default::default();
+        let image: Latin1String = Default::default();
         let target_type: TargetType = TargetType::DropTargetSimple;
         let name: String = Default::default();
-        let material: String = Default::default();
+        let material: Latin1String = Default::default();
         let is_visible: bool = true;
         let is_legacy: bool = false;
         let use_hit_event: bool = true;
@@ -470,15 +457,15 @@ impl Default for HitTarget {
         let drop_speed: f32 = 0.5;
         let timer = TimerData::default();
         let raise_delay: Option<u32> = None; //100;
-        let physics_material: Option<String> = None;
+        let physics_material: Option<Latin1String> = None;
         let overwrite_physics: Option<bool> = None; //false;
 
         // these are shared between all items
         let is_locked: bool = false;
         let editor_layer: Option<u32> = None;
-        let editor_layer_name: Option<String> = None;
+        let editor_layer_name: Option<Latin1String> = None;
         let editor_layer_visibility: Option<bool> = None;
-        let part_group_name: Option<String> = None;
+        let part_group_name: Option<Latin1String> = None;
         HitTarget {
             position,
             size,
@@ -521,10 +508,10 @@ struct HitTargetJson {
     position: Vertex3D,
     size: Vertex3D,
     rot_z: f32,
-    image: String,
+    image: Latin1String,
     target_type: TargetType,
     name: String,
-    material: String,
+    material: Latin1String,
     is_visible: bool,
     is_legacy: bool,
     use_hit_event: bool,
@@ -545,10 +532,10 @@ struct HitTargetJson {
     #[serde(flatten)]
     pub timer: TimerData,
     raise_delay: Option<u32>,
-    physics_material: Option<String>,
+    physics_material: Option<Latin1String>,
     overwrite_physics: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    part_group_name: Option<String>,
+    part_group_name: Option<Latin1String>,
 }
 
 impl HitTargetJson {
@@ -663,7 +650,7 @@ impl BiffRead for HitTarget {
                     hit_target.rot_z = reader.get_f32()?;
                 }
                 "IMAG" => {
-                    hit_target.image = reader.get_string()?;
+                    hit_target.image = reader.get_latin1_string()?;
                 }
                 "TRTY" => {
                     hit_target.target_type = reader.get_u32()?.into();
@@ -672,7 +659,7 @@ impl BiffRead for HitTarget {
                     hit_target.name = reader.get_wide_string()?;
                 }
                 "MATR" => {
-                    hit_target.material = reader.get_string()?;
+                    hit_target.material = reader.get_latin1_string()?;
                 }
                 "TVIS" => {
                     hit_target.is_visible = reader.get_bool()?;
@@ -725,7 +712,7 @@ impl BiffRead for HitTarget {
                     hit_target.drop_speed = reader.get_f32()?;
                 }
                 "RADE" => hit_target.raise_delay = Some(reader.get_u32()?),
-                "MAPH" => hit_target.physics_material = Some(reader.get_string()?),
+                "MAPH" => hit_target.physics_material = Some(reader.get_latin1_string()?),
                 "OVPH" => hit_target.overwrite_physics = Some(reader.get_bool()?),
                 _ => {
                     if !hit_target.timer.biff_read_tag(tag_str, reader)?

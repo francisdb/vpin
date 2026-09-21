@@ -2,6 +2,7 @@ use super::dragpoint::DragPoint;
 use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::impl_shared_attributes;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
+use crate::vpx::latin1::Latin1String;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -44,8 +45,7 @@ pub struct Rubber {
     /// Name of the material used to render the rubber.
     ///
     /// BIFF tag: `MATR`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub material: String,
+    pub material: Latin1String,
     /// Name of the rubber, used for referencing in scripts.
     /// Stored as a wide (UTF-16) string.
     ///
@@ -55,8 +55,7 @@ pub struct Rubber {
     /// HDR images (.exr/.hdr) are rejected by the editor for this slot.
     ///
     /// BIFF tag: `IMAG`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub image: String,
+    pub image: Latin1String,
     /// Bounciness of the rubber. Only applied when `overwrite_physics` is true;
     /// otherwise the value from `physics_material` is used instead.
     ///
@@ -143,11 +142,7 @@ pub struct Rubber {
     /// is true (the rubber's own values are used instead).
     ///
     /// BIFF tag: `MAPH`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub physics_material: Option<String>,
+    pub physics_material: Option<Latin1String>,
     /// Whether to use this rubber's own `elasticity`, `elasticity_falloff`,
     /// `friction` and `scatter` instead of those from `physics_material`.
     ///
@@ -172,22 +167,14 @@ pub struct Rubber {
     /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
     ///
     /// BIFF tag: `LANR`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub editor_layer_name: Option<String>,
+    pub editor_layer_name: Option<Latin1String>,
     /// Whether the legacy editor layer is shown in the editor.
     /// Editor-only; has no runtime effect. `None` when absent.
     ///
     /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub part_group_name: Option<String>,
+    pub part_group_name: Option<Latin1String>,
 
     /// Control points defining the shape's path as a sequence of
     /// [`DragPoint`]s (a closed loop for walls, rubbers and flashers).
@@ -201,13 +188,13 @@ struct RubberJson {
     hit_height: Option<f32>,
     thickness: i32,
     hit_event: bool,
-    material: String,
+    material: Latin1String,
     #[serde(flatten)]
     /// Timer state (enabled flag and interval in ms) that drives this
     /// item's script `_Timer` events. See [`TimerData`].
     pub timer: TimerData,
     name: String,
-    image: String,
+    image: Latin1String,
     elasticity: f32,
     elasticity_falloff: f32,
     friction: f32,
@@ -222,11 +209,11 @@ struct RubberJson {
     rot_y: f32,
     rot_z: f32,
     is_reflection_enabled: Option<bool>,
-    physics_material: Option<String>,
+    physics_material: Option<Latin1String>,
     overwrite_physics: Option<bool>,
     drag_points: Vec<DragPoint>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    part_group_name: Option<String>,
+    part_group_name: Option<Latin1String>,
 }
 
 impl RubberJson {
@@ -305,10 +292,10 @@ impl Default for Rubber {
         let hit_height: Option<f32> = None; //25.0;
         let thickness: i32 = 8;
         let hit_event: bool = false;
-        let material: String = Default::default();
+        let material: Latin1String = Default::default();
         let timer = TimerData::default();
         let name: String = Default::default();
-        let image: String = Default::default();
+        let image: Latin1String = Default::default();
         let elasticity: f32 = Default::default();
         let elasticity_falloff: f32 = Default::default();
         let friction: f32 = Default::default();
@@ -322,13 +309,13 @@ impl Default for Rubber {
         let rot_y: f32 = 0.0;
         let rot_z: f32 = 0.0;
         let is_reflection_enabled: Option<bool> = None; //true;
-        let physics_material: Option<String> = None;
+        let physics_material: Option<Latin1String> = None;
         let overwrite_physics: Option<bool> = None; //false;
 
         // these are shared between all items
         let is_locked: bool = false;
         let editor_layer: Option<u32> = None;
-        let editor_layer_name: Option<String> = None;
+        let editor_layer_name: Option<Latin1String> = None;
         let editor_layer_visibility: Option<bool> = None;
 
         let points: Vec<DragPoint> = Default::default();
@@ -405,13 +392,13 @@ impl BiffRead for Rubber {
                     rubber.hit_event = reader.get_bool()?;
                 }
                 "MATR" => {
-                    rubber.material = reader.get_string()?;
+                    rubber.material = reader.get_latin1_string()?;
                 }
                 "NAME" => {
                     rubber.name = reader.get_wide_string()?;
                 }
                 "IMAG" => {
-                    rubber.image = reader.get_string()?;
+                    rubber.image = reader.get_latin1_string()?;
                 }
                 "ELAS" => {
                     rubber.elasticity = reader.get_f32()?;
@@ -453,7 +440,7 @@ impl BiffRead for Rubber {
                     rubber.is_reflection_enabled = Some(reader.get_bool()?);
                 }
                 "MAPH" => {
-                    rubber.physics_material = Some(reader.get_string()?);
+                    rubber.physics_material = Some(reader.get_latin1_string()?);
                 }
                 "OVPH" => {
                     rubber.overwrite_physics = Some(reader.get_bool()?);

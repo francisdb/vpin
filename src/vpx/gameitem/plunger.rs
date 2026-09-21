@@ -2,6 +2,7 @@ use super::vertex2d::Vertex2D;
 use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::impl_shared_attributes;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
+use crate::vpx::latin1::Latin1String;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -247,8 +248,7 @@ pub struct Plunger {
     /// material.
     ///
     /// BIFF tag `MATR`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub material: String,
+    pub material: Latin1String,
     /// Name of the texture rendered on the plunger; empty for none.
     ///
     /// A flat plunger draws it as an animation strip, see
@@ -257,8 +257,7 @@ pub struct Plunger {
     /// the image and the ring and rod in the quarters below it.
     ///
     /// BIFF tag `IMAG`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub image: String,
+    pub image: Latin1String,
     /// Spring strength tying the simulated plunger to a mechanical plunger.
     ///
     /// With [`is_mech_plunger`](Self::is_mech_plunger) set and no script
@@ -342,8 +341,7 @@ pub struct Plunger {
     /// Used to determine the plunger's base height (z position).
     /// If empty, the plunger sits on the playfield.
     /// BIFF tag: SURF
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub surface: String,
+    pub surface: Latin1String,
     /// Name of the plunger, the identifier used from VBScript. Stored as a
     /// UTF-16 string.
     ///
@@ -359,8 +357,7 @@ pub struct Plunger {
     /// `"0 .34; 2 .6; 3 .64; 5 .7; 7 .84; 8 .88; 9 .9; 11 .92; 14 .92; 39 .84"`.
     ///
     /// BIFF tag `TIPS`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub tip_shape: String,
+    pub tip_shape: Latin1String,
     /// Diameter of the rod of a custom plunger, as a fraction of
     /// [`width`](Self::width). vpinball default `0.6`.
     ///
@@ -425,22 +422,14 @@ pub struct Plunger {
     /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
     ///
     /// BIFF tag `LANR`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub editor_layer_name: Option<String>,
+    pub editor_layer_name: Option<Latin1String>,
     /// Whether the legacy editor layer is shown in the editor.
     /// Editor-only; has no runtime effect. `None` when absent.
     ///
     /// BIFF tag `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub part_group_name: Option<String>,
+    pub part_group_name: Option<Latin1String>,
 }
 impl_shared_attributes!(Plunger);
 
@@ -456,8 +445,8 @@ impl Default for Plunger {
             speed_fire: 80.0,
             plunger_type: PlungerType::Modern,
             anim_frames: 1,
-            material: String::default(),
-            image: String::default(),
+            material: Latin1String::default(),
+            image: Latin1String::default(),
             mech_strength: 85.0,
             is_mech_plunger: false,
             auto_plunger: false,
@@ -467,10 +456,11 @@ impl Default for Plunger {
             timer: TimerData::default(),
             is_visible: true,
             is_reflection_enabled: Some(true),
-            surface: String::default(),
+            surface: Latin1String::default(),
             name: String::default(),
-            tip_shape: "0 .34; 2 .6; 3 .64; 5 .7; 7 .84; 8 .88; 9 .9; 11 .92; 14 .92; 39 .84"
-                .to_string(),
+            tip_shape: Latin1String::from_lossy(
+                "0 .34; 2 .6; 3 .64; 5 .7; 7 .84; 8 .88; 9 .9; 11 .92; 14 .92; 39 .84",
+            ),
             rod_diam: 0.6,
             ring_gap: 2.0,
             ring_diam: 0.94,
@@ -499,8 +489,8 @@ struct PlungerJson {
     speed_fire: f32,
     plunger_type: PlungerType,
     anim_frames: u32,
-    material: String,
-    image: String,
+    material: Latin1String,
+    image: Latin1String,
     mech_strength: f32,
     is_mech_plunger: bool,
     auto_plunger: bool,
@@ -511,9 +501,9 @@ struct PlungerJson {
     pub timer: TimerData,
     is_visible: bool,
     is_reflection_enabled: Option<bool>,
-    surface: String,
+    surface: Latin1String,
     name: String,
-    tip_shape: String,
+    tip_shape: Latin1String,
     rod_diam: f32,
     ring_gap: f32,
     ring_diam: f32,
@@ -523,7 +513,7 @@ struct PlungerJson {
     spring_loops: f32,
     spring_end_loops: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
-    part_group_name: Option<String>,
+    part_group_name: Option<Latin1String>,
 }
 
 impl PlungerJson {
@@ -667,10 +657,10 @@ impl BiffRead for Plunger {
                     plunger.anim_frames = reader.get_u32()?;
                 }
                 "MATR" => {
-                    plunger.material = reader.get_string()?;
+                    plunger.material = reader.get_latin1_string()?;
                 }
                 "IMAG" => {
-                    plunger.image = reader.get_string()?;
+                    plunger.image = reader.get_latin1_string()?;
                 }
                 "MEST" => {
                     plunger.mech_strength = reader.get_f32()?;
@@ -697,13 +687,13 @@ impl BiffRead for Plunger {
                     plunger.is_reflection_enabled = Some(reader.get_bool()?);
                 }
                 "SURF" => {
-                    plunger.surface = reader.get_string()?;
+                    plunger.surface = reader.get_latin1_string()?;
                 }
                 "NAME" => {
                     plunger.name = reader.get_wide_string()?;
                 }
                 "TIPS" => {
-                    plunger.tip_shape = reader.get_string()?;
+                    plunger.tip_shape = reader.get_latin1_string()?;
                 }
                 "RODD" => {
                     plunger.rod_diam = reader.get_f32()?;

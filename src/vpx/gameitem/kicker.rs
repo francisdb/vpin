@@ -2,6 +2,7 @@ use super::vertex2d::Vertex2D;
 use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::impl_shared_attributes;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
+use crate::vpx::latin1::Latin1String;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -193,14 +194,12 @@ pub struct Kicker {
     /// selects the default material.
     ///
     /// BIFF tag `MATR`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub material: String,
+    pub material: Latin1String,
     /// Name of the surface (ramp or wall top) this kicker sits on.
     /// Used to determine the kicker's base height (z position).
     /// If empty, the kicker sits on the playfield.
     /// BIFF tag: SURF
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub surface: String,
+    pub surface: Latin1String,
     /// Whether the kicker's collider is active at table start (`Enabled`
     /// in script). A disabled kicker neither captures the ball nor fires
     /// hit events. Default: `true`.
@@ -297,11 +296,7 @@ pub struct Kicker {
     /// follows. `None` when the record is absent.
     ///
     /// BIFF tag `LANR`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub editor_layer_name: Option<String>,
+    pub editor_layer_name: Option<Latin1String>,
     /// Whether the item is shown in the editor (the 10.7 layer visibility,
     /// stored per item). Editor-only; has no runtime effect. `None` when
     /// the record is absent.
@@ -316,11 +311,7 @@ pub struct Kicker {
     /// is not in a group).
     ///
     /// BIFF tag `GRUP`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub part_group_name: Option<String>,
+    pub part_group_name: Option<Latin1String>,
 }
 impl_shared_attributes!(Kicker);
 
@@ -330,8 +321,8 @@ struct KickerJson {
     radius: f32,
     #[serde(flatten)]
     pub timer: TimerData,
-    material: String,
-    surface: String,
+    material: Latin1String,
+    surface: Latin1String,
     is_enabled: bool,
     name: String,
     kicker_type: KickerType,
@@ -342,7 +333,7 @@ struct KickerJson {
     fall_through: bool,
     legacy_mode: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    part_group_name: Option<String>,
+    part_group_name: Option<Latin1String>,
 }
 
 impl KickerJson {
@@ -454,10 +445,10 @@ impl BiffRead for Kicker {
                     kicker.radius = reader.get_f32()?;
                 }
                 "MATR" => {
-                    kicker.material = reader.get_string()?;
+                    kicker.material = reader.get_latin1_string()?;
                 }
                 "SURF" => {
-                    kicker.surface = reader.get_string()?;
+                    kicker.surface = reader.get_latin1_string()?;
                 }
                 "EBLD" => {
                     kicker.is_enabled = reader.get_bool()?;

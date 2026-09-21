@@ -559,9 +559,9 @@ fn write_primitive<O: ObjWriter<f32>, M: MtlWriter<f32>>(
         let t = if primitive.image.is_empty() {
             None
         } else {
-            Some(primitive.image.clone())
+            Some(primitive.image.to_string())
         };
-        (primitive.material.clone(), t)
+        (primitive.material.to_string(), t)
     };
 
     write_block(
@@ -642,7 +642,7 @@ fn write_wall<O: ObjWriter<f32>, M: MtlWriter<f32>>(
             let (material_name, texture_name) = if wall.image.is_empty() {
                 ("none".to_string(), None)
             } else {
-                (wall.image.clone(), Some(wall.image.clone()))
+                (wall.image.to_string(), Some(wall.image.to_string()))
             };
             write_block(
                 obj,
@@ -661,7 +661,7 @@ fn write_wall<O: ObjWriter<f32>, M: MtlWriter<f32>>(
             )?;
         }
         (false, true, _, Some((vertices, indices))) => {
-            let material_name = wall.side_material.clone();
+            let material_name = wall.side_material.to_string();
             // VPinball's side-only branch (surface.cpp:734) drops the
             // image like the top+side branch. Pipe `side_image`
             // through so DCC tools see the texture in textured mode;
@@ -704,7 +704,7 @@ fn write_wall<O: ObjWriter<f32>, M: MtlWriter<f32>>(
             //   otherwise the side faces would render with the top's
             //   texture stretched across their UVs.
             if state.extract_textures {
-                let side_material = wall.side_material.clone();
+                let side_material = wall.side_material.to_string();
                 let side_texture = if wall.side_image.is_empty() {
                     None
                 } else {
@@ -726,7 +726,7 @@ fn write_wall<O: ObjWriter<f32>, M: MtlWriter<f32>>(
                     },
                 )?;
 
-                let top_material = wall.top_material.clone();
+                let top_material = wall.top_material.to_string();
                 let top_texture = if wall.image.is_empty() {
                     None
                 } else {
@@ -757,7 +757,7 @@ fn write_wall<O: ObjWriter<f32>, M: MtlWriter<f32>>(
                     i1: f.i1 + side_count,
                     i2: f.i2 + side_count,
                 }));
-                let material_name = wall.top_material.clone();
+                let material_name = wall.top_material.to_string();
                 write_block(
                     obj,
                     mtl,
@@ -802,11 +802,11 @@ fn write_ramp<O: ObjWriter<f32>, M: MtlWriter<f32>>(
     ) else {
         return Ok(());
     };
-    let material_name = ramp.material.clone();
+    let material_name = ramp.material.to_string();
     let texture_name = if ramp.image.is_empty() {
         None
     } else {
-        Some(ramp.image.clone())
+        Some(ramp.image.to_string())
     };
     write_block(
         obj,
@@ -835,7 +835,7 @@ fn write_rubber<O: ObjWriter<f32>, M: MtlWriter<f32>>(
     let Some((vertices, indices, center)) = build_rubber_mesh(rubber, state.detail_level) else {
         return Ok(());
     };
-    let material_name = rubber.material.clone();
+    let material_name = rubber.material.to_string();
     write_block(
         obj,
         mtl,
@@ -865,7 +865,7 @@ fn write_bumper<O: ObjWriter<f32>, M: MtlWriter<f32>>(
     let meshes = build_bumper_meshes(bumper);
 
     if let Some((vertices, indices)) = meshes.base {
-        let material_name = bumper.base_material.clone();
+        let material_name = bumper.base_material.to_string();
         write_block(
             obj,
             mtl,
@@ -903,7 +903,7 @@ fn write_bumper<O: ObjWriter<f32>, M: MtlWriter<f32>>(
         )?;
     }
     if let Some((vertices, indices)) = meshes.socket {
-        let material_name = bumper.socket_material.clone();
+        let material_name = bumper.socket_material.to_string();
         write_block(
             obj,
             mtl,
@@ -921,7 +921,7 @@ fn write_bumper<O: ObjWriter<f32>, M: MtlWriter<f32>>(
         )?;
     }
     if let Some((vertices, indices)) = meshes.cap {
-        let material_name = bumper.cap_material.clone();
+        let material_name = bumper.cap_material.to_string();
         write_block(
             obj,
             mtl,
@@ -1013,7 +1013,7 @@ fn write_flipper<O: ObjWriter<f32>, M: MtlWriter<f32>>(
     let translation = meshes.center;
 
     let (base_vertices, base_indices) = meshes.base;
-    let base_material = flipper.material.clone();
+    let base_material = flipper.material.to_string();
     let base_texture = flipper.image.as_ref().filter(|s| !s.is_empty()).cloned();
     write_block(
         obj,
@@ -1032,7 +1032,7 @@ fn write_flipper<O: ObjWriter<f32>, M: MtlWriter<f32>>(
     )?;
 
     if let Some((rubber_vertices, rubber_indices)) = meshes.rubber {
-        let rubber_material = flipper.rubber_material.clone();
+        let rubber_material = flipper.rubber_material.to_string();
         write_block(
             obj,
             mtl,
@@ -1065,7 +1065,7 @@ fn write_gate<O: ObjWriter<f32>, M: MtlWriter<f32>>(
     let Some(meshes) = build_gate_meshes_unchecked(gate) else {
         return Ok(());
     };
-    let material_name = gate.material.clone();
+    let material_name = gate.material.to_string();
     if let Some((vertices, indices)) = meshes.bracket {
         write_block(
             obj,
@@ -1117,7 +1117,7 @@ fn write_kicker<O: ObjWriter<f32>, M: MtlWriter<f32>>(
     let surface_height = state.surface_height(&kicker.surface, kicker.center.x, kicker.center.y);
     let translation = Vec3::new(kicker.center.x, kicker.center.y, surface_height);
     let meshes = build_kicker_meshes(kicker);
-    let material_name = kicker.material.clone();
+    let material_name = kicker.material.to_string();
     if let Some((vertices, indices)) = meshes.plate {
         write_block(
             obj,
@@ -1170,7 +1170,7 @@ fn write_spinner<O: ObjWriter<f32>, M: MtlWriter<f32>>(
         surface_height + spinner.height,
     );
     let meshes = build_spinner_meshes(spinner);
-    let material_name = spinner.material.clone();
+    let material_name = spinner.material.to_string();
     if let Some((vertices, indices)) = meshes.bracket {
         // VPinball's `Spinner::ExportMesh` (spinner.cpp:273) emits
         // `WriteMaterial(m_szMaterial)` and `UseTexture(m_szMaterial)`
@@ -1224,11 +1224,11 @@ fn write_hittarget<O: ObjWriter<f32>, M: MtlWriter<f32>>(
         return Ok(());
     };
     let translation = Vec3::new(target.position.x, target.position.y, target.position.z);
-    let material_name = target.material.clone();
+    let material_name = target.material.to_string();
     let texture_name = if target.image.is_empty() {
         None
     } else {
-        Some(target.image.clone())
+        Some(target.image.to_string())
     };
     write_block(
         obj,
@@ -1259,7 +1259,7 @@ fn write_trigger<O: ObjWriter<f32>, M: MtlWriter<f32>>(
     let Some((vertices, indices)) = build_trigger_mesh(trigger) else {
         return Ok(());
     };
-    let material_name = trigger.material.clone();
+    let material_name = trigger.material.to_string();
     write_block(
         obj,
         mtl,

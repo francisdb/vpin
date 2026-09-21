@@ -19,6 +19,7 @@ use super::gameitem::GameItemEnum;
 use super::gameitem::light::Fader;
 use crate::vpx::gameitem::MAX_NAME_LENGTH;
 use crate::vpx::gameitem::textbox::TextBox;
+use crate::vpx::latin1::Latin1String;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
@@ -2900,7 +2901,7 @@ fn item_references(item: &GameItemEnum) -> References<'_> {
 fn push_optional<'a>(
     refs: &mut Vec<(&'static str, &'a str)>,
     field: &'static str,
-    value: &'a Option<String>,
+    value: &'a Option<Latin1String>,
 ) {
     if let Some(value) = value {
         refs.push((field, value));
@@ -2910,7 +2911,7 @@ fn push_optional<'a>(
 fn push_optional_image<'a>(
     refs: &mut Vec<(&'static str, &'a str)>,
     field: &'static str,
-    value: &'a Option<String>,
+    value: &'a Option<Latin1String>,
 ) {
     if let Some(value) = value {
         refs.push((field, value));
@@ -2956,7 +2957,7 @@ mod tests {
                     Default::default(),
                     400,
                     120000,
-                    "Arial".to_string(),
+                    Latin1String::from_lossy("Arial"),
                 );
             }
         }
@@ -2976,13 +2977,13 @@ mod tests {
             })
             .unwrap_or_default();
         if let Some(materials) = &mut vpx.gamedata.materials {
-            materials.retain(|material| !unused.contains(&material.name));
+            materials.retain(|material| !unused.iter().any(|name| material.name == *name));
         }
         vpx.gamedata
             .materials_old
-            .retain(|material| !unused.contains(&material.name));
+            .retain(|material| !unused.iter().any(|name| material.name == *name));
         if let Some(physics) = &mut vpx.gamedata.materials_physics_old {
-            physics.retain(|material| !unused.contains(&material.name));
+            physics.retain(|material| !unused.iter().any(|name| material.name == *name));
         }
         vpx.gamedata.materials_size = vpx.gamedata.materials_old.len() as u32;
         vpx
@@ -3388,7 +3389,7 @@ mod tests {
         vpx.gamedata.materials_old = names
             .iter()
             .map(|name| SaveMaterial {
-                name: name.to_string(),
+                name: Latin1String::from_lossy(name),
                 ..Default::default()
             })
             .collect();
@@ -3397,7 +3398,7 @@ mod tests {
                 .iter()
                 .map(|name| {
                     let mut material = Material::default();
-                    material.name = name.to_string();
+                    material.name = Latin1String::from_lossy(name);
                     material
                 })
                 .collect(),
@@ -3670,7 +3671,7 @@ mod tests {
             image("flagged", 255, Some(false)),
         ];
         let mut clear = crate::vpx::material::Material::default();
-        clear.name = "Clear".to_string();
+        clear.name = Latin1String::from_lossy("Clear");
         clear.opacity_active = true;
         clear.opacity = 0.5;
         vpx.gamedata
@@ -3680,7 +3681,7 @@ mod tests {
         vpx.gameitems = vec![
             translucent("Bare"),
             Primitive {
-                image: "Solid".to_string(),
+                image: Latin1String::from_lossy("Solid"),
                 ..translucent("Textured")
             },
             Primitive {
@@ -3696,15 +3697,15 @@ mod tests {
                 ..translucent("Hidden")
             },
             Primitive {
-                material: "clear".to_string(),
+                material: Latin1String::from_lossy("clear"),
                 ..translucent("Glass")
             },
             Primitive {
-                image: "cutout".to_string(),
+                image: Latin1String::from_lossy("cutout"),
                 ..translucent("Cutout")
             },
             Primitive {
-                image: "flagged".to_string(),
+                image: Latin1String::from_lossy("flagged"),
                 ..translucent("Flagged")
             },
         ]
@@ -3731,14 +3732,14 @@ mod tests {
         use crate::vpx::gameitem::primitive::Primitive;
         let mut vpx = clean_vpx();
         let mut plastic = crate::vpx::material::Material::default();
-        plastic.name = "Plastic".to_string();
+        plastic.name = Latin1String::from_lossy("Plastic");
         vpx.gamedata
             .materials
             .get_or_insert_with(Vec::new)
             .push(plastic);
         vpx.gameitems = vec![GameItemEnum::Primitive(Box::new(Primitive {
             name: "Ramp".to_string(),
-            material: "Plastic".to_string(),
+            material: Latin1String::from_lossy("Plastic"),
             disable_lighting_below: Some(0.5),
             ..Primitive::default()
         }))];
@@ -3856,7 +3857,7 @@ mod tests {
                 Default::default(),
                 400,
                 120000,
-                "advanced led board-7".to_string(),
+                Latin1String::from_lossy("advanced led board-7"),
             ),
             ..TextBox::default()
         };
@@ -3888,14 +3889,14 @@ mod tests {
         let textbox = |name: &str, text: &str, is_dmd: Option<bool>| {
             GameItemEnum::TextBox(TextBox {
                 name: name.to_string(),
-                text: text.to_string(),
+                text: Latin1String::from_lossy(text),
                 is_dmd,
                 font: Font::new(
                     0,
                     Default::default(),
                     700,
                     180000,
-                    "Lucida Sans Unicode".to_string(),
+                    Latin1String::from_lossy("Lucida Sans Unicode"),
                 ),
                 ..TextBox::default()
             })
@@ -3931,7 +3932,13 @@ mod tests {
         let textbox = |name: &str, font: &str| {
             GameItemEnum::TextBox(TextBox {
                 name: name.to_string(),
-                font: Font::new(0, Default::default(), 400, 120000, font.to_string()),
+                font: Font::new(
+                    0,
+                    Default::default(),
+                    400,
+                    120000,
+                    Latin1String::from_lossy(font),
+                ),
                 ..TextBox::default()
             })
         };
@@ -4162,7 +4169,7 @@ mod tests {
         vpx.gamedata.sounds_size = 2;
         let material = |name: &str| {
             let mut material = crate::vpx::material::Material::default();
-            material.name = name.to_string();
+            material.name = Latin1String::from_lossy(name);
             material
         };
         vpx.gamedata.materials = Some(vec![

@@ -1,5 +1,6 @@
 use super::vertex3d::Vertex3D;
 use crate::vpx::gameitem::select::WriteSharedAttributes;
+use crate::vpx::latin1::Latin1String;
 
 use crate::vpx::expanded::WriteError;
 use crate::vpx::math::{dequantize_unsigned, quantize_unsigned};
@@ -76,18 +77,13 @@ pub struct Primitive {
     /// name (case-insensitive). Empty string means "no image".
     ///
     /// BIFF tag: `IMAG`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub image: String,
+    pub image: Latin1String,
 
     /// Normal-map texture name; references an entry in `vpx.images`.
     /// `None` for tables saved before normal maps were added.
     ///
     /// BIFF tag: `NRMA`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub normal_map: Option<String>,
+    pub normal_map: Option<Latin1String>,
 
     /// Polygon side count for the procedural mesh used when
     /// `use_3d_mesh = false`. Ignored when a 3D mesh is loaded.
@@ -102,8 +98,7 @@ pub struct Primitive {
     /// dummy material.
     ///
     /// BIFF tag: `MATR`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub material: String,
+    pub material: Latin1String,
 
     /// Side colour shown in the vpinball editor preview only -
     /// runtime rendering uses the material/texture, not this field.
@@ -251,11 +246,7 @@ pub struct Primitive {
     /// `None` means "no override".
     ///
     /// BIFF tag: `MAPH`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub physics_material: Option<String>,
+    pub physics_material: Option<Latin1String>,
 
     /// Switch between the in-place physics fields (`elasticity`,
     /// `friction`, ...) and the named `physics_material` override.
@@ -295,11 +286,7 @@ pub struct Primitive {
     /// the actual geometry lives in the M3CX/M3CI chunks below.
     ///
     /// BIFF tag: `M3DN`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub mesh_file_name: Option<String>,
+    pub mesh_file_name: Option<Latin1String>,
 
     /// Vertex count of the loaded 3D mesh. Should equal
     /// `compressed_vertices_data` decompressed length / 32 (vertex
@@ -398,21 +385,13 @@ pub struct Primitive {
     /// `vpx.images`.
     ///
     /// BIFF tag: `LMAP` (added in 10.8)
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub light_map: Option<String>,
+    pub light_map: Option<Latin1String>,
 
     /// Name of a reflection probe defined in the table; see
     /// `vpx.gamedata.reflection_probes`.
     ///
     /// BIFF tag: `REFL` (added in 10.8)
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub reflection_probe: Option<String>,
+    pub reflection_probe: Option<Latin1String>,
 
     /// Reflection probe contribution, 0..1.
     ///
@@ -422,11 +401,7 @@ pub struct Primitive {
     /// Name of a refraction probe defined in the table.
     ///
     /// BIFF tag: `REFR` (added in 10.8)
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub refraction_probe: Option<String>,
+    pub refraction_probe: Option<Latin1String>,
 
     /// Effective refraction thickness in VPU; controls how much the
     /// background is offset behind the primitive.
@@ -454,11 +429,7 @@ pub struct Primitive {
     /// only; no runtime effect.
     ///
     /// BIFF tag: `LANR`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub editor_layer_name: Option<String>,
+    pub editor_layer_name: Option<Latin1String>,
 
     /// Editor-only visibility toggle for this item's layer. Controls
     /// whether the item is shown in the vpinball editor, not at runtime.
@@ -472,11 +443,7 @@ pub struct Primitive {
     /// organization only; no runtime effect. Added in 10.8.1.
     ///
     /// BIFF tag: `GRUP`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub part_group_name: Option<String>,
+    pub part_group_name: Option<Latin1String>,
 }
 impl_shared_attributes!(Primitive);
 
@@ -552,11 +519,11 @@ struct PrimitiveJson {
     position: Vertex3D,
     size: Vertex3D,
     rot_and_tra: [f32; 9],
-    image: String,
-    normal_map: Option<String>,
+    image: Latin1String,
+    normal_map: Option<Latin1String>,
     sides: u32,
     name: String,
-    material: String,
+    material: Latin1String,
     side_color: Color,
     is_visible: bool,
     draw_textures_inside: bool,
@@ -578,13 +545,13 @@ struct PrimitiveJson {
     disable_lighting_below: Option<f32>,
     is_reflection_enabled: Option<bool>,
     backfaces_enabled: Option<bool>,
-    physics_material: Option<String>,
+    physics_material: Option<Latin1String>,
     overwrite_physics: Option<bool>,
     display_texture: Option<bool>,
     object_space_normal_map: Option<bool>,
     min_aa_bound: Option<Vertex3D>,
     max_aa_bound: Option<Vertex3D>,
-    mesh_file_name: Option<String>,
+    mesh_file_name: Option<Latin1String>,
     /// The file stored the mesh uncompressed, as vpinball builds from
     /// before 2015 did, and assembling writes it back that way
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -594,13 +561,13 @@ struct PrimitiveJson {
     use_depth_mask: Option<bool>,
     alpha: Option<f32>,
     color: Option<Color>,
-    light_map: Option<String>,
-    reflection_probe: Option<String>,
+    light_map: Option<Latin1String>,
+    reflection_probe: Option<Latin1String>,
     reflection_strength: Option<f32>,
-    refraction_probe: Option<String>,
+    refraction_probe: Option<Latin1String>,
     refraction_thickness: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    part_group_name: Option<String>,
+    part_group_name: Option<Latin1String>,
 }
 
 /// A wrapper for a vertex that includes both the original encoded data and the decoded vertex.
@@ -946,10 +913,10 @@ impl BiffRead for Primitive {
                     primitive.rot_and_tra[8] = reader.get_f32()?;
                 }
                 "IMAG" => {
-                    primitive.image = reader.get_string()?;
+                    primitive.image = reader.get_latin1_string()?;
                 }
                 "NRMA" => {
-                    primitive.normal_map = Some(reader.get_string()?);
+                    primitive.normal_map = Some(reader.get_latin1_string()?);
                 }
                 "SIDS" => {
                     primitive.sides = reader.get_u32()?;
@@ -958,7 +925,7 @@ impl BiffRead for Primitive {
                     primitive.name = reader.get_wide_string()?;
                 }
                 "MATR" => {
-                    primitive.material = reader.get_string()?;
+                    primitive.material = reader.get_latin1_string()?;
                 }
                 "SCOL" => {
                     primitive.side_color = Color::biff_read(reader)?;
@@ -1023,7 +990,7 @@ impl BiffRead for Primitive {
                     primitive.backfaces_enabled = Some(reader.get_bool()?);
                 }
                 "MAPH" => {
-                    primitive.physics_material = Some(reader.get_string()?);
+                    primitive.physics_material = Some(reader.get_latin1_string()?);
                 }
                 "OVPH" => {
                     primitive.overwrite_physics = Some(reader.get_bool()?);
@@ -1041,7 +1008,7 @@ impl BiffRead for Primitive {
                     primitive.max_aa_bound = Some(Vertex3D::read_unpadded(reader)?);
                 }
                 "M3DN" => {
-                    primitive.mesh_file_name = Some(reader.get_string()?);
+                    primitive.mesh_file_name = Some(reader.get_latin1_string()?);
                 }
                 "M3VN" => {
                     primitive.num_vertices = Some(reader.get_u32()?);
@@ -1108,16 +1075,16 @@ impl BiffRead for Primitive {
                     primitive.color = Some(Color::biff_read(reader)?);
                 }
                 "LMAP" => {
-                    primitive.light_map = Some(reader.get_string()?);
+                    primitive.light_map = Some(reader.get_latin1_string()?);
                 }
                 "REFL" => {
-                    primitive.reflection_probe = Some(reader.get_string()?);
+                    primitive.reflection_probe = Some(reader.get_latin1_string()?);
                 }
                 "RSTR" => {
                     primitive.reflection_strength = Some(reader.get_f32()?);
                 }
                 "REFR" => {
-                    primitive.refraction_probe = Some(reader.get_string()?);
+                    primitive.refraction_probe = Some(reader.get_latin1_string()?);
                 }
                 "RTHI" => {
                     primitive.refraction_thickness = Some(reader.get_f32()?);

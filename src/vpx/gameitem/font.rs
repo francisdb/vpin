@@ -1,4 +1,5 @@
 use crate::vpx::biff::{BiffError, BiffRead, BiffReader, BiffWrite, BiffWriter};
+use crate::vpx::latin1::Latin1String;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -216,8 +217,7 @@ pub struct Font {
     other_attributes: u8,
     weight: u16,
     size: u32,
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    name: String,
+    name: Latin1String,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -233,7 +233,7 @@ pub(crate) struct FontJson {
     other_attributes: Option<u8>,
     weight: u16,
     size: u32,
-    name: String,
+    name: Latin1String,
 }
 impl FontJson {
     pub fn from_font(font: &Font) -> Self {
@@ -301,7 +301,7 @@ impl Font {
         style: HashSet<FontStyle>,
         weight: u16,
         size: u32,
-        name: String,
+        name: Latin1String,
     ) -> Self {
         Self {
             version: EXPECTED_FONTDESC_VERSION,
@@ -349,7 +349,7 @@ impl Default for Font {
             other_attributes: 0,
             weight: 0,
             size: 400,
-            name: "Arial".to_string(),
+            name: Latin1String::from_lossy("Arial"),
         }
     }
 }
@@ -369,7 +369,8 @@ impl BiffRead for Font {
         let weight = reader.get_u16_no_remaining_update()?;
         let size = reader.get_u32_no_remaining_update()?;
         let name_len = reader.get_u8_no_remaining_update()?;
-        let name = reader.get_str_no_remaining_update(name_len as usize)?;
+        let name =
+            Latin1String::from_decoded(reader.get_str_no_remaining_update(name_len as usize)?);
         Ok(Font {
             version,
             charset,
@@ -420,7 +421,7 @@ mod test {
             HashSet::from([FontStyle::Underline, FontStyle::Italic]),
             400,
             120000,
-            "Arial".to_string(),
+            Latin1String::from_lossy("Arial"),
         );
         let debug = format!("{font:?}");
         assert!(debug.contains("style: {Italic, Underline}"), "{debug}");
@@ -455,7 +456,7 @@ mod test {
             other_attributes: 0,
             weight: 100,
             size: 12,
-            name: "Wingdings 3".to_string(),
+            name: Latin1String::from_lossy("Wingdings 3"),
         };
         let mut writer = BiffWriter::new();
         Font::biff_write(&font, &mut writer);
@@ -486,7 +487,7 @@ mod test {
             HashSet::from([FontStyle::Italic]),
             700,
             120000,
-            "Arial".to_string(),
+            Latin1String::from_lossy("Arial"),
         );
         assert_eq!(written_attributes(&italic), 0x02);
         let normal = Font::new(
@@ -494,7 +495,7 @@ mod test {
             HashSet::from([FontStyle::Normal]),
             400,
             120000,
-            "Arial".to_string(),
+            Latin1String::from_lossy("Arial"),
         );
         assert_eq!(written_attributes(&normal), 0x00);
     }
@@ -534,7 +535,7 @@ mod test {
             HashSet::from([FontStyle::Bold]),
             700,
             120000,
-            "Arial".to_string(),
+            Latin1String::from_lossy("Arial"),
         );
         assert_eq!(written_attributes(&bold), 0x02);
     }

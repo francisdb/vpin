@@ -160,6 +160,7 @@ pub fn build_decal_mesh(decal: &Decal) -> Option<(Vec<VertexWrapper>, Vec<VpxFac
 mod tests {
     use super::*;
     use crate::vpx::gameitem::vertex2d::Vertex2D;
+    use crate::vpx::latin1::Latin1String;
 
     fn create_test_decal(decal_type: DecalType) -> Decal {
         Decal {
@@ -168,7 +169,7 @@ mod tests {
             height: 30.0,
             rotation: 0.0,
             decal_type,
-            image: "test_image".to_string(),
+            image: Latin1String::from_lossy("test_image"),
             name: "TestDecal".to_string(),
             ..Default::default()
         }
@@ -195,7 +196,7 @@ mod tests {
     #[test]
     fn test_image_decal_without_image_returns_none() {
         let mut decal = create_test_decal(DecalType::Image);
-        decal.image = String::new();
+        decal.image = Latin1String::new();
         let result = build_decal_mesh(&decal);
         assert!(result.is_none());
     }

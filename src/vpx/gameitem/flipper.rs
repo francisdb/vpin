@@ -2,6 +2,7 @@ use super::{GameItem, vertex2d::Vertex2D};
 use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::impl_shared_attributes;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
+use crate::vpx::latin1::Latin1String;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -118,22 +119,19 @@ pub struct Flipper {
     /// VPinball: `m_szSurface` (COM: `Surface`)
     ///
     /// BIFF tag: `SURF`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub surface: String,
+    pub surface: Latin1String,
     /// Name of the material applied to the flipper body.
     ///
     /// VPinball: `m_szMaterial` (COM: `Material`)
     ///
     /// BIFF tag: `MATR`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub material: String,
+    pub material: Latin1String,
     /// Name of the material applied to the rubber ring on the flipper.
     ///
     /// VPinball: `m_szRubberMaterial` (COM: `RubberMaterial`)
     ///
     /// BIFF tag: `RUMA`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub rubber_material: String,
+    pub rubber_material: Latin1String,
     /// Rubber thickness as integer. Deprecated in favor of `rubber_thickness` (float).
     /// Kept for backwards compatibility with older table files.
     ///
@@ -313,11 +311,7 @@ pub struct Flipper {
     /// VPinball: `m_szImage` inherited from `BaseProperty` (COM: `Image`)
     ///
     /// BIFF tag: `IMAG` (was missing in 10.01)
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub image: Option<String>,
+    pub image: Option<Latin1String>,
     /// Whether this flipper appears in playfield reflections.
     ///
     /// ## Default
@@ -348,22 +342,14 @@ pub struct Flipper {
     /// `"Layer_{editor_layer + 1}"` when unset. `None` when absent.
     ///
     /// BIFF tag: `LANR`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub editor_layer_name: Option<String>,
+    pub editor_layer_name: Option<Latin1String>,
     /// Whether the legacy editor layer is visible in the editor. `None` when
     /// absent. Editor-only; has no effect at runtime.
     ///
     /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub part_group_name: Option<String>,
+    pub part_group_name: Option<Latin1String>,
 }
 impl_shared_attributes!(Flipper);
 
@@ -381,10 +367,10 @@ pub(crate) struct FlipperJson {
     mass: f32,
     #[serde(flatten)]
     timer: TimerData,
-    surface: String,
-    material: String,
+    surface: Latin1String,
+    material: Latin1String,
     name: String,
-    rubber_material: String,
+    rubber_material: Latin1String,
     rubber_thickness_int: u32,
     rubber_thickness: Option<f32>,
     rubber_height_int: u32,
@@ -403,10 +389,10 @@ pub(crate) struct FlipperJson {
     is_visible: bool,
     is_enabled: bool,
     height: f32,
-    image: Option<String>,
+    image: Option<Latin1String>,
     is_reflection_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    part_group_name: Option<String>,
+    part_group_name: Option<Latin1String>,
 }
 
 impl FlipperJson {
@@ -537,10 +523,10 @@ impl Default for Flipper {
             override_physics: 0,
             mass: 1.0,
             timer: TimerData::default(),
-            surface: String::default(),
-            material: String::default(),
+            surface: Latin1String::default(),
+            material: Latin1String::default(),
             name: String::default(),
-            rubber_material: String::default(),
+            rubber_material: Latin1String::default(),
             rubber_thickness_int: 0,
             rubber_thickness: None,
             rubber_height_int: 0,
@@ -605,16 +591,16 @@ impl BiffRead for Flipper {
                     flipper.mass = reader.get_f32()?;
                 }
                 "SURF" => {
-                    flipper.surface = reader.get_string()?;
+                    flipper.surface = reader.get_latin1_string()?;
                 }
                 "MATR" => {
-                    flipper.material = reader.get_string()?;
+                    flipper.material = reader.get_latin1_string()?;
                 }
                 "NAME" => {
                     flipper.name = reader.get_wide_string()?;
                 }
                 "RUMA" => {
-                    flipper.rubber_material = reader.get_string()?;
+                    flipper.rubber_material = reader.get_latin1_string()?;
                 }
                 "RTHK" => {
                     flipper.rubber_thickness_int = reader.get_u32()?;
@@ -671,7 +657,7 @@ impl BiffRead for Flipper {
                     flipper.height = reader.get_f32()?;
                 }
                 "IMAG" => {
-                    flipper.image = Some(reader.get_string()?);
+                    flipper.image = Some(reader.get_latin1_string()?);
                 }
                 "REEN" => {
                     flipper.is_reflection_enabled = Some(reader.get_bool()?);
@@ -776,10 +762,10 @@ mod tests {
                 is_enabled: false,
                 interval: 0,
             },
-            surface: String::from("test surface"),
-            material: String::from("test material"),
+            surface: Latin1String::from_lossy("test surface"),
+            material: Latin1String::from_lossy("test material"),
             name: String::from("test name"),
-            rubber_material: String::from("test rubber material"),
+            rubber_material: Latin1String::from_lossy("test rubber material"),
             rubber_thickness_int: 0,
             rubber_thickness: Some(7.0),
             rubber_height_int: 0,
@@ -798,13 +784,13 @@ mod tests {
             is_visible: true,
             is_enabled: true,
             height: 50.0,
-            image: Some(String::from("test image")),
+            image: Some(Latin1String::from_lossy("test image")),
             is_reflection_enabled: Some(true),
             is_locked: false,
             editor_layer: Some(123),
-            editor_layer_name: Some(String::from("test editor layer name")),
+            editor_layer_name: Some(Latin1String::from_lossy("test editor layer name")),
             editor_layer_visibility: Some(true),
-            part_group_name: Some(String::from("test part group name")),
+            part_group_name: Some(Latin1String::from_lossy("test part group name")),
         };
         let mut writer = BiffWriter::new();
         Flipper::biff_write(&flipper, &mut writer);

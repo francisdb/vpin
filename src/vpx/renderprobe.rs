@@ -1,5 +1,6 @@
 use crate::vpx::biff::{BiffError, BiffRead, BiffWrite, BiffWriter};
 use crate::vpx::gameitem::vertex4d::Vertex4D;
+use crate::vpx::latin1::Latin1String;
 use log::warn;
 use serde::{Deserialize, Serialize};
 
@@ -292,7 +293,7 @@ mod reflection_mode_open_enum_tests {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RenderProbe {
     pub(crate) type_: RenderProbeType,
-    pub(crate) name: String,
+    pub(crate) name: Latin1String,
     roughness: u32,
     /// Old stuff, not used anymore, but still in the file
     roughness_clear: Option<u32>,
@@ -320,7 +321,7 @@ pub struct RenderProbeWithGarbage {
 pub(crate) struct RenderProbeJson {
     #[serde(rename = "type", alias = "type_")]
     type_: RenderProbeType,
-    name: String,
+    name: Latin1String,
     roughness: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     roughness_clear: Option<u32>,
@@ -373,7 +374,7 @@ impl Default for RenderProbe {
     fn default() -> Self {
         RenderProbe {
             type_: RenderProbeType::PlaneReflection,
-            name: String::new(),
+            name: Latin1String::new(),
             roughness: 0,
             roughness_clear: None,
             reflection_plane: Vertex4D::default(),
@@ -390,7 +391,7 @@ impl BiffRead for RenderProbe {
             let tag_str = tag.as_str();
             match tag_str {
                 "TYPE" => render_probe.type_ = reader.get_u32()?.into(),
-                "NAME" => render_probe.name = reader.get_string()?,
+                "NAME" => render_probe.name = reader.get_latin1_string()?,
                 "RBAS" => render_probe.roughness = reader.get_u32()?,
                 "RCLE" => render_probe.roughness_clear = Some(reader.get_u32()?),
                 "RPLA" => render_probe.reflection_plane = Vertex4D::biff_read(reader)?,
@@ -454,7 +455,7 @@ impl BiffWrite for RenderProbeWithGarbage {
 mod arbitrary {
     use super::{ReflectionMode, RenderProbe, RenderProbeType, RenderProbeWithGarbage};
     use crate::vpx::gameitem::vertex4d::Vertex4D;
-    use crate::vpx::test_support::latin1_string;
+    use crate::vpx::latin1::Latin1String;
     use proptest::prelude::*;
 
     impl Arbitrary for RenderProbeType {
@@ -499,8 +500,7 @@ mod arbitrary {
         fn arbitrary_with(_: ()) -> Self::Strategy {
             (
                 any::<RenderProbeType>(),
-                // the name is stored as Latin-1
-                latin1_string(),
+                any::<Latin1String>(),
                 any::<u32>(),
                 proptest::option::of(any::<u32>()),
                 any::<Vertex4D>(),
@@ -582,7 +582,7 @@ mod tests {
     fn test_write_read() {
         let render_probe = RenderProbe {
             type_: RenderProbeType::PlaneReflection,
-            name: "test".to_string(),
+            name: Latin1String::from_lossy("test"),
             roughness: 1,
             roughness_clear: Some(2),
             reflection_plane: Vertex4D::new(1.0, 2.0, 3.0, 4.0),
@@ -600,7 +600,7 @@ mod tests {
     fn test_write_read_with_garbage() {
         let render_probe = RenderProbe {
             type_: RenderProbeType::ScreenSpaceTransparency,
-            name: "test".to_string(),
+            name: Latin1String::from_lossy("test"),
             roughness: 1,
             roughness_clear: Some(2),
             reflection_plane: Vertex4D::new(1.0, 2.0, 3.0, 4.0),
@@ -623,7 +623,7 @@ mod tests {
     fn test_json() {
         let render_probe = RenderProbe {
             type_: RenderProbeType::ScreenSpaceTransparency,
-            name: "test".to_string(),
+            name: Latin1String::from_lossy("test"),
             roughness: 1,
             roughness_clear: Some(2),
             reflection_plane: Vertex4D::new(1.0, 2.0, 3.0, 4.0),

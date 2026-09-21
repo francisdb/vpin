@@ -74,6 +74,7 @@ pub mod wall;
 use super::biff::{BiffReader, BiffWrite, BiffWriter};
 use crate::vpx::biff::BiffRead;
 use crate::vpx::gameitem::select::{HasSharedAttributes, TimerData};
+use crate::vpx::latin1::Latin1String;
 use log::warn;
 use serde::{Deserialize, Serialize};
 use std::io;
@@ -189,7 +190,7 @@ impl GameItemEnum {
     /// The display name of the legacy editor layer of this item, the `LANR`
     /// record. `None` when the record is absent, or for a
     /// [`Generic`](Self::Generic) item.
-    pub fn editor_layer_name(&self) -> &Option<String> {
+    pub fn editor_layer_name(&self) -> &Option<Latin1String> {
         match self {
             GameItemEnum::Wall(wall) => &wall.editor_layer_name,
             GameItemEnum::Flipper(flipper) => &flipper.editor_layer_name,
@@ -453,7 +454,7 @@ impl GameItemEnum {
         }
     }
 
-    pub(crate) fn set_editor_layer_name(&mut self, editor_layer_name: Option<String>) {
+    pub(crate) fn set_editor_layer_name(&mut self, editor_layer_name: Option<Latin1String>) {
         match self {
             GameItemEnum::Wall(wall) => wall.editor_layer_name = editor_layer_name,
             GameItemEnum::Flipper(flipper) => flipper.editor_layer_name = editor_layer_name,
@@ -737,7 +738,7 @@ impl GameItemEnum {
                 out.push(s);
             }
         }
-        fn push_opt<'a>(out: &mut Vec<&'a str>, s: &'a Option<String>) {
+        fn push_opt<'a>(out: &mut Vec<&'a str>, s: &'a Option<Latin1String>) {
             if let Some(v) = s.as_deref()
                 && !v.is_empty()
             {
@@ -796,7 +797,7 @@ impl GameItemEnum {
                 out.push(s);
             }
         }
-        fn push_opt<'a>(out: &mut Vec<&'a str>, s: &'a Option<String>) {
+        fn push_opt<'a>(out: &mut Vec<&'a str>, s: &'a Option<Latin1String>) {
             if let Some(v) = s.as_deref()
                 && !v.is_empty()
             {
@@ -846,8 +847,8 @@ impl GameItemEnum {
     /// Every material reference of this item that can be edited: the
     /// rendering materials of [`materials`](Self::materials) and the
     /// physics material, including empty ones
-    pub fn material_references_mut(&mut self) -> Vec<&mut String> {
-        let mut out: Vec<&mut String> = Vec::new();
+    pub fn material_references_mut(&mut self) -> Vec<&mut Latin1String> {
+        let mut out: Vec<&mut Latin1String> = Vec::new();
         match self {
             GameItemEnum::Bumper(bumper) => {
                 out.push(&mut bumper.cap_material);
@@ -903,7 +904,7 @@ impl GameItemEnum {
     /// Physics material is a separate concept from rendering material and was
     /// added in 10.x; only items that can be collided with carry it.
     pub fn physics_material(&self) -> Option<&str> {
-        let s: Option<&Option<String>> = match self {
+        let s: Option<&Option<Latin1String>> = match self {
             GameItemEnum::HitTarget(hittarget) => Some(&hittarget.physics_material),
             GameItemEnum::Primitive(primitive) => Some(&primitive.physics_material),
             GameItemEnum::Ramp(ramp) => Some(&ramp.physics_material),
@@ -1238,7 +1239,7 @@ mod tests {
 
         let primitive = primitive::Primitive {
             name: "TestPrimitive".to_string(),
-            part_group_name: Some("TestGroup".to_string()),
+            part_group_name: Some(Latin1String::from_lossy("TestGroup")),
             ..Default::default()
         };
 
@@ -1256,7 +1257,7 @@ mod tests {
         // Item referencing part group comes before the part group
         let primitive = primitive::Primitive {
             name: "TestPrimitive".to_string(),
-            part_group_name: Some("TestGroup".to_string()),
+            part_group_name: Some(Latin1String::from_lossy("TestGroup")),
             ..Default::default()
         };
 
@@ -1282,7 +1283,7 @@ mod tests {
         // Item references a part group that doesn't exist at all
         let primitive = primitive::Primitive {
             name: "TestPrimitive".to_string(),
-            part_group_name: Some("TestGroup".to_string()),
+            part_group_name: Some(Latin1String::from_lossy("TestGroup")),
             ..Default::default()
         };
 
@@ -1301,8 +1302,8 @@ mod tests {
             name: "W".to_string(),
             ..Default::default()
         };
-        wall.image = "top.png".to_string();
-        wall.side_image = "side.png".to_string();
+        wall.image = Latin1String::from_lossy("top.png");
+        wall.side_image = Latin1String::from_lossy("side.png");
         let item = GameItemEnum::Wall(wall);
         assert_eq!(item.images(), vec!["top.png", "side.png"]);
     }
@@ -1312,7 +1313,7 @@ mod tests {
         // A wall with only the side image set should report just that one.
         let wall = wall::Wall {
             name: "W".to_string(),
-            side_image: "side.png".to_string(),
+            side_image: Latin1String::from_lossy("side.png"),
             ..Default::default()
         };
         let item = GameItemEnum::Wall(wall);
@@ -1333,10 +1334,10 @@ mod tests {
     fn test_materials_for_bumper_includes_all_slots() {
         let bumper = bumper::Bumper {
             name: "B".to_string(),
-            cap_material: "cap".to_string(),
-            base_material: "base".to_string(),
-            ring_material: Some("ring".to_string()),
-            socket_material: "socket".to_string(),
+            cap_material: Latin1String::from_lossy("cap"),
+            base_material: Latin1String::from_lossy("base"),
+            ring_material: Some(Latin1String::from_lossy("ring")),
+            socket_material: Latin1String::from_lossy("socket"),
             ..Default::default()
         };
         let item = GameItemEnum::Bumper(bumper);
@@ -1347,9 +1348,9 @@ mod tests {
     fn test_materials_for_wall_uses_searchselectdialog_order() {
         let wall = wall::Wall {
             name: "W".to_string(),
-            top_material: "top".to_string(),
-            side_material: "side".to_string(),
-            slingshot_material: "ss".to_string(),
+            top_material: Latin1String::from_lossy("top"),
+            side_material: Latin1String::from_lossy("side"),
+            slingshot_material: Latin1String::from_lossy("ss"),
             ..Default::default()
         };
         let item = GameItemEnum::Wall(wall);
@@ -1361,7 +1362,7 @@ mod tests {
     fn test_physics_material_returns_some_when_set() {
         let primitive = primitive::Primitive {
             name: "P".to_string(),
-            physics_material: Some("phys".to_string()),
+            physics_material: Some(Latin1String::from_lossy("phys")),
             ..Default::default()
         };
         let item = GameItemEnum::Primitive(Box::new(primitive));
@@ -1500,11 +1501,11 @@ mod tests {
             let expected = if generic || part_group { None } else { Some(7) };
             assert_eq!(item.editor_layer(), expected, "{name} layer");
 
-            item.set_editor_layer_name(Some("Layer 7".to_string()));
+            item.set_editor_layer_name(Some(Latin1String::from_lossy("Layer 7")));
             let expected = if generic {
                 None
             } else {
-                Some("Layer 7".to_string())
+                Some(Latin1String::from_lossy("Layer 7"))
             };
             assert_eq!(*item.editor_layer_name(), expected, "{name} layer name");
 

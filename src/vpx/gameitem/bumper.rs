@@ -3,6 +3,7 @@ use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::impl_shared_attributes;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
 use crate::vpx::json::F32WithNanInf;
+use crate::vpx::latin1::Latin1String;
 use log::warn;
 use serde::{Deserialize, Serialize};
 
@@ -77,37 +78,29 @@ pub struct Bumper {
     /// a material in the table's material list.
     ///
     /// BIFF tag: `MATR`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub cap_material: String,
+    pub cap_material: Latin1String,
     /// Material name for the base mesh (the fixed disc the bumper sits on).
     /// References a material in the table's material list.
     ///
     /// BIFF tag: `BAMA`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub base_material: String,
+    pub base_material: Latin1String,
     /// Material name for the skirt mesh (the collar around the base that tilts
     /// toward the ball on a hit). Named "socket" here but maps to VPinball's
     /// skirt material (`m_szSkirtMaterial`).
     ///
     /// BIFF tag: `SKMA`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub socket_material: String,
+    pub socket_material: Latin1String,
     /// Material name for the ring mesh (the ring that drops on a hit). Optional
     /// (added later); an empty/absent value falls back to a default ring
     /// material.
     ///
     /// BIFF tag: `RIMA`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub ring_material: Option<String>,
+    pub ring_material: Option<Latin1String>,
     /// The name of the surface (wall, ramp, or empty for playfield) that this bumper sits on.
     /// Used to determine the Z height of the bumper via `GetSurfaceHeight()`.
     ///
     /// BIFF tag: `SURF`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub surface: String,
+    pub surface: Latin1String,
     /// Whether the cap mesh (the dome on top) is rendered. Default `true`.
     ///
     /// BIFF tag: `CAVI`
@@ -169,22 +162,14 @@ pub struct Bumper {
     /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
     ///
     /// BIFF tag: `LANR`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub editor_layer_name: Option<String>,
+    pub editor_layer_name: Option<Latin1String>,
     /// Whether the legacy editor layer is shown in the editor.
     /// Editor-only; has no runtime effect. `None` when absent.
     ///
     /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub part_group_name: Option<String>,
+    pub part_group_name: Option<Latin1String>,
 }
 impl_shared_attributes!(Bumper);
 
@@ -201,11 +186,11 @@ struct BumperJson {
     ring_speed: f32,
     orientation: f32,
     ring_drop_offset: Option<F32WithNanInf>,
-    cap_material: String,
-    base_material: String,
-    socket_material: String,
-    ring_material: Option<String>,
-    surface: String,
+    cap_material: Latin1String,
+    base_material: Latin1String,
+    socket_material: Latin1String,
+    ring_material: Option<Latin1String>,
+    surface: Latin1String,
     name: String,
     is_cap_visible: bool,
     is_base_visible: bool,
@@ -215,7 +200,7 @@ struct BumperJson {
     is_collidable: Option<bool>,
     is_reflection_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    part_group_name: Option<String>,
+    part_group_name: Option<Latin1String>,
 }
 
 impl From<&Bumper> for BumperJson {
@@ -379,19 +364,19 @@ impl BiffRead for Bumper {
                     bumper.ring_drop_offset = Some(reader.get_f32()?);
                 }
                 "MATR" => {
-                    bumper.cap_material = reader.get_string()?;
+                    bumper.cap_material = reader.get_latin1_string()?;
                 }
                 "BAMA" => {
-                    bumper.base_material = reader.get_string()?;
+                    bumper.base_material = reader.get_latin1_string()?;
                 }
                 "SKMA" => {
-                    bumper.socket_material = reader.get_string()?;
+                    bumper.socket_material = reader.get_latin1_string()?;
                 }
                 "RIMA" => {
-                    bumper.ring_material = Some(reader.get_string()?);
+                    bumper.ring_material = Some(reader.get_latin1_string()?);
                 }
                 "SURF" => {
-                    bumper.surface = reader.get_string()?;
+                    bumper.surface = reader.get_latin1_string()?;
                 }
                 "NAME" => {
                     bumper.name = reader.get_wide_string()?;
@@ -519,11 +504,11 @@ mod tests {
             ring_speed: 0.5,
             orientation: 0.0,
             ring_drop_offset: Some(0.0),
-            cap_material: "ctest cap material".to_string(),
-            base_material: "test base material".to_string(),
-            socket_material: "test socket material".to_string(),
-            ring_material: Some("test ring material".to_string()),
-            surface: "test surface".to_string(),
+            cap_material: Latin1String::from_lossy("ctest cap material"),
+            base_material: Latin1String::from_lossy("test base material"),
+            socket_material: Latin1String::from_lossy("test socket material"),
+            ring_material: Some(Latin1String::from_lossy("test ring material")),
+            surface: Latin1String::from_lossy("test surface"),
             name: "test bumper".to_string(),
             is_cap_visible: true,
             is_base_visible: true,
@@ -534,9 +519,9 @@ mod tests {
             is_reflection_enabled: Some(true),
             is_locked: true,
             editor_layer: Some(5),
-            editor_layer_name: Some("layer".to_string()),
+            editor_layer_name: Some(Latin1String::from_lossy("layer")),
             editor_layer_visibility: Some(true),
-            part_group_name: Some("part group".to_string()),
+            part_group_name: Some(Latin1String::from_lossy("part group")),
         };
         let mut writer = BiffWriter::new();
         Bumper::biff_write(&bumper, &mut writer);

@@ -2,6 +2,7 @@ use super::vertex2d::Vertex2D;
 use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::impl_shared_attributes;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
+use crate::vpx::latin1::Latin1String;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -174,7 +175,7 @@ pub struct Gate {
     /// Name of the material used to render the gate's wire/plate and bracket.
     ///
     /// BIFF tag: `MATR`
-    pub material: String,
+    pub material: Latin1String,
     /// Whether the bracket (support posts) is rendered. When true, two collision
     /// circles are also added at the ends of the gate.
     ///
@@ -192,17 +193,17 @@ pub struct Gate {
     /// read or written by current builds. Kept optional so old files round-trip.
     ///
     /// BIFF tag: `IMGF`
-    pub imgf: Option<String>,
+    pub imgf: Option<Latin1String>,
     /// Legacy back image that was used in Visual Pinball 10.01 and is no longer
     /// read or written by current builds. Kept optional so old files round-trip.
     ///
     /// BIFF tag: `IMGB`
-    pub imgb: Option<String>,
+    pub imgb: Option<Latin1String>,
     /// Name of the surface (ramp or wall top) this gate sits on.
     /// Used to determine the gate's base height (z position).
     /// If empty, the gate sits on the playfield.
     /// BIFF tag: `SURF`
-    pub surface: String,
+    pub surface: Latin1String,
     /// Bounciness of the gate's blocking line segment (one-way gates).
     ///
     /// Default: `0.3`
@@ -297,22 +298,14 @@ pub struct Gate {
     /// `"Layer_{editor_layer + 1}"`. Editor-only. `None` when absent.
     ///
     /// BIFF tag: `LANR`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub editor_layer_name: Option<String>,
+    pub editor_layer_name: Option<Latin1String>,
     /// Whether the legacy editor layer is shown in the editor.
     /// Editor-only; has no runtime effect. `None` when absent.
     ///
     /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub part_group_name: Option<String>,
+    pub part_group_name: Option<Latin1String>,
 }
 impl_shared_attributes!(Gate);
 
@@ -356,7 +349,7 @@ pub(crate) struct GateJson {
     length: f32,
     height: f32,
     rotation: f32,
-    material: String,
+    material: Latin1String,
     #[serde(flatten)]
     /// Timer state (enabled flag and interval in ms) that drives this
     /// item's script `_Timer` events. See [`TimerData`].
@@ -364,10 +357,10 @@ pub(crate) struct GateJson {
     show_bracket: bool,
     is_collidable: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    imgf: Option<String>,
+    imgf: Option<Latin1String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    imgb: Option<String>,
-    surface: String,
+    imgb: Option<Latin1String>,
+    surface: Latin1String,
     elasticity: f32,
     angle_max: f32,
     angle_min: f32,
@@ -380,7 +373,7 @@ pub(crate) struct GateJson {
     is_reflection_enabled: Option<bool>,
     gate_type: Option<GateType>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    part_group_name: Option<String>,
+    part_group_name: Option<Latin1String>,
 }
 
 impl GateJson {
@@ -487,7 +480,7 @@ impl BiffRead for Gate {
                     gate.rotation = reader.get_f32()?;
                 }
                 "MATR" => {
-                    gate.material = reader.get_string()?;
+                    gate.material = reader.get_latin1_string()?;
                 }
                 "GSUP" => {
                     gate.show_bracket = reader.get_bool()?;
@@ -496,13 +489,13 @@ impl BiffRead for Gate {
                     gate.is_collidable = reader.get_bool()?;
                 }
                 "IMGF" => {
-                    gate.imgf = Some(reader.get_string()?);
+                    gate.imgf = Some(reader.get_latin1_string()?);
                 }
                 "IMGB" => {
-                    gate.imgb = Some(reader.get_string()?);
+                    gate.imgb = Some(reader.get_latin1_string()?);
                 }
                 "SURF" => {
-                    gate.surface = reader.get_string()?;
+                    gate.surface = reader.get_latin1_string()?;
                 }
                 "ELAS" => {
                     gate.elasticity = reader.get_f32()?;
@@ -615,16 +608,16 @@ mod tests {
             length: 3.0,
             height: 4.0,
             rotation: 5.0,
-            material: "material".to_string(),
+            material: Latin1String::from_lossy("material"),
             timer: TimerData {
                 is_enabled: true,
                 interval: 6,
             },
             show_bracket: false,
             is_collidable: false,
-            imgf: Some("imgf".to_string()),
-            imgb: Some("imgb".to_string()),
-            surface: "surface".to_string(),
+            imgf: Some(Latin1String::from_lossy("imgf")),
+            imgb: Some(Latin1String::from_lossy("imgb")),
+            surface: Latin1String::from_lossy("surface"),
             elasticity: 7.0,
             angle_max: 8.0,
             angle_min: 9.0,
@@ -638,9 +631,9 @@ mod tests {
             gate_type: Some(GateType::Plate),
             is_locked: true,
             editor_layer: Some(14),
-            editor_layer_name: Some("editor_layer_name".to_string()),
+            editor_layer_name: Some(Latin1String::from_lossy("editor_layer_name")),
             editor_layer_visibility: Some(false),
-            part_group_name: Some("part_group_name".to_string()),
+            part_group_name: Some(Latin1String::from_lossy("part_group_name")),
         };
         let mut writer = BiffWriter::new();
         Gate::biff_write(&gate, &mut writer);

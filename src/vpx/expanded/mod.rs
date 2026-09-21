@@ -685,6 +685,7 @@ mod tests {
     use crate::vpx::gameitem::GameItemEnum;
     use crate::vpx::gameitem::primitive::Primitive;
     use crate::vpx::image::{ImageData, ImageDataBits, ImageDataJpeg};
+    use crate::vpx::latin1::Latin1String;
     use crate::vpx::sound::{OutputTarget, SoundData, WaveForm};
     use crate::vpx::tableinfo::TableInfo;
     use crate::vpx::version::Version;
@@ -762,11 +763,11 @@ mod tests {
             ..Default::default()
         };
         let mut material = Material::default();
-        material.name = "a".repeat(33);
+        material.name = Latin1String::from_lossy(&"a".repeat(33));
         vpx.gamedata.materials = Some(vec![material]);
         vpx.gameitems = vec![GameItemEnum::Wall(Wall {
             name: "Wall1".to_string(),
-            top_material: "a".repeat(33),
+            top_material: Latin1String::from_lossy(&"a".repeat(33)),
             ..Default::default()
         })];
         write_fs(&vpx, &"/vpx".to_string(), &ExpandOptions::new(), &fs)?;
@@ -790,7 +791,7 @@ mod tests {
             ..Default::default()
         };
         vpx.gamedata.materials_old = vec![SaveMaterial {
-            name: "a".repeat(32),
+            name: Latin1String::from_lossy(&"a".repeat(32)),
             ..Default::default()
         }];
         write_fs(&vpx, &"/vpx".to_string(), &ExpandOptions::new(), &fs)?;
@@ -1152,7 +1153,7 @@ mod tests {
         Primitive {
             // NFC "ö" (U+00F6), the form found in real VPX files
             name: "PfL\u{00F6}cher".to_string(),
-            editor_layer_name: Some("Layer_1".to_string()),
+            editor_layer_name: Some(Latin1String::from_lossy("Layer_1")),
             ..Default::default()
         }
     }

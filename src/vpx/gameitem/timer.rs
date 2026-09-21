@@ -2,6 +2,7 @@ use super::vertex2d::Vertex2D;
 use crate::vpx::biff::{self, BiffError, BiffRead, BiffReader, BiffWrite};
 use crate::vpx::gameitem::select::impl_shared_attributes;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
+use crate::vpx::latin1::Latin1String;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -50,22 +51,14 @@ pub struct Timer {
     /// `"Layer_{editor_layer + 1}"` when unset. `None` when absent.
     ///
     /// BIFF tag: `LANR`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub editor_layer_name: Option<String>,
+    pub editor_layer_name: Option<Latin1String>,
     /// Whether the legacy editor layer is visible in the editor. `None` when
     /// absent. Editor-only; has no effect at runtime.
     ///
     /// BIFF tag: `LVIS`
     pub editor_layer_visibility: Option<bool>,
     /// Added in 10.8.1
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub part_group_name: Option<String>,
+    pub part_group_name: Option<Latin1String>,
 }
 impl_shared_attributes!(Timer);
 
@@ -79,7 +72,7 @@ struct TimerJson {
     name: String,
     backglass: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    part_group_name: Option<String>,
+    part_group_name: Option<Latin1String>,
 }
 
 impl TimerJson {
@@ -212,9 +205,9 @@ mod tests {
             backglass: false,
             is_locked: true,
             editor_layer: Some(5),
-            editor_layer_name: Some("test layer".to_string()),
+            editor_layer_name: Some(Latin1String::from_lossy("test layer")),
             editor_layer_visibility: Some(false),
-            part_group_name: Some("test group".to_string()),
+            part_group_name: Some(Latin1String::from_lossy("test group")),
         };
         let mut writer = BiffWriter::new();
         Timer::biff_write(&timer, &mut writer);

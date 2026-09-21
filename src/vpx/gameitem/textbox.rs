@@ -2,6 +2,7 @@ use super::vertex2d::Vertex2D;
 use crate::vpx::gameitem::font::FontJson;
 use crate::vpx::gameitem::select::impl_shared_attributes;
 use crate::vpx::gameitem::select::{TimerData, WriteSharedAttributes};
+use crate::vpx::latin1::Latin1String;
 use crate::vpx::{
     biff::{self, BiffError, BiffRead, BiffReader, BiffWrite},
     color::Color,
@@ -181,8 +182,7 @@ pub struct TextBox {
     /// box into a DMD, like [`is_dmd`](Self::is_dmd). Default: empty.
     ///
     /// BIFF tag `TEXT`
-    #[cfg_attr(test, proptest(strategy = "crate::vpx::test_support::latin1_string()"))]
-    pub text: String,
+    pub text: Latin1String,
     /// Name of the text box, its identifier in the editor and in scripts.
     /// Stored as a wide string.
     ///
@@ -242,11 +242,7 @@ pub struct TextBox {
     /// follows. `None` when the record is absent.
     ///
     /// BIFF tag `LANR`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub editor_layer_name: Option<String>,
+    pub editor_layer_name: Option<Latin1String>,
     /// Whether the item is shown in the editor (the 10.7 layer visibility,
     /// stored per item). Editor-only; has no runtime effect. `None` when
     /// the record is absent.
@@ -261,11 +257,7 @@ pub struct TextBox {
     /// is not in a group).
     ///
     /// BIFF tag `GRUP`
-    #[cfg_attr(
-        test,
-        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
-    )]
-    pub part_group_name: Option<String>,
+    pub part_group_name: Option<Latin1String>,
 }
 impl_shared_attributes!(TextBox);
 
@@ -276,7 +268,7 @@ struct TextBoxJson {
     back_color: Color,
     font_color: Color,
     intensity_scale: f32,
-    text: String,
+    text: Latin1String,
     #[serde(flatten)]
     pub timer: TimerData,
     name: String,
@@ -285,7 +277,7 @@ struct TextBoxJson {
     is_dmd: Option<bool>,
     font: FontJson,
     #[serde(skip_serializing_if = "Option::is_none")]
-    part_group_name: Option<String>,
+    part_group_name: Option<Latin1String>,
 }
 
 impl TextBoxJson {
@@ -400,7 +392,7 @@ impl BiffRead for TextBox {
                     textbox.intensity_scale = reader.get_f32()?;
                 }
                 "TEXT" => {
-                    textbox.text = reader.get_string()?;
+                    textbox.text = reader.get_latin1_string()?;
                 }
                 "NAME" => {
                     textbox.name = reader.get_wide_string()?;
