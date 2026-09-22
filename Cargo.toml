@@ -109,8 +109,6 @@ testdir = "0.10.0"
 [target.'cfg(target_family = "wasm")'.dev-dependencies]
 # TODO keep this in sync with wasm-bindgen version above
 wasm-bindgen-test = "0.3.58"
-# In fact an indirect dependency of rand, but we need to specify the wasm_js feature here
-getrandom = { version = "0.4.2", features = ["wasm_js"] }
 
 # level 0 is very slow for writing to compound files
 # (https://github.com/mdsteele/rust-cfb/issues/42), but optimizing this crate
@@ -119,6 +117,8 @@ getrandom = { version = "0.4.2", features = ["wasm_js"] }
 opt-level = 1
 
 # only the tests need randomness on this target, through proptest; the
-# rustflags in .cargo/config.toml select the same backend
+# rustflags in .cargo/config.toml select the same backend. This entry only
+# exists to enable the feature on the getrandom that proptest pulls in through
+# rand, so its major version has to match that one (rand 0.9 -> getrandom 0.3)
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
 getrandom = { version = "0.3", features = ["wasm_js"] }
