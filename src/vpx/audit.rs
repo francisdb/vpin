@@ -493,6 +493,16 @@ pub(crate) enum Kind {
         /// Where the script declares it
         location: ScriptLocation,
     },
+    /// The script assigns a ball's `ID`, which vpinball made read only in
+    /// 10.8.1 to keep every ball's id unique: a different value fails and
+    /// stops the script with a runtime error. Keep a script's own tag on
+    /// a ball in its `UserValue` instead. A write to `Me` or to a variable
+    /// the script sets to a new instance of a class declaring an `ID` of
+    /// its own is left alone
+    BallIdAssigned {
+        /// Where the script assigns it
+        location: ScriptLocation,
+    },
 }
 
 /// How serious a [`Finding`] is
@@ -526,7 +536,9 @@ impl Kind {
             }
             Kind::UnusedMaterials { .. } => Severity::Info,
             Kind::ImageDimensionMismatch { .. } => Severity::Info,
-            Kind::NegativeLightIntensity { .. } | Kind::StereoTableSound { .. } => Severity::Error,
+            Kind::NegativeLightIntensity { .. }
+            | Kind::StereoTableSound { .. }
+            | Kind::BallIdAssigned { .. } => Severity::Error,
             Kind::MissingOptionExplicit | Kind::RndWithoutRandomize => Severity::Suggestion,
             Kind::TimerWithoutHandler { .. } | Kind::HandlerWithoutItem { .. } => Severity::Info,
             Kind::StaticPrimitiveInScript {
@@ -896,6 +908,10 @@ impl fmt::Display for Kind {
                 f,
                 "script has the event handler {name:?} for an item that does not exist"
             ),
+            Kind::BallIdAssigned { .. } => write!(
+                f,
+                "script assigns a ball's ID, which is read only; use UserValue instead"
+            ),
         }
     }
 }
@@ -1033,6 +1049,7 @@ impl Kind {
             Kind::RndWithoutRandomize => "rnd-without-randomize",
             Kind::TimerWithoutHandler { .. } => "timer-without-handler",
             Kind::HandlerWithoutItem { .. } => "handlers-without-item",
+            Kind::BallIdAssigned { .. } => "ball-id-assigned",
         }
     }
 
@@ -1105,7 +1122,8 @@ impl Kind {
             | Kind::ScriptNameShadowsItem { location, .. }
             | Kind::UnusedVariable { location, .. }
             | Kind::UnusedLocalVariable { location, .. }
-            | Kind::HandlerWithoutItem { location, .. } => Some(*location),
+            | Kind::HandlerWithoutItem { location, .. }
+            | Kind::BallIdAssigned { location } => Some(*location),
             Kind::StaticPrimitiveInScript { name, .. } => find_word(script, name),
             Kind::DeprecatedTableProperty { property } => {
                 find_word(script, &format!("{table_name}.{property}"))
@@ -4322,6 +4340,7 @@ mod tests {
                             | Kind::StaticPrimitiveInScript { .. }
                             | Kind::UnusedVariable { .. }
                             | Kind::UnusedLocalVariable { .. }
+                            | Kind::BallIdAssigned { .. }
                     )
                 })
                 .collect()
@@ -4670,6 +4689,72 @@ mod tests {
         }
 
         #[test]
+        fn assigning_a_ball_id_is_an_error() {
+            let vpx = scripted(
+                "Sub Tag(ball)
+    ball.ID = 5
+    With ball
+        .Id = 2
+    End With
+                     If ball.ID = 3 Then Tag = ball.ID
+End Sub
+",
+            );
+            let findings = script_findings(&vpx);
+            assert_eq!(
+                findings,
+                vec![
+                    Kind::BallIdAssigned {
+                        location: at(3, 10)
+                    },
+                    Kind::BallIdAssigned {
+                        location: at(5, 10)
+                    },
+                ]
+            );
+            assert_eq!(findings[0].severity(), Severity::Error);
+            assert_eq!(
+                findings[0].to_string(),
+                "script assigns a ball's ID, which is read only; use UserValue instead"
+            );
+        }
+
+        #[test]
+        fn assigning_the_id_of_a_script_class_instance_is_not_a_ball_id() {
+            for class in [
+                "Class Tracked\n    Public ID\nEnd Class\n",
+                "Class Tracked\n    Dim id\nEnd Class\n",
+                "Class Tracked\n    Private m\n    Property Let ID(v)\n        m = v\n    End Property\nEnd Class\n",
+            ] {
+                let vpx = scripted(&format!(
+                    "{class}Dim t, all(1)\nSet t = New Tracked\nSet all(0) = New Tracked\n\
+                     t.ID = 5\nall(0).ID = 6\nWith t\n    .ID = 7\nEnd With\n"
+                ));
+                assert_eq!(script_findings(&vpx), Vec::new(), "{class}");
+            }
+            let vpx = scripted(
+                "Class Tracked\n    Public ID\n    Sub Tag\n        Me.ID = 5\n    End Sub\nEnd Class\n",
+            );
+            assert_eq!(script_findings(&vpx), Vec::new());
+        }
+
+        #[test]
+        fn a_class_with_an_id_does_not_hide_a_ball_id_assignment() {
+            // nFozzy's spoofball, copied into many tables, keeps a ball's ID
+            // in a class of its own
+            let vpx = scripted(
+                "Class spoofball\n    Public ID\nEnd Class\nClass ReadOnly\n    Property Get ID\n        ID = 1\n    End Property\nEnd Class\n\
+                 Dim CageBall\nSet CageBall = Kicker1.CreateBall\nCageBall.ID = 1000\n",
+            );
+            assert_eq!(
+                script_findings(&vpx),
+                vec![Kind::BallIdAssigned {
+                    location: at(12, 10)
+                }]
+            );
+        }
+
+        #[test]
         fn a_missing_option_explicit_is_a_suggestion() {
             let mut vpx = clean_vpx();
             vpx.gamedata.code.string = "Sub Foo()\r\nEnd Sub\r\n".to_string();
@@ -5002,7 +5087,8 @@ mod script {
     use vbscript::lexer::LineIndex;
     use vbscript::parser::Parser;
     use vbscript::parser::ast::{
-        Expr, ExprKind, Item, ItemKind, MemberAccess, Name, Spanned, Stmt, StmtKind,
+        Expr, ExprKind, Item, ItemKind, MemberAccess, Name, PropertyType, SetRhs, Spanned, Stmt,
+        StmtKind,
     };
     use vbscript::parser::visit::{
         Visitor, walk_expr, walk_item, walk_items, walk_member_access, walk_stmt,
@@ -5047,6 +5133,15 @@ mod script {
         /// `procedure.variable` for every local a procedure declares and
         /// never names
         unused_locals: Vec<Declared>,
+        /// where the script assigns a member named `ID`, with the variable
+        /// it assigns it on when that is a plain one
+        id_assignments: Vec<(Option<String>, ScriptLocation)>,
+        /// classes that declare an `ID` the script can assign
+        id_classes: HashSet<String>,
+        /// variables the script sets to a new instance, with the class
+        instances: Vec<(String, String)>,
+        /// the variable of each enclosing `With`, when it is a plain one
+        with_objects: Vec<Option<String>>,
     }
 
     struct Procedure {
@@ -5321,13 +5416,51 @@ mod script {
                 });
             }
         }
+
+        // the ball is the only vpinball object with an ID property, so
+        // anything but an instance of a script class with one is a ball
+        let own_ids: HashSet<&str> = scan
+            .instances
+            .iter()
+            .filter(|(_, class)| scan.id_classes.contains(class))
+            .map(|(variable, _)| variable.as_str())
+            .collect();
+        for (variable, location) in &scan.id_assignments {
+            if !variable
+                .as_deref()
+                .is_some_and(|variable| variable == "me" || own_ids.contains(variable))
+            {
+                findings.push(Kind::BallIdAssigned {
+                    location: *location,
+                });
+            }
+        }
     }
 
     impl<'ast> Visitor<'ast> for Scan<'_> {
         fn visit_item(&mut self, item: &'ast Item) {
             match &item.node {
                 ItemKind::OptionExplicit => self.option_explicit = true,
-                ItemKind::Class { name, .. } => {
+                ItemKind::Class {
+                    name,
+                    members,
+                    dims,
+                    member_accessors,
+                    ..
+                } => {
+                    let is_id = |name: &Name| name.eq_ignore_ascii_case("id");
+                    let declares_id = members
+                        .iter()
+                        .flat_map(|member| &member.properties)
+                        .chain(dims.iter().flatten())
+                        .any(|var| is_id(&var.name))
+                        || member_accessors.iter().any(|accessor| {
+                            accessor.node.property_type != PropertyType::Get
+                                && is_id(&accessor.node.name)
+                        });
+                    if declares_id {
+                        self.id_classes.insert(name.to_lowercase());
+                    }
                     let class = self.declare(name);
                     self.script_level.push(class);
                     self.current_class = Some(name.to_string());
@@ -5404,6 +5537,32 @@ mod script {
                         self.built_event(callee, args);
                     }
                 }
+                StmtKind::Assignment { full_ident, .. } => {
+                    if let ExprKind::MemberExpression { base, property } = &full_ident.0.node
+                        && property.eq_ignore_ascii_case("id")
+                    {
+                        let variable = self.variable(base);
+                        let location = self.declare(property).location;
+                        self.id_assignments.push((variable, location));
+                    }
+                }
+                StmtKind::Set {
+                    var,
+                    rhs: SetRhs::Expr(value),
+                } => {
+                    if let ExprKind::New(class) = &value.node
+                        && let Some(variable) = self.variable(&var.0)
+                    {
+                        self.instances.push((variable, class.to_lowercase()));
+                    }
+                }
+                StmtKind::With { object, .. } => {
+                    let variable = self.variable(&object.0);
+                    self.with_objects.push(variable);
+                    walk_stmt(self, stmt);
+                    self.with_objects.pop();
+                    return;
+                }
                 StmtKind::ForStmt { counter, .. } => self.ident(counter),
                 StmtKind::ForEachStmt { element, .. } => self.ident(element),
                 _ => {}
@@ -5438,6 +5597,10 @@ mod script {
                 variables: Vec::new(),
                 procedure: None,
                 unused_locals: Vec::new(),
+                id_assignments: Vec::new(),
+                id_classes: HashSet::new(),
+                instances: Vec::new(),
+                with_objects: Vec::new(),
             }
         }
 
@@ -5510,6 +5673,22 @@ mod script {
                 if let ExprKind::Ident(item) = &item.node {
                     self.built_events.insert(item.to_lowercase());
                 }
+            }
+        }
+
+        /// The variable, lower cased, an expression is or indexes, as in
+        /// `ball` or `balls(i)`; the one of the enclosing `With` for `.`
+        fn variable(&self, expr: &Expr) -> Option<String> {
+            match &expr.node {
+                ExprKind::Ident(name) => Some(name.to_lowercase()),
+                ExprKind::Paren(inner) => self.variable(inner),
+                ExprKind::FnApplication { callee, .. }
+                    if matches!(callee.node, ExprKind::Ident(_)) =>
+                {
+                    self.variable(callee)
+                }
+                ExprKind::WithScoped => self.with_objects.last().cloned().flatten(),
+                _ => None,
             }
         }
 
