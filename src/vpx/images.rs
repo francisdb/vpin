@@ -1,6 +1,6 @@
 //! Decoding and re-encoding the images of a table: reading the stored
-//! pixels whatever the format, and converting the deprecated bitmap
-//! format to webp.
+//! pixels whatever the format, converting the deprecated bitmap format to
+//! webp and re-encoding pngs as the smaller webp.
 //!
 //! vpinball stopped writing bitmaps (`BITS` records, LZW compressed) in
 //! 10.8.1; when it loads one it decodes it, drops an all opaque alpha
@@ -8,8 +8,11 @@
 //! vpinball has no bitmaps left. [`ImageData::bitmap_to_webp`] does the
 //! same for a single image, [`fix::bitmaps_to_webp`](crate::vpx::fix::bitmaps_to_webp)
 //! for every bitmap of a parsed table, so it applies to a table however
-//! it was loaded, and [`crate::vpx::VpxFile::images_to_webp`] converts in
-//! place in a file.
+//! it was loaded. [`ImageData::png_to_webp`] and
+//! [`fix::pngs_to_webp`](crate::vpx::fix::pngs_to_webp) go one step
+//! further and re-encode pngs, which vpinball reads as they are, as
+//! lossless webp where that is smaller. [`crate::vpx::VpxFile::images_to_webp`]
+//! does both in place in a file.
 //!
 //! Neither FlexDMD implementation reads a bitmap image out of a table
 //! (they only read the encoded `JPEG` record), so nothing that worked is
@@ -65,6 +68,44 @@ impl ImageData {
         }
         let decoded = self.decode()?;
         let webp = encode(&decoded, ImageFormat::WebP, 0)?;
+        self.set_data(webp, "webp", decoded.width(), decoded.height());
+        Ok(true)
+    }
+
+    /// Re-encodes a png image as lossless webp when that is smaller, which
+    /// it is for most. The png is recognised by its content, not its
+    /// extension. Returns `false` when the image is not a png, when its
+    /// pixels are more than 8 bits deep, which webp cannot hold, or when
+    /// the webp would not be smaller.
+    ///
+    /// # Errors
+    ///
+    /// When the png does not decode, or webp cannot encode it, such as a
+    /// side over 16383 pixels.
+    pub fn png_to_webp(&mut self) -> io::Result<bool> {
+        const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
+        let Some(bytes_before) = self
+            .jpeg
+            .as_ref()
+            .filter(|jpeg| jpeg.data.starts_with(PNG_SIGNATURE))
+            .map(|jpeg| jpeg.data.len())
+        else {
+            return Ok(false);
+        };
+        let decoded = self.decode()?;
+        if !matches!(
+            decoded,
+            DynamicImage::ImageLuma8(_)
+                | DynamicImage::ImageLumaA8(_)
+                | DynamicImage::ImageRgb8(_)
+                | DynamicImage::ImageRgba8(_)
+        ) {
+            return Ok(false);
+        }
+        let webp = encode(&decoded, ImageFormat::WebP, 0)?;
+        if webp.len() >= bytes_before {
+            return Ok(false);
+        }
         self.set_data(webp, "webp", decoded.width(), decoded.height());
         Ok(true)
     }
@@ -215,6 +256,85 @@ pub(crate) mod tests {
             assert_eq!(image.md5_hash, Some([7; 16]));
         }
         assert!(!link_image("link").bitmap_to_webp()?);
+        Ok(())
+    }
+
+    /// A png stored with the fastest, unfiltered compression, the way a
+    /// tool in a hurry writes one
+    pub(crate) fn loose_png(name: &str, width: u32, height: u32) -> TestResult<ImageData> {
+        use ::image::codecs::png::{CompressionType, FilterType, PngEncoder};
+        let mut data = Vec::new();
+        pixels(width, height).write_with_encoder(PngEncoder::new_with_quality(
+            &mut data,
+            CompressionType::Fast,
+            FilterType::NoFilter,
+        ))?;
+        Ok(ImageData {
+            name: name.to_string(),
+            path: format!("C:\\images\\{name}.png"),
+            width,
+            height,
+            jpeg: Some(PinBinary {
+                path: format!("C:\\images\\{name}.png"),
+                name: name.to_string(),
+                internal_name: None,
+                data,
+            }),
+            md5_hash: Some([7; 16]),
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn a_png_becomes_a_smaller_lossless_webp() -> TestResult {
+        let mut image = loose_png("png", 64, 64)?;
+        let before = image.decode()?.to_rgba8();
+        let bytes_before = image.jpeg.as_ref().map_or(0, |jpeg| jpeg.data.len());
+        assert!(image.png_to_webp()?);
+        assert_eq!(image.ext(), "webp");
+        assert_eq!(image.path, "C:\\images\\png.webp");
+        assert!(image.jpeg.as_ref().map_or(0, |jpeg| jpeg.data.len()) < bytes_before);
+        assert_eq!(image.md5_hash, None);
+        assert_eq!(image.decode()?.to_rgba8(), before);
+        // a second run has nothing to do
+        assert!(!image.png_to_webp()?);
+        Ok(())
+    }
+
+    #[test]
+    fn pngs_webp_cannot_hold_losslessly_are_left_alone() -> TestResult {
+        let deep = ::image::ImageBuffer::from_fn(8, 8, |x, y| {
+            ::image::Rgb([(x * 4000) as u16, (y * 4000) as u16, 60000])
+        });
+        let mut data = Vec::new();
+        DynamicImage::ImageRgb16(deep)
+            .write_to(&mut io::Cursor::new(&mut data), ImageFormat::Png)?;
+        let mut image = ImageData {
+            name: "deep".to_string(),
+            path: "C:\\images\\deep.png".to_string(),
+            width: 8,
+            height: 8,
+            jpeg: Some(PinBinary {
+                path: "C:\\images\\deep.png".to_string(),
+                name: "deep".to_string(),
+                internal_name: None,
+                data,
+            }),
+            ..Default::default()
+        };
+        assert!(!image.png_to_webp()?);
+        assert_eq!(image.ext(), "png");
+        Ok(())
+    }
+
+    #[test]
+    fn only_png_content_is_re_encoded() -> TestResult {
+        // a jpeg saved under a png name, which happens
+        let mut image = encoded_image("jpg", "jpg", 40, 20)?;
+        image.change_extension("png");
+        assert!(!image.png_to_webp()?);
+        assert!(!bitmap_image("bmp", 8, 8).png_to_webp()?);
+        assert!(!link_image("link").png_to_webp()?);
         Ok(())
     }
 }

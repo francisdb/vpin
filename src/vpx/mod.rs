@@ -14,7 +14,6 @@
 //! ```
 //!
 
-use ::image::ImageFormat;
 use std::fs::OpenOptions;
 use std::io::{self, Error, Read, Seek, Write};
 use std::path::MAIN_SEPARATOR_STR;
@@ -309,13 +308,15 @@ impl<F: Read + Seek + Write> VpxFile<F> {
         Ok(true)
     }
 
-    /// Converts all PNG and BMP images to lossless WebP and writes them
-    /// back to the VPX file in place, overwriting the existing images.
-    /// Images that fail to decode are skipped with a warning.
+    /// Converts the bitmap images to lossless webp, and the pngs where the
+    /// webp is smaller, writing them back to the vpx file in place. Images
+    /// that fail to decode are skipped with a warning. Unlike
+    /// [`fix::pngs_to_webp`] this does not spare the images the script
+    /// hands to FlexDMD, which cannot read webp.
     ///
     /// Note: this will not shrink the vpx file, that requires compacting
-    /// the file. [`fix::bitmaps_to_webp`]
-    /// does the bitmap part on a parsed table.
+    /// the file. [`fix::bitmaps_to_webp`] and [`fix::pngs_to_webp`] do the
+    /// same on a parsed table.
     ///
     /// Returns a list of conversions that were made.
     pub fn images_to_webp(&mut self) -> io::Result<Vec<ImageToWebpConversion>> {
@@ -1176,29 +1177,8 @@ fn images_to_webp<F: Read + Write + Seek>(
     for index in 0..gamedata.images_size {
         let mut image_data = read_image(comp, index)?;
         match image_data.ext().to_lowercase().as_str() {
-            "png" => {
-                // convert the image to webp
-                image_data.change_extension("webp");
-                if let Some(jpeg) = &mut image_data.jpeg {
-                    // read the image bytes using the rust image library
-                    let dynamic_image =
-                        match ::image::load_from_memory_with_format(&jpeg.data, ImageFormat::Png) {
-                            Ok(image) => image,
-                            Err(e) => {
-                                // see https://github.com/image-rs/image/issues/2260
-                                warn!("Skipping image {}: {}", image_data.name, e);
-                                continue;
-                            }
-                        };
-
-                    // write as webp back to the image
-                    let mut webp = Vec::new();
-                    let mut cursor = io::Cursor::new(&mut webp);
-                    // should be lossless according to the docs
-                    dynamic_image
-                        .write_to(&mut cursor, ImageFormat::WebP)
-                        .map_err(|e| io::Error::other(e.to_string()))?;
-                    jpeg.data = webp;
+            "png" => match image_data.png_to_webp() {
+                Ok(true) => {
                     write_image(comp, index as usize, &image_data, true)?;
                     conversions.push(ImageToWebpConversion {
                         name: image_data.name.clone(),
@@ -1206,7 +1186,9 @@ fn images_to_webp<F: Read + Write + Seek>(
                         new_extension: "webp".to_string(),
                     });
                 }
-            }
+                Ok(false) => {}
+                Err(e) => warn!("Skipping image {}: {e}", image_data.name),
+            },
             "bmp" => match image_data.bitmap_to_webp() {
                 Ok(true) => {
                     write_image(comp, index as usize, &image_data, true)?;
@@ -1322,6 +1304,8 @@ impl TableDimensions {
 mod tests {
     #[cfg(not(target_family = "wasm"))]
     use crate::vpx::image::ImageDataBits;
+    #[cfg(not(target_family = "wasm"))]
+    use ::image::ImageFormat;
     use pretty_assertions::assert_eq;
     use std::io::Cursor;
     #[cfg(not(target_family = "wasm"))]

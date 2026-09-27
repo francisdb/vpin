@@ -16,8 +16,10 @@
 
 use super::VPX;
 use super::audit::{Kind, assets};
+use super::image::ImageData;
 use log::warn;
 use std::collections::HashSet;
+use std::io;
 
 /// An embedded font removed from a table by [`drop_unused_fonts`]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,8 +91,8 @@ impl ConvertedImage {
         &self.name
     }
 
-    /// Size of the stored image data before the conversion, the LZW
-    /// compressed bitmap
+    /// Size of the stored image data before the conversion, the png or
+    /// the LZW compressed bitmap
     pub fn bytes_before(&self) -> usize {
         self.bytes_before
     }
@@ -119,27 +121,69 @@ pub fn bitmaps_to_webp(vpx: &mut VPX) -> Vec<ConvertedImage> {
             _ => None,
         })
         .collect();
+    convert_images(
+        vpx.images
+            .iter_mut()
+            .filter(|image| bitmaps.contains(&image.name)),
+        ImageData::bitmap_to_webp,
+    )
+}
+
+/// Re-encodes every png image as lossless webp where that is smaller,
+/// which it is for most; the picture stays the same. This goes beyond
+/// what vpinball does on its own, it reads pngs as they are, so the audit
+/// has no finding for it: it is a size lever. Images the script hands to
+/// FlexDMD as `VPX.name` are left alone, since FlexDMD decodes them
+/// itself and cannot read webp; so are pngs deeper than 8 bits, which
+/// webp cannot hold, and any png that does not decode, with a warning.
+///
+/// Returns the converted images in the order the table lists them, empty
+/// when the table is left as it was.
+pub fn pngs_to_webp(vpx: &mut VPX) -> Vec<ConvertedImage> {
+    let flexdmd = assets::flexdmd_image_names(&vpx.gamedata.code.string);
+    convert_images(
+        vpx.images
+            .iter_mut()
+            .filter(|image| !flexdmd.contains(&image.name.to_lowercase())),
+        ImageData::png_to_webp,
+    )
+}
+
+/// Runs a conversion over images, recording the ones it changed
+fn convert_images<'a>(
+    images: impl Iterator<Item = &'a mut ImageData>,
+    convert: fn(&mut ImageData) -> io::Result<bool>,
+) -> Vec<ConvertedImage> {
     let mut converted = Vec::new();
-    for image in vpx
-        .images
-        .iter_mut()
-        .filter(|image| bitmaps.contains(&image.name))
-    {
-        let bytes_before = image
-            .bits
-            .as_ref()
-            .map_or(0, |bits| bits.lzw_compressed_data.len());
-        match image.bitmap_to_webp() {
+    for image in images {
+        let bytes_before = stored_bytes(image);
+        match convert(image) {
             Ok(true) => converted.push(ConvertedImage {
                 name: image.name.clone(),
                 bytes_before,
-                bytes_after: image.jpeg.as_ref().map_or(0, |jpeg| jpeg.data.len()),
+                bytes_after: stored_bytes(image),
             }),
             Ok(false) => {}
             Err(e) => warn!("Skipping image {}: {e}", image.name),
         }
     }
     converted
+}
+
+/// Size of the image data as the file holds it: the encoded bytes, or the
+/// LZW compressed bitmap
+fn stored_bytes(image: &ImageData) -> usize {
+    image
+        .jpeg
+        .as_ref()
+        .map(|jpeg| jpeg.data.len())
+        .or_else(|| {
+            image
+                .bits
+                .as_ref()
+                .map(|bits| bits.lzw_compressed_data.len())
+        })
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -149,7 +193,7 @@ mod tests {
     use crate::vpx::gameitem::GameItemEnum;
     use crate::vpx::gameitem::font::Font;
     use crate::vpx::gameitem::textbox::TextBox;
-    use crate::vpx::images::tests::{bitmap_image, encoded_image};
+    use crate::vpx::images::tests::{bitmap_image, encoded_image, loose_png};
     use crate::vpx::pinbinary::PinBinary;
     use crate::vpx::ttf::font_with_names;
     use pretty_assertions::assert_eq;
@@ -267,6 +311,29 @@ mod tests {
         );
         // a second run has nothing to do
         assert_eq!(bitmaps_to_webp(&mut vpx), Vec::new());
+        Ok(())
+    }
+
+    #[test]
+    fn pngs_are_converted_except_what_flexdmd_reads() -> TestResult {
+        let mut vpx = VPX::default();
+        vpx.add_or_replace_image(loose_png("logo", 64, 64)?);
+        vpx.add_or_replace_image(loose_png("apron", 64, 64)?);
+        vpx.add_or_replace_image(encoded_image("jpg", "jpg", 8, 8)?);
+        vpx.gamedata.set_code(
+            "Option Explicit\r\nSet img = FlexDMD.NewImage(\"logo\", \"VPX.Logo\")\r\n".to_string(),
+        );
+
+        let converted = pngs_to_webp(&mut vpx);
+
+        assert_eq!(converted.len(), 1);
+        assert_eq!(converted[0].name(), "apron");
+        assert!(converted[0].bytes_after() < converted[0].bytes_before());
+        assert_eq!(vpx.images[0].ext(), "png");
+        assert_eq!(vpx.images[1].ext(), "webp");
+        assert_eq!(vpx.images[2].ext(), "jpg");
+        // a second run has nothing to do
+        assert_eq!(pngs_to_webp(&mut vpx), Vec::new());
         Ok(())
     }
 }
