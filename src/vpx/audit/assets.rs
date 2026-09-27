@@ -175,7 +175,7 @@ pub(super) fn check_font_availability(vpx: &VPX, findings: &mut Vec<Kind>) {
 /// An embedded font is registered by the names inside the font file, so
 /// those are what a textbox or decal refers to. A font whose names do not
 /// decode is left alone.
-pub(super) fn check_fonts(vpx: &VPX, findings: &mut Vec<Kind>) {
+pub(crate) fn check_fonts(vpx: &VPX, findings: &mut Vec<Kind>) {
     if vpx.fonts.is_empty() {
         return;
     }

@@ -4,14 +4,14 @@ use super::{Kind, VPX, audit_kinds};
 use crate::vpx;
 use crate::vpx::gameitem::GameItemEnum;
 
-pub(super) fn blank_vpx() -> VPX {
+pub(crate) fn blank_vpx() -> VPX {
     let bytes = include_bytes!("../../../testdata/completely_blank_table_10_7_4.vpx");
     #[allow(clippy::unwrap_used)]
     vpx::from_bytes(bytes).unwrap()
 }
 
 /// The blank fixture with its dangling default references cleared
-pub(super) fn clean_vpx() -> VPX {
+pub(crate) fn clean_vpx() -> VPX {
     let mut vpx = blank_vpx();
     // the template ships a decal without a name, like vpinball's own
     // blank table

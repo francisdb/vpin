@@ -20,7 +20,7 @@
 //! for text checks on the script and `script` for the checks that parse
 //! it. `finding` turns a check's result into the [`Finding`](crate::vpx::audit::Finding) it returns.
 
-mod assets;
+pub(crate) mod assets;
 mod code;
 mod finding;
 mod items;
@@ -29,7 +29,7 @@ mod references;
 #[cfg(feature = "script-audit")]
 mod script;
 #[cfg(test)]
-mod test_support;
+pub(crate) mod test_support;
 
 pub use finding::{Finding, ScriptLocation};
 
@@ -1003,7 +1003,7 @@ pub fn audit(vpx: &VPX) -> Vec<Finding> {
 }
 
 /// The checks, in their structured form
-fn audit_kinds(vpx: &VPX) -> Vec<Kind> {
+pub(crate) fn audit_kinds(vpx: &VPX) -> Vec<Kind> {
     let mut findings = Vec::new();
 
     references::check_references(vpx, &mut findings);
