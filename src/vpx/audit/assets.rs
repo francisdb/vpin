@@ -304,6 +304,22 @@ fn markdown_images(text: &str) -> Vec<String> {
     names
 }
 
+/// The images the script hands to FlexDMD by name, the `VPX.name` form
+/// of a `NewImage` or `NewVideo` path, lower cased. FlexDMD decodes these
+/// itself and cannot read webp
+pub(crate) fn flexdmd_image_names(script: &str) -> HashSet<String> {
+    script_literals(script)
+        .iter()
+        .filter_map(|literal| {
+            literal
+                .text
+                .strip_prefix("vpx.")
+                .and_then(|rest| rest.split(['&', '|']).next())
+                .map(|name| name.trim().to_string())
+        })
+        .collect()
+}
+
 /// Whether the script names an asset: as a whole literal, which is how
 /// `.Image = "name"` and `PlaySound "name"` refer to it; as the start or
 /// end of a name built with `&`, the way `"fx_ballrolling" & i` plays one
