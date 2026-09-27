@@ -56,6 +56,7 @@ pub(crate) mod compat;
 pub mod custominfotags;
 pub mod diff;
 pub mod expanded;
+pub mod fix;
 pub mod gamedata;
 /// The game items (walls, ramps, flippers, lights, ...) that make up a
 /// table, one submodule per item type.
