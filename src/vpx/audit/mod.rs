@@ -196,7 +196,8 @@ pub(crate) enum Kind {
     /// The table info has no table name
     MissingTableName,
     /// An image is stored as an uncompressed era bitmap; vpinball suggests
-    /// converting these to webp
+    /// converting these to webp, which
+    /// [`fix::bitmaps_to_webp`](crate::vpx::fix::bitmaps_to_webp) does
     BmpImage {
         /// Name of the image
         image: String,

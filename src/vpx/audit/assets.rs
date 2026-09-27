@@ -14,7 +14,7 @@ const LARGE_SCREENSHOT_BYTES: usize = 1024 * 1024;
 
 /// Images stored as bitmaps and images whose stored size disagrees
 /// with the picture
-pub(super) fn check_image_storage(vpx: &VPX, findings: &mut Vec<Kind>) {
+pub(crate) fn check_image_storage(vpx: &VPX, findings: &mut Vec<Kind>) {
     for image in &vpx.images {
         if image.bits.is_some() {
             findings.push(Kind::BmpImage {

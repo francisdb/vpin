@@ -16,6 +16,8 @@
 
 use super::VPX;
 use super::audit::{Kind, assets};
+use log::warn;
+use std::collections::HashSet;
 
 /// An embedded font removed from a table by [`drop_unused_fonts`]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +75,73 @@ pub fn drop_unused_fonts(vpx: &mut VPX) -> Vec<RemovedFont> {
     removed
 }
 
+/// An image re-encoded by [`bitmaps_to_webp`]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConvertedImage {
+    name: String,
+    bytes_before: usize,
+    bytes_after: usize,
+}
+
+impl ConvertedImage {
+    /// Name of the image in the table, as the table spelled it
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Size of the stored image data before the conversion, the LZW
+    /// compressed bitmap
+    pub fn bytes_before(&self) -> usize {
+        self.bytes_before
+    }
+
+    /// Size of the stored image data after it, the webp
+    pub fn bytes_after(&self) -> usize {
+        self.bytes_after
+    }
+}
+
+/// Re-encodes every bitmap image as lossless webp, the way vpinball does
+/// when it loads one: the images the audit reports as `bmp-image`. The
+/// picture stays the same; the hash vpinball keeps of the encoded bytes
+/// is dropped since it no longer matches. A bitmap that does not decode
+/// is left as it is, with a warning.
+///
+/// Returns the converted images in the order the table lists them, empty
+/// when the table is left as it was.
+pub fn bitmaps_to_webp(vpx: &mut VPX) -> Vec<ConvertedImage> {
+    let mut findings = Vec::new();
+    assets::check_image_storage(vpx, &mut findings);
+    let bitmaps: HashSet<String> = findings
+        .into_iter()
+        .filter_map(|finding| match finding {
+            Kind::BmpImage { image } => Some(image),
+            _ => None,
+        })
+        .collect();
+    let mut converted = Vec::new();
+    for image in vpx
+        .images
+        .iter_mut()
+        .filter(|image| bitmaps.contains(&image.name))
+    {
+        let bytes_before = image
+            .bits
+            .as_ref()
+            .map_or(0, |bits| bits.lzw_compressed_data.len());
+        match image.bitmap_to_webp() {
+            Ok(true) => converted.push(ConvertedImage {
+                name: image.name.clone(),
+                bytes_before,
+                bytes_after: image.jpeg.as_ref().map_or(0, |jpeg| jpeg.data.len()),
+            }),
+            Ok(false) => {}
+            Err(e) => warn!("Skipping image {}: {e}", image.name),
+        }
+    }
+    converted
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,9 +149,11 @@ mod tests {
     use crate::vpx::gameitem::GameItemEnum;
     use crate::vpx::gameitem::font::Font;
     use crate::vpx::gameitem::textbox::TextBox;
+    use crate::vpx::images::tests::{bitmap_image, encoded_image};
     use crate::vpx::pinbinary::PinBinary;
     use crate::vpx::ttf::font_with_names;
     use pretty_assertions::assert_eq;
+    use testresult::TestResult;
 
     fn font(name: &str, family: &str) -> PinBinary {
         PinBinary {
@@ -157,5 +228,45 @@ mod tests {
         assert_eq!(drop_unused_fonts(&mut vpx), Vec::new());
 
         assert_eq!(format!("{vpx:?}"), before);
+    }
+
+    #[test]
+    fn bitmaps_are_converted_to_webp() -> TestResult {
+        let mut vpx = VPX::default();
+        vpx.add_or_replace_image(bitmap_image("bmp", 8, 8));
+        vpx.add_or_replace_image(encoded_image("png", "png", 8, 8)?);
+        vpx.add_or_replace_image(encoded_image("jpg", "jpg", 8, 8)?);
+        let bytes_before = vpx.images[0]
+            .bits
+            .as_ref()
+            .map_or(0, |bits| bits.lzw_compressed_data.len());
+
+        let converted = bitmaps_to_webp(&mut vpx);
+
+        let bytes_after = vpx.images[0]
+            .jpeg
+            .as_ref()
+            .map_or(0, |jpeg| jpeg.data.len());
+        assert_eq!(
+            converted,
+            vec![ConvertedImage {
+                name: "bmp".to_string(),
+                bytes_before,
+                bytes_after,
+            }]
+        );
+        assert!(bytes_after > 0);
+        assert!(vpx.images.iter().all(|image| image.bits.is_none()));
+        assert_eq!(vpx.images[0].ext(), "webp");
+        assert_eq!(vpx.images[1].ext(), "png");
+        assert_eq!(vpx.images[2].ext(), "jpg");
+        assert!(
+            !audit_kinds(&vpx)
+                .iter()
+                .any(|finding| matches!(finding, Kind::BmpImage { .. }))
+        );
+        // a second run has nothing to do
+        assert_eq!(bitmaps_to_webp(&mut vpx), Vec::new());
+        Ok(())
     }
 }
