@@ -6,6 +6,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.2](https://github.com/francisdb/vpin/compare/v0.37.1...v0.37.2) - 2026-09-28
+
+### Added
+
+- *(audit)* report a color grade LUT stored in a lossy format
+- *(fix)* report the images the webp converters leave alone
+- *(audit)* check the content of sounds stored as files
+- *(audit)* check image content against its name and readability
+- *(fix)* re-encode tga images as webp on the parsed table
+- *(fix)* re-encode png images as webp on the parsed table
+- *(fix)* convert bitmap images to webp on the parsed table ([#414](https://github.com/francisdb/vpin/pull/414))
+- *(fix)* add the fix module with drop_unused_fonts ([#526](https://github.com/francisdb/vpin/pull/526))
+
+### Fixed
+
+- *(images)* keep sniffing the content of an image named .tga
+
+### Other
+
+- *(deps)* bump taiki-e/install-action from 2.87.11 to 2.87.15
+- *(audit)* split the audit module by area ([#525](https://github.com/francisdb/vpin/pull/525))
+
 ## [0.37.1](https://github.com/francisdb/vpin/compare/v0.37.0...v0.37.1) - 2026-09-23
 
 ### Added
