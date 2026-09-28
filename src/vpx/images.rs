@@ -43,6 +43,67 @@ fn is_tga(data: &[u8]) -> bool {
     data.ends_with(TGA_FOOTER)
 }
 
+/// The format the content of an encoded image names, by its signature, as
+/// the short lower case name the audit shows: `png`, `jpeg`, `gif`, `bmp`,
+/// `webp`, `hdr`, `exr` and `tga` (by its 2.0 footer), which vpin decodes,
+/// and `psd`, `tiff` and `dds`, which vpinball reads through FreeImage but
+/// vpin has no decoder for. `None` when no signature matches, which is
+/// what a footerless tga looks like.
+pub(crate) fn content_format(data: &[u8]) -> Option<&'static str> {
+    let format = if data.starts_with(b"\x89PNG\r\n\x1a\n") {
+        "png"
+    } else if data.starts_with(b"\xFF\xD8\xFF") {
+        "jpeg"
+    } else if data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a") {
+        "gif"
+    } else if data.starts_with(b"BM") {
+        "bmp"
+    } else if data.starts_with(b"RIFF") && data.get(8..12) == Some(b"WEBP") {
+        "webp"
+    } else if data.starts_with(b"#?RADIANCE") || data.starts_with(b"#?RGBE") {
+        "hdr"
+    } else if data.starts_with(b"\x76\x2f\x31\x01") {
+        "exr"
+    } else if data.starts_with(b"8BPS") {
+        "psd"
+    } else if data.starts_with(b"II*\0") || data.starts_with(b"MM\0*") {
+        "tiff"
+    } else if data.starts_with(b"DDS ") {
+        "dds"
+    } else if is_tga(data) {
+        "tga"
+    } else {
+        return None;
+    };
+    Some(format)
+}
+
+/// The format an image's file extension names, in the same short names as
+/// [`content_format`]: `jpg` and `jfif` are `jpeg`, `tif` is `tiff`. `None`
+/// for an extension that names no image format.
+pub(crate) fn extension_format(extension: &str) -> Option<&'static str> {
+    let format = match extension.to_ascii_lowercase().as_str() {
+        "png" => "png",
+        "jpg" | "jpeg" | "jfif" => "jpeg",
+        "gif" => "gif",
+        "bmp" => "bmp",
+        "webp" => "webp",
+        "hdr" => "hdr",
+        "exr" => "exr",
+        "psd" => "psd",
+        "tif" | "tiff" => "tiff",
+        "dds" => "dds",
+        "tga" => "tga",
+        _ => return None,
+    };
+    Some(format)
+}
+
+/// Whether vpin has a decoder for a format named by [`content_format`]
+pub(crate) fn decodable(format: &str) -> bool {
+    !matches!(format, "psd" | "tiff" | "dds")
+}
+
 impl ImageData {
     /// The stored pixels, whatever the format
     ///
@@ -54,26 +115,9 @@ impl ImageData {
         if let Some(bits) = &self.bits {
             return vpx_image_to_dynamic_image(&bits.lzw_compressed_data, self.width, self.height);
         }
-        if let Some(jpeg) = &self.jpeg {
-            // the content decides the format, the extension is the fallback
-            // for formats without a signature such as tga and hdr
-            let mut reader = ImageReader::new(io::Cursor::new(&jpeg.data));
-            // tga has no leading signature, so the crate's sniffer cannot
-            // find it; its 2.0 footer is the content signal, and the `.tga`
-            // extension the fallback for the older footerless format. The
-            // sniffer still runs after that: it keeps the tga format when it
-            // finds no signature, and a png stored under a `.tga` name still
-            // decodes as the png it is.
-            if is_tga(&jpeg.data) || self.ext().eq_ignore_ascii_case("tga") {
-                reader.set_format(ImageFormat::Tga);
-            } else if let Some(format) = ImageFormat::from_extension(self.ext()) {
-                reader.set_format(format);
-            }
-            // the default limit of 512 MB rejects the 8k float bakes of
-            // recent tables
-            reader.no_limits();
-            return reader
-                .with_guessed_format()?
+        if self.jpeg.is_some() {
+            return self
+                .encoded_reader()?
                 .decode()
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()));
         }
@@ -81,6 +125,48 @@ impl ImageData {
             io::ErrorKind::NotFound,
             "the image has no data in the table",
         ))
+    }
+
+    /// The size of the encoded picture, read from its header without
+    /// decoding the pixels, with the format chosen the way [`ImageData::decode`]
+    /// chooses it
+    ///
+    /// # Errors
+    ///
+    /// [`io::ErrorKind::NotFound`] for a link or a bitmap, which have no
+    /// encoded data, [`io::ErrorKind::InvalidData`] when the header does
+    /// not parse.
+    pub fn dimensions(&self) -> io::Result<(u32, u32)> {
+        self.encoded_reader()?
+            .into_dimensions()
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
+    }
+
+    /// A reader over the encoded data with its format chosen: the content
+    /// decides, the extension is the fallback for formats without a
+    /// signature such as tga and hdr. tga has no leading signature, so the
+    /// crate's sniffer cannot find it; its 2.0 footer is the content
+    /// signal, and the `.tga` extension the fallback for the older
+    /// footerless format. The sniffer still runs after that: it keeps the
+    /// tga format when it finds no signature, and a png stored under a
+    /// `.tga` name still decodes as the png it is.
+    fn encoded_reader(&self) -> io::Result<ImageReader<io::Cursor<&[u8]>>> {
+        let Some(jpeg) = &self.jpeg else {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "the image has no encoded data in the table",
+            ));
+        };
+        let mut reader = ImageReader::new(io::Cursor::new(jpeg.data.as_slice()));
+        if is_tga(&jpeg.data) || self.ext().eq_ignore_ascii_case("tga") {
+            reader.set_format(ImageFormat::Tga);
+        } else if let Some(format) = ImageFormat::from_extension(self.ext()) {
+            reader.set_format(format);
+        }
+        // the default limit of 512 MB rejects the 8k float bakes of
+        // recent tables
+        reader.no_limits();
+        reader.with_guessed_format()
     }
 
     /// Re-encodes a bitmap image as lossless webp, the way vpinball does
@@ -339,6 +425,48 @@ pub(crate) mod tests {
             md5_hash: Some([7; 16]),
             ..Default::default()
         })
+    }
+
+    #[test]
+    fn content_is_named_by_its_signature() {
+        assert_eq!(content_format(b"\x89PNG\r\n\x1a\n...."), Some("png"));
+        assert_eq!(content_format(b"\xFF\xD8\xFF\xE0...."), Some("jpeg"));
+        assert_eq!(content_format(b"GIF89a...."), Some("gif"));
+        assert_eq!(content_format(b"RIFF....WEBPVP8 "), Some("webp"));
+        assert_eq!(content_format(b"#?RADIANCE\n"), Some("hdr"));
+        assert_eq!(content_format(b"8BPS\0\x01"), Some("psd"));
+        assert_eq!(content_format(b"II*\0...."), Some("tiff"));
+        assert_eq!(content_format(b"DDS |...."), Some("dds"));
+        assert_eq!(content_format(b"....TRUEVISION-XFILE.\0"), Some("tga"));
+        assert_eq!(content_format(b"AAAA"), None);
+        assert_eq!(content_format(b""), None);
+        assert!(!decodable("psd"));
+        assert!(decodable("png"));
+    }
+
+    #[test]
+    fn extensions_name_the_same_formats() {
+        assert_eq!(extension_format("PNG"), Some("png"));
+        assert_eq!(extension_format("jpg"), Some("jpeg"));
+        assert_eq!(extension_format("jfif"), Some("jpeg"));
+        assert_eq!(extension_format("tif"), Some("tiff"));
+        assert_eq!(extension_format("tga"), Some("tga"));
+        assert_eq!(extension_format("bin"), None);
+    }
+
+    #[test]
+    fn dimensions_come_from_the_header() -> TestResult {
+        assert_eq!(loose_png("png", 40, 20)?.dimensions()?, (40, 20));
+        assert_eq!(tga_image("art", "png", 8, 4, true)?.dimensions()?, (8, 4));
+        assert_eq!(
+            link_image("link").dimensions().unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+        assert_eq!(
+            bitmap_image("bmp", 8, 8).dimensions().unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+        Ok(())
     }
 
     #[test]
