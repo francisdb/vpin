@@ -18,6 +18,7 @@ use super::VPX;
 use super::audit::{Kind, assets};
 use super::image::ImageData;
 use super::images::Webp;
+use super::pinbinary::PinBinary;
 use log::warn;
 use std::collections::HashSet;
 use std::io;
@@ -211,16 +212,49 @@ pub fn bitmaps_to_webp(vpx: &mut VPX) -> ImageConversion {
 /// FlexDMD as `VPX.name` are left alone, since FlexDMD decodes them
 /// itself and cannot read webp; so are pngs deeper than 8 bits, which
 /// webp cannot hold, and any png that does not decode, with a warning.
+/// The table screenshot is the stored bytes of the image that links to
+/// it, so a png screenshot is converted like any other png, and the
+/// linked image follows.
 ///
 /// Returns what was converted and what was left alone, with the reason.
 pub fn pngs_to_webp(vpx: &mut VPX) -> ImageConversion {
     let flexdmd = assets::flexdmd_image_names(&vpx.gamedata.code.string);
-    convert_images(
+    lend_screenshot(vpx);
+    let conversion = convert_images(
         vpx.images.iter_mut(),
         &flexdmd,
         ImageData::is_stored_png,
         ImageData::png_webp,
-    )
+    );
+    reclaim_screenshot(vpx);
+    conversion
+}
+
+/// Moves the screenshot bytes onto the image that links to them, so the
+/// converters see the picture as they see any other; undone by
+/// [`reclaim_screenshot`]. Nothing moves when no image links to the
+/// screenshot, which vpinball tolerates too
+fn lend_screenshot(vpx: &mut VPX) {
+    if let Some(link) = vpx.images.iter_mut().find(|image| image.is_link())
+        && let Some(data) = vpx.info.screenshot.take()
+    {
+        link.jpeg = Some(PinBinary {
+            path: link.path.clone(),
+            name: link.name.clone(),
+            internal_name: None,
+            data,
+        });
+    }
+}
+
+/// Moves the bytes lent by [`lend_screenshot`], converted or not, back
+/// to the screenshot
+fn reclaim_screenshot(vpx: &mut VPX) {
+    if let Some(link) = vpx.images.iter_mut().find(|image| image.is_link())
+        && let Some(jpeg) = link.jpeg.take()
+    {
+        vpx.info.screenshot = Some(jpeg.data);
+    }
 }
 
 /// Re-encodes every tga image as lossless webp where that is smaller,
@@ -474,6 +508,44 @@ mod tests {
         let again = pngs_to_webp(&mut vpx);
         assert!(again.is_empty());
         assert_eq!(again.skipped(), conversion.skipped());
+        Ok(())
+    }
+
+    #[test]
+    fn the_png_screenshot_is_converted_with_its_linked_image() -> TestResult {
+        use crate::vpx::images::tests::link_image;
+        let mut vpx = VPX::default();
+        let png = loose_png("Capture", 64, 64)?;
+        let png_bytes = png.jpeg.as_ref().map(|jpeg| jpeg.data.clone());
+        vpx.info.screenshot = png_bytes.clone();
+        let mut link = link_image("Capture");
+        link.width = 64;
+        link.height = 64;
+        vpx.add_or_replace_image(link);
+        vpx.gamedata.screen_shot = "Capture".to_string();
+
+        let conversion = pngs_to_webp(&mut vpx);
+
+        assert_eq!(conversion.converted().len(), 1);
+        assert_eq!(conversion.converted()[0].name(), "Capture");
+        assert!(conversion.skipped().is_empty());
+        let screenshot = vpx.info.screenshot.as_deref().unwrap_or_default();
+        assert!(screenshot.starts_with(b"RIFF"), "screenshot is not a webp");
+        assert!(screenshot.len() < png_bytes.map_or(0, |bytes| bytes.len()));
+        // the linked image follows the bytes, and keeps linking
+        assert_eq!(vpx.images[0].ext(), "webp");
+        assert!(vpx.images[0].is_link());
+        assert!(vpx.images[0].jpeg.is_none());
+        assert_eq!((vpx.images[0].width, vpx.images[0].height), (64, 64));
+        // a second run has nothing to do
+        assert!(pngs_to_webp(&mut vpx).is_empty());
+        assert!(vpx.info.screenshot.is_some());
+
+        // a screenshot nothing links to is left where it is
+        let mut orphan = VPX::default();
+        orphan.info.screenshot = Some(b"\x89PNG\r\n\x1a\nnot really".to_vec());
+        assert!(pngs_to_webp(&mut orphan).is_empty());
+        assert!(orphan.info.screenshot.is_some());
         Ok(())
     }
 

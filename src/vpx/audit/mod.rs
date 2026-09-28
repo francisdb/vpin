@@ -489,13 +489,27 @@ pub(crate) enum Kind {
         extension: String,
     },
     /// The embedded screenshot is large; it bloats the file and every save
-    /// spends noticeable time hashing it into the integrity signature.
-    /// Large ones are usually PNG captures, which JPEG stores much smaller.
+    /// spends noticeable time hashing it into the integrity signature, and
+    /// vpinball never shows it. The screenshot is the stored bytes of the
+    /// table image it links to, so when an item uses that image as a
+    /// texture only a lossless re-encode can shrink it; when nothing does,
+    /// a small picture would do
     LargeScreenshot {
         /// Size of the embedded screenshot in bytes
         bytes: usize,
-        /// The screenshot is a PNG, which JPEG would store much smaller
-        png: bool,
+        /// Name of the image the screenshot holds the bytes of, `None`
+        /// when no image links to it
+        image: Option<String>,
+        /// Whether an item, a table setting, a description or the script
+        /// uses that image, so it is a texture too
+        referenced: bool,
+    },
+    /// The embedded screenshot is a large png; lossless webp stores the
+    /// same picture smaller, which
+    /// [`fix::pngs_to_webp`](crate::vpx::fix::pngs_to_webp) does
+    PngScreenshot {
+        /// Size of the embedded screenshot in bytes
+        bytes: usize,
     },
     /// The script could not be parsed, so the script-level checks could not run
     ScriptParseError {
@@ -616,6 +630,7 @@ impl Kind {
         match self {
             Kind::BmpImage { .. }
             | Kind::LargeScreenshot { .. }
+            | Kind::PngScreenshot { .. }
             | Kind::MixedScriptLineEndings { .. }
             | Kind::MissingImageWithFallback { .. }
             | Kind::UnusedFont { .. }
@@ -981,18 +996,32 @@ impl fmt::Display for Kind {
                 f,
                 "sound {sound:?} has no known audio signature and its .{extension} name is no help; vpinball's decoder cannot identify it, so the sound never plays"
             ),
-            Kind::LargeScreenshot { bytes, png } => {
-                let advice = if *png {
-                    "consider converting it to JPEG"
-                } else {
-                    "consider a smaller one"
-                };
-                write!(
-                    f,
-                    "embedded screenshot is {:.1} MB, {advice}",
-                    *bytes as f64 / 1e6
-                )
+            Kind::LargeScreenshot {
+                bytes,
+                image,
+                referenced,
+            } => {
+                let mb = *bytes as f64 / 1e6;
+                match (image, referenced) {
+                    (Some(image), true) => write!(
+                        f,
+                        "embedded screenshot is {mb:.1} MB; vpinball never shows it, but its image {image:?} is also used as a texture, so only a lossless re-encode can shrink it"
+                    ),
+                    (Some(image), false) => write!(
+                        f,
+                        "embedded screenshot is {mb:.1} MB; vpinball never shows it and nothing else uses its image {image:?}, a small picture would do"
+                    ),
+                    (None, _) => write!(
+                        f,
+                        "embedded screenshot is {mb:.1} MB; vpinball never shows it, a small picture would do"
+                    ),
+                }
             }
+            Kind::PngScreenshot { bytes } => write!(
+                f,
+                "embedded screenshot is a {:.1} MB png, lossless webp stores it smaller",
+                *bytes as f64 / 1e6
+            ),
             Kind::ScriptParseError { detail, .. } => {
                 write!(f, "script could not be parsed: {detail}")
             }
@@ -1107,6 +1136,7 @@ impl Kind {
             Kind::SoundExtensionMismatch { .. } => "sound-extension-mismatch",
             Kind::SoundFormatUnknown { .. } => "sound-format-unknown",
             Kind::LargeScreenshot { .. } => "large-screenshot",
+            Kind::PngScreenshot { .. } => "png-screenshot",
             Kind::ScriptParseError { .. } => "script-parse-error",
             Kind::MissingOptionExplicit => "missing-option-explicit",
             Kind::DuplicateProcedure { .. } => "duplicate-procedure",
