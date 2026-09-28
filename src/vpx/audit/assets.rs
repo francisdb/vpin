@@ -90,14 +90,67 @@ fn check_image_content(image: &ImageData, data: &[u8], findings: &mut Vec<Kind>)
 
 /// A table screenshot larger than it needs to be
 pub(super) fn check_screenshot(vpx: &VPX, findings: &mut Vec<Kind>) {
-    if let Some(screenshot) = &vpx.info.screenshot
-        && screenshot.len() > LARGE_SCREENSHOT_BYTES
-    {
-        findings.push(Kind::LargeScreenshot {
+    let Some(screenshot) = &vpx.info.screenshot else {
+        return;
+    };
+    if screenshot.len() <= LARGE_SCREENSHOT_BYTES {
+        return;
+    }
+    let image = vpx.images.iter().find(|image| image.is_link());
+    let referenced = image.is_some_and(|image| {
+        referenced_images(vpx).contains(&image.name.to_lowercase())
+            || script_names(&script_literals(&vpx.gamedata.code.string), &image.name)
+    });
+    findings.push(Kind::LargeScreenshot {
+        bytes: screenshot.len(),
+        image: image.map(|image| image.name.clone()),
+        referenced,
+    });
+    if images::content_format(screenshot) == Some("png") {
+        findings.push(Kind::PngScreenshot {
             bytes: screenshot.len(),
-            png: screenshot.starts_with(&[0x89, b'P', b'N', b'G']),
         });
     }
+}
+
+/// The lower case names of the images something uses: an item, a table
+/// setting, a markdown image in the table texts. The screenshot slot is
+/// not a use: it only says which image's bytes the screenshot holds
+pub(super) fn referenced_images(vpx: &VPX) -> HashSet<String> {
+    let gamedata = &vpx.gamedata;
+    let mut used_images: HashSet<String> = HashSet::new();
+    for item in &vpx.gameitems {
+        let refs = item_references(item);
+        used_images.extend(refs.images.iter().map(|(_, image)| image.to_lowercase()));
+    }
+    for text in [
+        &vpx.info.table_blurb,
+        &vpx.info.table_description,
+        &vpx.info.table_rules,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        used_images.extend(markdown_images(text));
+    }
+    used_images.extend(
+        [
+            gamedata.image.as_str(),
+            gamedata.backglass_image_full_desktop.as_str(),
+            gamedata.backglass_image_full_fullscreen.as_str(),
+            gamedata
+                .backglass_image_full_single_screen
+                .as_deref()
+                .unwrap_or(""),
+            gamedata.image_color_grade.as_str(),
+            gamedata.ball_image.as_str(),
+            gamedata.ball_image_front.as_str(),
+            gamedata.env_image.as_deref().unwrap_or(""),
+        ]
+        .into_iter()
+        .map(str::to_lowercase),
+    );
+    used_images
 }
 
 /// Stereo sounds that play from the table, where vpinball positions
@@ -574,43 +627,15 @@ pub(super) fn check_unused_assets(vpx: &VPX, findings: &mut Vec<Kind>) {
     let literals = script_literals(&vpx.gamedata.code.string);
     let gamedata = &vpx.gamedata;
 
-    let mut used_images: HashSet<String> = HashSet::new();
+    let mut used_images = referenced_images(vpx);
+    // the image the table screenshot is taken from on save
+    used_images.insert(gamedata.screen_shot.to_lowercase());
     let mut used_materials: HashSet<String> = HashSet::new();
     for item in &vpx.gameitems {
         let refs = item_references(item);
-        used_images.extend(refs.images.iter().map(|(_, image)| image.to_lowercase()));
         used_materials.extend(refs.materials.iter().map(|(_, m)| m.to_lowercase()));
     }
     used_materials.insert(gamedata.playfield_material.to_lowercase());
-    for text in [
-        &vpx.info.table_blurb,
-        &vpx.info.table_description,
-        &vpx.info.table_rules,
-    ]
-    .into_iter()
-    .flatten()
-    {
-        used_images.extend(markdown_images(text));
-    }
-    used_images.extend(
-        [
-            gamedata.image.as_str(),
-            gamedata.backglass_image_full_desktop.as_str(),
-            gamedata.backglass_image_full_fullscreen.as_str(),
-            gamedata
-                .backglass_image_full_single_screen
-                .as_deref()
-                .unwrap_or(""),
-            gamedata.image_color_grade.as_str(),
-            gamedata.ball_image.as_str(),
-            gamedata.ball_image_front.as_str(),
-            gamedata.env_image.as_deref().unwrap_or(""),
-            // the image the table screenshot is taken from on save
-            gamedata.screen_shot.as_str(),
-        ]
-        .into_iter()
-        .map(str::to_lowercase),
-    );
     for image in &vpx.images {
         if !used_images.contains(&image.name.to_lowercase())
             && !script_names(&literals, &image.name)
@@ -715,19 +740,79 @@ mod tests {
 
     #[test]
     fn a_large_screenshot_is_a_suggestion() {
+        use crate::vpx::images::tests::link_image;
         let mut vpx = clean_vpx();
         let mut screenshot = vec![0u8; 2 * 1024 * 1024];
-        screenshot[..4].copy_from_slice(&[0x89, b'P', b'N', b'G']);
+        screenshot[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
         vpx.info.screenshot = Some(screenshot);
+        vpx.images.push(link_image("Capture"));
+        vpx.gamedata.screen_shot = "Capture".to_string();
+
+        // nothing but the screenshot slot uses the image
         let findings = audit_kinds(&vpx);
         assert_eq!(
             findings,
-            vec![Kind::LargeScreenshot {
-                bytes: 2 * 1024 * 1024,
-                png: true,
-            }]
+            vec![
+                Kind::LargeScreenshot {
+                    bytes: 2 * 1024 * 1024,
+                    image: Some("Capture".to_string()),
+                    referenced: false,
+                },
+                Kind::PngScreenshot {
+                    bytes: 2 * 1024 * 1024,
+                },
+            ]
         );
         assert_eq!(findings[0].severity(), Severity::Suggestion);
+        assert_eq!(findings[1].severity(), Severity::Suggestion);
+        assert_eq!(
+            findings[0].to_string(),
+            "embedded screenshot is 2.1 MB; vpinball never shows it and nothing else uses its image \"Capture\", a small picture would do"
+        );
+        assert_eq!(
+            findings[1].to_string(),
+            "embedded screenshot is a 2.1 MB png, lossless webp stores it smaller"
+        );
+
+        // a wall uses the image, so it is a texture too
+        vpx.add_game_item(crate::vpx::gameitem::GameItemEnum::Wall(
+            crate::vpx::gameitem::wall::Wall {
+                name: "Apron".to_string(),
+                image: "capture".to_string(),
+                ..Default::default()
+            },
+        ));
+        let findings = audit_kinds(&vpx);
+        assert!(matches!(
+            &findings[0],
+            Kind::LargeScreenshot {
+                referenced: true,
+                ..
+            }
+        ));
+        assert_eq!(
+            findings[0].to_string(),
+            "embedded screenshot is 2.1 MB; vpinball never shows it, but its image \"Capture\" is also used as a texture, so only a lossless re-encode can shrink it"
+        );
+
+        // a jpeg screenshot is only large, and one nothing links to has
+        // no image to name
+        vpx.images.clear();
+        let mut jpeg = vec![0u8; 2 * 1024 * 1024];
+        jpeg[..3].copy_from_slice(b"\xFF\xD8\xFF");
+        vpx.info.screenshot = Some(jpeg);
+        let findings = audit_kinds(&vpx);
+        assert_eq!(findings.len(), 2, "{findings:#?}");
+        // the wall's image is missing now, which the references report first
+        assert!(matches!(&findings[0], Kind::MissingImage { .. }));
+        assert!(matches!(
+            &findings[1],
+            Kind::LargeScreenshot {
+                image: None,
+                referenced: false,
+                ..
+            }
+        ));
     }
 
     /// An encoded image with the given bytes under the given file name
