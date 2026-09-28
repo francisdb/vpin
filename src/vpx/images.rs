@@ -104,6 +104,17 @@ pub(crate) fn decodable(format: &str) -> bool {
     !matches!(format, "psd" | "tiff" | "dds")
 }
 
+/// What a webp conversion did with an image it was asked to convert
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Webp {
+    /// The image is now a webp
+    Converted,
+    /// The webp would not be smaller than what is stored
+    NotSmaller,
+    /// The pixels are deeper than 8 bits, which webp cannot hold
+    TooDeep,
+}
+
 impl ImageData {
     /// The stored pixels, whatever the format
     ///
@@ -169,6 +180,22 @@ impl ImageData {
         reader.with_guessed_format()
     }
 
+    /// Whether the stored data is a png, by its signature
+    pub(crate) fn is_stored_png(&self) -> bool {
+        const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
+        self.jpeg
+            .as_ref()
+            .is_some_and(|jpeg| jpeg.data.starts_with(PNG_SIGNATURE))
+    }
+
+    /// Whether the stored data is a tga: by its 2.0 footer, or by a `.tga`
+    /// name for the older footerless format
+    pub(crate) fn is_stored_tga(&self) -> bool {
+        self.jpeg
+            .as_ref()
+            .is_some_and(|jpeg| is_tga(&jpeg.data) || self.ext().eq_ignore_ascii_case("tga"))
+    }
+
     /// Re-encodes a bitmap image as lossless webp, the way vpinball does
     /// when it loads one. Returns `false` when the image is not a bitmap.
     ///
@@ -176,13 +203,41 @@ impl ImageData {
     ///
     /// When the bitmap data does not decode.
     pub fn bitmap_to_webp(&mut self) -> io::Result<bool> {
+        Ok(matches!(self.bitmap_webp()?, Some(Webp::Converted)))
+    }
+
+    /// [`ImageData::bitmap_to_webp`] telling why it left the image alone:
+    /// `None` when the image is not a bitmap
+    pub(crate) fn bitmap_webp(&mut self) -> io::Result<Option<Webp>> {
         if self.bits.is_none() {
-            return Ok(false);
+            return Ok(None);
         }
         let decoded = self.decode()?;
         let webp = encode(&decoded, ImageFormat::WebP, 0)?;
         self.set_data(webp, "webp", decoded.width(), decoded.height());
-        Ok(true)
+        Ok(Some(Webp::Converted))
+    }
+
+    /// Re-encodes an image that is stored as a file (not a bitmap) as
+    /// lossless webp when its pixels are 8 bits deep and the webp is
+    /// smaller than the stored bytes
+    fn file_webp(&mut self, bytes_before: usize) -> io::Result<Webp> {
+        let decoded = self.decode()?;
+        if !matches!(
+            decoded,
+            DynamicImage::ImageLuma8(_)
+                | DynamicImage::ImageLumaA8(_)
+                | DynamicImage::ImageRgb8(_)
+                | DynamicImage::ImageRgba8(_)
+        ) {
+            return Ok(Webp::TooDeep);
+        }
+        let webp = encode(&decoded, ImageFormat::WebP, 0)?;
+        if webp.len() >= bytes_before {
+            return Ok(Webp::NotSmaller);
+        }
+        self.set_data(webp, "webp", decoded.width(), decoded.height());
+        Ok(Webp::Converted)
     }
 
     /// Re-encodes a png image as lossless webp when that is smaller, which
@@ -196,31 +251,17 @@ impl ImageData {
     /// When the png does not decode, or webp cannot encode it, such as a
     /// side over 16383 pixels.
     pub fn png_to_webp(&mut self) -> io::Result<bool> {
-        const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
-        let Some(bytes_before) = self
-            .jpeg
-            .as_ref()
-            .filter(|jpeg| jpeg.data.starts_with(PNG_SIGNATURE))
-            .map(|jpeg| jpeg.data.len())
-        else {
-            return Ok(false);
-        };
-        let decoded = self.decode()?;
-        if !matches!(
-            decoded,
-            DynamicImage::ImageLuma8(_)
-                | DynamicImage::ImageLumaA8(_)
-                | DynamicImage::ImageRgb8(_)
-                | DynamicImage::ImageRgba8(_)
-        ) {
-            return Ok(false);
+        Ok(matches!(self.png_webp()?, Some(Webp::Converted)))
+    }
+
+    /// [`ImageData::png_to_webp`] telling why it left the image alone:
+    /// `None` when the image is not a png
+    pub(crate) fn png_webp(&mut self) -> io::Result<Option<Webp>> {
+        if !self.is_stored_png() {
+            return Ok(None);
         }
-        let webp = encode(&decoded, ImageFormat::WebP, 0)?;
-        if webp.len() >= bytes_before {
-            return Ok(false);
-        }
-        self.set_data(webp, "webp", decoded.width(), decoded.height());
-        Ok(true)
+        let bytes_before = self.jpeg.as_ref().map_or(0, |jpeg| jpeg.data.len());
+        self.file_webp(bytes_before).map(Some)
     }
 
     /// Re-encodes a tga image as lossless webp when that is smaller, which
@@ -245,32 +286,18 @@ impl ImageData {
     ///
     /// When the tga does not decode, or webp cannot encode it.
     pub fn tga_to_webp(&mut self) -> io::Result<bool> {
-        let named_tga = self.ext().eq_ignore_ascii_case("tga");
-        let Some(bytes_before) = self
-            .jpeg
-            .as_ref()
-            .filter(|jpeg| is_tga(&jpeg.data) || named_tga)
-            .map(|jpeg| jpeg.data.len())
-        else {
-            return Ok(false);
-        };
+        Ok(matches!(self.tga_webp()?, Some(Webp::Converted)))
+    }
+
+    /// [`ImageData::tga_to_webp`] telling why it left the image alone:
+    /// `None` when the image is not a tga
+    pub(crate) fn tga_webp(&mut self) -> io::Result<Option<Webp>> {
+        if !self.is_stored_tga() {
+            return Ok(None);
+        }
         // decode() identifies the tga the same way, so it decodes as one
-        let decoded = self.decode()?;
-        if !matches!(
-            decoded,
-            DynamicImage::ImageLuma8(_)
-                | DynamicImage::ImageLumaA8(_)
-                | DynamicImage::ImageRgb8(_)
-                | DynamicImage::ImageRgba8(_)
-        ) {
-            return Ok(false);
-        }
-        let webp = encode(&decoded, ImageFormat::WebP, 0)?;
-        if webp.len() >= bytes_before {
-            return Ok(false);
-        }
-        self.set_data(webp, "webp", decoded.width(), decoded.height());
-        Ok(true)
+        let bytes_before = self.jpeg.as_ref().map_or(0, |jpeg| jpeg.data.len());
+        self.file_webp(bytes_before).map(Some)
     }
 
     /// Replaces the image content; the hash vpinball keeps of the encoded
@@ -525,6 +552,59 @@ pub(crate) mod tests {
         })
     }
 
+    /// A 16 bit png, which webp cannot hold
+    pub(crate) fn deep_png(name: &str) -> TestResult<ImageData> {
+        let deep = ::image::ImageBuffer::from_fn(8, 8, |x, y| {
+            ::image::Rgb([(x * 4000) as u16, (y * 4000) as u16, 60000])
+        });
+        let mut data = Vec::new();
+        DynamicImage::ImageRgb16(deep)
+            .write_to(&mut io::Cursor::new(&mut data), ImageFormat::Png)?;
+        Ok(ImageData {
+            name: name.to_string(),
+            path: format!("C:\\images\\{name}.png"),
+            width: 8,
+            height: 8,
+            jpeg: Some(PinBinary {
+                path: format!("C:\\images\\{name}.png"),
+                name: name.to_string(),
+                internal_name: None,
+                data,
+            }),
+            ..Default::default()
+        })
+    }
+
+    /// A png of noise, which no lossless encoder makes smaller
+    pub(crate) fn noise_png(name: &str, width: u32, height: u32) -> TestResult<ImageData> {
+        let mut state: u32 = 0x9E37_79B9;
+        let noise = ::image::ImageBuffer::from_fn(width, height, |_, _| {
+            let mut next = || {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                (state >> 24) as u8
+            };
+            ::image::Rgb([next(), next(), next()])
+        });
+        let mut data = Vec::new();
+        DynamicImage::ImageRgb8(noise)
+            .write_to(&mut io::Cursor::new(&mut data), ImageFormat::Png)?;
+        Ok(ImageData {
+            name: name.to_string(),
+            path: format!("C:\\images\\{name}.png"),
+            width,
+            height,
+            jpeg: Some(PinBinary {
+                path: format!("C:\\images\\{name}.png"),
+                name: name.to_string(),
+                internal_name: None,
+                data,
+            }),
+            ..Default::default()
+        })
+    }
+
     #[test]
     fn a_png_becomes_a_smaller_lossless_webp() -> TestResult {
         let mut image = loose_png("png", 64, 64)?;
@@ -543,25 +623,7 @@ pub(crate) mod tests {
 
     #[test]
     fn pngs_webp_cannot_hold_losslessly_are_left_alone() -> TestResult {
-        let deep = ::image::ImageBuffer::from_fn(8, 8, |x, y| {
-            ::image::Rgb([(x * 4000) as u16, (y * 4000) as u16, 60000])
-        });
-        let mut data = Vec::new();
-        DynamicImage::ImageRgb16(deep)
-            .write_to(&mut io::Cursor::new(&mut data), ImageFormat::Png)?;
-        let mut image = ImageData {
-            name: "deep".to_string(),
-            path: "C:\\images\\deep.png".to_string(),
-            width: 8,
-            height: 8,
-            jpeg: Some(PinBinary {
-                path: "C:\\images\\deep.png".to_string(),
-                name: "deep".to_string(),
-                internal_name: None,
-                data,
-            }),
-            ..Default::default()
-        };
+        let mut image = deep_png("deep")?;
         assert!(!image.png_to_webp()?);
         assert_eq!(image.ext(), "png");
         Ok(())

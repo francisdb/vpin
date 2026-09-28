@@ -17,6 +17,7 @@
 use super::VPX;
 use super::audit::{Kind, assets};
 use super::image::ImageData;
+use super::images::Webp;
 use log::warn;
 use std::collections::HashSet;
 use std::io;
@@ -77,7 +78,80 @@ pub fn drop_unused_fonts(vpx: &mut VPX) -> Vec<RemovedFont> {
     removed
 }
 
-/// An image re-encoded by [`bitmaps_to_webp`]
+/// Why a converter left an image alone
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SkipReason {
+    /// The script hands the image to FlexDMD as `VPX.name`, and FlexDMD
+    /// decodes it itself and cannot read webp
+    FlexDmd,
+    /// The webp would not be smaller than what is stored
+    NotSmaller,
+    /// The pixels are deeper than 8 bits, which webp cannot hold
+    TooDeep,
+    /// The image does not decode, or webp cannot encode it; the error
+    Unreadable(String),
+}
+
+impl std::fmt::Display for SkipReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SkipReason::FlexDmd => write!(f, "FlexDMD reads it and cannot read webp"),
+            SkipReason::NotSmaller => write!(f, "the webp would not be smaller"),
+            SkipReason::TooDeep => write!(f, "deeper than 8 bits, which webp cannot hold"),
+            SkipReason::Unreadable(error) => write!(f, "does not decode: {error}"),
+        }
+    }
+}
+
+/// An image a converter left alone, with the reason
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkippedImage {
+    name: String,
+    reason: SkipReason,
+}
+
+impl SkippedImage {
+    /// Name of the image in the table, as the table spelled it
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Why the converter left it alone
+    pub fn reason(&self) -> &SkipReason {
+        &self.reason
+    }
+}
+
+/// What a run of [`bitmaps_to_webp`], [`pngs_to_webp`] or
+/// [`tgas_to_webp`] did: the images it re-encoded and the ones it would
+/// have but left alone, each with the reason. Images that were never
+/// candidates, a jpeg for the png converter, are in neither list.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ImageConversion {
+    converted: Vec<ConvertedImage>,
+    skipped: Vec<SkippedImage>,
+}
+
+impl ImageConversion {
+    /// The re-encoded images, in the order the table lists them
+    pub fn converted(&self) -> &[ConvertedImage] {
+        &self.converted
+    }
+
+    /// The candidates left alone, in the order the table lists them
+    pub fn skipped(&self) -> &[SkippedImage] {
+        &self.skipped
+    }
+
+    /// Whether the table is left as it was
+    pub fn is_empty(&self) -> bool {
+        self.converted.is_empty()
+    }
+}
+
+/// An image re-encoded by [`bitmaps_to_webp`], [`pngs_to_webp`] or
+/// [`tgas_to_webp`]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConvertedImage {
     name: String,
@@ -109,9 +183,8 @@ impl ConvertedImage {
 /// is dropped since it no longer matches. A bitmap that does not decode
 /// is left as it is, with a warning.
 ///
-/// Returns the converted images in the order the table lists them, empty
-/// when the table is left as it was.
-pub fn bitmaps_to_webp(vpx: &mut VPX) -> Vec<ConvertedImage> {
+/// Returns what was converted and what was left alone, with the reason.
+pub fn bitmaps_to_webp(vpx: &mut VPX) -> ImageConversion {
     let mut findings = Vec::new();
     assets::check_image_storage(vpx, &mut findings);
     let bitmaps: HashSet<String> = findings
@@ -125,7 +198,9 @@ pub fn bitmaps_to_webp(vpx: &mut VPX) -> Vec<ConvertedImage> {
         vpx.images
             .iter_mut()
             .filter(|image| bitmaps.contains(&image.name)),
-        ImageData::bitmap_to_webp,
+        &HashSet::new(),
+        |_| true,
+        ImageData::bitmap_webp,
     )
 }
 
@@ -137,15 +212,14 @@ pub fn bitmaps_to_webp(vpx: &mut VPX) -> Vec<ConvertedImage> {
 /// itself and cannot read webp; so are pngs deeper than 8 bits, which
 /// webp cannot hold, and any png that does not decode, with a warning.
 ///
-/// Returns the converted images in the order the table lists them, empty
-/// when the table is left as it was.
-pub fn pngs_to_webp(vpx: &mut VPX) -> Vec<ConvertedImage> {
+/// Returns what was converted and what was left alone, with the reason.
+pub fn pngs_to_webp(vpx: &mut VPX) -> ImageConversion {
     let flexdmd = assets::flexdmd_image_names(&vpx.gamedata.code.string);
     convert_images(
-        vpx.images
-            .iter_mut()
-            .filter(|image| !flexdmd.contains(&image.name.to_lowercase())),
-        ImageData::png_to_webp,
+        vpx.images.iter_mut(),
+        &flexdmd,
+        ImageData::is_stored_png,
+        ImageData::png_webp,
     )
 }
 
@@ -163,37 +237,62 @@ pub fn pngs_to_webp(vpx: &mut VPX) -> Vec<ConvertedImage> {
 /// Images the script hands to FlexDMD as `VPX.name` are left alone:
 /// FlexDMD decodes them itself and cannot read webp.
 ///
-/// Returns the converted images in the order the table lists them, empty
-/// when the table is left as it was.
-pub fn tgas_to_webp(vpx: &mut VPX) -> Vec<ConvertedImage> {
+/// Returns what was converted and what was left alone, with the reason.
+pub fn tgas_to_webp(vpx: &mut VPX) -> ImageConversion {
     let flexdmd = assets::flexdmd_image_names(&vpx.gamedata.code.string);
     convert_images(
-        vpx.images
-            .iter_mut()
-            .filter(|image| !flexdmd.contains(&image.name.to_lowercase())),
-        ImageData::tga_to_webp,
+        vpx.images.iter_mut(),
+        &flexdmd,
+        ImageData::is_stored_tga,
+        ImageData::tga_webp,
     )
 }
 
-/// Runs a conversion over images, recording the ones it changed
+/// Runs a conversion over images, recording the ones it changed and the
+/// candidates it left alone. `flexdmd` holds the lower case names of the
+/// images FlexDMD reads, which are never converted; `is_candidate` tells
+/// which of those would have been, so they are reported as skipped and
+/// the rest not at all. `convert` answers `None` for an image that is
+/// not its kind.
 fn convert_images<'a>(
     images: impl Iterator<Item = &'a mut ImageData>,
-    convert: fn(&mut ImageData) -> io::Result<bool>,
-) -> Vec<ConvertedImage> {
-    let mut converted = Vec::new();
+    flexdmd: &HashSet<String>,
+    is_candidate: impl Fn(&ImageData) -> bool,
+    convert: fn(&mut ImageData) -> io::Result<Option<Webp>>,
+) -> ImageConversion {
+    let mut conversion = ImageConversion::default();
     for image in images {
-        let bytes_before = stored_bytes(image);
-        match convert(image) {
-            Ok(true) => converted.push(ConvertedImage {
-                name: image.name.clone(),
-                bytes_before,
-                bytes_after: stored_bytes(image),
-            }),
-            Ok(false) => {}
-            Err(e) => warn!("Skipping image {}: {e}", image.name),
-        }
+        let reason = if flexdmd.contains(&image.name.to_lowercase()) {
+            if !is_candidate(image) {
+                continue;
+            }
+            SkipReason::FlexDmd
+        } else {
+            let bytes_before = stored_bytes(image);
+            match convert(image) {
+                Ok(Some(Webp::Converted)) => {
+                    conversion.converted.push(ConvertedImage {
+                        name: image.name.clone(),
+                        bytes_before,
+                        bytes_after: stored_bytes(image),
+                    });
+                    continue;
+                }
+                Ok(Some(Webp::NotSmaller)) => SkipReason::NotSmaller,
+                Ok(Some(Webp::TooDeep)) => SkipReason::TooDeep,
+                Ok(None) => continue,
+                Err(e) => {
+                    warn!("Skipping image {}: {e}", image.name);
+                    SkipReason::Unreadable(e.to_string())
+                }
+            }
+        };
+        conversion.skipped.push(SkippedImage {
+            name: image.name.clone(),
+            reason,
+        });
     }
-    converted
+    conversion
 }
 
 /// Size of the image data as the file holds it: the encoded bytes, or the
@@ -219,7 +318,9 @@ mod tests {
     use crate::vpx::gameitem::GameItemEnum;
     use crate::vpx::gameitem::font::Font;
     use crate::vpx::gameitem::textbox::TextBox;
-    use crate::vpx::images::tests::{bitmap_image, encoded_image, loose_png, tga_image};
+    use crate::vpx::images::tests::{
+        bitmap_image, deep_png, encoded_image, loose_png, noise_png, tga_image,
+    };
     use crate::vpx::pinbinary::PinBinary;
     use crate::vpx::ttf::font_with_names;
     use pretty_assertions::assert_eq;
@@ -311,19 +412,22 @@ mod tests {
             .as_ref()
             .map_or(0, |bits| bits.lzw_compressed_data.len());
 
-        let converted = bitmaps_to_webp(&mut vpx);
+        let conversion = bitmaps_to_webp(&mut vpx);
 
         let bytes_after = vpx.images[0]
             .jpeg
             .as_ref()
             .map_or(0, |jpeg| jpeg.data.len());
         assert_eq!(
-            converted,
-            vec![ConvertedImage {
-                name: "bmp".to_string(),
-                bytes_before,
-                bytes_after,
-            }]
+            conversion,
+            ImageConversion {
+                converted: vec![ConvertedImage {
+                    name: "bmp".to_string(),
+                    bytes_before,
+                    bytes_after,
+                }],
+                skipped: Vec::new(),
+            }
         );
         assert!(bytes_after > 0);
         assert!(vpx.images.iter().all(|image| image.bits.is_none()));
@@ -336,7 +440,7 @@ mod tests {
                 .any(|finding| matches!(finding, Kind::BmpImage { .. }))
         );
         // a second run has nothing to do
-        assert_eq!(bitmaps_to_webp(&mut vpx), Vec::new());
+        assert_eq!(bitmaps_to_webp(&mut vpx), ImageConversion::default());
         Ok(())
     }
 
@@ -350,16 +454,70 @@ mod tests {
             "Option Explicit\r\nSet img = FlexDMD.NewImage(\"logo\", \"VPX.Logo\")\r\n".to_string(),
         );
 
-        let converted = pngs_to_webp(&mut vpx);
+        let conversion = pngs_to_webp(&mut vpx);
 
+        let converted = conversion.converted();
         assert_eq!(converted.len(), 1);
         assert_eq!(converted[0].name(), "apron");
         assert!(converted[0].bytes_after() < converted[0].bytes_before());
+        assert_eq!(
+            conversion.skipped(),
+            [SkippedImage {
+                name: "logo".to_string(),
+                reason: SkipReason::FlexDmd,
+            }]
+        );
         assert_eq!(vpx.images[0].ext(), "png");
         assert_eq!(vpx.images[1].ext(), "webp");
         assert_eq!(vpx.images[2].ext(), "jpg");
-        // a second run has nothing to do
-        assert_eq!(pngs_to_webp(&mut vpx), Vec::new());
+        // a second run has nothing to do but report the same skip
+        let again = pngs_to_webp(&mut vpx);
+        assert!(again.is_empty());
+        assert_eq!(again.skipped(), conversion.skipped());
+        Ok(())
+    }
+
+    #[test]
+    fn pngs_left_alone_are_reported_with_the_reason() -> TestResult {
+        let mut vpx = VPX::default();
+        vpx.add_or_replace_image(deep_png("deep")?);
+        vpx.add_or_replace_image(noise_png("noise", 64, 64)?);
+        // a png whose data is cut short does not decode
+        let mut broken = loose_png("broken", 64, 64)?;
+        if let Some(jpeg) = &mut broken.jpeg {
+            jpeg.data.truncate(40);
+        }
+        vpx.add_or_replace_image(broken);
+        vpx.add_or_replace_image(encoded_image("jpg", "jpg", 8, 8)?);
+
+        let conversion = pngs_to_webp(&mut vpx);
+
+        assert!(conversion.is_empty());
+        assert_eq!(conversion.skipped().len(), 3, "{conversion:#?}");
+        assert_eq!(
+            conversion.skipped()[0],
+            SkippedImage {
+                name: "deep".to_string(),
+                reason: SkipReason::TooDeep,
+            }
+        );
+        assert_eq!(
+            conversion.skipped()[1],
+            SkippedImage {
+                name: "noise".to_string(),
+                reason: SkipReason::NotSmaller,
+            }
+        );
+        assert_eq!(conversion.skipped()[2].name(), "broken");
+        assert!(matches!(
+            conversion.skipped()[2].reason(),
+            SkipReason::Unreadable(_)
+        ));
+        assert_eq!(
+            conversion.skipped()[0].reason().to_string(),
+            "deeper than 8 bits, which webp cannot hold"
+        );
+        assert!(vpx.images.iter().all(|image| image.ext() != "webp"));
         Ok(())
     }
 
@@ -375,16 +533,27 @@ mod tests {
             "Option Explicit\r\nSet img = FlexDMD.NewImage(\"d\", \"VPX.dmd\")\r\n".to_string(),
         );
 
-        let converted = tgas_to_webp(&mut vpx);
+        let conversion = tgas_to_webp(&mut vpx);
 
+        let converted = conversion.converted();
         assert_eq!(converted.len(), 1);
         assert_eq!(converted[0].name(), "art");
         assert!(converted[0].bytes_after() < converted[0].bytes_before());
+        // the unmarked tga is no candidate, so it is not a skip either
+        assert_eq!(
+            conversion.skipped(),
+            [SkippedImage {
+                name: "dmd".to_string(),
+                reason: SkipReason::FlexDmd,
+            }]
+        );
         assert_eq!(vpx.images[0].ext(), "webp"); // tga by footer, converted
         assert_eq!(vpx.images[1].ext(), "png"); // unmarked, left alone
         assert_eq!(vpx.images[2].ext(), "tga"); // FlexDMD, left alone
-        // a second run has nothing to do
-        assert_eq!(tgas_to_webp(&mut vpx), Vec::new());
+        // a second run has nothing to do but report the same skip
+        let again = tgas_to_webp(&mut vpx);
+        assert!(again.is_empty());
+        assert_eq!(again.skipped(), conversion.skipped());
         Ok(())
     }
 }
