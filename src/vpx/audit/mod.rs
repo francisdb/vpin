@@ -332,6 +332,44 @@ pub(crate) enum Kind {
         /// Width and height of the encoded picture
         actual: (u32, u32),
     },
+    /// An image's file name says one format and its content is another: a
+    /// gif under a `.png` name, a png under `.jpg`. vpinball reads the
+    /// content and never looks at the name, so the table plays as
+    /// intended; a tool that trusts the name, an extraction to disk for
+    /// one, gets the format wrong
+    ImageExtensionMismatch {
+        /// Name of the image
+        image: String,
+        /// The extension of the stored file name, as written
+        extension: String,
+        /// The format the content is, as [`content_format`](crate::vpx::images::content_format) names it
+        format: &'static str,
+    },
+    /// An image's content starts with no signature of any format vpinball
+    /// or vpin reads, and its file name is no help either. vpinball
+    /// identifies an image by its content alone and does not load one it
+    /// cannot identify, so the image never shows. A tga without the 2.0
+    /// footer has no signature either; it is recognised by its `.tga` name
+    /// here and by header heuristics in vpinball, so it is not this
+    ImageFormatUnknown {
+        /// Name of the image
+        image: String,
+        /// The extension of the stored file name, as written
+        extension: String,
+    },
+    /// An image vpin cannot read. Either its format is known but the
+    /// header does not parse, which vpinball may well reject too, or it is
+    /// a Photoshop, tiff or dds file, which vpinball reads through
+    /// FreeImage but vpin has no decoder for
+    UnreadableImage {
+        /// Name of the image
+        image: String,
+        /// The format, as [`content_format`](crate::vpx::images::content_format) names it
+        format: &'static str,
+        /// What the decoder said about the header, `None` when vpin has no
+        /// decoder for the format
+        error: Option<String>,
+    },
     /// The glass is below two inches or upside down
     GlassHeightInvalid {
         /// What is wrong, as a phrase: the bottom is higher than the top,
@@ -549,7 +587,11 @@ impl Kind {
                 Severity::Suggestion
             }
             Kind::UnusedMaterials { .. } => Severity::Info,
-            Kind::ImageDimensionMismatch { .. } => Severity::Info,
+            Kind::ImageDimensionMismatch { .. } | Kind::ImageExtensionMismatch { .. } => {
+                Severity::Info
+            }
+            Kind::ImageFormatUnknown { .. } => Severity::Error,
+            Kind::UnreadableImage { error: None, .. } => Severity::Suggestion,
             Kind::NegativeLightIntensity { .. }
             | Kind::StereoTableSound { .. }
             | Kind::BallIdAssigned { .. } => Severity::Error,
@@ -743,6 +785,34 @@ impl fmt::Display for Kind {
                 f,
                 "image {image:?} is stored as {}x{} but the picture is {}x{}; vpinball logs a corrupted file and uses the picture's size",
                 stored.0, stored.1, actual.0, actual.1
+            ),
+            Kind::ImageExtensionMismatch {
+                image,
+                extension,
+                format,
+            } => write!(
+                f,
+                "image {image:?} is a {format} file stored under a .{extension} name; vpinball reads the content, a tool trusting the name gets the format wrong"
+            ),
+            Kind::ImageFormatUnknown { image, extension } => write!(
+                f,
+                "image {image:?} has no known image signature and its .{extension} name is no help; vpinball cannot identify it and does not load it"
+            ),
+            Kind::UnreadableImage {
+                image,
+                format,
+                error: None,
+            } => write!(
+                f,
+                "image {image:?} is a {format} file, which vpinball reads but most other tools do not; consider re-saving it as png or webp"
+            ),
+            Kind::UnreadableImage {
+                image,
+                format,
+                error: Some(error),
+            } => write!(
+                f,
+                "image {image:?} is a {format} file whose header does not parse ({error}); vpinball may fail to load it too"
             ),
 
             Kind::UnusedFont { font, faces } => write!(
@@ -961,6 +1031,9 @@ impl Kind {
             Kind::UnusedMaterials { .. } => "unused-materials",
             Kind::MissingSound { .. } => "missing-sound",
             Kind::ImageDimensionMismatch { .. } => "image-dimension-mismatch",
+            Kind::ImageExtensionMismatch { .. } => "image-extension-mismatch",
+            Kind::ImageFormatUnknown { .. } => "image-format-unknown",
+            Kind::UnreadableImage { .. } => "unreadable-image",
             Kind::GlassHeightInvalid { .. } => "glass-height-invalid",
             Kind::BallSphericalMapping => "ball-spherical-mapping",
             Kind::TextboxUsedForDmd { .. } => "textbox-used-for-dmd",

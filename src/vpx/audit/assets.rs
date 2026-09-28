@@ -7,12 +7,15 @@ use super::names::name_set;
 use super::references::{item_label, item_references};
 use super::{Kind, NameKind, VPX};
 use crate::vpx::gameitem::GameItemEnum;
+use crate::vpx::image::ImageData;
+use crate::vpx::images;
 use std::collections::{HashMap, HashSet};
 
 /// Screenshots above this size get a [`Kind::LargeScreenshot`]
 const LARGE_SCREENSHOT_BYTES: usize = 1024 * 1024;
 
-/// Images stored as bitmaps and images whose stored size disagrees
+/// Images stored as bitmaps, images whose content is not what their
+/// name says or cannot be read, and images whose stored size disagrees
 /// with the picture
 pub(crate) fn check_image_storage(vpx: &VPX, findings: &mut Vec<Kind>) {
     for image in &vpx.images {
@@ -20,6 +23,9 @@ pub(crate) fn check_image_storage(vpx: &VPX, findings: &mut Vec<Kind>) {
             findings.push(Kind::BmpImage {
                 image: image.name.clone(),
             });
+        }
+        if let Some(jpeg) = &image.jpeg {
+            check_image_content(image, &jpeg.data, findings);
         }
         if let Some(actual) = picture_dimensions(image)
             && actual != (image.width, image.height)
@@ -30,6 +36,54 @@ pub(crate) fn check_image_storage(vpx: &VPX, findings: &mut Vec<Kind>) {
                 actual,
             });
         }
+    }
+}
+
+/// What the content of an encoded image is against what its name says,
+/// and whether its header reads. Only the header is read: decoding every
+/// picture of a table costs seconds, and a signature check finds what
+/// fails in practice.
+fn check_image_content(image: &ImageData, data: &[u8], findings: &mut Vec<Kind>) {
+    let extension = image.ext();
+    let named = images::extension_format(&extension);
+    match images::content_format(data) {
+        Some(format) => {
+            if named != Some(format) {
+                findings.push(Kind::ImageExtensionMismatch {
+                    image: image.name.clone(),
+                    extension: extension.clone(),
+                    format,
+                });
+            }
+            if !images::decodable(format) {
+                findings.push(Kind::UnreadableImage {
+                    image: image.name.clone(),
+                    format,
+                    error: None,
+                });
+            } else if let Err(error) = image.dimensions() {
+                findings.push(Kind::UnreadableImage {
+                    image: image.name.clone(),
+                    format,
+                    error: Some(error.to_string()),
+                });
+            }
+        }
+        // no signature: a `.tga` name is the fallback that still reads
+        // it, anything else nothing can tell
+        None if named == Some("tga") => {
+            if let Err(error) = image.dimensions() {
+                findings.push(Kind::UnreadableImage {
+                    image: image.name.clone(),
+                    format: "tga",
+                    error: Some(error.to_string()),
+                });
+            }
+        }
+        None => findings.push(Kind::ImageFormatUnknown {
+            image: image.name.clone(),
+            extension,
+        }),
     }
 }
 
@@ -98,13 +152,9 @@ pub(super) fn picture_is_opaque(image: &crate::vpx::image::ImageData) -> Option<
 /// The size of the encoded picture, read from its header only; a bitmap
 /// has no header, its decoded byte count tells whether the stored size
 /// fits. `None` when there is no data or it does not parse.
-pub(super) fn picture_dimensions(image: &crate::vpx::image::ImageData) -> Option<(u32, u32)> {
-    if let Some(jpeg) = &image.jpeg {
-        let mut reader = ::image::ImageReader::new(std::io::Cursor::new(&jpeg.data));
-        if let Some(format) = ::image::ImageFormat::from_extension(image.ext()) {
-            reader.set_format(format);
-        }
-        return reader.with_guessed_format().ok()?.into_dimensions().ok();
+pub(super) fn picture_dimensions(image: &ImageData) -> Option<(u32, u32)> {
+    if image.jpeg.is_some() {
+        return image.dimensions().ok();
     }
     if let Some(bits) = &image.bits {
         let bytes = crate::vpx::lzw::from_lzw_blocks(&bits.lzw_compressed_data).ok()?;
@@ -586,6 +636,7 @@ mod tests {
     use crate::vpx::audit::{Severity, audit_kinds};
     use crate::vpx::gameitem::GameItemEnum;
     use pretty_assertions::assert_eq;
+    use testresult::TestResult;
 
     #[test]
     fn identical_assets_under_different_names_are_a_suggestion() {
@@ -643,6 +694,181 @@ mod tests {
             }]
         );
         assert_eq!(findings[0].severity(), Severity::Suggestion);
+    }
+
+    /// An encoded image with the given bytes under the given file name
+    fn stored_image(name: &str, extension: &str, data: Vec<u8>) -> crate::vpx::image::ImageData {
+        use crate::vpx::pinbinary::PinBinary;
+        crate::vpx::image::ImageData {
+            name: name.to_string(),
+            path: format!("C:\\images\\{name}.{extension}"),
+            width: 40,
+            height: 20,
+            jpeg: Some(PinBinary {
+                path: format!("C:\\images\\{name}.{extension}"),
+                name: name.to_string(),
+                internal_name: None,
+                data,
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn image_content_findings(vpx: &VPX) -> Vec<Kind> {
+        audit_kinds(vpx)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding,
+                    Kind::ImageExtensionMismatch { .. }
+                        | Kind::ImageFormatUnknown { .. }
+                        | Kind::UnreadableImage { .. }
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_image_named_for_another_format_is_informational() -> TestResult {
+        use crate::vpx::images::tests::{encoded_image, tga_image};
+        let mut vpx = clean_vpx();
+        // a jpeg under a png name, a footered tga under a png name, and
+        // a png under a name that is no image format at all
+        let mut jpeg = encoded_image("photo", "jpg", 40, 20)?;
+        jpeg.path = "C:\\images\\photo.png".to_string();
+        vpx.images.push(jpeg);
+        vpx.images.push(tga_image("art", "png", 40, 20, true)?);
+        let mut png = encoded_image("blob", "png", 40, 20)?;
+        png.path = "C:\\images\\blob.dat".to_string();
+        vpx.images.push(png);
+        // a jpeg under its other extensions is fine
+        let mut jfif = encoded_image("rust", "jpg", 40, 20)?;
+        jfif.path = "C:\\images\\rust.jfif".to_string();
+        vpx.images.push(jfif);
+        vpx.images.push(encoded_image("plain", "jpeg", 40, 20)?);
+
+        let findings = image_content_findings(&vpx);
+
+        assert_eq!(
+            findings,
+            vec![
+                Kind::ImageExtensionMismatch {
+                    image: "photo".to_string(),
+                    extension: "png".to_string(),
+                    format: "jpeg",
+                },
+                Kind::ImageExtensionMismatch {
+                    image: "art".to_string(),
+                    extension: "png".to_string(),
+                    format: "tga",
+                },
+                Kind::ImageExtensionMismatch {
+                    image: "blob".to_string(),
+                    extension: "dat".to_string(),
+                    format: "png",
+                },
+            ]
+        );
+        assert_eq!(findings[0].severity(), Severity::Info);
+        assert_eq!(
+            findings[0].to_string(),
+            "image \"photo\" is a jpeg file stored under a .png name; vpinball reads the content, a tool trusting the name gets the format wrong"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn an_image_nothing_can_identify_is_an_error() -> TestResult {
+        use crate::vpx::images::tests::tga_image;
+        let mut vpx = clean_vpx();
+        // bytes with no signature under a png name, and the same under a
+        // tga name, which is the one name that still reads them
+        vpx.images
+            .push(stored_image("noise", "png", b"AAAAAAAA".to_vec()));
+        vpx.images
+            .push(stored_image("noisy", "tga", b"AAAAAAAA".to_vec()));
+        // a footerless tga under its own name reads fine
+        vpx.images.push(tga_image("old", "tga", 40, 20, false)?);
+
+        let findings = image_content_findings(&vpx);
+
+        assert_eq!(findings.len(), 2, "{findings:#?}");
+        assert_eq!(
+            findings[0],
+            Kind::ImageFormatUnknown {
+                image: "noise".to_string(),
+                extension: "png".to_string(),
+            }
+        );
+        assert_eq!(findings[0].severity(), Severity::Error);
+        assert_eq!(
+            findings[0].to_string(),
+            "image \"noise\" has no known image signature and its .png name is no help; vpinball cannot identify it and does not load it"
+        );
+        assert!(
+            matches!(
+                &findings[1],
+                Kind::UnreadableImage { image, format: "tga", error: Some(_) } if image == "noisy"
+            ),
+            "{findings:#?}"
+        );
+        assert_eq!(findings[1].severity(), Severity::Warning);
+        Ok(())
+    }
+
+    #[test]
+    fn an_image_vpin_cannot_read_is_reported() {
+        let mut vpx = clean_vpx();
+        // a Photoshop file under a png name: vpinball reads it, vpin does not
+        let mut psd = b"8BPS\0\x01".to_vec();
+        psd.resize(64, 0);
+        vpx.images.push(stored_image("layered", "png", psd));
+        // a png whose header is cut short
+        vpx.images.push(stored_image(
+            "cut",
+            "png",
+            b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR".to_vec(),
+        ));
+
+        let findings = image_content_findings(&vpx);
+
+        assert_eq!(findings.len(), 3, "{findings:#?}");
+        assert_eq!(
+            findings[0],
+            Kind::ImageExtensionMismatch {
+                image: "layered".to_string(),
+                extension: "png".to_string(),
+                format: "psd",
+            }
+        );
+        assert_eq!(
+            findings[1],
+            Kind::UnreadableImage {
+                image: "layered".to_string(),
+                format: "psd",
+                error: None,
+            }
+        );
+        assert_eq!(findings[1].severity(), Severity::Suggestion);
+        assert_eq!(
+            findings[1].to_string(),
+            "image \"layered\" is a psd file, which vpinball reads but most other tools do not; consider re-saving it as png or webp"
+        );
+        assert!(
+            matches!(
+                &findings[2],
+                Kind::UnreadableImage { image, format: "png", error: Some(_) } if image == "cut"
+            ),
+            "{findings:#?}"
+        );
+        assert_eq!(findings[2].severity(), Severity::Warning);
+        assert!(
+            findings[2]
+                .to_string()
+                .starts_with("image \"cut\" is a png file whose header does not parse ("),
+            "{}",
+            findings[2]
+        );
     }
 
     #[test]
