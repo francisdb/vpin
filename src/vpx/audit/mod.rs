@@ -202,6 +202,17 @@ pub(crate) enum Kind {
         /// Name of the image
         image: String,
     },
+    /// The color grade lookup table image is stored in a lossy format, a
+    /// jpeg or a lossy webp. The image is data, every texel a color the
+    /// shader looks up, so the compression put every lookup slightly off
+    /// and nothing tells the author. Re-saving it does not undo that: the
+    /// image needs replacing with the original png or lossless webp LUT
+    LossyColorGradeImage {
+        /// Name of the color grade image
+        image: String,
+        /// The lossy format it is stored in: `jpeg` or `lossy webp`
+        format: &'static str,
+    },
     /// The color grade lookup table image is not the 256x16 layout the
     /// shader expects, which silently renders wrong colors
     ColorGradeLutUnusualSize {
@@ -782,6 +793,10 @@ impl fmt::Display for Kind {
                 f,
                 "image {image:?} is stored as a bitmap, consider converting to webp"
             ),
+            Kind::LossyColorGradeImage { image, format } => write!(
+                f,
+                "color grade image {image:?} is a {format}, a lossy format; the compression already put every color lookup off, replace it with the original png or lossless webp LUT"
+            ),
             Kind::ColorGradeLutUnusualSize {
                 image,
                 width,
@@ -1063,6 +1078,7 @@ impl Kind {
             Kind::UnnamedItems { .. } => "unnamed-items",
             Kind::MissingTableName => "missing-table-name",
             Kind::BmpImage { .. } => "bmp-image",
+            Kind::LossyColorGradeImage { .. } => "lossy-color-grade-image",
             Kind::ColorGradeLutUnusualSize { .. } => "color-grade-lut-unusual-size",
             Kind::MixedScriptLineEndings { .. } => "mixed-script-line-endings",
             Kind::UnusedFont { .. } => "unused-font",

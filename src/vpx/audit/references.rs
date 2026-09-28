@@ -5,6 +5,7 @@
 use super::names::{material_names, name_set};
 use super::{Kind, VPX};
 use crate::vpx::gameitem::GameItemEnum;
+use crate::vpx::images;
 use std::collections::HashSet;
 
 /// The sentinel vpinball's editor writes for "no image selected"
@@ -157,13 +158,20 @@ fn check_table_settings(
             .images
             .iter()
             .find(|image| image.name.to_lowercase() == gamedata.image_color_grade.to_lowercase())
-        && (image.width, image.height) != (256, 16)
     {
-        findings.push(Kind::ColorGradeLutUnusualSize {
-            image: image.name.clone(),
-            width: image.width,
-            height: image.height,
-        });
+        if let Some(format) = lossy_format(image) {
+            findings.push(Kind::LossyColorGradeImage {
+                image: image.name.clone(),
+                format,
+            });
+        }
+        if (image.width, image.height) != (256, 16) {
+            findings.push(Kind::ColorGradeLutUnusualSize {
+                image: image.name.clone(),
+                width: image.width,
+                height: image.height,
+            });
+        }
     }
     if !playfield_hidden
         && !gamedata.playfield_material.is_empty()
@@ -174,6 +182,17 @@ fn check_table_settings(
             field: "playfield material",
             material: gamedata.playfield_material.clone(),
         });
+    }
+}
+
+/// The lossy format an encoded image is stored in, by its content:
+/// `jpeg`, or `lossy webp` for a webp whose bitstream is not lossless
+fn lossy_format(image: &crate::vpx::image::ImageData) -> Option<&'static str> {
+    let data = &image.jpeg.as_ref()?.data;
+    match images::content_format(data) {
+        Some("jpeg") => Some("jpeg"),
+        Some("webp") if images::webp_is_lossy(data) => Some("lossy webp"),
+        _ => None,
     }
 }
 
@@ -504,6 +523,61 @@ mod tests {
             }]
         );
         assert_eq!(findings[0].severity(), Severity::Warning);
+    }
+
+    #[test]
+    fn a_lossy_color_grade_image_is_a_warning() -> testresult::TestResult {
+        use crate::vpx::images::tests::encoded_image;
+        let mut vpx = clean_vpx();
+        vpx.gamedata.image_color_grade = "LUT".to_string();
+        vpx.images.push(encoded_image("LUT", "jpg", 256, 16)?);
+        let findings = audit_kinds(&vpx);
+        assert_eq!(
+            findings,
+            vec![Kind::LossyColorGradeImage {
+                image: "LUT".to_string(),
+                format: "jpeg",
+            }]
+        );
+        assert_eq!(findings[0].severity(), Severity::Warning);
+        assert_eq!(
+            findings[0].to_string(),
+            "color grade image \"LUT\" is a jpeg, a lossy format; the compression already put every color lookup off, replace it with the original png or lossless webp LUT"
+        );
+
+        // a lossy webp, by its bitstream chunk; its size is off too. The
+        // chunk is a stub, so the image check also reports it unreadable
+        let mut lossy = encoded_image("LUT", "webp", 256, 16)?;
+        if let Some(jpeg) = &mut lossy.jpeg {
+            jpeg.data = b"RIFF\x10\0\0\0WEBPVP8 \x04\0\0\0abcd".to_vec();
+        }
+        lossy.width = 512;
+        vpx.images = vec![lossy];
+        let lut_findings: Vec<Kind> = audit_kinds(&vpx)
+            .into_iter()
+            .filter(|finding| !matches!(finding, Kind::UnreadableImage { .. }))
+            .collect();
+        assert_eq!(
+            lut_findings,
+            vec![
+                Kind::LossyColorGradeImage {
+                    image: "LUT".to_string(),
+                    format: "lossy webp",
+                },
+                Kind::ColorGradeLutUnusualSize {
+                    image: "LUT".to_string(),
+                    width: 512,
+                    height: 16,
+                },
+            ]
+        );
+
+        // a lossless webp and a png are what a LUT wants
+        vpx.images = vec![encoded_image("LUT", "webp", 256, 16)?];
+        assert_eq!(audit_kinds(&vpx), Vec::new());
+        vpx.images = vec![encoded_image("LUT", "png", 256, 16)?];
+        assert_eq!(audit_kinds(&vpx), Vec::new());
+        Ok(())
     }
 
     #[test]
