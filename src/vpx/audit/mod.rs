@@ -497,6 +497,13 @@ pub(crate) enum Kind {
     LargeScreenshot {
         /// Size of the embedded screenshot in bytes
         bytes: usize,
+        /// The format the content is, as
+        /// [`content_format`](crate::vpx::images::content_format) names
+        /// it, `lossy webp` for a webp that is not lossless; `None` when no
+        /// signature matches
+        format: Option<&'static str>,
+        /// Width and height from the header, `None` when it does not parse
+        dimensions: Option<(u32, u32)>,
         /// Name of the image the screenshot holds the bytes of, `None`
         /// when no image links to it
         image: Option<String>,
@@ -998,22 +1005,30 @@ impl fmt::Display for Kind {
             ),
             Kind::LargeScreenshot {
                 bytes,
+                format,
+                dimensions,
                 image,
                 referenced,
             } => {
-                let mb = *bytes as f64 / 1e6;
+                // "11.9 MB 2048x4096 png", each part only when known
+                let mut what = format!("{:.1} MB", *bytes as f64 / 1e6);
+                if let Some((width, height)) = dimensions {
+                    what.push_str(&format!(" {width}x{height}"));
+                }
+                what.push_str(format.map_or("", |_| " "));
+                what.push_str(format.unwrap_or(""));
                 match (image, referenced) {
                     (Some(image), true) => write!(
                         f,
-                        "embedded screenshot is {mb:.1} MB; vpinball never shows it, but its image {image:?} is also used as a texture, so only a lossless re-encode can shrink it"
+                        "embedded screenshot is {what}; vpinball never shows it, but its image {image:?} is also used as a texture, so only a lossless re-encode can shrink it"
                     ),
                     (Some(image), false) => write!(
                         f,
-                        "embedded screenshot is {mb:.1} MB; vpinball never shows it and nothing else uses its image {image:?}, a small picture would do"
+                        "embedded screenshot is {what}; vpinball never shows it and nothing else uses its image {image:?}, a small picture would do"
                     ),
                     (None, _) => write!(
                         f,
-                        "embedded screenshot is {mb:.1} MB; vpinball never shows it, a small picture would do"
+                        "embedded screenshot is {what}; vpinball never shows it, a small picture would do"
                     ),
                 }
             }

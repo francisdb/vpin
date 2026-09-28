@@ -101,12 +101,18 @@ pub(super) fn check_screenshot(vpx: &VPX, findings: &mut Vec<Kind>) {
         referenced_images(vpx).contains(&image.name.to_lowercase())
             || script_names(&script_literals(&vpx.gamedata.code.string), &image.name)
     });
+    let format = match images::content_format(screenshot) {
+        Some("webp") if images::webp_is_lossy(screenshot) => Some("lossy webp"),
+        other => other,
+    };
     findings.push(Kind::LargeScreenshot {
         bytes: screenshot.len(),
+        format,
+        dimensions: images::header_dimensions(screenshot),
         image: image.map(|image| image.name.clone()),
         referenced,
     });
-    if images::content_format(screenshot) == Some("png") {
+    if format == Some("png") {
         findings.push(Kind::PngScreenshot {
             bytes: screenshot.len(),
         });
@@ -739,11 +745,16 @@ mod tests {
     }
 
     #[test]
-    fn a_large_screenshot_is_a_suggestion() {
+    fn a_large_screenshot_is_a_suggestion() -> TestResult {
         use crate::vpx::images::tests::link_image;
+        use crate::vpx::images::tests::loose_png;
         let mut vpx = clean_vpx();
-        let mut screenshot = vec![0u8; 2 * 1024 * 1024];
-        screenshot[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        // a real png header, padded past the threshold
+        let mut screenshot = loose_png("Capture", 640, 480)?
+            .jpeg
+            .map(|jpeg| jpeg.data)
+            .unwrap_or_default();
+        screenshot.resize(2 * 1024 * 1024, 0);
         vpx.info.screenshot = Some(screenshot);
         vpx.images.push(link_image("Capture"));
         vpx.gamedata.screen_shot = "Capture".to_string();
@@ -755,6 +766,8 @@ mod tests {
             vec![
                 Kind::LargeScreenshot {
                     bytes: 2 * 1024 * 1024,
+                    format: Some("png"),
+                    dimensions: Some((640, 480)),
                     image: Some("Capture".to_string()),
                     referenced: false,
                 },
@@ -767,7 +780,7 @@ mod tests {
         assert_eq!(findings[1].severity(), Severity::Suggestion);
         assert_eq!(
             findings[0].to_string(),
-            "embedded screenshot is 2.1 MB; vpinball never shows it and nothing else uses its image \"Capture\", a small picture would do"
+            "embedded screenshot is 2.1 MB 640x480 png; vpinball never shows it and nothing else uses its image \"Capture\", a small picture would do"
         );
         assert_eq!(
             findings[1].to_string(),
@@ -792,15 +805,16 @@ mod tests {
         ));
         assert_eq!(
             findings[0].to_string(),
-            "embedded screenshot is 2.1 MB; vpinball never shows it, but its image \"Capture\" is also used as a texture, so only a lossless re-encode can shrink it"
+            "embedded screenshot is 2.1 MB 640x480 png; vpinball never shows it, but its image \"Capture\" is also used as a texture, so only a lossless re-encode can shrink it"
         );
 
-        // a jpeg screenshot is only large, and one nothing links to has
-        // no image to name
+        // a lossy webp screenshot is only large, its header is a stub so
+        // it has no dimensions, and one nothing links to has no image to
+        // name
         vpx.images.clear();
-        let mut jpeg = vec![0u8; 2 * 1024 * 1024];
-        jpeg[..3].copy_from_slice(b"\xFF\xD8\xFF");
-        vpx.info.screenshot = Some(jpeg);
+        let mut webp = vec![0u8; 2 * 1024 * 1024];
+        webp[..20].copy_from_slice(b"RIFF\x10\0\0\0WEBPVP8 \x04\0\0\0");
+        vpx.info.screenshot = Some(webp);
         let findings = audit_kinds(&vpx);
         assert_eq!(findings.len(), 2, "{findings:#?}");
         // the wall's image is missing now, which the references report first
@@ -808,11 +822,18 @@ mod tests {
         assert!(matches!(
             &findings[1],
             Kind::LargeScreenshot {
+                format: Some("lossy webp"),
+                dimensions: None,
                 image: None,
                 referenced: false,
                 ..
             }
         ));
+        assert_eq!(
+            findings[1].to_string(),
+            "embedded screenshot is 2.1 MB lossy webp; vpinball never shows it, a small picture would do"
+        );
+        Ok(())
     }
 
     /// An encoded image with the given bytes under the given file name
