@@ -127,6 +127,16 @@ pub(crate) fn decodable(format: &str) -> bool {
     !matches!(format, "psd" | "tiff" | "dds")
 }
 
+/// The size of an encoded picture held outside an image, the table
+/// screenshot for one, read from its header the way
+/// [`ImageData::dimensions`] reads it. `None` when the header does not
+/// parse or the format is not known
+pub(crate) fn header_dimensions(data: &[u8]) -> Option<(u32, u32)> {
+    let mut reader = ImageReader::new(io::Cursor::new(data));
+    reader.no_limits();
+    reader.with_guessed_format().ok()?.into_dimensions().ok()
+}
+
 /// What a webp conversion did with an image it was asked to convert
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Webp {
