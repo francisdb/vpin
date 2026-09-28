@@ -60,23 +60,20 @@ impl ImageData {
             let mut reader = ImageReader::new(io::Cursor::new(&jpeg.data));
             // tga has no leading signature, so the crate's sniffer cannot
             // find it; its 2.0 footer is the content signal, and the `.tga`
-            // extension the fallback for the older footerless format
-            let guess = if is_tga(&jpeg.data) || self.ext().eq_ignore_ascii_case("tga") {
+            // extension the fallback for the older footerless format. The
+            // sniffer still runs after that: it keeps the tga format when it
+            // finds no signature, and a png stored under a `.tga` name still
+            // decodes as the png it is.
+            if is_tga(&jpeg.data) || self.ext().eq_ignore_ascii_case("tga") {
                 reader.set_format(ImageFormat::Tga);
-                false
-            } else {
-                if let Some(format) = ImageFormat::from_extension(self.ext()) {
-                    reader.set_format(format);
-                }
-                true
-            };
+            } else if let Some(format) = ImageFormat::from_extension(self.ext()) {
+                reader.set_format(format);
+            }
             // the default limit of 512 MB rejects the 8k float bakes of
             // recent tables
             reader.no_limits();
-            if guess {
-                reader = reader.with_guessed_format()?;
-            }
             return reader
+                .with_guessed_format()?
                 .decode()
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()));
         }
@@ -466,6 +463,18 @@ pub(crate) mod tests {
         assert_eq!(image.decode()?.to_rgba8(), before);
         // a second run has nothing to do
         assert!(!image.tga_to_webp()?);
+        Ok(())
+    }
+
+    #[test]
+    fn a_png_stored_under_a_tga_name_still_decodes_as_a_png() -> TestResult {
+        // the `.tga` extension only selects the tga decoder when the
+        // sniffer finds no signature; a png signature still wins
+        let mut image = loose_png("misnamed", 40, 20)?;
+        image.path = "C:\\images\\misnamed.tga".to_string();
+        assert_eq!(image.ext(), "tga");
+        let decoded = image.decode()?;
+        assert_eq!((decoded.width(), decoded.height()), (40, 20));
         Ok(())
     }
 
