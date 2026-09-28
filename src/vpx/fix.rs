@@ -149,6 +149,32 @@ pub fn pngs_to_webp(vpx: &mut VPX) -> Vec<ConvertedImage> {
     )
 }
 
+/// Re-encodes every tga image as lossless webp where that is smaller,
+/// which it is for the tga vpinball tables carry; the picture stays the
+/// same. This goes beyond what vpinball does on its own, so the audit has
+/// no finding for it: it is a size lever. A tga is found by its content,
+/// the TRUEVISION-XFILE footer, since the format has no signature at the
+/// start; vpin can read the footer because it holds the whole image in
+/// memory. The older footerless tga has no content signal, so a `.tga`
+/// extension is the fallback that still converts it. An image that is
+/// neither footered nor named `.tga`, one deeper than 8 bits, or one that
+/// does not decode is left alone (the last with a warning).
+///
+/// Images the script hands to FlexDMD as `VPX.name` are left alone:
+/// FlexDMD decodes them itself and cannot read webp.
+///
+/// Returns the converted images in the order the table lists them, empty
+/// when the table is left as it was.
+pub fn tgas_to_webp(vpx: &mut VPX) -> Vec<ConvertedImage> {
+    let flexdmd = assets::flexdmd_image_names(&vpx.gamedata.code.string);
+    convert_images(
+        vpx.images
+            .iter_mut()
+            .filter(|image| !flexdmd.contains(&image.name.to_lowercase())),
+        ImageData::tga_to_webp,
+    )
+}
+
 /// Runs a conversion over images, recording the ones it changed
 fn convert_images<'a>(
     images: impl Iterator<Item = &'a mut ImageData>,
@@ -193,7 +219,7 @@ mod tests {
     use crate::vpx::gameitem::GameItemEnum;
     use crate::vpx::gameitem::font::Font;
     use crate::vpx::gameitem::textbox::TextBox;
-    use crate::vpx::images::tests::{bitmap_image, encoded_image, loose_png};
+    use crate::vpx::images::tests::{bitmap_image, encoded_image, loose_png, tga_image};
     use crate::vpx::pinbinary::PinBinary;
     use crate::vpx::ttf::font_with_names;
     use pretty_assertions::assert_eq;
@@ -334,6 +360,31 @@ mod tests {
         assert_eq!(vpx.images[2].ext(), "jpg");
         // a second run has nothing to do
         assert_eq!(pngs_to_webp(&mut vpx), Vec::new());
+        Ok(())
+    }
+
+    #[test]
+    fn tgas_are_converted_except_what_flexdmd_reads() -> TestResult {
+        let mut vpx = VPX::default();
+        // a tga under a png name (found by footer), an unmarked one (no
+        // .tga name, no footer), and a FlexDMD tga
+        vpx.add_or_replace_image(tga_image("art", "png", 64, 64, true)?);
+        vpx.add_or_replace_image(tga_image("unmarked", "png", 64, 64, false)?);
+        vpx.add_or_replace_image(tga_image("dmd", "tga", 64, 64, true)?);
+        vpx.gamedata.set_code(
+            "Option Explicit\r\nSet img = FlexDMD.NewImage(\"d\", \"VPX.dmd\")\r\n".to_string(),
+        );
+
+        let converted = tgas_to_webp(&mut vpx);
+
+        assert_eq!(converted.len(), 1);
+        assert_eq!(converted[0].name(), "art");
+        assert!(converted[0].bytes_after() < converted[0].bytes_before());
+        assert_eq!(vpx.images[0].ext(), "webp"); // tga by footer, converted
+        assert_eq!(vpx.images[1].ext(), "png"); // unmarked, left alone
+        assert_eq!(vpx.images[2].ext(), "tga"); // FlexDMD, left alone
+        // a second run has nothing to do
+        assert_eq!(tgas_to_webp(&mut vpx), Vec::new());
         Ok(())
     }
 }
