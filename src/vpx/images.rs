@@ -78,6 +78,29 @@ pub(crate) fn content_format(data: &[u8]) -> Option<&'static str> {
     Some(format)
 }
 
+/// Whether a webp holds lossy pixels: its bitstream is a `VP8 ` chunk
+/// rather than the lossless `VP8L`. An extended webp (`VP8X`) is judged by
+/// the bitstream chunk that follows its header. Bytes that are not a webp
+/// are not lossy
+pub(crate) fn webp_is_lossy(data: &[u8]) -> bool {
+    if !(data.starts_with(b"RIFF") && data.get(8..12) == Some(b"WEBP")) {
+        return false;
+    }
+    // chunks: a four character code, a little endian size and the
+    // payload, padded to an even length
+    let mut chunks = data.get(12..).unwrap_or_default();
+    while let Some(header) = chunks.get(..8) {
+        match &header[..4] {
+            b"VP8 " => return true,
+            b"VP8L" => return false,
+            _ => {}
+        }
+        let size = u32::from_le_bytes([header[4], header[5], header[6], header[7]]) as usize;
+        chunks = chunks.get(8 + size + (size & 1)..).unwrap_or_default();
+    }
+    false
+}
+
 /// The format an image's file extension names, in the same short names as
 /// [`content_format`]: `jpg` and `jfif` are `jpeg`, `tif` is `tiff`. `None`
 /// for an extension that names no image format.
@@ -643,6 +666,26 @@ pub(crate) mod tests {
         assert!(!loose_png("png", 40, 20)?.tga_to_webp()?);
         assert!(!bitmap_image("bmp", 8, 8).tga_to_webp()?);
         assert!(!link_image("link").tga_to_webp()?);
+        Ok(())
+    }
+
+    #[test]
+    fn a_webp_is_lossy_by_its_bitstream_chunk() -> TestResult {
+        assert!(webp_is_lossy(b"RIFF\x10\0\0\0WEBPVP8 \x04\0\0\0abcd"));
+        assert!(!webp_is_lossy(b"RIFF\x10\0\0\0WEBPVP8L\x04\0\0\0abcd"));
+        // extended: the VP8X chunk first, the bitstream after it
+        assert!(webp_is_lossy(
+            b"RIFF\x20\0\0\0WEBPVP8X\x0a\0\0\0abcdefghijVP8 \x04\0\0\0abcd"
+        ));
+        assert!(!webp_is_lossy(
+            b"RIFF\x20\0\0\0WEBPVP8X\x0a\0\0\0abcdefghijVP8L\x04\0\0\0abcd"
+        ));
+        // what the image crate writes is lossless, and a png is no webp
+        let image = encoded_image("art", "webp", 8, 8)?;
+        assert!(!webp_is_lossy(
+            &image.jpeg.as_ref().map_or(Vec::new(), |j| j.data.clone())
+        ));
+        assert!(!webp_is_lossy(b"\x89PNG\r\n\x1a\n"));
         Ok(())
     }
 }
