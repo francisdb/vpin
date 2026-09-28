@@ -443,7 +443,51 @@ impl Default for WaveForm {
     }
 }
 
+/// The format the content of a stored sound file names, by its signature,
+/// as the short lower case name the audit shows: `wav`, `ogg`, `mp3` and
+/// `flac`, the formats vpinball's decoder reads. `None` when no signature
+/// matches. Only meaningful for a sound stored as a file, that is one
+/// whose path does not name a `.wav`: a wav is stored as a header plus
+/// raw samples and carries no signature.
+pub(crate) fn content_format(data: &[u8]) -> Option<&'static str> {
+    let format = if data.starts_with(b"RIFF") && data.get(8..12) == Some(b"WAVE") {
+        "wav"
+    } else if data.starts_with(b"OggS") {
+        "ogg"
+    } else if data.starts_with(b"fLaC") {
+        "flac"
+    } else if data.starts_with(b"ID3")
+        || (data.len() >= 2 && data[0] == 0xFF && data[1] & 0xE0 == 0xE0)
+    {
+        // an ID3 tag, or straight into the first frame's sync word
+        "mp3"
+    } else {
+        return None;
+    };
+    Some(format)
+}
+
+/// The format a sound's file extension names, in the same short names as
+/// [`content_format`]. `None` for an extension that names no audio format
+/// vpinball reads.
+pub(crate) fn extension_format(extension: &str) -> Option<&'static str> {
+    let format = match extension.to_ascii_lowercase().as_str() {
+        "wav" => "wav",
+        "ogg" => "ogg",
+        "mp3" => "mp3",
+        "flac" => "flac",
+        _ => return None,
+    };
+    Some(format)
+}
+
 impl SoundData {
+    /// The extension of [`SoundData::path`], as written, or `None` when the
+    /// path has none
+    pub(crate) fn extension(&self) -> Option<&str> {
+        str_path_ext(&self.path)
+    }
+
     pub(crate) fn ext(&self) -> String {
         match str_path_ext(&self.path) {
             Some(ext) => ext.to_string(),

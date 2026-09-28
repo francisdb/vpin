@@ -9,6 +9,7 @@ use super::{Kind, NameKind, VPX};
 use crate::vpx::gameitem::GameItemEnum;
 use crate::vpx::image::ImageData;
 use crate::vpx::images;
+use crate::vpx::sound as sounds;
 use std::collections::{HashMap, HashSet};
 
 /// Screenshots above this size get a [`Kind::LargeScreenshot`]
@@ -109,6 +110,39 @@ pub(super) fn check_stereo_sounds(vpx: &VPX, findings: &mut Vec<Kind>) {
             findings.push(Kind::StereoTableSound {
                 sound: sound.name.clone(),
             });
+        }
+    }
+}
+
+/// Sounds stored as a file whose content is not what the name says or
+/// that vpinball's decoder cannot identify. A `.wav` name is left alone:
+/// vpinball stores those as a header plus samples and rebuilds the file
+pub(super) fn check_sound_storage(vpx: &VPX, findings: &mut Vec<Kind>) {
+    for sound in &vpx.sounds {
+        let Some(extension) = sound.extension() else {
+            findings.push(Kind::SoundFormatUnknown {
+                sound: sound.name.clone(),
+                extension: String::new(),
+            });
+            continue;
+        };
+        if extension.eq_ignore_ascii_case("wav") {
+            continue;
+        }
+        match sounds::content_format(&sound.data) {
+            Some(format) => {
+                if sounds::extension_format(extension) != Some(format) {
+                    findings.push(Kind::SoundExtensionMismatch {
+                        sound: sound.name.clone(),
+                        extension: extension.to_string(),
+                        format,
+                    });
+                }
+            }
+            None => findings.push(Kind::SoundFormatUnknown {
+                sound: sound.name.clone(),
+                extension: extension.to_string(),
+            }),
         }
     }
 }
@@ -1252,6 +1286,127 @@ mod tests {
         assert_eq!(
             findings[1].to_string(),
             "sound \"fx_unused\" (2 KB) is not named in the script"
+        );
+    }
+
+    fn stored_sound(name: &str, path: &str, data: Vec<u8>) -> crate::vpx::sound::SoundData {
+        crate::vpx::sound::SoundData {
+            name: name.to_string(),
+            path: path.to_string(),
+            data,
+            wave_form: Default::default(),
+            internal_name: String::new(),
+            fade: 0,
+            volume: 0,
+            balance: 0,
+            output_target: crate::vpx::sound::OutputTarget::Table,
+        }
+    }
+
+    fn sound_storage_findings(vpx: &VPX) -> Vec<Kind> {
+        audit_kinds(vpx)
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding,
+                    Kind::SoundExtensionMismatch { .. } | Kind::SoundFormatUnknown { .. }
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_sound_named_for_another_format_is_informational() {
+        let mut vpx = clean_vpx();
+        let wav = b"RIFF\x24\0\0\0WAVEfmt ".to_vec();
+        // a wav file and an ogg under mp3 names
+        vpx.sounds
+            .push(stored_sound("toy", "C:\\sounds\\toy.mp3", wav));
+        vpx.sounds.push(stored_sound(
+            "music",
+            "C:\\sounds\\music.MP3",
+            b"OggS\0\x02".to_vec(),
+        ));
+        // an mp3 by its ID3 tag, one by its first frame, an ogg and a
+        // flac under their own names are fine, whatever the case
+        vpx.sounds
+            .push(stored_sound("tagged", "tagged.mp3", b"ID3\x04\0".to_vec()));
+        vpx.sounds.push(stored_sound(
+            "bare",
+            "bare.Mp3",
+            b"\xFF\xFB\x90\x64".to_vec(),
+        ));
+        vpx.sounds
+            .push(stored_sound("vorbis", "vorbis.ogg", b"OggS\0\x02".to_vec()));
+        vpx.sounds.push(stored_sound(
+            "lossless",
+            "lossless.flac",
+            b"fLaC\0\0".to_vec(),
+        ));
+        // a wav name is stored as header plus samples, never a file
+        vpx.sounds
+            .push(stored_sound("hit", "hit.wav", vec![0xFF, 0xFF, 0, 0]));
+
+        let findings = sound_storage_findings(&vpx);
+
+        assert_eq!(
+            findings,
+            vec![
+                Kind::SoundExtensionMismatch {
+                    sound: "toy".to_string(),
+                    extension: "mp3".to_string(),
+                    format: "wav",
+                },
+                Kind::SoundExtensionMismatch {
+                    sound: "music".to_string(),
+                    extension: "MP3".to_string(),
+                    format: "ogg",
+                },
+            ]
+        );
+        assert_eq!(findings[0].severity(), Severity::Info);
+        assert_eq!(
+            findings[0].to_string(),
+            "sound \"toy\" is a wav file stored under a .mp3 name; vpinball's decoder reads the content, a tool trusting the name gets the format wrong"
+        );
+    }
+
+    #[test]
+    fn a_sound_the_decoder_cannot_identify_is_an_error() {
+        let mut vpx = clean_vpx();
+        // bytes without signature under an mp3 name, and a path with no
+        // extension at all, which vpinball also hands to the decoder as is
+        vpx.sounds
+            .push(stored_sound("noise", "noise.mp3", b"AAAAAAAA".to_vec()));
+        vpx.sounds.push(stored_sound(
+            "bell",
+            "* Backglass Output *",
+            b"RIFF\x24\0\0\0WAVEfmt ".to_vec(),
+        ));
+
+        let findings = sound_storage_findings(&vpx);
+
+        assert_eq!(
+            findings,
+            vec![
+                Kind::SoundFormatUnknown {
+                    sound: "noise".to_string(),
+                    extension: "mp3".to_string(),
+                },
+                Kind::SoundFormatUnknown {
+                    sound: "bell".to_string(),
+                    extension: String::new(),
+                },
+            ]
+        );
+        assert_eq!(findings[0].severity(), Severity::Error);
+        assert_eq!(
+            findings[0].to_string(),
+            "sound \"noise\" has no known audio signature and its .mp3 name is no help; vpinball's decoder cannot identify it, so the sound never plays"
+        );
+        assert_eq!(
+            findings[1].to_string(),
+            "sound \"bell\" has a path without extension; vpinball hands the stored bytes to its decoder as a file, which cannot identify them, so the sound never plays"
         );
     }
 }
