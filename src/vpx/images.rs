@@ -11,8 +11,15 @@
 //! it was loaded. [`ImageData::png_to_webp`] and
 //! [`fix::pngs_to_webp`](crate::vpx::fix::pngs_to_webp) go one step
 //! further and re-encode pngs, which vpinball reads as they are, as
-//! lossless webp where that is smaller. [`crate::vpx::VpxFile::images_to_webp`]
-//! does both in place in a file.
+//! lossless webp where that is smaller. [`ImageData::tga_to_webp`] and
+//! [`fix::tgas_to_webp`](crate::vpx::fix::tgas_to_webp) do the same for
+//! tga, found by its tga 2.0 footer since the format has no signature at
+//! the start. The `image` crate cannot sniff a tga (it does not read the
+//! footer), but vpin holds the whole image in memory and does, then
+//! decodes it as a tga explicitly. [`ImageData::decode`] identifies a tga
+//! the same way, so every reader of a table sees it.
+//! [`crate::vpx::VpxFile::images_to_webp`] does the bitmap and png
+//! conversions in place in a file.
 //!
 //! Neither FlexDMD implementation reads a bitmap image out of a table
 //! (they only read the encoded `JPEG` record), so nothing that worked is
@@ -23,6 +30,18 @@ use super::pinbinary::PinBinary;
 use ::image::codecs::jpeg::JpegEncoder;
 use ::image::{DynamicImage, ImageFormat, ImageReader};
 use std::io;
+
+/// The tga 2.0 footer: the signature, a full stop and a nul byte. It ends
+/// a tga file and is the only content signal the format has, since tga has
+/// no signature at the start.
+const TGA_FOOTER: &[u8] = b"TRUEVISION-XFILE.\0";
+
+/// Whether the encoded bytes are a tga, by its 2.0 footer. The older
+/// footerless tga cannot be told apart from arbitrary bytes by content, so
+/// it is recognised by its `.tga` extension instead.
+fn is_tga(data: &[u8]) -> bool {
+    data.ends_with(TGA_FOOTER)
+}
 
 impl ImageData {
     /// The stored pixels, whatever the format
@@ -39,14 +58,25 @@ impl ImageData {
             // the content decides the format, the extension is the fallback
             // for formats without a signature such as tga and hdr
             let mut reader = ImageReader::new(io::Cursor::new(&jpeg.data));
-            if let Some(format) = ImageFormat::from_extension(self.ext()) {
-                reader.set_format(format);
-            }
+            // tga has no leading signature, so the crate's sniffer cannot
+            // find it; its 2.0 footer is the content signal, and the `.tga`
+            // extension the fallback for the older footerless format
+            let guess = if is_tga(&jpeg.data) || self.ext().eq_ignore_ascii_case("tga") {
+                reader.set_format(ImageFormat::Tga);
+                false
+            } else {
+                if let Some(format) = ImageFormat::from_extension(self.ext()) {
+                    reader.set_format(format);
+                }
+                true
+            };
             // the default limit of 512 MB rejects the 8k float bakes of
             // recent tables
             reader.no_limits();
+            if guess {
+                reader = reader.with_guessed_format()?;
+            }
             return reader
-                .with_guessed_format()?
                 .decode()
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()));
         }
@@ -92,6 +122,56 @@ impl ImageData {
         else {
             return Ok(false);
         };
+        let decoded = self.decode()?;
+        if !matches!(
+            decoded,
+            DynamicImage::ImageLuma8(_)
+                | DynamicImage::ImageLumaA8(_)
+                | DynamicImage::ImageRgb8(_)
+                | DynamicImage::ImageRgba8(_)
+        ) {
+            return Ok(false);
+        }
+        let webp = encode(&decoded, ImageFormat::WebP, 0)?;
+        if webp.len() >= bytes_before {
+            return Ok(false);
+        }
+        self.set_data(webp, "webp", decoded.width(), decoded.height());
+        Ok(true)
+    }
+
+    /// Re-encodes a tga image as lossless webp when that is smaller, which
+    /// it is for the uncompressed and run-length tga vpinball tables carry.
+    /// This goes beyond what vpinball does on its own, so it is a size
+    /// lever with no audit finding behind it.
+    ///
+    /// A tga has no signature at the start, but the tga 2.0 format ends
+    /// with the TRUEVISION-XFILE footer, so that is its content signal,
+    /// checked the same way by [`ImageData::decode`]. Reading the footer is
+    /// a tail read, which the `image` crate avoids for streaming callers
+    /// but vpin can do because it holds the whole image in memory. The
+    /// `.tga` extension is only a fallback for the older footerless format;
+    /// an image with neither is left alone, since a footerless tga cannot
+    /// be told apart from arbitrary bytes.
+    ///
+    /// Returns `false` when the image is not a tga, when its pixels are
+    /// more than 8 bits deep, which webp cannot hold, or when the webp
+    /// would not be smaller.
+    ///
+    /// # Errors
+    ///
+    /// When the tga does not decode, or webp cannot encode it.
+    pub fn tga_to_webp(&mut self) -> io::Result<bool> {
+        let named_tga = self.ext().eq_ignore_ascii_case("tga");
+        let Some(bytes_before) = self
+            .jpeg
+            .as_ref()
+            .filter(|jpeg| is_tga(&jpeg.data) || named_tga)
+            .map(|jpeg| jpeg.data.len())
+        else {
+            return Ok(false);
+        };
+        // decode() identifies the tga the same way, so it decodes as one
         let decoded = self.decode()?;
         if !matches!(
             decoded,
@@ -229,6 +309,41 @@ pub(crate) mod tests {
         }
     }
 
+    /// A tga image stored under the given extension. The image crate's tga
+    /// encoder writes no footer, so the tga 2.0 footer is appended when
+    /// asked, which is how vpinball's tga files (and the survey's) carry
+    /// it and how [`ImageData::tga_to_webp`] recognises one.
+    pub(crate) fn tga_image(
+        name: &str,
+        extension: &str,
+        width: u32,
+        height: u32,
+        footer: bool,
+    ) -> TestResult<ImageData> {
+        let mut data = encode(
+            &DynamicImage::ImageRgba8(pixels(width, height)),
+            ImageFormat::Tga,
+            0,
+        )?;
+        if footer {
+            data.extend_from_slice(b"TRUEVISION-XFILE.\0");
+        }
+        Ok(ImageData {
+            name: name.to_string(),
+            path: format!("C:\\images\\{name}.{extension}"),
+            width,
+            height,
+            jpeg: Some(PinBinary {
+                path: format!("C:\\images\\{name}.{extension}"),
+                name: name.to_string(),
+                internal_name: None,
+                data,
+            }),
+            md5_hash: Some([7; 16]),
+            ..Default::default()
+        })
+    }
+
     #[test]
     fn a_bitmap_becomes_a_lossless_webp() -> TestResult {
         let mut image = bitmap_image("bmp", 40, 20);
@@ -335,6 +450,62 @@ pub(crate) mod tests {
         assert!(!image.png_to_webp()?);
         assert!(!bitmap_image("bmp", 8, 8).png_to_webp()?);
         assert!(!link_image("link").png_to_webp()?);
+        Ok(())
+    }
+
+    #[test]
+    fn a_tga_becomes_a_smaller_lossless_webp() -> TestResult {
+        let mut image = tga_image("tga", "tga", 64, 64, true)?;
+        let before = image.decode()?.to_rgba8();
+        let bytes_before = image.jpeg.as_ref().map_or(0, |jpeg| jpeg.data.len());
+        assert!(image.tga_to_webp()?);
+        assert_eq!(image.ext(), "webp");
+        assert_eq!(image.path, "C:\\images\\tga.webp");
+        assert!(image.jpeg.as_ref().map_or(0, |jpeg| jpeg.data.len()) < bytes_before);
+        assert_eq!(image.md5_hash, None);
+        assert_eq!(image.decode()?.to_rgba8(), before);
+        // a second run has nothing to do
+        assert!(!image.tga_to_webp()?);
+        Ok(())
+    }
+
+    #[test]
+    fn a_tga_is_recognised_by_its_footer_whatever_the_extension() -> TestResult {
+        // content decides, like png: the footer identifies a tga even when
+        // the name says otherwise
+        let mut image = tga_image("footered", "png", 64, 64, true)?;
+        assert!(image.tga_to_webp()?);
+        assert_eq!(image.ext(), "webp");
+        Ok(())
+    }
+
+    #[test]
+    fn a_tga_extension_is_the_fallback_when_there_is_no_footer() -> TestResult {
+        // the older footerless tga has no content signal, so the `.tga`
+        // extension is the fallback that identifies it
+        let mut image = tga_image("art", "tga", 64, 64, false)?;
+        assert!(image.tga_to_webp()?);
+        assert_eq!(image.ext(), "webp");
+        Ok(())
+    }
+
+    #[test]
+    fn a_tga_that_is_neither_named_nor_footered_is_left_alone() -> TestResult {
+        // no .tga name and no footer: it cannot be told apart from
+        // arbitrary bytes, so it is not touched
+        let mut image = tga_image("unmarked", "png", 64, 64, false)?;
+        assert!(!image.tga_to_webp()?);
+        assert_eq!(image.ext(), "png");
+        assert_eq!(image.md5_hash, Some([7; 16]));
+        Ok(())
+    }
+
+    #[test]
+    fn only_tga_content_is_re_encoded() -> TestResult {
+        // a png and a bitmap are neither named .tga nor carry the footer
+        assert!(!loose_png("png", 40, 20)?.tga_to_webp()?);
+        assert!(!bitmap_image("bmp", 8, 8).tga_to_webp()?);
+        assert!(!link_image("link").tga_to_webp()?);
         Ok(())
     }
 }
