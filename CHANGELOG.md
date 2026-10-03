@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.4](https://github.com/francisdb/vpin/compare/v0.37.3...v0.37.4) - 2026-10-03
+
+### Added
+
+- *(fix)* re-encode PCM WAV sounds as FLAC, opt-in ([#545](https://github.com/francisdb/vpin/pull/545))
+
 ## [0.37.3](https://github.com/francisdb/vpin/compare/v0.37.2...v0.37.3) - 2026-09-28
 
 ### Added
