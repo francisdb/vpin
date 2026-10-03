@@ -482,6 +482,16 @@ pub(crate) fn extension_format(extension: &str) -> Option<&'static str> {
 }
 
 impl SoundData {
+    /// Whether this sound is a WAV, stored as a [`WaveForm`] header plus
+    /// raw samples rather than a file. True when the path names a `.wav`
+    /// or has no extension, as vpinball treats it.
+    ///
+    /// Only the native wav-to-flac fix uses this, so it is gated to match.
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) fn is_wav(&self) -> bool {
+        is_wav(&self.path)
+    }
+
     /// The extension of [`SoundData::path`], as written, or `None` when the
     /// path has none
     pub(crate) fn extension(&self) -> Option<&str> {
@@ -600,6 +610,118 @@ fn is_wav(path: &str) -> bool {
     match str_path_ext(path) {
         Some(ext) => ext.eq_ignore_ascii_case("wav"),
         None => true,
+    }
+}
+
+/// The outcome of [`SoundData::wav_to_flac`] for a sound that was a
+/// candidate: a PCM WAV. Mirrors [`crate::vpx::images::Webp`].
+#[cfg(not(target_family = "wasm"))]
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Flac {
+    /// Re-encoded as FLAC, the sound now holds the smaller `.flac` file
+    Converted,
+    /// The FLAC would not be smaller than the stored WAV samples, left as is
+    NotSmaller,
+}
+
+impl SoundData {
+    /// Re-encodes a PCM WAV sound as FLAC when that is smaller. FLAC is
+    /// lossless, so the samples play back the same, but only vpinball
+    /// builds with the miniaudio sound engine (10.8.1 and later) decode
+    /// FLAC, which is why this is an opt-in size lever rather than a
+    /// repair.
+    ///
+    /// Returns `None` when the sound is not a PCM WAV (a non-WAV file, or
+    /// a WAV whose `format_tag` is not 1, such as ADPCM or float), which
+    /// cannot be re-encoded here. For a candidate it answers whether the
+    /// FLAC replaced the samples or was not smaller.
+    ///
+    /// # Errors
+    ///
+    /// When the samples cannot be encoded as FLAC.
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) fn wav_to_flac(&mut self) -> io::Result<Option<Flac>> {
+        use flacenc::component::BitRepr;
+        use flacenc::error::Verify;
+
+        if !is_wav(&self.path) || self.wave_form.format_tag != 1 {
+            return Ok(None);
+        }
+        let bits = self.wave_form.bits_per_sample;
+        let channels = self.wave_form.channels;
+        if channels == 0 || !matches!(bits, 8 | 16 | 24) {
+            // outside what the deinterleaver below handles; leave it be
+            return Ok(None);
+        }
+        let samples = pcm_samples(&self.data, bits);
+        let bytes_before = self.data.len();
+
+        let config = flacenc::config::Encoder::default()
+            .into_verified()
+            .map_err(|(_, e)| io::Error::other(format!("flac config: {e:?}")))?;
+        let source = flacenc::source::MemSource::from_samples(
+            &samples,
+            channels as usize,
+            bits as usize,
+            self.wave_form.samples_per_sec as usize,
+        );
+        let stream = flacenc::encode_with_fixed_block_size(&config, source, config.block_size)
+            .map_err(|e| io::Error::other(format!("flac encode: {e:?}")))?;
+        let mut sink = flacenc::bitsink::ByteSink::new();
+        stream
+            .write(&mut sink)
+            .map_err(|e| io::Error::other(format!("flac write: {e:?}")))?;
+        let flac = sink.into_inner();
+
+        if flac.len() >= bytes_before {
+            return Ok(Some(Flac::NotSmaller));
+        }
+        self.data = flac;
+        self.path = replace_sound_extension(&self.path, "flac");
+        // no longer a wav, so the stored header is irrelevant
+        self.wave_form = WaveForm::default();
+        Ok(Some(Flac::Converted))
+    }
+}
+
+/// Decodes interleaved PCM WAV samples into the interleaved `i32` the FLAC
+/// encoder takes, sign-extending to `i32`. WAV stores 8-bit PCM as
+/// unsigned bytes biased by 128, and 16- and 24-bit as signed
+/// little-endian, as the format defines.
+#[cfg(not(target_family = "wasm"))]
+fn pcm_samples(data: &[u8], bits_per_sample: u16) -> Vec<i32> {
+    match bits_per_sample {
+        8 => data.iter().map(|&b| b as i32 - 128).collect(),
+        16 => data
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| i16::from_le_bytes(*c) as i32)
+            .collect(),
+        24 => data
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .map(|c| {
+                // sign-extend the 24-bit little-endian value into i32
+                let v = (c[0] as i32) | ((c[1] as i32) << 8) | ((c[2] as i32) << 16);
+                (v << 8) >> 8
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Replaces a trailing file extension on a sound path, appends when there
+/// is none
+#[cfg(not(target_family = "wasm"))]
+fn replace_sound_extension(path: &str, ext: &str) -> String {
+    match str_path_ext(path) {
+        Some(_) => {
+            let dot = path.rfind('.').unwrap_or(path.len());
+            format!("{}.{ext}", &path[..dot])
+        }
+        None => format!("{path}.{ext}"),
     }
 }
 
@@ -954,6 +1076,138 @@ mod test {
         assert_eq!(str_path_ext(".test"), None);
         assert_eq!(str_path_ext(r"c:\foo.bar\test.wav"), Some("wav"));
         assert_eq!(str_path_ext("/foo.bar/.test"), None);
+    }
+}
+
+#[cfg(all(test, not(target_family = "wasm")))]
+pub(crate) mod flac_tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+    use testresult::TestResult;
+
+    /// A PCM WAV sound: raw interleaved samples as the vpx stream holds
+    /// them (no RIFF header), with the matching wave form. `samples` are
+    /// interleaved per channel. A slowly varying ramp, which flac
+    /// compresses well so the conversion is a win.
+    pub(crate) fn pcm_wav(
+        name: &str,
+        channels: u16,
+        bits_per_sample: u16,
+        frames: usize,
+    ) -> SoundData {
+        let bytes_per_sample = (bits_per_sample / 8) as usize;
+        let mut data = Vec::with_capacity(frames * channels as usize * bytes_per_sample);
+        for frame in 0..frames {
+            for ch in 0..channels as usize {
+                // a value within the depth's signed range, varying slowly
+                let v = ((frame as i32 + ch as i32 * 7) % 97) - 48;
+                match bits_per_sample {
+                    8 => data.push((v + 128) as u8), // wav 8-bit is unsigned
+                    16 => data.extend_from_slice(&(v as i16).to_le_bytes()),
+                    24 => {
+                        let b = v.to_le_bytes();
+                        data.extend_from_slice(&b[..3]);
+                    }
+                    _ => unreachable!(),
+                }
+            }
+        }
+        let block_align = channels * bits_per_sample / 8;
+        SoundData {
+            name: name.to_string(),
+            path: format!("C:\\sounds\\{name}.wav"),
+            wave_form: WaveForm {
+                format_tag: 1,
+                channels,
+                samples_per_sec: 44100,
+                avg_bytes_per_sec: 44100 * block_align as u32,
+                block_align,
+                bits_per_sample,
+                cb_size: 0,
+            },
+            data,
+            internal_name: String::new(),
+            fade: 0,
+            volume: 0,
+            balance: 0,
+            output_target: OutputTarget::Table,
+        }
+    }
+
+    /// Decodes a flac file to interleaved i32 samples with claxon, an
+    /// independent decoder, so a pass proves the bytes are spec-correct
+    /// flac and not merely what flacenc reads back.
+    fn decode_flac(flac: &[u8]) -> TestResult<Vec<i32>> {
+        let mut reader = claxon::FlacReader::new(std::io::Cursor::new(flac))?;
+        Ok(reader.samples().collect::<Result<Vec<i32>, _>>()?)
+    }
+
+    /// The original samples as interleaved i32, the way the encoder saw
+    /// them, to compare the decoded flac against
+    fn expected_samples(data: &[u8], bits_per_sample: u16) -> Vec<i32> {
+        pcm_samples(data, bits_per_sample)
+    }
+
+    #[test]
+    fn pcm_wavs_convert_losslessly_across_depths_and_channels() -> TestResult {
+        for bits in [8u16, 16, 24] {
+            for channels in [1u16, 2] {
+                let original = pcm_wav("fx", channels, bits, 4096);
+                let before = expected_samples(&original.data, bits);
+                let mut sound = pcm_wav("fx", channels, bits, 4096);
+
+                let outcome = sound.wav_to_flac()?;
+                assert_eq!(
+                    outcome,
+                    Some(Flac::Converted),
+                    "{bits}-bit {channels}ch should convert"
+                );
+                assert_eq!(sound.ext(), "flac");
+                assert_eq!(sound.path, "C:\\sounds\\fx.flac");
+                assert!(sound.data.starts_with(b"fLaC"));
+                assert!(sound.data.len() < original.data.len());
+                // the flac decodes back to the exact samples: lossless
+                assert_eq!(
+                    decode_flac(&sound.data)?,
+                    before,
+                    "{bits}-bit {channels}ch not lossless"
+                );
+                // not a wav any more, so no stored header
+                assert_eq!(sound.wave_form, WaveForm::default());
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_non_pcm_wav_is_declined() -> TestResult {
+        let mut sound = pcm_wav("adpcm", 1, 16, 64);
+        sound.wave_form.format_tag = 2; // ADPCM
+        assert_eq!(sound.wav_to_flac()?, None);
+        // left untouched
+        assert_eq!(sound.ext(), "wav");
+        Ok(())
+    }
+
+    #[test]
+    fn a_non_wav_sound_is_declined() -> TestResult {
+        let mut sound = pcm_wav("music", 2, 16, 64);
+        sound.path = "C:\\sounds\\music.ogg".to_string();
+        assert_eq!(sound.wav_to_flac()?, None);
+        assert_eq!(sound.ext(), "ogg");
+        Ok(())
+    }
+
+    #[test]
+    fn flac_that_would_not_shrink_is_left_as_a_wav() -> TestResult {
+        // a few random-ish bytes: too short and noisy for flac to beat,
+        // so the converter keeps the wav
+        let mut sound = pcm_wav("tiny", 1, 16, 8);
+        sound.data = vec![0x7f, 0x3a, 0x91, 0x08, 0xe2, 0x55, 0x1c, 0xcc];
+        let outcome = sound.wav_to_flac()?;
+        assert_eq!(outcome, Some(Flac::NotSmaller));
+        assert_eq!(sound.ext(), "wav");
+        Ok(())
     }
 }
 

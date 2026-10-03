@@ -345,6 +345,158 @@ fn stored_bytes(image: &ImageData) -> usize {
         .unwrap_or(0)
 }
 
+/// Why [`wavs_to_flac`] left a sound alone
+#[cfg(not(target_family = "wasm"))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SoundSkipReason {
+    /// The WAV is not plain PCM this converter re-encodes: a `format_tag`
+    /// other than 1 (such as ADPCM or float), or a sample depth other
+    /// than 8, 16 or 24 bits
+    NotPcm,
+    /// The FLAC would not be smaller than the stored WAV samples
+    NotSmaller,
+    /// The samples could not be encoded as FLAC; the error
+    Unencodable(String),
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl std::fmt::Display for SoundSkipReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SoundSkipReason::NotPcm => {
+                write!(f, "not plain 8, 16 or 24-bit PCM, which is not re-encoded")
+            }
+            SoundSkipReason::NotSmaller => write!(f, "the flac would not be smaller"),
+            SoundSkipReason::Unencodable(error) => write!(f, "does not encode: {error}"),
+        }
+    }
+}
+
+/// A sound [`wavs_to_flac`] left alone, with the reason
+#[cfg(not(target_family = "wasm"))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkippedSound {
+    name: String,
+    reason: SoundSkipReason,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl SkippedSound {
+    /// Name of the sound in the table, as the table spelled it
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Why the converter left it alone
+    pub fn reason(&self) -> &SoundSkipReason {
+        &self.reason
+    }
+}
+
+/// A sound re-encoded by [`wavs_to_flac`]
+#[cfg(not(target_family = "wasm"))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConvertedSound {
+    name: String,
+    bytes_before: usize,
+    bytes_after: usize,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl ConvertedSound {
+    /// Name of the sound in the table, as the table spelled it
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Size of the stored WAV samples before the conversion
+    pub fn bytes_before(&self) -> usize {
+        self.bytes_before
+    }
+
+    /// Size of the stored FLAC file after it
+    pub fn bytes_after(&self) -> usize {
+        self.bytes_after
+    }
+}
+
+/// What a run of [`wavs_to_flac`] did: the sounds it re-encoded and the
+/// WAVs it would have but left alone, each with the reason. Sounds that
+/// were never candidates, a sound already in a file format, are in
+/// neither list.
+#[cfg(not(target_family = "wasm"))]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SoundConversion {
+    converted: Vec<ConvertedSound>,
+    skipped: Vec<SkippedSound>,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl SoundConversion {
+    /// The re-encoded sounds, in the order the table lists them
+    pub fn converted(&self) -> &[ConvertedSound] {
+        &self.converted
+    }
+
+    /// The candidates left alone, in the order the table lists them
+    pub fn skipped(&self) -> &[SkippedSound] {
+        &self.skipped
+    }
+
+    /// Whether the table is left as it was
+    pub fn is_empty(&self) -> bool {
+        self.converted.is_empty()
+    }
+}
+
+/// Re-encodes the PCM WAV sounds of a table as FLAC where that is
+/// smaller. FLAC is lossless, so the sounds play back the same, but only
+/// vpinball builds with the miniaudio sound engine (10.8.1 and later)
+/// decode FLAC. Unlike the webp conversions this changes which builds
+/// play the table, so it is an opt-in size lever: a caller enables it
+/// knowingly, as `vpxtool optimize` does behind a flag.
+///
+/// A WAV that is not PCM is left alone and reported, as is one the FLAC
+/// would not shrink or that does not encode. A sound already stored as a
+/// file (ogg, mp3, an existing flac) was never a candidate and is in
+/// neither list.
+///
+/// Returns what was converted and what was left alone, with the reason.
+#[cfg(not(target_family = "wasm"))]
+pub fn wavs_to_flac(vpx: &mut VPX) -> SoundConversion {
+    let mut conversion = SoundConversion::default();
+    for sound in &mut vpx.sounds {
+        if !sound.is_wav() {
+            // a file in some other format, never a candidate
+            continue;
+        }
+        let bytes_before = sound.data.len();
+        let reason = match sound.wav_to_flac() {
+            Ok(Some(crate::vpx::sound::Flac::Converted)) => {
+                conversion.converted.push(ConvertedSound {
+                    name: sound.name.clone(),
+                    bytes_before,
+                    bytes_after: sound.data.len(),
+                });
+                continue;
+            }
+            Ok(Some(crate::vpx::sound::Flac::NotSmaller)) => SoundSkipReason::NotSmaller,
+            // a wav that is not PCM: wav_to_flac declines it
+            Ok(None) => SoundSkipReason::NotPcm,
+            Err(e) => {
+                warn!("Skipping sound {}: {e}", sound.name);
+                SoundSkipReason::Unencodable(e.to_string())
+            }
+        };
+        conversion.skipped.push(SkippedSound {
+            name: sound.name.clone(),
+            reason,
+        });
+    }
+    conversion
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -627,5 +779,43 @@ mod tests {
         assert!(again.is_empty());
         assert_eq!(again.skipped(), conversion.skipped());
         Ok(())
+    }
+
+    #[test]
+    #[cfg(not(target_family = "wasm"))]
+    fn wavs_are_converted_and_the_rest_reported_or_ignored() {
+        use crate::vpx::sound::flac_tests::pcm_wav;
+        let mut vpx = VPX::default();
+        // a PCM wav (converts), a non-PCM wav (reported NotPcm), and an ogg
+        // file (never a candidate, ignored)
+        vpx.sounds.push(pcm_wav("music", 2, 16, 4096));
+        let mut adpcm = pcm_wav("voice", 1, 16, 64);
+        adpcm.wave_form.format_tag = 2;
+        vpx.sounds.push(adpcm);
+        let mut ogg = pcm_wav("song", 2, 16, 64);
+        ogg.path = "C:\\sounds\\song.ogg".to_string();
+        vpx.sounds.push(ogg);
+
+        let conversion = wavs_to_flac(&mut vpx);
+
+        let converted = conversion.converted();
+        assert_eq!(converted.len(), 1);
+        assert_eq!(converted[0].name(), "music");
+        assert!(converted[0].bytes_after() < converted[0].bytes_before());
+        // only the non-PCM wav is reported; the ogg is no candidate
+        assert_eq!(
+            conversion.skipped(),
+            [SkippedSound {
+                name: "voice".to_string(),
+                reason: SoundSkipReason::NotPcm,
+            }]
+        );
+        assert_eq!(vpx.sounds[0].ext(), "flac"); // converted
+        assert_eq!(vpx.sounds[1].ext(), "wav"); // non-PCM, left alone
+        assert_eq!(vpx.sounds[2].ext(), "ogg"); // not a candidate
+        // a second run has nothing to convert but reports the same skip
+        let again = wavs_to_flac(&mut vpx);
+        assert!(again.is_empty());
+        assert_eq!(again.skipped(), conversion.skipped());
     }
 }
