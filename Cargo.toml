@@ -85,6 +85,8 @@ flate2 = { version = "1.1.8", features = ["zlib-rs"], default-features = false }
 image = { version = "0.25.9", default-features = false, features = [
     "bmp", "exr", "gif", "hdr", "jpeg", "png", "tga", "webp", "rayon"
 ] }
+# Pinned to main for the tail-frame fix (yotarok/flacenc-rs#255), not yet released
+flacenc = { git = "https://github.com/yotarok/flacenc-rs.git", rev = "f2ebcf85550ce337ceceed7ba25a1e84c034efc1", default-features = false }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 # Use pure Rust miniz_oxide backend for wasm compatibility
@@ -106,6 +108,8 @@ proptest = { version = "1.11.0", default-features = false, features = ["std"] }
 proptest-derive = "0.8.0"
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
 testdir = "0.10.0"
+# independent FLAC decoder, to verify wavs_to_flac round-trips losslessly
+claxon = "0.4.3"
 [target.'cfg(target_family = "wasm")'.dev-dependencies]
 # TODO keep this in sync with wasm-bindgen version above
 wasm-bindgen-test = "0.3.58"
