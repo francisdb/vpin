@@ -665,8 +665,16 @@ impl SoundData {
             bits as usize,
             self.wave_form.samples_per_sec as usize,
         );
-        let stream = flacenc::encode_with_fixed_block_size(&config, source, config.block_size)
+        let mut stream = flacenc::encode_with_fixed_block_size(&config, source, config.block_size)
             .map_err(|e| io::Error::other(format!("flac encode: {e:?}")))?;
+        // Published flacenc 0.5.1 sets min == max block size up front, which is wrong when
+        // the stream ends in a shorter tail frame; strict decoders (miniaudio) then reject it.
+        // Re-set min = max = max_block_size after encoding, matching yotarok/flacenc-rs#255.
+        let max_block_size = stream.stream_info().max_block_size();
+        stream
+            .stream_info_mut()
+            .set_block_sizes(max_block_size, max_block_size)
+            .map_err(|e| io::Error::other(format!("flac block sizes: {e:?}")))?;
         let mut sink = flacenc::bitsink::ByteSink::new();
         stream
             .write(&mut sink)
@@ -1148,6 +1156,19 @@ pub(crate) mod flac_tests {
         pcm_samples(data, bits_per_sample)
     }
 
+    /// The (min, max) block size from a flac file's STREAMINFO. After the
+    /// `fLaC` marker the first metadata block is STREAMINFO: a 4-byte block
+    /// header, then the data, which opens with min and max block size as
+    /// 16-bit big-endian fields. A decoder-independent read: it is the
+    /// header a strict decoder checks, not the audio claxon reads back.
+    fn streaminfo_block_sizes(flac: &[u8]) -> (u16, u16) {
+        assert!(flac.starts_with(b"fLaC"), "not a flac stream");
+        let data = &flac[8..]; // skip "fLaC" + the 4-byte metadata block header
+        let min = u16::from_be_bytes([data[0], data[1]]);
+        let max = u16::from_be_bytes([data[2], data[3]]);
+        (min, max)
+    }
+
     #[test]
     fn pcm_wavs_convert_losslessly_across_depths_and_channels() -> TestResult {
         for bits in [8u16, 16, 24] {
@@ -1175,6 +1196,43 @@ pub(crate) mod flac_tests {
                 // not a wav any more, so no stored header
                 assert_eq!(sound.wave_form, WaveForm::default());
             }
+        }
+        Ok(())
+    }
+
+    /// A fixed-block stream whose length is not a block-size multiple ends
+    /// in a shorter tail frame. Published flacenc 0.5.1 leaves STREAMINFO
+    /// saying min == max == the tail length, which strict decoders (the
+    /// miniaudio build vpinball plays through) reject; wav_to_flac re-sets
+    /// min = max = max_block_size to fix it. Assert that invariant directly
+    /// on the header, since claxon decodes either way and would not catch
+    /// it. Over 4096 frames, so the tail frame is genuinely short.
+    #[test]
+    fn a_tail_frame_leaves_min_and_max_block_size_equal() -> TestResult {
+        for frames in [4096 + 1, 4096 + 1000, 8192 + 777] {
+            let original = pcm_wav("fx", 2, 16, frames);
+            let before = expected_samples(&original.data, 16);
+            let mut sound = pcm_wav("fx", 2, 16, frames);
+
+            let outcome = sound.wav_to_flac()?;
+            assert_eq!(
+                outcome,
+                Some(Flac::Converted),
+                "{frames} frames should convert"
+            );
+
+            let (min, max) = streaminfo_block_sizes(&sound.data);
+            assert_eq!(
+                min, max,
+                "{frames} frames: STREAMINFO min ({min}) != max ({max}), \
+                 strict decoders reject the tail frame"
+            );
+            // still lossless with the corrected header
+            assert_eq!(
+                decode_flac(&sound.data)?,
+                before,
+                "{frames} frames not lossless"
+            );
         }
         Ok(())
     }
