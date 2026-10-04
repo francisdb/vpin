@@ -5,7 +5,6 @@ mod common;
 mod test {
 
     const EXTRACT_IN_MEMORY: bool = true;
-    const PRIMITIVE_MESH_FORMAT: PrimitiveMeshFormat = PrimitiveMeshFormat::Obj;
 
     use crate::common::{find_files, init_logger, render_differences, report_failures, tables_dir};
     use log::info;
@@ -16,7 +15,7 @@ mod test {
     use testdir::testdir;
     use vpin::filesystem::{FileSystem, MemoryFileSystem, RealFileSystem};
     use vpin::vpx::diff::Difference;
-    use vpin::vpx::expanded::{ExpandOptions, PrimitiveMeshFormat};
+    use vpin::vpx::expanded::ExpandOptions;
 
     #[test]
     #[ignore = "slow integration test that only runs on correctly set up machines"]
@@ -127,7 +126,7 @@ mod test {
             (Box::new(MemoryFileSystem::new()), PathBuf::from("/vpx"))
         };
 
-        let options = ExpandOptions::new().mesh_format(PRIMITIVE_MESH_FORMAT);
+        let options = ExpandOptions::new();
         vpin::vpx::expanded::write_fs(&original, &extract_dir, &options, &*fs)
             .map_err(io::Error::other)?;
         // several tables can be in flight at once: keep only the script of

@@ -1,9 +1,6 @@
 //! Primitive mesh reading and writing for expanded VPX format
 
-use super::{
-    GAMEITEMS_DIR, Output, PrimitiveMeshFormat, WriteError, generated_mesh_file_name,
-    mesh_file_extension,
-};
+use super::{GAMEITEMS_DIR, MESH_FILE_EXTENSION, Output, WriteError, generated_mesh_file_name};
 use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::GameItemEnum;
 use crate::vpx::gameitem::primitive;
@@ -11,7 +8,6 @@ use crate::vpx::gameitem::primitive::{
     MAX_VERTICES_FOR_2_BYTE_INDEX, ReadMesh, VertData, VertexWrapper, read_vpx_animation_frame,
     write_animation_vertex_data,
 };
-use crate::vpx::gltf::{GltfContainer, read_gltf};
 use crate::vpx::model::Vertex3dNoTex2;
 use crate::vpx::obj::{
     ObjData, ReadObjResult, VpxFace, read_obj as obj_read_obj, read_obj_from_reader,
@@ -68,12 +64,9 @@ pub(super) fn write_gameitem_binaries(
     out: &Output,
 ) -> Result<(), WriteError> {
     let options = out.options();
-    let mesh_format = options.get_mesh_format();
     if let GameItemEnum::Primitive(primitive) = gameitem {
-        let mesh_path = Path::new(GAMEITEMS_DIR).join(format!(
-            "{json_file_name}.{}",
-            mesh_file_extension(mesh_format)
-        ));
+        let mesh_path =
+            Path::new(GAMEITEMS_DIR).join(format!("{json_file_name}.{MESH_FILE_EXTENSION}"));
         // checked before the mesh is decompressed so a filtered out mesh costs nothing
         if out.wants(&mesh_path)
             && let Some(ReadMesh { vertices, indices }) = &primitive.read_mesh()?
@@ -90,7 +83,6 @@ pub(super) fn write_gameitem_binaries(
                         vertices,
                         indices,
                         zipped,
-                        mesh_format,
                     )?;
                 } else {
                     return Err(WriteError::Io(io::Error::new(
@@ -107,40 +99,40 @@ pub(super) fn write_gameitem_binaries(
     if options.should_generate_derived_meshes() {
         match gameitem {
             GameItemEnum::Wall(wall) => {
-                write_wall_meshes(out, wall, json_file_name, mesh_format)?;
+                write_wall_meshes(out, wall, json_file_name)?;
             }
             GameItemEnum::Ramp(ramp) => {
-                write_ramp_meshes(out, ramp, json_file_name, mesh_format, table_dims)?;
+                write_ramp_meshes(out, ramp, json_file_name, table_dims)?;
             }
             GameItemEnum::Rubber(rubber) => {
-                write_rubber_meshes(out, rubber, json_file_name, mesh_format)?;
+                write_rubber_meshes(out, rubber, json_file_name)?;
             }
             GameItemEnum::Flasher(flasher) => {
-                write_flasher_meshes(out, flasher, json_file_name, mesh_format, table_dims)?;
+                write_flasher_meshes(out, flasher, json_file_name, table_dims)?;
             }
             GameItemEnum::Flipper(flipper) => {
-                write_flipper_meshes(out, flipper, json_file_name, mesh_format)?;
+                write_flipper_meshes(out, flipper, json_file_name)?;
             }
             GameItemEnum::Spinner(spinner) => {
-                write_spinner_meshes(out, spinner, json_file_name, mesh_format)?;
+                write_spinner_meshes(out, spinner, json_file_name)?;
             }
             GameItemEnum::Bumper(bumper) => {
-                write_bumper_meshes(out, bumper, json_file_name, mesh_format)?;
+                write_bumper_meshes(out, bumper, json_file_name)?;
             }
             GameItemEnum::HitTarget(hit_target) => {
-                write_hit_target_meshes(out, hit_target, json_file_name, mesh_format)?;
+                write_hit_target_meshes(out, hit_target, json_file_name)?;
             }
             GameItemEnum::Gate(gate) => {
-                write_gate_meshes(out, gate, json_file_name, mesh_format)?;
+                write_gate_meshes(out, gate, json_file_name)?;
             }
             GameItemEnum::Trigger(trigger) => {
-                write_trigger_mesh(out, trigger, json_file_name, mesh_format)?;
+                write_trigger_mesh(out, trigger, json_file_name)?;
             }
             GameItemEnum::Plunger(plunger) => {
-                write_plunger_meshes(out, plunger, json_file_name, mesh_format)?;
+                write_plunger_meshes(out, plunger, json_file_name)?;
             }
             GameItemEnum::Light(light) => {
-                write_light_meshes(out, light, json_file_name, mesh_format)?;
+                write_light_meshes(out, light, json_file_name)?;
             }
             _ => {}
         }
@@ -159,12 +151,7 @@ struct DerivedMeshFiles<'a> {
 impl<'a> DerivedMeshFiles<'a> {
     /// Files named `<stem>-generated.<ext>`, or `<stem>-<part>.json-generated.<ext>`
     /// for the named parts of a multi part item
-    fn generated(
-        out: &'a Output<'a>,
-        json_file_name: &str,
-        parts: &[&'static str],
-        mesh_format: PrimitiveMeshFormat,
-    ) -> Self {
+    fn generated(out: &'a Output<'a>, json_file_name: &str, parts: &[&'static str]) -> Self {
         let base = json_file_name.trim_end_matches(".json");
         let files = parts
             .iter()
@@ -174,8 +161,7 @@ impl<'a> DerivedMeshFiles<'a> {
                 } else {
                     format!("{base}-{part}.json")
                 };
-                let path =
-                    Path::new(GAMEITEMS_DIR).join(generated_mesh_file_name(&name, mesh_format));
+                let path = Path::new(GAMEITEMS_DIR).join(generated_mesh_file_name(&name));
                 (*part, path)
             })
             .collect();
@@ -183,18 +169,13 @@ impl<'a> DerivedMeshFiles<'a> {
     }
 
     /// Files named `<stem>-<part>.<ext>`, the light mesh convention
-    fn plain(
-        out: &'a Output<'a>,
-        json_file_name: &str,
-        parts: &[&'static str],
-        mesh_format: PrimitiveMeshFormat,
-    ) -> Self {
+    fn plain(out: &'a Output<'a>, json_file_name: &str, parts: &[&'static str]) -> Self {
         let base = json_file_name.trim_end_matches(".json");
-        let extension = mesh_file_extension(mesh_format);
         let files = parts
             .iter()
             .map(|part| {
-                let path = Path::new(GAMEITEMS_DIR).join(format!("{base}-{part}.{extension}"));
+                let path =
+                    Path::new(GAMEITEMS_DIR).join(format!("{base}-{part}.{MESH_FILE_EXTENSION}"));
                 (*part, path)
             })
             .collect();
@@ -224,13 +205,8 @@ impl<'a> DerivedMeshFiles<'a> {
     }
 }
 
-fn write_gate_meshes(
-    out: &Output,
-    gate: &Gate,
-    json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
-) -> Result<(), WriteError> {
-    let files = DerivedMeshFiles::generated(out, json_file_name, &["bracket", "wire"], mesh_format);
+fn write_gate_meshes(out: &Output, gate: &Gate, json_file_name: &str) -> Result<(), WriteError> {
+    let files = DerivedMeshFiles::generated(out, json_file_name, &["bracket", "wire"]);
     if !files.wanted() {
         return Ok(());
     }
@@ -253,14 +229,9 @@ fn write_bumper_meshes(
     out: &Output,
     bumper: &Bumper,
     json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
 ) -> Result<(), WriteError> {
-    let files = DerivedMeshFiles::generated(
-        out,
-        json_file_name,
-        &["base", "socket", "ring", "cap"],
-        mesh_format,
-    );
+    let files =
+        DerivedMeshFiles::generated(out, json_file_name, &["base", "socket", "ring", "cap"]);
     if !files.wanted() {
         return Ok(());
     }
@@ -288,9 +259,8 @@ fn write_flipper_meshes(
     out: &Output,
     flipper: &Flipper,
     json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
 ) -> Result<(), WriteError> {
-    let files = DerivedMeshFiles::generated(out, json_file_name, &[""], mesh_format);
+    let files = DerivedMeshFiles::generated(out, json_file_name, &[""]);
     if !files.wanted() {
         return Ok(());
     }
@@ -304,9 +274,8 @@ fn write_hit_target_meshes(
     out: &Output,
     hit_target: &HitTarget,
     json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
 ) -> Result<(), WriteError> {
-    let files = DerivedMeshFiles::generated(out, json_file_name, &[""], mesh_format);
+    let files = DerivedMeshFiles::generated(out, json_file_name, &[""]);
     if !files.wanted() {
         return Ok(());
     }
@@ -320,13 +289,11 @@ fn write_plunger_meshes(
     out: &Output,
     plunger: &Plunger,
     json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
 ) -> Result<(), WriteError> {
     let files = DerivedMeshFiles::generated(
         out,
         json_file_name,
         &["flat", "rod", "spring", "ring", "tip"],
-        mesh_format,
     );
     if !files.wanted() {
         return Ok(());
@@ -356,10 +323,8 @@ fn write_spinner_meshes(
     out: &Output,
     spinner: &Spinner,
     json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
 ) -> Result<(), WriteError> {
-    let files =
-        DerivedMeshFiles::generated(out, json_file_name, &["bracket", "plate"], mesh_format);
+    let files = DerivedMeshFiles::generated(out, json_file_name, &["bracket", "plate"]);
     if !files.wanted() {
         return Ok(());
     }
@@ -386,9 +351,8 @@ fn write_trigger_mesh(
     out: &Output,
     trigger: &Trigger,
     json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
 ) -> Result<(), WriteError> {
-    let files = DerivedMeshFiles::generated(out, json_file_name, &[""], mesh_format);
+    let files = DerivedMeshFiles::generated(out, json_file_name, &[""]);
     if !files.wanted() {
         return Ok(());
     }
@@ -402,10 +366,9 @@ fn write_ramp_meshes(
     out: &Output,
     ramp: &Ramp,
     json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
     table_dims: &TableDimensions,
 ) -> Result<(), WriteError> {
-    let files = DerivedMeshFiles::generated(out, json_file_name, &[""], mesh_format);
+    let files = DerivedMeshFiles::generated(out, json_file_name, &[""]);
     if !files.wanted() {
         return Ok(());
     }
@@ -429,9 +392,8 @@ fn write_rubber_meshes(
     out: &Output,
     rubber: &Rubber,
     json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
 ) -> Result<(), WriteError> {
-    let files = DerivedMeshFiles::generated(out, json_file_name, &[""], mesh_format);
+    let files = DerivedMeshFiles::generated(out, json_file_name, &[""]);
     if !files.wanted() {
         return Ok(());
     }
@@ -443,13 +405,8 @@ fn write_rubber_meshes(
     files.write("", &rubber.name, &vertices, &indices)
 }
 
-fn write_wall_meshes(
-    out: &Output,
-    wall: &Wall,
-    json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
-) -> Result<(), WriteError> {
-    let files = DerivedMeshFiles::generated(out, json_file_name, &[""], mesh_format);
+fn write_wall_meshes(out: &Output, wall: &Wall, json_file_name: &str) -> Result<(), WriteError> {
+    let files = DerivedMeshFiles::generated(out, json_file_name, &[""]);
     if !files.wanted() {
         return Ok(());
     }
@@ -463,10 +420,9 @@ fn write_flasher_meshes(
     out: &Output,
     flasher: &Flasher,
     json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
     table_dims: &TableDimensions,
 ) -> Result<(), WriteError> {
-    let files = DerivedMeshFiles::generated(out, json_file_name, &[""], mesh_format);
+    let files = DerivedMeshFiles::generated(out, json_file_name, &[""]);
     if !files.wanted() {
         return Ok(());
     }
@@ -476,13 +432,8 @@ fn write_flasher_meshes(
     files.write("", &flasher.name, &vertices, &indices)
 }
 
-fn write_light_meshes(
-    out: &Output,
-    light: &Light,
-    json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
-) -> Result<(), WriteError> {
-    let files = DerivedMeshFiles::plain(out, json_file_name, &["bulb", "socket"], mesh_format);
+fn write_light_meshes(out: &Output, light: &Light, json_file_name: &str) -> Result<(), WriteError> {
+    let files = DerivedMeshFiles::plain(out, json_file_name, &["bulb", "socket"]);
     if !files.wanted() {
         return Ok(());
     }
@@ -506,11 +457,10 @@ fn write_animation_frames_to_meshes(
     vertices: &[VertexWrapper],
     vpx_indices: &[VpxFace],
     zipped: Zip<Iter<Vec<u8>>, Iter<u32>>,
-    mesh_format: PrimitiveMeshFormat,
 ) -> Result<(), WriteError> {
     for (i, (compressed_frame, compressed_length)) in zipped.enumerate() {
         let file_name_without_ext = json_file_name.trim_end_matches(".json");
-        let file_name = animation_frame_file_name(file_name_without_ext, i, mesh_format);
+        let file_name = animation_frame_file_name(file_name_without_ext, i);
         let mesh_path = Path::new(GAMEITEMS_DIR).join(&file_name);
         // checked before the frame is decompressed so a filtered out frame costs nothing
         if !out.wants(&mesh_path) {
@@ -581,43 +531,10 @@ pub(super) fn read_gameitem_binaries(
     if let GameItemEnum::Primitive(primitive) = &mut item {
         let gameitem_file_name = gameitem_file_name.trim_end_matches(".json");
 
-        // Check for OBJ first (backward compatibility), then GLB
-        let obj_path = gameitems_dir.join(format!("{gameitem_file_name}.obj"));
-        let glb_path = gameitems_dir.join(format!("{gameitem_file_name}.glb"));
-        let gltf_path = gameitems_dir.join(format!("{gameitem_file_name}.gltf"));
+        let obj_path = gameitems_dir.join(format!("{gameitem_file_name}.{MESH_FILE_EXTENSION}"));
 
-        let mesh_format = if fs.exists(&obj_path) {
-            Some(PrimitiveMeshFormat::Obj)
-        } else if fs.exists(&glb_path) {
-            Some(PrimitiveMeshFormat::Glb)
-        } else if fs.exists(&gltf_path) {
-            Some(PrimitiveMeshFormat::Gltf)
-        } else {
-            // a primitive that declares a mesh must have a sidecar file,
-            // otherwise the mesh would silently be dropped
-            if primitive.use_3d_mesh {
-                return Err(io::Error::new(
-                    io::ErrorKind::NotFound,
-                    format!(
-                        "Primitive {:?} uses a 3D mesh but no mesh file was found, expected {}",
-                        primitive.name,
-                        obj_path.display()
-                    ),
-                ));
-            }
-            None
-        };
-
-        if let Some(format) = mesh_format {
-            let result = match format {
-                PrimitiveMeshFormat::Obj => read_obj_and_compress(fs, &obj_path)?,
-                PrimitiveMeshFormat::Glb => {
-                    read_gltf_and_compress(&glb_path, fs, GltfContainer::Glb)?
-                }
-                PrimitiveMeshFormat::Gltf => {
-                    read_gltf_and_compress(&gltf_path, fs, GltfContainer::Gltf)?
-                }
-            };
+        if fs.exists(&obj_path) {
+            let result = read_obj_and_compress(fs, &obj_path)?;
             // the mesh file is authoritative, but warn when the json claimed a
             // different count so a stale hand edit does not pass silently, the
             // same way stale image dimensions are reported
@@ -651,35 +568,28 @@ pub(super) fn read_gameitem_binaries(
                 primitive.compressed_indices_len = Some(result.compressed_indices.len() as u32);
                 primitive.compressed_indices_data = Some(result.compressed_indices);
             }
+        } else if primitive.use_3d_mesh {
+            // a primitive that declares a mesh must have a sidecar file,
+            // otherwise the mesh would silently be dropped
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!(
+                    "Primitive {:?} uses a 3D mesh but no mesh file was found, expected {}",
+                    primitive.name,
+                    obj_path.display()
+                ),
+            ));
         }
 
-        // Check for animation frames - try OBJ first, then GLB
-        let frame0_obj = animation_frame_file_name(gameitem_file_name, 0, PrimitiveMeshFormat::Obj);
-        let frame0_glb = animation_frame_file_name(gameitem_file_name, 0, PrimitiveMeshFormat::Glb);
-        let frame0_gltf =
-            animation_frame_file_name(gameitem_file_name, 0, PrimitiveMeshFormat::Gltf);
-        let frame0_obj_path = gameitems_dir.join(&frame0_obj);
-        let frame0_glb_path = gameitems_dir.join(&frame0_glb);
-        let frame0_gltf_path = gameitems_dir.join(&frame0_gltf);
-
-        let animation_format = if fs.exists(&frame0_obj_path) {
-            Some(PrimitiveMeshFormat::Obj)
-        } else if fs.exists(&frame0_glb_path) {
-            Some(PrimitiveMeshFormat::Glb)
-        } else if fs.exists(&frame0_gltf_path) {
-            Some(PrimitiveMeshFormat::Gltf)
-        } else {
-            None
-        };
-
-        if let Some(format) = animation_format {
+        let frame0_path = gameitems_dir.join(animation_frame_file_name(gameitem_file_name, 0));
+        if fs.exists(&frame0_path) {
             let mut frame = 0;
             let mut frames = Vec::new();
             loop {
-                let frame_file = animation_frame_file_name(gameitem_file_name, frame, format);
+                let frame_file = animation_frame_file_name(gameitem_file_name, frame);
                 let frame_path = gameitems_dir.join(&frame_file);
                 if fs.exists(&frame_path) {
-                    let animation_frame = read_mesh_as_frame(&frame_path, format, fs)?;
+                    let animation_frame = read_obj_as_frame(&frame_path, fs)?;
                     frames.push(animation_frame);
                     frame += 1;
                 } else {
@@ -707,17 +617,8 @@ pub(super) fn read_gameitem_binaries(
     Ok(item)
 }
 
-fn animation_frame_file_name(
-    gameitem_file_name: &str,
-    index: usize,
-    mesh_format: PrimitiveMeshFormat,
-) -> String {
-    let extension = match mesh_format {
-        PrimitiveMeshFormat::Obj => "obj",
-        PrimitiveMeshFormat::Glb => "glb",
-        PrimitiveMeshFormat::Gltf => "gltf",
-    };
-    format!("{gameitem_file_name}_anim_{index}.{extension}")
+fn animation_frame_file_name(gameitem_file_name: &str, index: usize) -> String {
+    format!("{gameitem_file_name}_anim_{index}.{MESH_FILE_EXTENSION}")
 }
 
 #[instrument(skip(fs))]
@@ -743,48 +644,6 @@ fn read_obj_and_compress(fs: &dyn FileSystem, obj_path: &Path) -> io::Result<Mes
         indices_len,
         vertices: read_result.vpx_encoded_vertices.to_vec(),
         indices: vpx_encoded_indices.to_vec(),
-        compressed_vertices,
-        compressed_indices,
-    })
-}
-
-fn read_gltf_and_compress(
-    gltf_path: &Path,
-    fs: &dyn FileSystem,
-    container: GltfContainer,
-) -> io::Result<MeshReadResult> {
-    let (vertices, indices) = read_gltf(gltf_path, container, fs)?;
-
-    let mut vpx_vertices = BytesMut::with_capacity(vertices.len() * 32);
-    for VertexWrapper {
-        vpx_encoded_vertex, ..
-    } in &vertices
-    {
-        vpx_vertices.put_slice(vpx_encoded_vertex);
-    }
-
-    let bytes_per_index: u8 = if vertices.len() > MAX_VERTICES_FOR_2_BYTE_INDEX {
-        4
-    } else {
-        2
-    };
-    let mut vpx_indices = BytesMut::with_capacity(indices.len() * bytes_per_index as usize);
-    for idx in &indices {
-        write_vertex_index_for_vpx(bytes_per_index, &mut vpx_indices, idx.i0);
-        write_vertex_index_for_vpx(bytes_per_index, &mut vpx_indices, idx.i1);
-        write_vertex_index_for_vpx(bytes_per_index, &mut vpx_indices, idx.i2);
-    }
-
-    let vertices_len = vertices.len();
-    let indices_len = indices.len() * 3;
-    let (compressed_vertices, compressed_indices) =
-        compress_vertices_and_indices(&vpx_vertices, &vpx_indices)?;
-
-    Ok(MeshReadResult {
-        vertices_len,
-        indices_len,
-        vertices: vpx_vertices.to_vec(),
-        indices: vpx_indices.to_vec(),
         compressed_vertices,
         compressed_indices,
     })
@@ -830,19 +689,6 @@ fn vpx_encode_vertices(vertices_len: usize, indices: &[VpxFace]) -> BytesMut {
     vpx_encoded_indices
 }
 
-#[instrument(skip(fs))]
-fn read_mesh_as_frame(
-    mesh_path: &Path,
-    mesh_format: PrimitiveMeshFormat,
-    fs: &dyn FileSystem,
-) -> io::Result<Vec<VertData>> {
-    match mesh_format {
-        PrimitiveMeshFormat::Obj => read_obj_as_frame(mesh_path, fs),
-        PrimitiveMeshFormat::Glb => read_gltf_as_frame(mesh_path, GltfContainer::Glb, fs),
-        PrimitiveMeshFormat::Gltf => read_gltf_as_frame(mesh_path, GltfContainer::Gltf, fs),
-    }
-}
-
 fn read_obj_as_frame(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<Vec<VertData>> {
     let obj_data = fs.read_file(obj_path)?;
     let mut reader = io::BufReader::new(io::Cursor::new(obj_data));
@@ -871,26 +717,6 @@ fn read_obj_as_frame(obj_path: &Path, fs: &dyn FileSystem) -> io::Result<Vec<Ver
         vertices.push(vertext);
     }
     Ok(vertices)
-}
-
-fn read_gltf_as_frame(
-    gltf_path: &Path,
-    container: GltfContainer,
-    fs: &dyn FileSystem,
-) -> io::Result<Vec<VertData>> {
-    let (vertices, _) = read_gltf(gltf_path, container, fs)?;
-    let mut frames = Vec::with_capacity(vertices.len());
-    for vertex in vertices {
-        frames.push(VertData {
-            x: vertex.vertex.x,
-            y: vertex.vertex.y,
-            z: vertex.vertex.z,
-            nx: vertex.vertex.nx,
-            ny: vertex.vertex.ny,
-            nz: vertex.vertex.nz,
-        });
-    }
-    Ok(frames)
 }
 
 #[cfg(test)]
@@ -997,8 +823,8 @@ mod tests {
 
     /// The mesh files [`items_with_derived_meshes`] produces, relative to
     /// the table root
-    fn expected_derived_mesh_files(mesh_format: PrimitiveMeshFormat) -> Vec<String> {
-        let ext = mesh_file_extension(mesh_format);
+    fn expected_derived_mesh_files() -> Vec<String> {
+        let ext = MESH_FILE_EXTENSION;
         let single = |stem: &str| table_file(format!("{stem}-generated.{ext}"));
         let part =
             |stem: &str, part: &str| table_file(format!("{stem}-{part}.json-generated.{ext}"));
@@ -1028,18 +854,13 @@ mod tests {
         ]
     }
 
-    fn write_derived_meshes(
-        generate: bool,
-        mesh_format: PrimitiveMeshFormat,
-    ) -> Result<MemoryFileSystem, WriteError> {
+    fn write_derived_meshes(generate: bool) -> Result<MemoryFileSystem, WriteError> {
         let vpx = VPX {
             gameitems: items_with_derived_meshes(),
             ..Default::default()
         };
         let fs = MemoryFileSystem::new();
-        let options = ExpandOptions::new()
-            .mesh_format(mesh_format)
-            .generate_derived_meshes(generate);
+        let options = ExpandOptions::new().generate_derived_meshes(generate);
         write_fs(&vpx, &ROOT, &options, &fs)?;
         Ok(fs)
     }
@@ -1054,8 +875,8 @@ mod tests {
 
     #[test]
     fn derived_meshes_are_written_for_every_item_type() -> TestResult {
-        let fs = write_derived_meshes(true, PrimitiveMeshFormat::Obj)?;
-        for path in expected_derived_mesh_files(PrimitiveMeshFormat::Obj) {
+        let fs = write_derived_meshes(true)?;
+        for path in expected_derived_mesh_files() {
             let obj = text_file(&fs, &path);
             assert!(obj.starts_with("# "), "{path} should start with a comment");
             assert!(obj.contains("\no "), "{path} should name its object");
@@ -1067,8 +888,8 @@ mod tests {
 
     #[test]
     fn derived_meshes_are_not_written_when_disabled() -> TestResult {
-        let fs = write_derived_meshes(false, PrimitiveMeshFormat::Obj)?;
-        for path in expected_derived_mesh_files(PrimitiveMeshFormat::Obj) {
+        let fs = write_derived_meshes(false)?;
+        for path in expected_derived_mesh_files() {
             assert_eq!(fs.get_file(&path), None, "{path} should not be written");
         }
         let meshes: Vec<String> = fs
@@ -1077,18 +898,6 @@ mod tests {
             .filter(|file| file.ends_with(".obj"))
             .collect();
         assert_eq!(meshes, Vec::<String>::new());
-        Ok(())
-    }
-
-    #[test]
-    fn derived_meshes_are_written_as_glb() -> TestResult {
-        let fs = write_derived_meshes(true, PrimitiveMeshFormat::Glb)?;
-        for path in expected_derived_mesh_files(PrimitiveMeshFormat::Glb) {
-            let glb = fs
-                .get_file(&path)
-                .unwrap_or_else(|| panic!("{path} should have been written"));
-            assert_eq!(&glb[..4], b"glTF", "{path} should start with the GLB magic");
-        }
         Ok(())
     }
 
@@ -1138,17 +947,13 @@ mod tests {
     }
 
     /// Writes a table holding only `primitive` and returns the file system
-    fn write_primitive(
-        primitive: Primitive,
-        mesh_format: PrimitiveMeshFormat,
-    ) -> Result<MemoryFileSystem, WriteError> {
+    fn write_primitive(primitive: Primitive) -> Result<MemoryFileSystem, WriteError> {
         let vpx = VPX {
             gameitems: vec![GameItemEnum::Primitive(Box::new(primitive))],
             ..Default::default()
         };
         let fs = MemoryFileSystem::new();
-        let options = ExpandOptions::new().mesh_format(mesh_format);
-        write_fs(&vpx, &ROOT, &options, &fs)?;
+        write_fs(&vpx, &ROOT, &ExpandOptions::new(), &fs)?;
         Ok(fs)
     }
 
@@ -1192,18 +997,14 @@ mod tests {
         (vertices, mesh.indices)
     }
 
-    fn animation_frames_round_trip(mesh_format: PrimitiveMeshFormat) -> TestResult {
+    #[test]
+    fn animation_frames_round_trip() -> TestResult {
         // Primitive is not Clone, the helper is deterministic so build it twice
         let frames = [frame(0.0), frame(1.0), frame(2.0)];
         let original = animated_primitive(&frames)?;
-        let fs = write_primitive(animated_primitive(&frames)?, mesh_format)?;
+        let fs = write_primitive(animated_primitive(&frames)?)?;
 
-        let frame_path = |i: usize| {
-            table_file(format!(
-                "Primitive.Prim1_anim_{i}.{}",
-                mesh_file_extension(mesh_format)
-            ))
-        };
+        let frame_path = |i: usize| table_file(format!("Primitive.Prim1_anim_{i}.obj"));
         for i in 0..3 {
             assert!(
                 fs.get_file(&frame_path(i)).is_some(),
@@ -1224,26 +1025,10 @@ mod tests {
     }
 
     #[test]
-    fn animation_frames_round_trip_through_obj() -> TestResult {
-        animation_frames_round_trip(PrimitiveMeshFormat::Obj)
-    }
-
-    #[test]
-    fn animation_frames_round_trip_through_glb() -> TestResult {
-        animation_frames_round_trip(PrimitiveMeshFormat::Glb)
-    }
-
-    #[test]
-    fn animation_frames_round_trip_through_gltf() -> TestResult {
-        animation_frames_round_trip(PrimitiveMeshFormat::Gltf)
-    }
-
-    #[test]
     fn animation_frames_without_lengths_are_rejected() -> TestResult {
         let mut primitive = animated_primitive(&[frame(0.0)])?;
         primitive.compressed_animation_vertices_len = None;
-        let Err(WriteError::Io(error)) = write_primitive(primitive, PrimitiveMeshFormat::Obj)
-        else {
+        let Err(WriteError::Io(error)) = write_primitive(primitive) else {
             panic!("frames without lengths should be an io error");
         };
         assert_eq!(error.kind(), io::ErrorKind::NotFound);
@@ -1256,7 +1041,7 @@ mod tests {
 
     #[test]
     fn a_missing_mesh_file_is_reported_with_its_path() -> TestResult {
-        let fs = write_primitive(animated_primitive(&[])?, PrimitiveMeshFormat::Obj)?;
+        let fs = write_primitive(animated_primitive(&[])?)?;
         let mesh_path = table_file("Primitive.Prim1.obj");
         fs.delete_file(&mesh_path);
 
@@ -1271,7 +1056,7 @@ mod tests {
 
     #[test]
     fn a_malformed_mesh_file_is_reported_with_its_path() -> TestResult {
-        let fs = write_primitive(animated_primitive(&[])?, PrimitiveMeshFormat::Obj)?;
+        let fs = write_primitive(animated_primitive(&[])?)?;
         let mesh_path = table_file("Primitive.Prim1.obj");
         // a face that points past the only vertex
         fs.write_file(Path::new(&mesh_path), b"o Bad\nv 0 0 0\nf 1 2 9\n")?;
@@ -1287,10 +1072,7 @@ mod tests {
 
     #[test]
     fn a_malformed_animation_frame_is_reported_with_its_path() -> TestResult {
-        let fs = write_primitive(
-            animated_primitive(&[frame(0.0), frame(1.0)])?,
-            PrimitiveMeshFormat::Obj,
-        )?;
+        let fs = write_primitive(animated_primitive(&[frame(0.0), frame(1.0)])?)?;
         let frame_path = table_file("Primitive.Prim1_anim_1.obj");
         fs.write_file(Path::new(&frame_path), b"o Bad\nv 0 0 0\nf 1 2 9\n")?;
 
