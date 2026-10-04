@@ -77,6 +77,21 @@ let options = ExpandOptions::new().filter(|path: &Path| {
 });
 ```
 
+## VPZ Table Pack
+
+`vpin::vpz` reads and writes the VPZ table pack of Visual Pinball X, a table as JSON documents and assets in
+their native formats, stored as a directory or as a `.vpz` zip archive. The format is still marked preliminary
+upstream, see [VPZ File Format](https://github.com/vpinball/vpinball/blob/master/docs/VPZ%20File%20Format.md).
+
+```rust
+let pack = vpin::vpz::read("table.vpz")?;
+println!("{} parts", pack.parts.len());
+vpin::vpz::write(&pack, "table-folder")?;
+```
+
+The manifest and the asset sidecars are typed; the table and scene documents are ordered JSON properties.
+Conversion from and to `.vpx` is not part of it yet.
+
 ## Whole-Table Export (OBJ / glTF)
 
 The library can export a complete table - generated meshes for every part type, materials, and textures - for use in
