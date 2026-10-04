@@ -61,7 +61,7 @@ cfb = "0.15.0"
 encoding_rs = { version = "0.8.35" }
 md2 = "0.11.0"
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = { version = "1.0.145", features = ["preserve_order"] }
+serde_json = { version = "1.0.145", features = ["preserve_order", "float_roundtrip"] }
 hex = "0.4.3"
 weezl = "0.2.1"
 sanitize-filename = "0.6"

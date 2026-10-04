@@ -44,6 +44,7 @@
 //! # }
 //! ```
 
+mod json;
 mod names;
 mod read;
 mod write;

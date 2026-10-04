@@ -1,6 +1,7 @@
 //! The files of a [`Vpz`]
 
-use super::names::StemPool;
+use super::json;
+use super::names::{StemPool, sanitize_file_name};
 use super::read::{
     COLLECTIONS_DIR, FONTS_DIR, IMAGES_DIR, MANIFEST, MATERIALS_DIR, MESH, MESHES_DIR, NAME,
     NAME_LISTS, PARTS_DIR, RENDER_PROBES_DIR, SCRIPT, SOUNDS_DIR, TABLE, TYPE, VBS_SCRIPT, invalid,
@@ -32,8 +33,8 @@ impl Output {
     }
 
     fn add_json(&mut self, path: String, document: Map<String, Value>) -> io::Result<()> {
-        let data = serde_json::to_vec_pretty(&Value::Object(document))
-            .map_err(|e| invalid(format!("{path}: {e}")))?;
+        let data =
+            json::to_vec(&Value::Object(document)).map_err(|e| invalid(format!("{path}: {e}")))?;
         self.add(path, data)
     }
 }
@@ -46,17 +47,29 @@ fn to_properties<T: Serialize>(what: &str, value: &T) -> io::Result<Map<String, 
     }
 }
 
-/// A document with its `$type` first, then the `name` when the file stem
-/// does not carry it, then the properties
+/// The `name` a document needs, as vpinball reads it: the file stem
+/// gives the name, or for an entity of a `table.json` name list, the list
+/// entry whose sanitized form is the stem. A name neither recovers, from a
+/// sanitized or collision suffixed file name, is written in the document.
+fn written_name<'a>(name: &'a str, stem: &str, listed: bool) -> Option<&'a str> {
+    let recovered = if listed {
+        sanitize_file_name(name) == stem
+    } else {
+        name == stem
+    };
+    (!recovered).then_some(name)
+}
+
+/// A document with its `$type` first, then the `name` if any, then the
+/// properties
 fn document(
     type_name: &str,
-    name: &str,
-    stem: &str,
+    name: Option<&str>,
     properties: &Map<String, Value>,
 ) -> Map<String, Value> {
     let mut document = Map::with_capacity(properties.len() + 2);
     document.insert(TYPE.to_string(), Value::from(type_name));
-    if name != stem {
+    if let Some(name) = name {
         document.insert(NAME.to_string(), Value::from(name));
     }
     for (key, value) in properties {
@@ -94,20 +107,29 @@ pub(super) fn to_files(vpz: &Vpz) -> io::Result<BTreeMap<String, Vec<u8>>> {
         } else {
             properties.shift_remove(VBS_SCRIPT);
         }
-        out.add_json(TABLE.to_string(), document("table", "", "", &properties))?;
+        out.add_json(TABLE.to_string(), document("table", None, &properties))?;
     }
     if let Some(script) = &vpz.script {
         out.add(SCRIPT.to_string(), script.as_bytes().to_vec())?;
     }
 
-    write_named(&mut out, MATERIALS_DIR, "material", &vpz.materials)?;
+    // the name lists of table.json resolve sanitized file names
+    let listed = vpz.table.is_some();
+    write_named(&mut out, MATERIALS_DIR, "material", &vpz.materials, listed)?;
     write_named(
         &mut out,
         RENDER_PROBES_DIR,
         "renderprobe",
         &vpz.render_probes,
+        listed,
     )?;
-    write_named(&mut out, COLLECTIONS_DIR, "collection", &vpz.collections)?;
+    write_named(
+        &mut out,
+        COLLECTIONS_DIR,
+        "collection",
+        &vpz.collections,
+        listed,
+    )?;
 
     let mut part_stems = StemPool::default();
     let mut mesh_stems = StemPool::default();
@@ -123,7 +145,11 @@ pub(super) fn to_files(vpz: &Vpz) -> io::Result<BTreeMap<String, Vec<u8>>> {
         }
         out.add_json(
             format!("{PARTS_DIR}/{stem}.json"),
-            document(part.part_type.as_str(), &part.name, &stem, &properties),
+            document(
+                part.part_type.as_str(),
+                written_name(&part.name, &stem, listed),
+                &properties,
+            ),
         )?;
     }
 
@@ -142,13 +168,18 @@ fn write_named(
     folder: &str,
     type_name: &str,
     entities: &[NamedDocument],
+    listed: bool,
 ) -> io::Result<()> {
     let mut stems = StemPool::default();
     for entity in entities {
         let stem = stems.unique(&entity.name);
         out.add_json(
             format!("{folder}/{stem}.json"),
-            document(type_name, &entity.name, &stem, &entity.properties),
+            document(
+                type_name,
+                written_name(&entity.name, &stem, listed),
+                &entity.properties,
+            ),
         )?;
     }
     Ok(())
@@ -173,7 +204,11 @@ fn write_assets<S: Serialize>(
         out.add(data_path, asset.data.clone())?;
         out.add_json(
             sidecar_path,
-            document(type_name, &asset.name, &stem, &properties),
+            document(
+                type_name,
+                written_name(&asset.name, &stem, false),
+                &properties,
+            ),
         )?;
     }
     Ok(())

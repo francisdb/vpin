@@ -190,11 +190,12 @@ fn files_follow_the_vpinball_layout() -> TestResult {
         text(&files, "parts/Wall.json"),
         "{\n  \"$type\": \"surface\",\n  \"center\": {\n    \"x\": 1.5,\n    \"y\": 2.0\n  },\n  \"visible\": true\n}"
     );
-    // the name is written when the file name does not carry it
+    // a listed name the sanitized file name resolves to is not written, as
+    // in vpinball, a collision suffixed one is
+    assert_eq!(json_file(&files, "parts/a_b.json").get("name"), None);
+    assert_eq!(json_file(&files, "parts/M__lo.json").get("name"), None);
     assert_eq!(json_file(&files, "parts/wall_2.json")["name"], "wall");
-    assert_eq!(json_file(&files, "parts/a_b.json")["name"], "a/b");
     assert_eq!(json_file(&files, "parts/a_b_2.json")["name"], "a_b");
-    assert_eq!(json_file(&files, "parts/M__lo.json")["name"], "Mélo");
     assert_eq!(
         json_file(&files, "materials/metal_2.json")["name"],
         "metal "
@@ -437,5 +438,64 @@ fn a_pack_round_trips_through_a_directory_and_a_file() -> TestResult {
     write(&vpz, &file)?;
     assert!(file.is_file());
     assert_eq!(read(&file)?, vpz);
+    Ok(())
+}
+
+#[test]
+fn a_sanitized_asset_name_is_written_in_its_sidecar() -> TestResult {
+    let vpz = Vpz {
+        images: vec![Asset {
+            name: "light?".to_string(),
+            extension: "png".to_string(),
+            data: vec![1],
+            sidecar: ImageSidecar::default(),
+        }],
+        ..Vpz::default()
+    };
+    let files = to_files(&vpz)?;
+    // no name list covers assets, so the file stem alone would lose it
+    assert_eq!(json_file(&files, "images/light_.json")["name"], "light?");
+    assert_eq!(from_files(files)?.images[0].name, "light?");
+    Ok(())
+}
+
+#[test]
+fn a_sanitized_name_without_a_table_is_written_in_its_document() -> TestResult {
+    let vpz = Vpz {
+        parts: vec![part("a/b", PartType::Light)],
+        ..Vpz::default()
+    };
+    let files = to_files(&vpz)?;
+    assert_eq!(json_file(&files, "parts/a_b.json")["name"], "a/b");
+    assert_eq!(from_files(files)?.parts[0].name, "a/b");
+    Ok(())
+}
+
+/// `testdata/completely_blank_table_10_7_4.vpx` as vpinball master saves
+/// it as a .vpz, with vpx-test
+const VPINBALL_PACK: &[u8] = include_bytes!("../../testdata/vpz/completely_blank_table_10_7_4.vpz");
+
+#[test]
+fn a_vpinball_pack_is_written_back_byte_for_byte() -> TestResult {
+    let mut archive = zip::ZipArchive::new(Cursor::new(VPINBALL_PACK))?;
+    let mut original = BTreeMap::new();
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index)?;
+        let mut data = Vec::new();
+        entry.read_to_end(&mut data)?;
+        original.insert(entry.name().to_string(), data);
+    }
+    let written = to_files(&from_zip_bytes(VPINBALL_PACK)?)?;
+    assert_eq!(
+        written.keys().collect::<Vec<_>>(),
+        original.keys().collect::<Vec<_>>()
+    );
+    for (path, data) in &original {
+        assert!(
+            written[path] == *data,
+            "{path} differs:\n{}",
+            String::from_utf8_lossy(&written[path])
+        );
+    }
     Ok(())
 }
