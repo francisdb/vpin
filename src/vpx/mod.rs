@@ -99,6 +99,8 @@ pub(crate) mod json;
 pub mod export;
 
 pub(crate) mod gltf;
+#[cfg(any(feature = "wasm", test))]
+pub(crate) mod gltf_mesh;
 pub mod lzw;
 pub mod mesh;
 pub(crate) mod obj;

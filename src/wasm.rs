@@ -1175,7 +1175,7 @@ pub fn mesh_to_glb(
 ) -> Result<Vec<u8>, JsError> {
     use crate::vpx::export::gltf_export::GLTF_AXES;
     use crate::vpx::gameitem::primitive::VertexWrapper;
-    use crate::vpx::gltf::{SingleMeshConversion, build_gltf_payload, write_glb_payload};
+    use crate::vpx::gltf_mesh::{SingleMeshConversion, build_gltf_payload, write_glb_payload};
     use crate::vpx::model::Vertex3dNoTex2;
     use crate::vpx::obj::VpxFace;
 
@@ -1686,7 +1686,7 @@ mod tests {
         // winding reversed to (i0, i2, i1), UVs unchanged (no V flip).
         let mut cursor = std::io::Cursor::new(&glb[..]);
         let (name, vertices, faces) =
-            crate::vpx::gltf::read_glb_from_reader(&mut cursor).expect("GLB should parse");
+            crate::vpx::gltf_mesh::read_glb_from_reader(&mut cursor).expect("GLB should parse");
         assert_eq!(name, "tri");
         assert_eq!(vertices.len(), 3);
         let v2 = &vertices[2].vertex;
@@ -1724,7 +1724,7 @@ mod tests {
 
         let mut cursor = std::io::Cursor::new(&glb[..]);
         let (_, vertices, _) =
-            crate::vpx::gltf::read_glb_from_reader(&mut cursor).expect("GLB should parse");
+            crate::vpx::gltf_mesh::read_glb_from_reader(&mut cursor).expect("GLB should parse");
         // vpx (0, 1, 0.5) * 4 -> glTF (0, 2, 4); normals stay unit length.
         let v2 = &vertices[2].vertex;
         assert_eq!((v2.x, v2.y, v2.z), (0.0, 2.0, 4.0));
