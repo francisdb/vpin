@@ -3,16 +3,12 @@
 //! This module provides functions to extract VPX files into a directory structure
 //! with separate JSON and binary files, and reassemble them back into VPX format.
 //!
-//! # Primitive Mesh Formats
+//! # Primitive meshes
 //!
-//! Primitive mesh data can be exported in three formats:
-//! - **OBJ** (default): Text-based Wavefront OBJ format, human-readable
-//! - **GLB**: Binary GLTF format, significantly faster for large meshes
-//! - **GLTF**: JSON + external BIN buffer for tooling-friendly workflows
-//!
-//! Use [`write()`] with [`ExpandOptions`] to specify the format and other
-//! options. All formats are supported for reading, with OBJ checked first
-//! for backward compatibility.
+//! Primitive mesh data is written as Wavefront OBJ, in vpx units, and
+//! round-trips exactly. For glTF/GLB, which mandates a Y-up right-handed
+//! frame in meters, use the whole table exporter in
+//! [`crate::vpx::export::gltf_export`].
 //!
 //! # Writing part of a table
 //!
@@ -36,7 +32,6 @@ pub(crate) mod util;
 
 use crate::filesystem::{FileSystem, MemoryFileSystem, RealFileSystem};
 use crate::vpx::gameitem::primitive::VertexWrapper;
-use crate::vpx::gltf::{GltfContainer, write_gltf};
 use crate::vpx::material::Material;
 use crate::vpx::obj::{VpxFace, write_obj};
 use crate::vpx::{VPX, Version};
@@ -50,20 +45,6 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// Format for exporting primitive mesh data
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub enum PrimitiveMeshFormat {
-    /// Wavefront OBJ format (text-based, human-readable)
-    #[default]
-    Obj,
-    /// Binary GLTF format (GLB) - more efficient for large meshes
-    /// TODO: Consider packing animation frames into a single GLB using GLTF animations
-    /// TODO: Consider adding compression support for GLB files
-    Glb,
-    /// GLTF JSON + external BIN buffer
-    Gltf,
-}
-
 /// Options for expanding VPX files to directory format.
 ///
 /// Use [`ExpandOptions::new`] to create a new instance with default settings,
@@ -72,19 +53,16 @@ pub enum PrimitiveMeshFormat {
 /// # Examples
 ///
 /// ```
-/// use vpin::vpx::expanded::{ExpandOptions, PrimitiveMeshFormat};
+/// use vpin::vpx::expanded::ExpandOptions;
 ///
-/// // Default options (OBJ format, no derived meshes)
+/// // Default options (no derived meshes)
 /// let options = ExpandOptions::new();
 ///
-/// // Custom options with GLB format and derived mesh generation
-/// let options = ExpandOptions::new()
-///     .mesh_format(PrimitiveMeshFormat::Glb)
-///     .generate_derived_meshes(true);
+/// // With derived mesh generation
+/// let options = ExpandOptions::new().generate_derived_meshes(true);
 /// ```
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct ExpandOptions {
-    mesh_format: PrimitiveMeshFormat,
     generate_derived_meshes: bool,
     filter: Option<PathFilter>,
 }
@@ -96,7 +74,6 @@ type PathFilter = Arc<dyn Fn(&Path) -> bool + Send + Sync>;
 impl std::fmt::Debug for ExpandOptions {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ExpandOptions")
-            .field("mesh_format", &self.mesh_format)
             .field("generate_derived_meshes", &self.generate_derived_meshes)
             .field("filter", &self.filter.as_ref().map(|_| "<predicate>"))
             .finish()
@@ -107,18 +84,9 @@ impl ExpandOptions {
     /// Creates a new set of options with default settings.
     ///
     /// Defaults:
-    /// - `mesh_format`: [`PrimitiveMeshFormat::Obj`]
     /// - `generate_derived_meshes`: `false`
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Sets the format for primitive mesh data.
-    ///
-    /// Default: [`PrimitiveMeshFormat::Obj`]
-    pub fn mesh_format(mut self, format: PrimitiveMeshFormat) -> Self {
-        self.mesh_format = format;
-        self
     }
 
     /// Sets whether to generate derived meshes for walls, ramps, and rubbers.
@@ -163,24 +131,9 @@ impl ExpandOptions {
             .is_none_or(|predicate| predicate(relative_path))
     }
 
-    /// Returns the configured mesh format.
-    pub(super) fn get_mesh_format(&self) -> PrimitiveMeshFormat {
-        self.mesh_format
-    }
-
     /// Returns whether derived mesh generation is enabled.
     pub(super) fn should_generate_derived_meshes(&self) -> bool {
         self.generate_derived_meshes
-    }
-}
-
-impl Default for ExpandOptions {
-    fn default() -> Self {
-        Self {
-            mesh_format: PrimitiveMeshFormat::Obj,
-            generate_derived_meshes: false,
-            filter: None,
-        }
     }
 }
 
@@ -302,16 +255,8 @@ impl<'a> Output<'a> {
         let Some(path) = self.prepare(relative)? else {
             return Ok(());
         };
-        let result = match self.options.get_mesh_format() {
-            PrimitiveMeshFormat::Obj => write_obj(name, vertices, indices, &path, self.fs),
-            PrimitiveMeshFormat::Glb => {
-                write_gltf(name, vertices, indices, &path, GltfContainer::Glb, self.fs)
-            }
-            PrimitiveMeshFormat::Gltf => {
-                write_gltf(name, vertices, indices, &path, GltfContainer::Gltf, self.fs)
-            }
-        };
-        result.map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))
+        write_obj(name, vertices, indices, &path, self.fs)
+            .map_err(|e| WriteError::Io(io::Error::other(format!("{e}"))))
     }
 }
 
@@ -645,10 +590,8 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> io::Result<Vec<String>> {
             .unwrap_or_else(|| std::ffi::OsStr::new("expanded")),
     );
 
-    // default options with no derived meshes and OBJ format
-    let options = ExpandOptions::new()
-        .generate_derived_meshes(false)
-        .mesh_format(PrimitiveMeshFormat::Obj);
+    // default options with no derived meshes
+    let options = ExpandOptions::new().generate_derived_meshes(false);
     write_fs(&vpx, &expanded_dir, &options, &fs).map_err(io::Error::other)?;
 
     let mut files = fs.list_files();
@@ -657,22 +600,12 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> io::Result<Vec<String>> {
 }
 
 /// Generate the file name for a generated mesh file
-pub(super) fn generated_mesh_file_name(
-    json_file_name: &str,
-    mesh_format: PrimitiveMeshFormat,
-) -> String {
-    let extension = mesh_file_extension(mesh_format);
-    format!("{json_file_name}-generated.{extension}")
+pub(super) fn generated_mesh_file_name(json_file_name: &str) -> String {
+    format!("{json_file_name}-generated.{MESH_FILE_EXTENSION}")
 }
 
-/// The file extension mesh files get in this format
-pub(super) fn mesh_file_extension(mesh_format: PrimitiveMeshFormat) -> &'static str {
-    match mesh_format {
-        PrimitiveMeshFormat::Obj => "obj",
-        PrimitiveMeshFormat::Glb => "glb",
-        PrimitiveMeshFormat::Gltf => "gltf",
-    }
-}
+/// The file extension mesh files get
+pub(super) const MESH_FILE_EXTENSION: &str = "obj";
 
 #[cfg(test)]
 mod tests {

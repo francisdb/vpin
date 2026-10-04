@@ -46,14 +46,8 @@ Check the [examples folder](/examples)
 
 The library supports extracting VPX files to an expanded directory format for easier editing and version control.
 
-For primitive mesh data, you can choose between three formats:
-
-- **OBJ format** (default) - Text-based Wavefront OBJ, human-readable and widely supported
-- **GLB format** - Binary GLTF, significantly faster I/O for large meshes and animation frames
-- **GLTF format** - JSON + external BIN buffer, for tooling-friendly workflows
-
-Use `expanded::write()` with `ExpandOptions` to specify the format (see the example below). All formats are supported
-for reading, with OBJ checked first for backward compatibility.
+Primitive mesh data is written as Wavefront OBJ. For glTF/GLB, use the whole table exporter in
+`vpin::vpx::export::gltf_export`.
 
 ### Derived Mesh Generation
 
@@ -61,11 +55,9 @@ When extracting VPX files, the library can optionally generate mesh files for ga
 data but are defined by drag points (walls, ramps, rubbers, flashers). Use `ExpandOptions` to enable this:
 
 ```rust
-use vpin::vpx::expanded::{ExpandOptions, PrimitiveMeshFormat};
+use vpin::vpx::expanded::ExpandOptions;
 
-let options = ExpandOptions::new()
-.mesh_format(PrimitiveMeshFormat::Glb)
-.generate_derived_meshes(true);
+let options = ExpandOptions::new().generate_derived_meshes(true);
 ```
 
 ### Writing Part of a Table

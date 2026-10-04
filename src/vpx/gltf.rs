@@ -1,25 +1,16 @@
-//! GLTF (GLB) file reader and writer for primitive mesh data
-//!
-//! This module provides functions to read and write primitive mesh data in the
-//! binary GLTF format (GLB). This format is more efficient than OBJ for large
-//! meshes due to its binary representation.
-//!
-//! The VPX-specific normal bytes (used for NaN handling) are stored in the
-//! mesh primitive extras as a base64-encoded string per vertex.
+//! glTF constants shared by the exporters and a GLB writer for a single
+//! primitive mesh, converted to the glTF frame.
 
 // TODO switch to using gltf crate for reading / writing?
 
-use crate::filesystem::FileSystem;
 use crate::vpx::gameitem::primitive::VertexWrapper;
-use crate::vpx::le::{ReadLe, WriteLe};
+use crate::vpx::le::WriteLe;
 use crate::vpx::obj::VpxFace;
 use serde_json::json;
 use std::error::Error;
-use std::io::{self, Read};
-use std::path::Path;
-use tracing::{info_span, instrument};
-// We have some issues where the data in the vpx file contains NaN values for normals.
-// We store the vpx normals data as extras in the gltf mesh primitive.
+use std::io;
+#[cfg(test)]
+use {crate::vpx::le::ReadLe, std::io::Read};
 
 pub(crate) const GLTF_MAGIC: &[u8; 4] = b"glTF";
 pub(crate) const GLTF_VERSION: u32 = 2;
@@ -41,87 +32,12 @@ pub(crate) const GLTF_FILTER_LINEAR_MIPMAP_LINEAR: u32 = 9987;
 // Sampler wrap modes (from OpenGL ES 2.0)
 pub(crate) const GLTF_WRAP_REPEAT: u32 = 10497;
 
-#[allow(dead_code)]
-type VpxNormalBytes = [u8; 12];
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum GltfContainer {
-    Glb,
-    Gltf,
-}
-
 pub(crate) struct GltfPayload {
     pub(crate) json: serde_json::Value,
     pub(crate) bin_data: Vec<u8>,
 }
 
-/// Writes a GLTF/GLB file from the vertices and indices as they are stored in the
-/// m3cx and m3ci fields of the primitive.
-///
-/// The z axis is inverted compared to the vpx file values.
-#[instrument(skip(vertices, indices, fs, gltf_file_path), fields(path = ?gltf_file_path, vertex_count = vertices.len(), index_count = indices.len(), container = ?container))]
-pub(crate) fn write_gltf(
-    name: &str,
-    vertices: &[VertexWrapper],
-    indices: &[VpxFace],
-    gltf_file_path: &Path,
-    container: GltfContainer,
-    fs: &dyn FileSystem,
-) -> Result<(), Box<dyn Error>> {
-    match container {
-        GltfContainer::Glb => {
-            let payload = build_gltf_payload(
-                name,
-                vertices,
-                indices,
-                None,
-                &SingleMeshConversion::SIDECAR,
-            )?;
-            let mut buffer = Vec::new();
-            write_glb_payload(&payload, &mut buffer)?;
-
-            let _span = info_span!("fs_write", bytes = buffer.len()).entered();
-            fs.write_file(gltf_file_path, &buffer)?;
-        }
-        GltfContainer::Gltf => {
-            let bin_file_name = gltf_file_path
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .map(|stem| format!("{stem}.bin"))
-                .unwrap_or_else(|| "buffer.bin".to_string());
-            let bin_path = gltf_file_path
-                .parent()
-                .unwrap_or_else(|| Path::new(""))
-                .join(&bin_file_name);
-
-            let payload = build_gltf_payload(
-                name,
-                vertices,
-                indices,
-                Some(&bin_file_name),
-                &SingleMeshConversion::SIDECAR,
-            )?;
-            let json_string = serde_json::to_string(&payload.json)?;
-
-            let _span = info_span!("fs_write", bytes = json_string.len()).entered();
-            fs.write_file(gltf_file_path, json_string.as_bytes())?;
-            drop(_span);
-
-            let _span = info_span!("fs_write", bytes = payload.bin_data.len()).entered();
-            fs.write_file(&bin_path, &payload.bin_data)?;
-        }
-    }
-
-    Ok(())
-}
-
 /// How [`build_gltf_payload`] converts the vpx-internal mesh data.
-///
-/// The extract/assemble sidecar path uses [`Self::SIDECAR`]: vertices
-/// are stored verbatim (identity axis map) with the vpx normal bytes
-/// preserved in the primitive extras, so a round trip is lossless. The
-/// wasm `mesh_to_glb` interchange path converts to glTF's mandated
-/// Y-up right-handed frame and skips the extras.
 ///
 /// Winding is derived, not configured: the per-triangle corner order is
 /// reversed exactly when `axes` flips handedness relative to
@@ -131,26 +47,12 @@ pub(crate) struct SingleMeshConversion {
     pub(crate) axes: crate::vpx::units::AxisConvention,
     /// Multiplier applied to positions only (never normals).
     pub(crate) position_scale: f32,
-    /// Store the vpx-encoded normal bytes in the primitive extras
-    /// (the lossless sidecar path).
-    pub(crate) vpx_normal_extras: bool,
-}
-
-impl SingleMeshConversion {
-    /// The lossless extract/assemble sidecar representation: vertices
-    /// verbatim, vpx normal bytes in extras.
-    pub(crate) const SIDECAR: SingleMeshConversion = SingleMeshConversion {
-        axes: crate::vpx::units::AxisConvention::ZUpLeftHanded,
-        position_scale: 1.0,
-        vpx_normal_extras: true,
-    };
 }
 
 pub(crate) fn build_gltf_payload(
     name: &str,
     vertices: &[VertexWrapper],
     indices: &[VpxFace],
-    buffer_uri: Option<&str>,
     conversion: &SingleMeshConversion,
 ) -> Result<GltfPayload, Box<dyn Error>> {
     use crate::vpx::units::AxisConvention;
@@ -197,19 +99,6 @@ pub(crate) fn build_gltf_payload(
     }
     let normals_length = bin_data.len() - normals_offset;
 
-    // Store VPX normal bytes to preserve the exact binary
-    // representation - critical for bit-perfect sidecar round-trips.
-    let vpx_normals: Option<Vec<String>> = conversion.vpx_normal_extras.then(|| {
-        vertices
-            .iter()
-            .map(
-                |VertexWrapper {
-                     vpx_encoded_vertex, ..
-                 }| hex::encode(&vpx_encoded_vertex[12..24]),
-            )
-            .collect()
-    });
-
     // Write texcoords (VEC2 float)
     let texcoords_offset = bin_data.len();
     for VertexWrapper { vertex, .. } in vertices {
@@ -246,16 +135,9 @@ pub(crate) fn build_gltf_payload(
         bin_data.push(0);
     }
 
-    let buffers = if let Some(uri) = buffer_uri {
-        json!([{
-            "byteLength": bin_data.len(),
-            "uri": uri,
-        }])
-    } else {
-        json!([{
-            "byteLength": bin_data.len(),
-        }])
-    };
+    let buffers = json!([{
+        "byteLength": bin_data.len(),
+    }]);
 
     // Create GLTF JSON structure; POSITION bounds are computed over the
     // mapped values actually written to the buffer.
@@ -280,7 +162,7 @@ pub(crate) fn build_gltf_payload(
         },
     );
 
-    let mut gltf_json = json!({
+    let gltf_json = json!({
         "asset": {
             "version": "2.0",
             "generator": "vpin",
@@ -345,14 +227,6 @@ pub(crate) fn build_gltf_payload(
         "buffers": buffers,
     });
 
-    // Appended after construction so it stays the primitive's last key,
-    // as it always was; the interchange path omits it entirely.
-    if let Some(vpx_normals) = vpx_normals {
-        gltf_json["meshes"][0]["primitives"][0]["extras"] = json!({
-            "vpx_normals": vpx_normals,
-        });
-    }
-
     Ok(GltfPayload {
         json: gltf_json,
         bin_data,
@@ -396,62 +270,10 @@ pub(crate) fn write_glb_payload<W: io::Write>(
     Ok(())
 }
 
-#[instrument(skip(fs))]
-pub(crate) fn read_gltf(
-    gltf_path: &Path,
-    container: GltfContainer,
-    fs: &dyn FileSystem,
-) -> io::Result<(Vec<VertexWrapper>, Vec<VpxFace>)> {
-    let (_name, vertices, indices) = match container {
-        GltfContainer::Glb => {
-            let _span = info_span!("fs_read").entered();
-            let glb_data = fs.read_file(gltf_path)?;
-            drop(_span);
-
-            let mut cursor = io::Cursor::new(&glb_data);
-            read_glb_from_reader(&mut cursor)?
-        }
-        GltfContainer::Gltf => {
-            let _span = info_span!("fs_read").entered();
-            let gltf_data = fs.read_file(gltf_path)?;
-            drop(_span);
-
-            let gltf_json: serde_json::Value = serde_json::from_slice(&gltf_data).map_err(|e| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("Invalid GLTF JSON: {}", e),
-                )
-            })?;
-
-            let buffer_uri = gltf_json["buffers"][0]["uri"]
-                .as_str()
-                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Missing buffer uri"))?;
-            if buffer_uri.starts_with("data:") {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "Embedded buffer URIs are not supported",
-                ));
-            }
-
-            let bin_path = gltf_path
-                .parent()
-                .unwrap_or_else(|| Path::new(""))
-                .join(buffer_uri);
-            let _span = info_span!("fs_read").entered();
-            let bin_data = fs.read_file(&bin_path)?;
-            drop(_span);
-
-            parse_gltf_payload(&gltf_json, &bin_data)?
-        }
-    };
-
-    Ok((vertices, indices))
-}
-
+#[cfg(test)]
 /// Reads a GLB file from a reader and returns the name, vertices and indices.
 ///
-/// This function parses the GLB binary format and reconstructs the vertex data
-/// including the VPX-specific normal bytes stored in the extras.
+/// Only the tests use it, to check what the writer produced.
 ///
 /// Returns: `(name, vertices, indices)`
 pub(crate) fn read_glb_from_reader<R: Read>(
@@ -461,6 +283,7 @@ pub(crate) fn read_glb_from_reader<R: Read>(
     parse_gltf_payload(&payload.json, &payload.bin_data)
 }
 
+#[cfg(test)]
 fn read_glb_payload_from_reader<R: Read>(reader: &mut R) -> io::Result<GltfPayload> {
     use crate::vpx::le::ReadLe;
 
@@ -531,10 +354,12 @@ fn read_glb_payload_from_reader<R: Read>(reader: &mut R) -> io::Result<GltfPaylo
     })
 }
 
+#[cfg(test)]
 fn invalid_data(message: String) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
+#[cfg(test)]
 /// Read a non-negative integer field of a glTF JSON object
 fn json_usize(value: &serde_json::Value, what: &str) -> io::Result<usize> {
     value
@@ -543,6 +368,7 @@ fn json_usize(value: &serde_json::Value, what: &str) -> io::Result<usize> {
         .ok_or_else(|| invalid_data(format!("Missing or invalid {what}")))
 }
 
+#[cfg(test)]
 /// Look up an accessor and the buffer view it points to
 fn accessor_and_view<'a>(
     accessors: &'a [serde_json::Value],
@@ -563,6 +389,7 @@ fn accessor_and_view<'a>(
     Ok((accessor, view))
 }
 
+#[cfg(test)]
 /// A bounds-checked window into the binary buffer
 fn bin_slice<'a>(
     bin_data: &'a [u8],
@@ -581,6 +408,7 @@ fn bin_slice<'a>(
         })
 }
 
+#[cfg(test)]
 fn parse_gltf_payload(
     gltf_json: &serde_json::Value,
     bin_data: &[u8],
@@ -601,15 +429,6 @@ fn parse_gltf_payload(
         .as_str()
         .unwrap_or("")
         .to_string();
-
-    // Get VPX normals from extras
-    let vpx_normals = gltf_json["meshes"][0]["primitives"][0]["extras"]["vpx_normals"]
-        .as_array()
-        .map(|arr| {
-            arr.iter()
-                .map(|v| v.as_str().unwrap_or("").to_string())
-                .collect::<Vec<String>>()
-        });
 
     // Read positions (accessor 0)
     let (pos_accessor, pos_view) = accessor_and_view(accessors, buffer_views, 0, "position")?;
@@ -674,15 +493,6 @@ fn parse_gltf_payload(
         byte_cursor.write_f32_le(y)?;
         byte_cursor.write_f32_le(z)?;
 
-        // Restore VPX normal bytes (12-23) from extras
-        if let Some(ref normals) = vpx_normals
-            && i < normals.len()
-            && let Ok(vpx_bytes) = hex::decode(&normals[i])
-            && vpx_bytes.len() == 12
-        {
-            bytes[12..24].copy_from_slice(&vpx_bytes);
-        }
-
         // Write texcoords (24-31)
         let mut byte_cursor = std::io::Cursor::new(&mut bytes[24..32]);
         byte_cursor.write_f32_le(tu)?;
@@ -696,6 +506,7 @@ fn parse_gltf_payload(
     Ok((name, vertices, indices))
 }
 
+#[cfg(test)]
 fn read_glb_indices(
     bin_data: &[u8],
     idx_offset: usize,
@@ -729,301 +540,48 @@ fn read_glb_indices(
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
-    use crate::filesystem::MemoryFileSystem;
     use crate::vpx::model::Vertex3dNoTex2;
-    use crate::vpx::obj::{VpxFace, read_obj_from_reader, write_obj_to_writer};
+    use crate::vpx::units::AxisConvention;
     use pretty_assertions::assert_eq;
-    use std::path::PathBuf;
     use testresult::TestResult;
 
     #[test]
-    fn test_write_read_glb() -> TestResult {
-        let fs = MemoryFileSystem::new();
-        let path = PathBuf::from("/test.glb");
-
-        // Create simple test data
+    fn single_mesh_glb_is_in_the_gltf_frame() -> TestResult {
+        let vertex = |x: f32, y: f32, z: f32| {
+            let v = Vertex3dNoTex2 {
+                x,
+                y,
+                z,
+                nx: 0.0,
+                ny: 0.0,
+                nz: 1.0,
+                tu: 0.0,
+                tv: 0.0,
+            };
+            VertexWrapper::new(v.as_vpx_bytes(), v)
+        };
         let vertices = [
-            Vertex3dNoTex2 {
-                x: 0.0,
-                y: 0.0,
-                z: 0.0,
-                nx: 0.0,
-                ny: 1.0,
-                nz: 0.0,
-                tu: 0.0,
-                tv: 0.0,
-            },
-            Vertex3dNoTex2 {
-                x: 1.0,
-                y: 0.0,
-                z: 0.0,
-                nx: 0.0,
-                ny: 1.0,
-                nz: 0.0,
-                tu: 1.0,
-                tv: 0.0,
-            },
-            Vertex3dNoTex2 {
-                x: 0.0,
-                y: 1.0,
-                z: 0.0,
-                nx: 0.0,
-                ny: 1.0,
-                nz: 0.0,
-                tu: 0.0,
-                tv: 1.0,
-            },
+            vertex(0.0, 0.0, 0.5),
+            vertex(1.0, 0.0, 0.5),
+            vertex(0.0, 1.0, 0.5),
         ];
-        let indices = vec![VpxFace::new(0, 1, 2)];
-        let vertices_with_encoded = vertices
-            .iter()
-            .map(|v| VertexWrapper::new(v.as_vpx_bytes(), v.clone()))
-            .collect::<Vec<VertexWrapper>>();
-        // Write GLB
-        write_gltf(
-            "TestMesh",
-            &vertices_with_encoded,
-            &indices,
-            &path,
-            GltfContainer::Glb,
-            &fs,
-        )?;
-
-        // Read it back
-        let (read_vertices, read_indices) = read_gltf(&path, GltfContainer::Glb, &fs)?;
-
-        assert_eq!(vertices_with_encoded, read_vertices);
-        assert_eq!(indices, read_indices);
-        Ok(())
-    }
-
-    #[test]
-    fn test_glb_with_nan_normals() -> TestResult {
-        let fs = MemoryFileSystem::new();
-        let path = PathBuf::from("/test_nan.glb");
-
-        // Create test data with NaN normals
-        let mut bytes = [0u8; 32];
-        // Put some identifiable data in the normal bytes section
-        bytes[12..24].copy_from_slice(&[
-            0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
-        ]);
-
-        let vertices = vec![VertexWrapper::new(
-            bytes,
-            Vertex3dNoTex2 {
-                x: 0.0,
-                y: 0.0,
-                z: 0.0,
-                nx: f32::NAN,
-                ny: f32::NAN,
-                nz: f32::NAN,
-                tu: 0.0,
-                tv: 0.0,
-            },
-        )];
-        let indices = vec![VpxFace::new(0, 0, 0)];
-
-        // Write and read back
-        write_gltf(
-            "TestNaN",
-            &vertices,
-            &indices,
-            &path,
-            GltfContainer::Glb,
-            &fs,
-        )?;
-        let (read_vertices, _) = read_gltf(&path, GltfContainer::Glb, &fs)?;
-
-        assert_eq!(read_vertices.len(), 1);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_obj_glb_obj_round_trip() -> TestResult {
-        use std::io::Cursor;
-
-        const VPIN_SCREW2_OBJ_BYTES: &[u8] = include_bytes!("../../testdata/vpin_screw2.obj");
-
-        // Step 1: Read the original OBJ
-        let mut reader = Cursor::new(VPIN_SCREW2_OBJ_BYTES);
-        let read_result = read_obj_from_reader(&mut reader)?;
-
-        // TODO optimize: we don't need to convert to vpx_vertices and back for this test
-
-        let chunked_vertices = read_result
-            .vpx_encoded_vertices
-            .chunks(32)
-            .map(|chunk| {
-                let mut array = [0u8; 32];
-                array.copy_from_slice(chunk);
-                array
-            })
-            .collect::<Vec<[u8; 32]>>();
-        let vertices = chunked_vertices
-            .iter()
-            .zip(read_result.final_vertices.iter())
-            .map(|(b, v)| VertexWrapper::new(*b, v.clone()))
-            .collect::<Vec<VertexWrapper>>();
-
-        let fs = MemoryFileSystem::new();
-        let glb_path = PathBuf::from("/roundtrip.glb");
-
-        // Step 2: Write to GLB
-        let name = &read_result.name;
-        let indices = &read_result.indices;
-        write_gltf(name, &vertices, indices, &glb_path, GltfContainer::Glb, &fs)?;
-
-        // Step 3: Read back from GLB
-        let glb_data = fs.read_file(&glb_path)?;
-        let mut glb_cursor = Cursor::new(&glb_data);
-        let (glb_name, glb_vertices, glb_indices) = read_glb_from_reader(&mut glb_cursor)?;
-
-        // Verify the name was preserved
-        assert_eq!(
-            read_result.name, glb_name,
-            "Mesh name should be preserved in GLB round-trip"
-        );
-
-        // Step 4: Write OBJ from GLB data
-        let mut screw_obj_bytes_after_roundtrip = Vec::new();
-        write_obj_to_writer(
-            &read_result.name,
-            &glb_vertices,
-            &glb_indices,
-            &mut screw_obj_bytes_after_roundtrip,
-        )?;
-
-        // Step 5: Compare original OBJ with OBJ written from GLB
-        let original_string = String::from_utf8(VPIN_SCREW2_OBJ_BYTES.to_vec())?;
-        // When on Windows the original file will be checked out from git with \r\n line endings.
-        let original = if cfg!(windows) {
-            original_string.replace("\r\n", "\n")
-        } else {
-            original_string.to_string()
+        let conversion = SingleMeshConversion {
+            axes: AxisConvention::YUpRightHanded,
+            position_scale: 2.0,
         };
-        let after_roundtrip = String::from_utf8(screw_obj_bytes_after_roundtrip)?;
+        let payload = build_gltf_payload("tri", &vertices, &[VpxFace::new(0, 1, 2)], &conversion)?;
+        let mut glb = Vec::new();
+        write_glb_payload(&payload, &mut glb)?;
 
-        assert_eq!(original, after_roundtrip);
-
+        let (name, vertices, faces) = read_glb_from_reader(&mut io::Cursor::new(&glb))?;
+        assert_eq!(name, "tri");
+        // vpx (0, 1, 0.5) * 2 -> glTF (0, 1, 2), normals unscaled, winding reversed
+        let v2 = &vertices[2].vertex;
+        assert_eq!((v2.x, v2.y, v2.z), (0.0, 1.0, 2.0));
+        assert_eq!((v2.nx, v2.ny, v2.nz), (0.0, 1.0, 0.0));
+        assert_eq!(faces, vec![VpxFace::new(0, 2, 1)]);
         Ok(())
-    }
-
-    #[test]
-    fn test_write_read_gltf() -> TestResult {
-        let fs = MemoryFileSystem::new();
-        let path = PathBuf::from("/test.gltf");
-
-        let vertices = [Vertex3dNoTex2 {
-            x: 0.25,
-            y: 0.5,
-            z: 0.75,
-            nx: 0.0,
-            ny: 1.0,
-            nz: 0.0,
-            tu: 0.1,
-            tv: 0.2,
-        }];
-        let indices = vec![VpxFace::new(0, 0, 0)];
-        let vertices_with_encoded = vertices
-            .iter()
-            .map(|v| VertexWrapper::new(v.as_vpx_bytes(), v.clone()))
-            .collect::<Vec<VertexWrapper>>();
-
-        write_gltf(
-            "TestMesh",
-            &vertices_with_encoded,
-            &indices,
-            &path,
-            GltfContainer::Gltf,
-            &fs,
-        )?;
-
-        let (read_vertices, read_indices) = read_gltf(&path, GltfContainer::Gltf, &fs)?;
-
-        assert_eq!(vertices_with_encoded, read_vertices);
-        assert_eq!(indices, read_indices);
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-mod corrupt_input_tests {
-    use super::*;
-    use crate::vpx::model::Vertex3dNoTex2;
-    use crate::vpx::obj::VpxFace;
-
-    fn payload() -> GltfPayload {
-        let vertex = Vertex3dNoTex2 {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0,
-            nx: 0.0,
-            ny: 1.0,
-            nz: 0.0,
-            tu: 0.0,
-            tv: 0.0,
-        };
-        let vertices: Vec<VertexWrapper> = (0..3)
-            .map(|_| VertexWrapper::new(vertex.as_vpx_bytes(), vertex.clone()))
-            .collect();
-        build_gltf_payload(
-            "mesh",
-            &vertices,
-            &[VpxFace::new(0, 1, 2)],
-            None,
-            &SingleMeshConversion::SIDECAR,
-        )
-        .unwrap()
-    }
-
-    fn expect_invalid(json: serde_json::Value, bin: &[u8], what: &str) {
-        match parse_gltf_payload(&json, bin) {
-            Ok(_) => panic!("{what}: expected an error"),
-            Err(e) => assert_eq!(e.kind(), io::ErrorKind::InvalidData, "{what}: {e}"),
-        }
-    }
-
-    #[test]
-    fn valid_payload_parses() {
-        let p = payload();
-        let (name, vertices, faces) = parse_gltf_payload(&p.json, &p.bin_data).unwrap();
-        assert_eq!(name, "mesh");
-        assert_eq!(vertices.len(), 3);
-        assert_eq!(faces.len(), 1);
-    }
-
-    #[test]
-    fn broken_payloads_fail_without_panicking() {
-        let p = payload();
-
-        let mut json = p.json.clone();
-        json["accessors"][0]["bufferView"] = serde_json::Value::Null;
-        expect_invalid(json, &p.bin_data, "missing bufferView");
-
-        let mut json = p.json.clone();
-        json["accessors"][1]["bufferView"] = serde_json::json!(42);
-        expect_invalid(json, &p.bin_data, "bufferView out of range");
-
-        let mut json = p.json.clone();
-        json["accessors"] = serde_json::json!([]);
-        expect_invalid(json, &p.bin_data, "no accessors");
-
-        let mut json = p.json.clone();
-        json["accessors"][0]["count"] = serde_json::json!(1_000_000);
-        expect_invalid(json, &p.bin_data, "count beyond buffer");
-
-        let mut json = p.json.clone();
-        json["bufferViews"][3]["byteOffset"] = serde_json::json!(u64::MAX);
-        expect_invalid(json, &p.bin_data, "index offset overflow");
-
-        let mut json = p.json.clone();
-        json["accessors"][3]["count"] = serde_json::json!(-3);
-        expect_invalid(json, &p.bin_data, "negative count");
-
-        expect_invalid(p.json.clone(), &p.bin_data[..10], "truncated buffer");
     }
 }

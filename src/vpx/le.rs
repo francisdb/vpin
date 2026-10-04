@@ -4,6 +4,7 @@ use std::io::{self, Read, Write};
 
 /// Read little-endian values from a `Read` stream
 pub(crate) trait ReadLe: Read {
+    #[cfg(test)]
     fn read_u16_le(&mut self) -> io::Result<u16> {
         let mut buf = [0; 2];
         self.read_exact(&mut buf)?;
@@ -16,6 +17,7 @@ pub(crate) trait ReadLe: Read {
         Ok(u32::from_le_bytes(buf))
     }
 
+    #[cfg(test)]
     fn read_f32_le(&mut self) -> io::Result<f32> {
         let mut buf = [0; 4];
         self.read_exact(&mut buf)?;

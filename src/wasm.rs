@@ -4,7 +4,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::filesystem::{FileSystem, MemoryFileSystem};
 use crate::vpx;
-use crate::vpx::expanded::{ExpandOptions, PrimitiveMeshFormat, read_fs, write_fs};
+use crate::vpx::expanded::{ExpandOptions, read_fs, write_fs};
 use crate::vpx::export::item_filter::ItemFilter;
 use crate::vpx::units::AxisConvention;
 
@@ -127,9 +127,7 @@ pub fn extract(data: &[u8], callback: Option<ProgressCallback>) -> Result<VpxFil
         vpx_data.gameitems.len()
     ));
 
-    let expand_options = ExpandOptions::new()
-        .mesh_format(PrimitiveMeshFormat::Obj)
-        .generate_derived_meshes(false);
+    let expand_options = ExpandOptions::new().generate_derived_meshes(false);
     write_fs(&vpx_data, &root_dir, &expand_options, &fs).map_err(|e| {
         set_progress_callback(None);
         JsError::new(&format!("Failed to extract VPX: {}", e))
@@ -1221,9 +1219,8 @@ pub fn mesh_to_glb(
     let conversion = SingleMeshConversion {
         axes: GLTF_AXES,
         position_scale: unit_scale,
-        vpx_normal_extras: false,
     };
-    let payload = build_gltf_payload(object_name, &vertices, &faces, None, &conversion)
+    let payload = build_gltf_payload(object_name, &vertices, &faces, &conversion)
         .map_err(|e| JsError::new(&format!("GLB build failed: {e}")))?;
     let mut buffer = Vec::new();
     write_glb_payload(&payload, &mut buffer)
