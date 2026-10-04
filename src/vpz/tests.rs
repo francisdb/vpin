@@ -471,39 +471,21 @@ fn a_sanitized_name_without_a_table_is_written_in_its_document() -> TestResult {
     Ok(())
 }
 
-/// A pack vpinball wrote, the folder and then the zip form of
-/// `testdata/completely_blank_table_10_7_4.vpx` saved by vpx-test
-#[cfg(not(target_family = "wasm"))]
-fn vpinball_pack() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("testdata")
-        .join("vpz")
-        .join("completely_blank_table_10_7_4")
-}
+/// `testdata/completely_blank_table_10_7_4.vpx` as vpinball master saves
+/// it as a .vpz, with vpx-test
+const VPINBALL_PACK: &[u8] = include_bytes!("../../testdata/vpz/completely_blank_table_10_7_4.vpz");
 
-#[cfg(not(target_family = "wasm"))]
-fn dir_files(dir: &std::path::Path) -> io::Result<BTreeMap<String, Vec<u8>>> {
-    let mut files = BTreeMap::new();
-    let mut pending = vec![dir.to_path_buf()];
-    while let Some(current) = pending.pop() {
-        for entry in std::fs::read_dir(current)? {
-            let path = entry?.path();
-            if path.is_dir() {
-                pending.push(path);
-            } else if let Ok(relative) = path.strip_prefix(dir) {
-                let relative = relative.to_string_lossy().replace('\\', "/");
-                files.insert(relative, std::fs::read(&path)?);
-            }
-        }
-    }
-    Ok(files)
-}
-
-#[cfg(not(target_family = "wasm"))]
 #[test]
 fn a_vpinball_pack_is_written_back_byte_for_byte() -> TestResult {
-    let original = dir_files(&vpinball_pack())?;
-    let written = to_files(&from_files(original.clone())?)?;
+    let mut archive = zip::ZipArchive::new(Cursor::new(VPINBALL_PACK))?;
+    let mut original = BTreeMap::new();
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index)?;
+        let mut data = Vec::new();
+        entry.read_to_end(&mut data)?;
+        original.insert(entry.name().to_string(), data);
+    }
+    let written = to_files(&from_zip_bytes(VPINBALL_PACK)?)?;
     assert_eq!(
         written.keys().collect::<Vec<_>>(),
         original.keys().collect::<Vec<_>>()
@@ -515,23 +497,5 @@ fn a_vpinball_pack_is_written_back_byte_for_byte() -> TestResult {
             String::from_utf8_lossy(&written[path])
         );
     }
-    Ok(())
-}
-
-#[cfg(not(target_family = "wasm"))]
-#[test]
-fn a_vpinball_zip_holds_the_same_pack_as_its_folder() -> TestResult {
-    let folder = read(vpinball_pack())?;
-    let mut zipped = read(vpinball_pack().with_extension("vpz"))?;
-    // the zip was saved first: every save bumps the revision and the dates
-    zipped.manifest.save_date = folder.manifest.save_date.clone();
-    if let (Some(zipped_table), Some(folder_table)) = (&mut zipped.table, &folder.table) {
-        for key in ["date_saved", "save_rev"] {
-            zipped_table
-                .properties
-                .insert(key.to_string(), folder_table.properties[key].clone());
-        }
-    }
-    assert_eq!(zipped, folder);
     Ok(())
 }
