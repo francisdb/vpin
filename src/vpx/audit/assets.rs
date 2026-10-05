@@ -174,14 +174,15 @@ pub(super) fn check_stereo_sounds(vpx: &VPX, findings: &mut Vec<Kind>) {
 }
 
 /// Sounds stored as a file whose content is not what the name says or
-/// that vpinball's decoder cannot identify. A `.wav` name is left alone:
-/// vpinball stores those as a header plus samples and rebuilds the file
+/// that vpinball's decoder cannot identify, and sounds whose path has no
+/// extension. A `.wav` name is left alone: vpinball stores those as a
+/// header plus samples and rebuilds the file
 pub(super) fn check_sound_storage(vpx: &VPX, findings: &mut Vec<Kind>) {
     for sound in &vpx.sounds {
         let Some(extension) = sound.extension() else {
-            findings.push(Kind::SoundFormatUnknown {
+            findings.push(Kind::SoundWithoutExtension {
                 sound: sound.name.clone(),
-                extension: String::new(),
+                backglass_marker: sound.path.eq_ignore_ascii_case("* Backglass Output *"),
             });
             continue;
         };
@@ -1415,7 +1416,9 @@ mod tests {
             .filter(|finding| {
                 matches!(
                     finding,
-                    Kind::SoundExtensionMismatch { .. } | Kind::SoundFormatUnknown { .. }
+                    Kind::SoundExtensionMismatch { .. }
+                        | Kind::SoundFormatUnknown { .. }
+                        | Kind::SoundWithoutExtension { .. }
                 )
             })
             .collect()
@@ -1480,39 +1483,64 @@ mod tests {
     #[test]
     fn a_sound_the_decoder_cannot_identify_is_an_error() {
         let mut vpx = clean_vpx();
-        // bytes without signature under an mp3 name, and a path with no
-        // extension at all, which vpinball also hands to the decoder as is
         vpx.sounds
             .push(stored_sound("noise", "noise.mp3", b"AAAAAAAA".to_vec()));
-        vpx.sounds.push(stored_sound(
-            "bell",
-            "* Backglass Output *",
-            b"RIFF\x24\0\0\0WAVEfmt ".to_vec(),
-        ));
 
         let findings = sound_storage_findings(&vpx);
 
         assert_eq!(
             findings,
-            vec![
-                Kind::SoundFormatUnknown {
-                    sound: "noise".to_string(),
-                    extension: "mp3".to_string(),
-                },
-                Kind::SoundFormatUnknown {
-                    sound: "bell".to_string(),
-                    extension: String::new(),
-                },
-            ]
+            vec![Kind::SoundFormatUnknown {
+                sound: "noise".to_string(),
+                extension: "mp3".to_string(),
+            }]
         );
         assert_eq!(findings[0].severity(), Severity::Error);
         assert_eq!(
             findings[0].to_string(),
             "sound \"noise\" has no known audio signature and its .mp3 name is no help; vpinball's decoder cannot identify it, so the sound never plays"
         );
+    }
+
+    #[test]
+    fn a_sound_path_without_extension_is_a_warning() {
+        let mut vpx = clean_vpx();
+        // the marker VP 9.2.1 wrote for the backglass speakers, in any
+        // case, and a plain path without extension
+        vpx.sounds
+            .push(stored_sound("bell", "* Backglass Output *", vec![0; 8]));
+        vpx.sounds
+            .push(stored_sound("chime", "* backglass output *", vec![0; 8]));
+        vpx.sounds
+            .push(stored_sound("knock", "C:\\sounds\\knock", vec![0; 8]));
+
+        let findings = sound_storage_findings(&vpx);
+
         assert_eq!(
-            findings[1].to_string(),
-            "sound \"bell\" has a path without extension; vpinball hands the stored bytes to its decoder as a file, which cannot identify them, so the sound never plays"
+            findings,
+            vec![
+                Kind::SoundWithoutExtension {
+                    sound: "bell".to_string(),
+                    backglass_marker: true,
+                },
+                Kind::SoundWithoutExtension {
+                    sound: "chime".to_string(),
+                    backglass_marker: true,
+                },
+                Kind::SoundWithoutExtension {
+                    sound: "knock".to_string(),
+                    backglass_marker: false,
+                },
+            ]
+        );
+        assert_eq!(findings[0].severity(), Severity::Warning);
+        assert_eq!(
+            findings[0].to_string(),
+            "sound \"bell\" has the path \"* Backglass Output *\", the VP 9 marker for the backglass speakers; vpinball 10.8.0 plays it as a wav, the 10.8.1 pre-releases only read a .wav name as a wav, so it fails to load or never plays"
+        );
+        assert_eq!(
+            findings[2].to_string(),
+            "sound \"knock\" has a path without extension; vpinball 10.8.0 plays it as a wav, the 10.8.1 pre-releases only read a .wav name as a wav, so it fails to load or never plays"
         );
     }
 }

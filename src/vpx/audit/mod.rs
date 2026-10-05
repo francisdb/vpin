@@ -476,17 +476,31 @@ pub(crate) enum Kind {
         format: &'static str,
     },
     /// A sound stored as a file whose content has no signature of any
-    /// format vpinball's decoder reads, or whose path has no extension at
-    /// all. vpinball treats everything but a `.wav` name as a file for the
-    /// decoder to identify, and a file it cannot identify never plays. A
-    /// path without extension is stored the way a wav is, which the
-    /// decoder does not recognise either
+    /// format vpinball's decoder reads. vpinball treats everything but a
+    /// `.wav` name as a file for the decoder to identify, and a file it
+    /// cannot identify never plays
     SoundFormatUnknown {
         /// Name of the sound
         sound: String,
-        /// The extension of the stored file name, as written; empty when
-        /// the path has none
+        /// The extension of the stored file name, as written
         extension: String,
+    },
+    /// A sound whose path has no extension, stored the way a wav is.
+    /// vpinball 10.8.0 and older read such a path as a wav. The 10.8.1
+    /// pre-releases, since v10.8.1-3788 (August 2025), read only a `.wav`
+    /// name as one and take the stored wav for a plain file, so the sound
+    /// fails to load or never plays.
+    ///
+    /// The usual case is the path `* Backglass Output *`: VP 9.2.1 added a
+    /// "To BG Out" button to the sound manager that sent a sound to the
+    /// backglass speakers by replacing its path with this marker. VPX
+    /// 10.4.0 replaced the marker with the output target setting, but
+    /// vpinball still honors it on load
+    SoundWithoutExtension {
+        /// Name of the sound
+        sound: String,
+        /// Whether the path is the `* Backglass Output *` marker
+        backglass_marker: bool,
     },
     /// The embedded screenshot is large; it bloats the file and every save
     /// spends noticeable time hashing it into the integrity signature, and
@@ -653,6 +667,7 @@ impl Kind {
             }
             Kind::ImageFormatUnknown { .. } | Kind::SoundFormatUnknown { .. } => Severity::Error,
             Kind::SoundExtensionMismatch { .. } => Severity::Info,
+            Kind::SoundWithoutExtension { .. } => Severity::Warning,
             Kind::UnreadableImage { error: None, .. } => Severity::Suggestion,
             Kind::NegativeLightIntensity { .. }
             | Kind::StereoTableSound { .. }
@@ -995,13 +1010,20 @@ impl fmt::Display for Kind {
                 f,
                 "sound {sound:?} is a {format} file stored under a .{extension} name; vpinball's decoder reads the content, a tool trusting the name gets the format wrong"
             ),
-            Kind::SoundFormatUnknown { sound, extension } if extension.is_empty() => write!(
-                f,
-                "sound {sound:?} has a path without extension; vpinball hands the stored bytes to its decoder as a file, which cannot identify them, so the sound never plays"
-            ),
             Kind::SoundFormatUnknown { sound, extension } => write!(
                 f,
                 "sound {sound:?} has no known audio signature and its .{extension} name is no help; vpinball's decoder cannot identify it, so the sound never plays"
+            ),
+            Kind::SoundWithoutExtension {
+                sound,
+                backglass_marker: true,
+            } => write!(
+                f,
+                "sound {sound:?} has the path \"* Backglass Output *\", the VP 9 marker for the backglass speakers; vpinball 10.8.0 plays it as a wav, the 10.8.1 pre-releases only read a .wav name as a wav, so it fails to load or never plays"
+            ),
+            Kind::SoundWithoutExtension { sound, .. } => write!(
+                f,
+                "sound {sound:?} has a path without extension; vpinball 10.8.0 plays it as a wav, the 10.8.1 pre-releases only read a .wav name as a wav, so it fails to load or never plays"
             ),
             Kind::LargeScreenshot {
                 bytes,
@@ -1150,6 +1172,7 @@ impl Kind {
             Kind::StereoTableSound { .. } => "stereo-table-sound",
             Kind::SoundExtensionMismatch { .. } => "sound-extension-mismatch",
             Kind::SoundFormatUnknown { .. } => "sound-format-unknown",
+            Kind::SoundWithoutExtension { .. } => "sound-without-extension",
             Kind::LargeScreenshot { .. } => "large-screenshot",
             Kind::PngScreenshot { .. } => "png-screenshot",
             Kind::ScriptParseError { .. } => "script-parse-error",
