@@ -700,13 +700,19 @@ fn pack_info_reads_only_what_describes_the_pack() -> TestResult {
     assert_eq!(table_info.author_name, None);
     assert_eq!(table_info.table_save_rev.as_deref(), Some("12"));
     assert!(from_zip.script.as_deref().is_some_and(|s| !s.is_empty()));
-
-    let dir = testdir::testdir!().join("pack");
-    write_dir(&full, &dir)?;
-    assert_eq!(read_info(&dir)?, expected);
     Ok(())
 }
 
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn pack_info_of_a_folder_is_that_of_the_zip() -> TestResult {
+    let dir = testdir::testdir!().join("pack");
+    write_dir(&from_zip_bytes(VPINBALL_PACK)?, &dir)?;
+    assert_eq!(read_info(&dir)?, read_zip_info(Cursor::new(VPINBALL_PACK))?);
+    Ok(())
+}
+
+#[cfg(not(target_family = "wasm"))]
 #[test]
 fn pack_info_of_a_folder_without_manifest_fails() {
     let dir = testdir::testdir!();
