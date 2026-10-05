@@ -90,7 +90,17 @@ vpin::vpz::write(&pack, "table-folder")?;
 ```
 
 The manifest and the asset sidecars are typed; the table and scene documents are ordered JSON properties.
-Conversion from and to `.vpx` is not part of it yet.
+
+`vpin::vpz::from_vpx` gives the pack vpinball saves from a table, byte for byte for a table vpinball last saved
+itself. vpinball upgrades older tables on load (defaults of newer fields, legacy fields converted, invalid references
+cleared) before saving them; the conversion keeps the fields of the file. Conversion from a pack back to a `.vpx` is
+not part of it yet.
+
+```rust
+let vpx = vpin::vpx::read(std::path::Path::new("table.vpx"))?;
+let pack = vpin::vpz::from_vpx(&vpx, "Mon Oct  5 12:00:00 2026")?;
+vpin::vpz::write(&pack, "table.vpz")?;
+```
 
 ## Whole-Table Export (OBJ / glTF)
 

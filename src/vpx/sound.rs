@@ -606,7 +606,7 @@ fn str_path_ext(path: &str) -> Option<&str> {
 
 /// Check if the path is a wav file.
 /// If the path does not have an extension, it is also considered a wav file!
-fn is_wav(path: &str) -> bool {
+pub(crate) fn is_wav(path: &str) -> bool {
     match str_path_ext(path) {
         Some(ext) => ext.eq_ignore_ascii_case("wav"),
         None => true,

@@ -355,7 +355,11 @@ impl ImageData {
 
 /// Encodes for a format, converting the pixel layout to one the encoder
 /// takes: jpeg has no alpha, webp is 8 bit, hdr and exr are float
-fn encode(image: &DynamicImage, format: ImageFormat, jpeg_quality: u8) -> io::Result<Vec<u8>> {
+pub(crate) fn encode(
+    image: &DynamicImage,
+    format: ImageFormat,
+    jpeg_quality: u8,
+) -> io::Result<Vec<u8>> {
     let mut data = Vec::new();
     let mut cursor = io::Cursor::new(&mut data);
     let result = match format {

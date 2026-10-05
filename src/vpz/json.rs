@@ -18,6 +18,26 @@ pub(super) fn to_vec<T: Serialize>(value: &T) -> serde_json::Result<Vec<u8>> {
     Ok(out)
 }
 
+/// The document as compact `dump()` text
+pub(super) fn to_compact_vec<T: Serialize>(value: &T) -> serde_json::Result<Vec<u8>> {
+    let mut out = Vec::new();
+    let mut serializer = Serializer::with_formatter(&mut out, NlohmannCompactFormatter);
+    value.serialize(&mut serializer)?;
+    Ok(out)
+}
+
+struct NlohmannCompactFormatter;
+
+impl Formatter for NlohmannCompactFormatter {
+    fn write_f32<W: ?Sized + io::Write>(&mut self, writer: &mut W, value: f32) -> io::Result<()> {
+        writer.write_all(format_f64(f64::from(value)).as_bytes())
+    }
+
+    fn write_f64<W: ?Sized + io::Write>(&mut self, writer: &mut W, value: f64) -> io::Result<()> {
+        writer.write_all(format_f64(value).as_bytes())
+    }
+}
+
 #[derive(Default)]
 struct NlohmannFormatter {
     pretty: PrettyFormatter<'static>,
@@ -81,16 +101,19 @@ impl Formatter for NlohmannFormatter {
 /// for decimal exponents in `[-4, 15)` with `.0` for whole numbers, else
 /// `d.ddde+XX`. serde_json writes non-finite values as `null` before a
 /// formatter sees them.
+///
+/// Negative zero prints as `0.0`: vpinball is built with `-ffast-math`,
+/// under which nlohmann loses the sign of zero (checked for the Linux
+/// build, the Windows build uses MSVC's `/fp:fast`).
 pub(super) fn format_f64(value: f64) -> String {
+    if value == 0.0 {
+        return "0.0".to_string();
+    }
     let mut out = String::with_capacity(24);
     if value.is_sign_negative() {
         out.push('-');
     }
     let value = value.abs();
-    if value == 0.0 {
-        out.push_str("0.0");
-        return out;
-    }
     let (digits, decimal_exponent) = grisu2(value);
     format_buffer(&mut out, &digits, decimal_exponent, -4, 15);
     out
@@ -427,7 +450,7 @@ mod tests {
         // unit-to_chars.cpp) and values seen in vpinball packs
         for (value, expected) in [
             (0.0, "0.0"),
-            (-0.0, "-0.0"),
+            (-0.0, "0.0"),
             (1.0, "1.0"),
             (100.0, "100.0"),
             (0.5, "0.5"),

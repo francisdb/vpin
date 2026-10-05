@@ -471,31 +471,86 @@ fn a_sanitized_name_without_a_table_is_written_in_its_document() -> TestResult {
     Ok(())
 }
 
-/// `testdata/completely_blank_table_10_7_4.vpx` as vpinball master saves
-/// it as a .vpz, with vpx-test
+/// `testdata/completely_blank_table_10_7_4.vpx` loaded and saved by
+/// vpinball master with vpx-test, as a .vpx and right after as a .vpz
+const VPINBALL_VPX: &[u8] = include_bytes!("../../testdata/vpz/completely_blank_table_10_7_4.vpx");
 const VPINBALL_PACK: &[u8] = include_bytes!("../../testdata/vpz/completely_blank_table_10_7_4.vpz");
 
-#[test]
-fn a_vpinball_pack_is_written_back_byte_for_byte() -> TestResult {
-    let mut archive = zip::ZipArchive::new(Cursor::new(VPINBALL_PACK))?;
-    let mut original = BTreeMap::new();
+fn zip_entries(bytes: &[u8]) -> io::Result<BTreeMap<String, Vec<u8>>> {
+    let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).map_err(io::Error::other)?;
+    let mut entries = BTreeMap::new();
     for index in 0..archive.len() {
-        let mut entry = archive.by_index(index)?;
+        let mut entry = archive.by_index(index).map_err(io::Error::other)?;
         let mut data = Vec::new();
         entry.read_to_end(&mut data)?;
-        original.insert(entry.name().to_string(), data);
+        entries.insert(entry.name().to_string(), data);
     }
-    let written = to_files(&from_zip_bytes(VPINBALL_PACK)?)?;
+    Ok(entries)
+}
+
+fn assert_same_files(written: &BTreeMap<String, Vec<u8>>, original: &BTreeMap<String, Vec<u8>>) {
     assert_eq!(
         written.keys().collect::<Vec<_>>(),
         original.keys().collect::<Vec<_>>()
     );
-    for (path, data) in &original {
+    for (path, data) in original {
         assert!(
             written[path] == *data,
             "{path} differs:\n{}",
             String::from_utf8_lossy(&written[path])
         );
     }
+}
+
+#[test]
+fn a_table_converts_to_the_pack_vpinball_saves() -> TestResult {
+    let original = zip_entries(VPINBALL_PACK)?;
+    let save_date = from_zip_bytes(VPINBALL_PACK)?
+        .manifest
+        .save_date
+        .unwrap_or_default();
+    let vpx = crate::vpx::from_bytes(VPINBALL_VPX)?;
+    assert_same_files(&to_files(&from_vpx(&vpx, &save_date)?)?, &original);
+    Ok(())
+}
+
+#[test]
+fn a_vpinball_pack_is_written_back_byte_for_byte() -> TestResult {
+    let original = zip_entries(VPINBALL_PACK)?;
+    assert_same_files(&to_files(&from_zip_bytes(VPINBALL_PACK)?)?, &original);
+    Ok(())
+}
+
+#[test]
+fn a_sound_without_extension_converts_to_a_wav() -> TestResult {
+    use crate::vpx::sound::{SoundData, WaveForm};
+    let vpx = crate::vpx::VPX {
+        version: crate::vpx::version::Version::new(1081),
+        sounds: vec![SoundData {
+            name: "creditreel".to_string(),
+            path: "creditreel".to_string(),
+            wave_form: WaveForm {
+                format_tag: 1,
+                channels: 1,
+                samples_per_sec: 22050,
+                avg_bytes_per_sec: 44100,
+                block_align: 2,
+                bits_per_sample: 16,
+                ..WaveForm::default()
+            },
+            data: vec![1, 2, 3, 4],
+            internal_name: String::new(),
+            fade: 0,
+            volume: 0,
+            balance: 0,
+            output_target: crate::vpx::sound::OutputTarget::Table,
+        }],
+        ..crate::vpx::VPX::default()
+    };
+    let vpz = from_vpx(&vpx, "Mon Oct  5 00:00:00 2026")?;
+    let sound = &vpz.sounds[0];
+    assert_eq!(sound.extension, "wav");
+    assert_eq!(&sound.data[..4], b"RIFF");
+    assert_eq!(sound.data.len(), 44 + 4);
     Ok(())
 }
