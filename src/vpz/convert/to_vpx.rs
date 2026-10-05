@@ -21,7 +21,6 @@ use crate::vpx::image::ImageData;
 use crate::vpx::material::{SaveMaterial, SavePhysicsMaterial};
 use crate::vpx::pinbinary::PinBinary;
 use crate::vpx::sound::{OutputTarget as VpxOutputTarget, SoundData, WaveForm};
-use crate::vpx::tableinfo::TableInfo;
 use crate::vpx::version::Version;
 use crate::vpz::{Asset, FontSidecar, ImageSidecar, OutputTarget, SoundSidecar, Vpz};
 use bytes::BytesMut;
@@ -94,37 +93,14 @@ pub fn to_vpx(vpz: &Vpz, save_date: &str) -> io::Result<VPX> {
     gamedata.materials_old = materials_old;
     gamedata.materials_physics_old = materials_physics_old;
 
-    let text = |key: &str| {
-        table
-            .get(key)
-            .and_then(Json::as_str)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-    };
     let save_rev = table.get("save_rev").and_then(Json::as_u64).unwrap_or(0);
-    let mut info = TableInfo {
-        table_name: text("table_name"),
-        author_name: text("author"),
-        table_version: text("table_version"),
-        release_date: text("release_date"),
-        author_email: text("author_email"),
-        author_website: text("web_site"),
-        table_blurb: text("blurb"),
-        table_description: text("description"),
-        table_rules: text("rules"),
-        table_save_date: Some(save_date.to_string()),
-        table_save_rev: Some((save_rev + 1).to_string()),
-        ..TableInfo::default()
-    };
-    let mut custominfotags = Vec::new();
-    if let Some(Json::Object(tags)) = table.get("custom_tags") {
-        for (tag, value) in tags {
-            custominfotags.push(tag.clone());
-            if let Some(value) = value.as_str().filter(|value| !value.is_empty()) {
-                info.properties.insert(tag.clone(), value.to_string());
-            }
-        }
-    }
+    let (mut info, custominfotags) = crate::vpz::info::table_info(
+        vpz.table
+            .as_ref()
+            .unwrap_or(&crate::vpz::Document::default()),
+    );
+    info.table_save_date = Some(save_date.to_string());
+    info.table_save_rev = Some((save_rev + 1).to_string());
 
     // the screenshot image is stored as the table's screenshot, linked
     let screenshot = table.get("screenshot").and_then(Json::as_str).unwrap_or("");

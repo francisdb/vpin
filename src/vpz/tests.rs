@@ -680,3 +680,42 @@ fn a_legacy_field_vpinball_converts_is_carried_over() -> TestResult {
     assert_eq!(wall.disable_lighting_top_old, Some(12.0 / 255.0));
     Ok(())
 }
+
+#[test]
+fn pack_info_reads_only_what_describes_the_pack() -> TestResult {
+    let full = from_zip_bytes(VPINBALL_PACK)?;
+    let expected = PackInfo {
+        manifest: full.manifest.clone(),
+        table_info: full.table.as_ref().map(|table| table_info(table).0),
+        script: full.script.clone(),
+    };
+
+    let from_zip = read_zip_info(Cursor::new(VPINBALL_PACK))?;
+    assert_eq!(from_zip, expected);
+    let table_info = from_zip.table_info.as_ref().ok_or("table info")?;
+    assert_eq!(
+        table_info.table_name.as_deref(),
+        Some("Visual Pinball Demo Table")
+    );
+    assert_eq!(table_info.author_name, None);
+    assert_eq!(table_info.table_save_rev.as_deref(), Some("12"));
+    assert!(from_zip.script.as_deref().is_some_and(|s| !s.is_empty()));
+    Ok(())
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn pack_info_of_a_folder_is_that_of_the_zip() -> TestResult {
+    let dir = testdir::testdir!().join("pack");
+    write_dir(&from_zip_bytes(VPINBALL_PACK)?, &dir)?;
+    assert_eq!(read_info(&dir)?, read_zip_info(Cursor::new(VPINBALL_PACK))?);
+    Ok(())
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn pack_info_of_a_folder_without_manifest_fails() {
+    let dir = testdir::testdir!();
+    let error = read_info(&dir).expect_err("not a pack");
+    assert_eq!(error.kind(), io::ErrorKind::NotFound);
+}

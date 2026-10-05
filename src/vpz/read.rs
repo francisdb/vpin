@@ -41,24 +41,9 @@ pub(super) fn invalid(message: String) -> io::Error {
 }
 
 pub(super) fn from_files(mut files: BTreeMap<String, Vec<u8>>) -> io::Result<Vpz> {
-    let manifest = files.remove(MANIFEST).ok_or_else(|| {
-        invalid(format!(
-            "not a VPZ pack: {MANIFEST} is missing ({} files)",
-            files.len()
-        ))
-    })?;
-    let manifest = read_manifest(&manifest)?;
-
-    let table = files
-        .remove(TABLE)
-        .map(|bytes| parse_object(TABLE, &bytes))
-        .transpose()?
-        .map(|mut properties| {
-            properties.shift_remove(TYPE);
-            Document { properties }
-        });
-
-    let script = read_script(&mut files, table.as_ref())?;
+    let file_count = files.len();
+    let (manifest, table, script) = read_head(|path| Ok(files.remove(path)))
+        .map_err(|e| missing_manifest_count(e, file_count))?;
 
     let name_list = |key: &str| -> io::Result<Vec<String>> {
         let Some(table) = &table else {
@@ -173,11 +158,46 @@ fn read_manifest(bytes: &[u8]) -> io::Result<Manifest> {
     from_properties(MANIFEST, properties)
 }
 
+/// The manifest, the table document and the script of a pack, the files
+/// that describe it. `fetch` returns the bytes of a pack file, `None` when
+/// the pack has no such file.
+pub(super) fn read_head(
+    mut fetch: impl FnMut(&str) -> io::Result<Option<Vec<u8>>>,
+) -> io::Result<(Manifest, Option<Document>, Option<String>)> {
+    let manifest = fetch(MANIFEST)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("not a VPZ pack: {MANIFEST} is missing"),
+        )
+    })?;
+    let manifest = read_manifest(&manifest)?;
+    let table = fetch(TABLE)?
+        .map(|bytes| parse_object(TABLE, &bytes))
+        .transpose()?
+        .map(|mut properties| {
+            properties.shift_remove(TYPE);
+            Document { properties }
+        });
+    let script = read_script(&mut fetch, table.as_ref())?;
+    Ok((manifest, table, script))
+}
+
+/// The missing manifest error of a set of pack files, with their count
+fn missing_manifest_count(error: io::Error, file_count: usize) -> io::Error {
+    if error.kind() == io::ErrorKind::NotFound {
+        invalid(format!(
+            "not a VPZ pack: {MANIFEST} is missing ({file_count} files)"
+        ))
+    } else {
+        error
+    }
+}
+
 /// The script file `table.json` references, or `script.vbs` in a pack
 /// without a reference. A reference that is not a file of the pack is the
 /// script itself, as vpinball reads it.
 fn read_script(
-    files: &mut BTreeMap<String, Vec<u8>>,
+    fetch: &mut impl FnMut(&str) -> io::Result<Option<Vec<u8>>>,
     table: Option<&Document>,
 ) -> io::Result<Option<String>> {
     let reference = table.and_then(|table| table.properties.get(VBS_SCRIPT));
@@ -191,7 +211,7 @@ fn read_script(
             )));
         }
     };
-    match files.remove(&path) {
+    match fetch(&path)? {
         Some(bytes) => String::from_utf8(bytes)
             .map(Some)
             .map_err(|e| invalid(format!("{path} is not UTF-8: {e}"))),
