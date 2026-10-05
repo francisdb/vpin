@@ -386,6 +386,11 @@ fn to_vpx(x: f32, y: f32, z: f32) -> [f32; 3] {
     [m_to_vpu(x), m_to_vpu(z), m_to_vpu(y)]
 }
 
+/// A glTF direction to vpx axes, unscaled like [`direction_to_gltf`]
+fn direction_to_vpx(x: f32, y: f32, z: f32) -> [f32; 3] {
+    [x, z, y]
+}
+
 struct GlbFile<'a> {
     json: Json,
     binary: &'a [u8],
@@ -561,7 +566,7 @@ pub(super) fn read_glb(data: &[u8]) -> io::Result<GlbMesh> {
     for i in 0..count {
         let [x, y, z] = to_vpx(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
         let [nx, ny, nz] = match &normals {
-            Some(n) => to_vpx(n[i * 3], n[i * 3 + 1], n[i * 3 + 2]),
+            Some(n) => direction_to_vpx(n[i * 3], n[i * 3 + 1], n[i * 3 + 2]),
             None => [0.0, 0.0, 1.0],
         };
         let (tu, tv) = match &texcoords {
@@ -600,7 +605,7 @@ pub(super) fn read_glb(data: &[u8]) -> io::Result<GlbMesh> {
                 let [nx, ny, nz] = match (&delta_normals, &normals) {
                     (Some(d), Some(n)) => {
                         let v = |c: usize| n[i * 3 + c] + d[i * 3 + c];
-                        to_vpx(v(0), v(1), v(2))
+                        direction_to_vpx(v(0), v(1), v(2))
                     }
                     _ => [vertices[i].nx, vertices[i].ny, vertices[i].nz],
                 };
@@ -690,8 +695,19 @@ mod read_tests {
             let written = &written.vertex;
             assert!((read.x - written.x).abs() <= written.x.abs() * 2.5e-7 + 1e-9);
             assert_eq!((read.tu, read.tv), (written.tu, written.tv));
+            assert_eq!(
+                (read.nx, read.ny, read.nz),
+                (written.nx, written.ny, written.nz)
+            );
         }
         assert_eq!(mesh.frames.len(), 2);
+        for (read, written) in mesh.frames[1].iter().zip(&original.vertices) {
+            let written = &written.vertex;
+            assert_eq!(
+                (read.nx, read.ny, read.nz),
+                (written.nx, written.ny, written.nz)
+            );
+        }
         Ok(())
     }
 }
