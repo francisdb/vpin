@@ -25,6 +25,11 @@ fn to_gltf(x: f32, y: f32, z: f32) -> [f32; 3] {
     [vpu_to_m(x), vpu_to_m(z), vpu_to_m(y)]
 }
 
+/// A vpx direction to glTF axes, unscaled so normals keep unit length
+fn direction_to_gltf(x: f32, y: f32, z: f32) -> [f32; 3] {
+    [x, z, y]
+}
+
 /// A JSON object from key value pairs, which tinygltf writes sorted
 fn object(entries: Vec<(&str, Json)>) -> Json {
     let mut entries = entries;
@@ -109,7 +114,7 @@ pub(super) fn primitive_glb(primitive: &Primitive) -> io::Result<Option<Vec<u8>>
     for v in &vertices {
         let position = to_gltf(v.x, v.y, v.z);
         positions.extend_from_slice(&position);
-        normals.extend_from_slice(&to_gltf(v.nx, v.ny, v.nz));
+        normals.extend_from_slice(&direction_to_gltf(v.nx, v.ny, v.nz));
         texcoords.extend_from_slice(&[v.tu, 1.0 - v.tv]);
         for axis in 0..3 {
             // std::min/std::max: the first argument wins on NaN
@@ -159,7 +164,11 @@ pub(super) fn primitive_glb(primitive: &Primitive) -> io::Result<Option<Vec<u8>>
             let mut delta_normals = Vec::with_capacity(count * 3);
             for (f, v) in frame.iter().zip(&vertices) {
                 delta_positions.extend_from_slice(&to_gltf(f.x - v.x, f.y - v.y, f.z - v.z));
-                delta_normals.extend_from_slice(&to_gltf(f.nx - v.nx, f.ny - v.ny, f.nz - v.nz));
+                delta_normals.extend_from_slice(&direction_to_gltf(
+                    f.nx - v.nx,
+                    f.ny - v.ny,
+                    f.nz - v.nz,
+                ));
             }
             let position =
                 model.add_accessor(&floats(&delta_positions), FLOAT, count, "VEC3", None);
