@@ -96,7 +96,7 @@ use crate::vpx::export::item_filter::ItemFilter;
 use crate::vpx::gamedata::GameDataJson;
 use crate::vpx::gameitem::GameItemEnum;
 use crate::vpx::gameitem::light::Light;
-use crate::vpx::gameitem::primitive::VertexWrapper;
+use crate::vpx::gameitem::primitive::{Primitive, VertexWrapper, read_vpx_animation_frame};
 use crate::vpx::gameitem::select::HasSharedAttributes;
 use crate::vpx::gltf::{
     GLB_BIN_CHUNK_TYPE, GLB_CHUNK_HEADER_BYTES, GLB_HEADER_BYTES, GLB_JSON_CHUNK_TYPE,
@@ -206,6 +206,10 @@ struct NamedMesh {
     /// When false, the node will be exported with the KHR_node_visibility extension
     /// set to `visible: false`. Defaults to true.
     visible: bool,
+    /// Animation frames of a primitive by their frame index, each the full
+    /// vertex list in the same local space as `vertices`, written as morph
+    /// targets
+    morph_targets: Vec<(usize, Vec<VertexWrapper>)>,
     /// Optional group name for grouping related meshes under a parent node.
     /// When set, all meshes with the same group_name will be placed as children
     /// of a single parent group node. Used for lights to group bulb, socket,
@@ -249,6 +253,7 @@ impl Default for NamedMesh {
             name: String::new(),
             vertices: Vec::new(),
             indices: Vec::new(),
+            morph_targets: Vec::new(),
             material_name: None,
             texture_name: None,
             color_tint: None,
@@ -374,6 +379,86 @@ fn transform_primitive_vertices(
     let translation = vpx_point_to_gltf(pos.x, pos.y, pos.z, units);
 
     (transformed_vertices, translation)
+}
+
+/// The animation frames of a primitive's mesh, each the mesh vertices
+/// moved to the frame and transformed like the mesh. Frames that do not
+/// decode or do not match the mesh's vertex count are left out with a
+/// warning, as vpinball leaves them out.
+fn primitive_frames(
+    primitive: &Primitive,
+    vertices: &[VertexWrapper],
+    units: ExportUnits,
+) -> Vec<(usize, Vec<VertexWrapper>)> {
+    let (Some(frames), Some(lengths)) = (
+        &primitive.compressed_animation_vertices_data,
+        &primitive.compressed_animation_vertices_len,
+    ) else {
+        return Vec::new();
+    };
+    frames
+        .iter()
+        .zip(lengths)
+        .enumerate()
+        .filter_map(|(index, (frame, length))| {
+            let frame = match read_vpx_animation_frame(frame, length) {
+                Ok(frame) => frame,
+                Err(e) => {
+                    warn!(
+                        "Animation frame {index} of primitive '{}' does not decode: {e}",
+                        primitive.name
+                    );
+                    return None;
+                }
+            };
+            if frame.len() != vertices.len() {
+                warn!(
+                    "Animation frame {index} of primitive '{}' has {} vertices, the mesh {}",
+                    primitive.name,
+                    frame.len(),
+                    vertices.len()
+                );
+                return None;
+            }
+            let moved = vertices
+                .iter()
+                .zip(&frame)
+                .map(|(vertex, frame)| {
+                    let mut moved = vertex.clone();
+                    moved.vertex.x = frame.x;
+                    moved.vertex.y = frame.y;
+                    moved.vertex.z = frame.z;
+                    moved.vertex.nx = frame.nx;
+                    moved.vertex.ny = frame.ny;
+                    moved.vertex.nz = frame.nz;
+                    moved
+                })
+                .collect();
+            Some((
+                index,
+                transform_primitive_vertices(moved, primitive, units).0,
+            ))
+        })
+        .collect()
+}
+
+/// A vertex position in glTF space: scaled to `units` and mapped to glTF axes
+fn gltf_position(vertex: &VertexWrapper, units: ExportUnits) -> [f32; 3] {
+    GLTF_AXES.from_vpx(
+        vpu_to_units(vertex.vertex.x, units),
+        vpu_to_units(vertex.vertex.y, units),
+        vpu_to_units(vertex.vertex.z, units),
+    )
+}
+
+/// A vertex normal in glTF space, a NaN component written as 0
+fn gltf_normal(vertex: &VertexWrapper) -> [f32; 3] {
+    let finite = |n: f32| if n.is_nan() { 0.0 } else { n };
+    GLTF_AXES.from_vpx(
+        finite(vertex.vertex.nx),
+        finite(vertex.vertex.ny),
+        finite(vertex.vertex.nz),
+    )
 }
 
 /// A simple material representation for glTF export
@@ -792,6 +877,11 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
             GameItemEnum::Primitive(primitive) => {
                 let visible = crate::vpx::compat::primitive_is_visible(primitive, &vpx.version);
                 if let Ok(Some(read_mesh)) = effective_primitive_mesh(primitive) {
+                    let morph_targets = if primitive.use_3d_mesh {
+                        primitive_frames(primitive, &read_mesh.vertices, options.units)
+                    } else {
+                        Vec::new()
+                    };
                     let (transformed, translation) =
                         transform_primitive_vertices(read_mesh.vertices, primitive, options.units);
 
@@ -853,6 +943,7 @@ fn collect_meshes(vpx: &VPX, options: &GltfExportOptions) -> (Vec<NamedMesh>, Ve
                         name: primitive.name.clone(),
                         vertices: transformed,
                         indices: read_mesh.indices,
+                        morph_targets,
                         material_name,
                         texture_name,
                         layer_name: prim_layer_name,
@@ -2321,12 +2412,8 @@ fn build_combined_gltf_payload(
         // Write positions (VEC3 float), scaled to `units` and mapped to glTF
         // axes; winding order is reversed to change handedness (see GLTF_AXES)
         let positions_offset = bin_data.len();
-        for VertexWrapper { vertex, .. } in &mesh.vertices {
-            let [px, py, pz] = GLTF_AXES.from_vpx(
-                vpu_to_units(vertex.x, units),
-                vpu_to_units(vertex.y, units),
-                vpu_to_units(vertex.z, units),
-            );
+        for vertex in &mesh.vertices {
+            let [px, py, pz] = gltf_position(vertex, units);
             bin_data.write_f32_le(px)?;
             bin_data.write_f32_le(py)?;
             bin_data.write_f32_le(pz)?;
@@ -2335,11 +2422,8 @@ fn build_combined_gltf_payload(
 
         // Write normals (VEC3 float) - same axis mapping as positions, never scaled
         let normals_offset = bin_data.len();
-        for VertexWrapper { vertex, .. } in &mesh.vertices {
-            let nx = if vertex.nx.is_nan() { 0.0 } else { vertex.nx };
-            let ny = if vertex.ny.is_nan() { 0.0 } else { vertex.ny };
-            let nz = if vertex.nz.is_nan() { 0.0 } else { vertex.nz };
-            let [nx, ny, nz] = GLTF_AXES.from_vpx(nx, ny, nz);
+        for vertex in &mesh.vertices {
+            let [nx, ny, nz] = gltf_normal(vertex);
             bin_data.write_f32_le(nx)?;
             bin_data.write_f32_le(ny)?;
             bin_data.write_f32_le(nz)?;
@@ -2457,6 +2541,63 @@ fn build_combined_gltf_payload(
             "type": "SCALAR"
         }));
 
+        // Animation frames as morph targets: position and normal deltas
+        // from the mesh, in glTF space
+        let mut targets = Vec::with_capacity(mesh.morph_targets.len());
+        for (_, frame) in &mesh.morph_targets {
+            let mut min = [f32::INFINITY; 3];
+            let mut max = [f32::NEG_INFINITY; 3];
+            let positions_offset = bin_data.len();
+            for (vertex, moved) in mesh.vertices.iter().zip(frame) {
+                let base = gltf_position(vertex, units);
+                let moved = gltf_position(moved, units);
+                for axis in 0..3 {
+                    let delta = moved[axis] - base[axis];
+                    min[axis] = min[axis].min(delta);
+                    max[axis] = max[axis].max(delta);
+                    bin_data.write_f32_le(delta)?;
+                }
+            }
+            let positions_length = bin_data.len() - positions_offset;
+            let normals_offset = bin_data.len();
+            for (vertex, moved) in mesh.vertices.iter().zip(frame) {
+                let base = gltf_normal(vertex);
+                let moved = gltf_normal(moved);
+                for axis in 0..3 {
+                    bin_data.write_f32_le(moved[axis] - base[axis])?;
+                }
+            }
+            let normals_length = bin_data.len() - normals_offset;
+            let view = buffer_views.len();
+            for (offset, length) in [
+                (positions_offset, positions_length),
+                (normals_offset, normals_length),
+            ] {
+                buffer_views.push(json!({
+                    "buffer": 0,
+                    "byteOffset": offset,
+                    "byteLength": length,
+                    "target": GLTF_TARGET_ARRAY_BUFFER
+                }));
+            }
+            let accessor = accessors.len();
+            accessors.push(json!({
+                "bufferView": view,
+                "componentType": GLTF_COMPONENT_TYPE_FLOAT,
+                "count": frame.len(),
+                "type": "VEC3",
+                "min": min,
+                "max": max
+            }));
+            accessors.push(json!({
+                "bufferView": view + 1,
+                "componentType": GLTF_COMPONENT_TYPE_FLOAT,
+                "count": frame.len(),
+                "type": "VEC3"
+            }));
+            targets.push(json!({ "POSITION": accessor, "NORMAL": accessor + 1 }));
+        }
+
         // Add mesh
         let mut primitive = json!({
             "attributes": {
@@ -2496,10 +2637,21 @@ fn build_combined_gltf_payload(
             }
         }
 
-        mesh_json.push(json!({
+        let mut mesh_entry = json!({
             "name": mesh.name,
             "primitives": [primitive]
-        }));
+        });
+        if !targets.is_empty() {
+            mesh_entry["primitives"][0]["targets"] = json!(targets);
+            // the target names Blender and three.js show for the frames
+            let names: Vec<String> = mesh
+                .morph_targets
+                .iter()
+                .map(|(index, _)| format!("frame_{index}"))
+                .collect();
+            mesh_entry["extras"] = json!({ "targetNames": names });
+        }
+        mesh_json.push(mesh_entry);
 
         // Add node for this mesh
         let node_idx = nodes.len();
@@ -3567,5 +3719,123 @@ mod tests {
             !names.iter().any(|n| n.starts_with("RightFlipper")),
             "{names:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod morph_target_tests {
+    use super::*;
+    use crate::filesystem::MemoryFileSystem;
+    use crate::vpx::gameitem::primitive::{
+        VertData, compress_mesh_data, write_animation_vertex_data,
+    };
+    use crate::vpx::mesh::test_utils::create_minimal_mesh_data;
+    use bytes::BytesMut;
+    use pretty_assertions::assert_eq;
+    use testresult::TestResult;
+
+    /// The minimal triangle with frames that move it along vpx x
+    fn animated_primitive(offsets: &[f32]) -> TestResult<Primitive> {
+        let (vertices, indices, num_vertices, num_indices) = create_minimal_mesh_data();
+        let base = Primitive {
+            name: "Toy".to_string(),
+            num_vertices: Some(num_vertices),
+            num_indices: Some(num_indices),
+            compressed_vertices_len: Some(vertices.len() as u32),
+            compressed_vertices_data: Some(vertices),
+            compressed_indices_len: Some(indices.len() as u32),
+            compressed_indices_data: Some(indices),
+            use_3d_mesh: true,
+            is_visible: true,
+            ..Default::default()
+        };
+        let mesh = base.read_mesh()?.ok_or("a mesh")?;
+        let mut frames = Vec::new();
+        for offset in offsets {
+            let mut buff = BytesMut::new();
+            for vertex in &mesh.vertices {
+                let v = &vertex.vertex;
+                let moved = VertData {
+                    x: v.x + offset,
+                    y: v.y,
+                    z: v.z,
+                    nx: v.nx,
+                    ny: v.ny,
+                    nz: v.nz,
+                };
+                write_animation_vertex_data(&mut buff, &moved);
+            }
+            frames.push(compress_mesh_data(&buff)?);
+        }
+        let lengths = frames.iter().map(|frame| frame.len() as u32).collect();
+        Ok(Primitive {
+            compressed_animation_vertices_len: Some(lengths),
+            compressed_animation_vertices_data: Some(frames),
+            ..base
+        })
+    }
+
+    #[test]
+    fn animation_frames_are_exported_as_morph_targets() -> TestResult {
+        let mut vpx = VPX::default();
+        vpx.gameitems
+            .push(GameItemEnum::Primitive(Box::new(animated_primitive(&[
+                1.0, 2.0,
+            ])?)));
+        let fs = MemoryFileSystem::new();
+        export_gltf(&vpx, Path::new("table.glb"), &fs, &GltfExportOptions::glb())?;
+        let glb = fs.get_file("table.glb").ok_or("a glb")?;
+        let json_length = u32::from_le_bytes(glb[12..16].try_into()?) as usize;
+        let document: serde_json::Value = serde_json::from_slice(&glb[20..20 + json_length])?;
+        let binary = &glb[20 + json_length + 8..];
+
+        let mesh = document["meshes"]
+            .as_array()
+            .ok_or("meshes")?
+            .iter()
+            .find(|mesh| mesh["name"] == "Toy")
+            .ok_or("the primitive's mesh")?;
+        assert_eq!(mesh["extras"]["targetNames"], json!(["frame_0", "frame_1"]));
+        let targets = mesh["primitives"][0]["targets"]
+            .as_array()
+            .ok_or("targets")?;
+        assert_eq!(targets.len(), 2);
+
+        // the second frame moved 2 mesh units along vpx x, scaled by the
+        // primitive's size like the mesh: glTF x
+        let accessor =
+            &document["accessors"][targets[1]["POSITION"].as_u64().ok_or("accessor")? as usize];
+        let view =
+            &document["bufferViews"][accessor["bufferView"].as_u64().ok_or("view")? as usize];
+        let offset = view["byteOffset"].as_u64().ok_or("offset")? as usize;
+        let delta: Vec<f32> = binary[offset..offset + 12]
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|b| f32::from_le_bytes(*b))
+            .collect();
+        let size = Primitive::default().size.x;
+        let expected = vpu_to_units(2.0 * size, GltfExportOptions::glb().units);
+        assert!((delta[0] - expected).abs() < 1e-6, "{delta:?}");
+        assert_eq!(&delta[1..], &[0.0, 0.0]);
+        // every vertex moved alike, up to float rounding
+        let min = accessor["min"][0].as_f64().ok_or("min")?;
+        let max = accessor["max"][0].as_f64().ok_or("max")?;
+        assert!((max - min).abs() < 1e-6, "{min} {max}");
+        Ok(())
+    }
+
+    #[test]
+    fn a_primitive_without_frames_has_no_morph_targets() -> TestResult {
+        let mut vpx = VPX::default();
+        vpx.gameitems
+            .push(GameItemEnum::Primitive(Box::new(animated_primitive(&[])?)));
+        let (meshes, _) = collect_meshes(&vpx, &GltfExportOptions::default());
+        let mesh = meshes
+            .iter()
+            .find(|mesh| mesh.name == "Toy")
+            .ok_or("the mesh")?;
+        assert!(mesh.morph_targets.is_empty());
+        Ok(())
     }
 }
