@@ -720,9 +720,11 @@ pub fn importvbs(vpx_file_path: &Path, vbs_file_path: Option<PathBuf>) -> io::Re
 /// Verifies the MAC signature of a VPX file
 pub fn verify(vpx_file_path: &Path) -> VerifyResult {
     let result = move || -> io::Result<_> {
-        let mut comp = cfb::open(vpx_file_path)?;
-        let mac = read_mac(&mut comp)?;
-        let generated_mac = generate_mac(&mut comp)?;
+        let mut vpx_file = VpxFile {
+            compound_file: cfb::open(vpx_file_path)?,
+        };
+        let mac = vpx_file.read_mac()?;
+        let generated_mac = vpx_file.compute_mac()?;
         Ok((mac, generated_mac))
     }();
     match result {
