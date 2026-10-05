@@ -472,9 +472,12 @@ fn a_sanitized_name_without_a_table_is_written_in_its_document() -> TestResult {
 }
 
 /// `testdata/completely_blank_table_10_7_4.vpx` loaded and saved by
-/// vpinball master with vpx-test, as a .vpx and right after as a .vpz
-const VPINBALL_VPX: &[u8] = include_bytes!("../../testdata/vpz/completely_blank_table_10_7_4.vpx");
-const VPINBALL_PACK: &[u8] = include_bytes!("../../testdata/vpz/completely_blank_table_10_7_4.vpz");
+/// vpinball master 13c4f8f83 (2026-10-04) with vpx-test, as a .vpx and
+/// right after as a .vpz
+const VPINBALL_VPX: &[u8] =
+    include_bytes!("../../testdata/vpz/blank_table_vpinball_2026-10-04_13c4f8f83.vpx");
+const VPINBALL_PACK: &[u8] =
+    include_bytes!("../../testdata/vpz/blank_table_vpinball_2026-10-04_13c4f8f83.vpz");
 
 fn zip_entries(bytes: &[u8]) -> io::Result<BTreeMap<String, Vec<u8>>> {
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).map_err(io::Error::other)?;
