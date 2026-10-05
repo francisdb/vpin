@@ -442,6 +442,84 @@ fn primitive_frames(
         .collect()
 }
 
+fn pad_to_4(bin_data: &mut Vec<u8>) {
+    while !bin_data.len().is_multiple_of(4) {
+        bin_data.push(0);
+    }
+}
+
+/// The sampler and channel of a primitive's morph targets in the `frames`
+/// animation, playing its frames like vpinball's `PlayAnim` at speed 1:
+/// 60 frames a second, blending linearly from one frame to the next.
+/// Scripts set their own speed, which a viewer can apply by scaling the
+/// playback.
+fn frame_animation(
+    sampler: usize,
+    node: usize,
+    frames: &[(usize, Vec<VertexWrapper>)],
+    bin_data: &mut Vec<u8>,
+    buffer_views: &mut Vec<serde_json::Value>,
+    accessors: &mut Vec<serde_json::Value>,
+) -> io::Result<(serde_json::Value, serde_json::Value)> {
+    const FRAMES_PER_SECOND: f32 = 60.0;
+    pad_to_4(bin_data);
+    let times: Vec<f32> = frames
+        .iter()
+        .map(|(index, _)| *index as f32 / FRAMES_PER_SECOND)
+        .collect();
+    let times_offset = bin_data.len();
+    for time in &times {
+        bin_data.write_f32_le(*time)?;
+    }
+    let times_length = bin_data.len() - times_offset;
+    // at each keyframe its own frame has weight 1, the others 0
+    let weights_offset = bin_data.len();
+    for keyframe in 0..frames.len() {
+        for target in 0..frames.len() {
+            bin_data.write_f32_le(if keyframe == target { 1.0 } else { 0.0 })?;
+        }
+    }
+    let weights_length = bin_data.len() - weights_offset;
+
+    let view = buffer_views.len();
+    buffer_views.push(json!({
+        "buffer": 0,
+        "byteOffset": times_offset,
+        "byteLength": times_length
+    }));
+    buffer_views.push(json!({
+        "buffer": 0,
+        "byteOffset": weights_offset,
+        "byteLength": weights_length
+    }));
+    let accessor = accessors.len();
+    accessors.push(json!({
+        "bufferView": view,
+        "componentType": GLTF_COMPONENT_TYPE_FLOAT,
+        "count": times.len(),
+        "type": "SCALAR",
+        "min": [times.first().copied().unwrap_or_default()],
+        "max": [times.last().copied().unwrap_or_default()]
+    }));
+    accessors.push(json!({
+        "bufferView": view + 1,
+        "componentType": GLTF_COMPONENT_TYPE_FLOAT,
+        "count": frames.len() * frames.len(),
+        "type": "SCALAR"
+    }));
+    Ok((
+        json!({
+            "input": accessor,
+            "output": accessor + 1,
+            "interpolation": "LINEAR"
+        }),
+        json!({
+            "sampler": sampler,
+            "target": { "node": node, "path": "weights" }
+        }),
+    ))
+}
+
 /// A vertex position in glTF space: scaled to `units` and mapped to glTF axes
 fn gltf_position(vertex: &VertexWrapper, units: ExportUnits) -> [f32; 3] {
     GLTF_AXES.from_vpx(
@@ -2394,6 +2472,10 @@ fn build_combined_gltf_payload(
 
     let mut nodes: Vec<serde_json::Value> = Vec::new();
     let mut mesh_json = Vec::new();
+    // one animation playing every animated primitive's frames together:
+    // viewers, Blender too, play a single animation at a time
+    let mut animation_samplers = Vec::new();
+    let mut animation_channels = Vec::new();
     let mut accessors = Vec::new();
 
     // Track layer groups: layer_name -> (layer_node_index, child_node_indices)
@@ -2454,6 +2536,9 @@ fn build_combined_gltf_payload(
             }
         }
         let indices_length = bin_data.len() - indices_offset;
+        // 16-bit indices can end halfway a 4-byte word, the float data
+        // after them must start on one
+        pad_to_4(&mut bin_data);
 
         // Calculate bounds in glTF coordinate space (after transformation and scaling)
         // VPX (x, y, z) → glTF (x * scale, gltf_y = z * scale, y * scale)
@@ -2678,6 +2763,19 @@ fn build_combined_gltf_payload(
         }
 
         nodes.push(node);
+
+        if !mesh.morph_targets.is_empty() {
+            let (sampler, channel) = frame_animation(
+                animation_samplers.len(),
+                node_idx,
+                &mesh.morph_targets,
+                &mut bin_data,
+                &mut buffer_views,
+                &mut accessors,
+            )?;
+            animation_samplers.push(sampler);
+            animation_channels.push(channel);
+        }
 
         // Organize nodes: grouped meshes go into their item group,
         // ungrouped meshes go into layer groups or root
@@ -3058,6 +3156,14 @@ fn build_combined_gltf_payload(
             "byteLength": bin_data.len()
         }]
     });
+
+    if !animation_channels.is_empty() {
+        gltf_json["animations"] = json!([{
+            "name": "frames",
+            "samplers": animation_samplers,
+            "channels": animation_channels
+        }]);
+    }
 
     // Add materials array if there are any materials
     if !gltf_materials.is_empty() {
@@ -3822,6 +3928,45 @@ mod morph_target_tests {
         let min = accessor["min"][0].as_f64().ok_or("min")?;
         let max = accessor["max"][0].as_f64().ok_or("max")?;
         assert!((max - min).abs() < 1e-6, "{min} {max}");
+
+        // the frames animation plays them on the primitive's node
+        let animations = document["animations"].as_array().ok_or("animations")?;
+        assert_eq!(animations.len(), 1);
+        let animation = &animations[0];
+        assert_eq!(animation["name"], "frames");
+        let node = animation["channels"][0]["target"]["node"]
+            .as_u64()
+            .ok_or("node")? as usize;
+        assert_eq!(document["nodes"][node]["name"], "Toy");
+        assert_eq!(animation["channels"][0]["target"]["path"], "weights");
+        let sampler = &animation["samplers"][0];
+        assert_eq!(sampler["interpolation"], "LINEAR");
+        let input = &document["accessors"][sampler["input"].as_u64().ok_or("input")? as usize];
+        assert_eq!(input["count"], 2);
+        assert_eq!(input["max"][0], json!(1.0f32 / 60.0));
+        let output = &document["accessors"][sampler["output"].as_u64().ok_or("output")? as usize];
+        assert_eq!(output["count"], 4);
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(not(target_family = "wasm"))]
+    fn float_data_starts_on_a_4_byte_boundary() -> TestResult {
+        let vpx = crate::vpx::read(Path::new("testdata/completely_blank_table_10_7_4.vpx"))?;
+        let fs = MemoryFileSystem::new();
+        export_gltf(&vpx, Path::new("table.glb"), &fs, &GltfExportOptions::glb())?;
+        let glb = fs.get_file("table.glb").ok_or("a glb")?;
+        let json_length = u32::from_le_bytes(glb[12..16].try_into()?) as usize;
+        let document: serde_json::Value = serde_json::from_slice(&glb[20..20 + json_length])?;
+        for accessor in document["accessors"].as_array().ok_or("accessors")? {
+            if accessor["componentType"] != GLTF_COMPONENT_TYPE_FLOAT {
+                continue;
+            }
+            let view =
+                &document["bufferViews"][accessor["bufferView"].as_u64().ok_or("view")? as usize];
+            let offset = view["byteOffset"].as_u64().unwrap_or_default();
+            assert_eq!(offset % 4, 0, "{view}");
+        }
         Ok(())
     }
 
