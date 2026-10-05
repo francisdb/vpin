@@ -1,11 +1,12 @@
-//! The JSON field maps of vpinball's VPZ writer, with the value type its
-//! save code writes each field with.
+//! The JSON field maps of vpinball's VPZ writer, with the value type of
+//! each field.
 //!
-//! Generated from vpinball 13c4f8f83: `src/utils/JSONSerializer.cpp` (names, in
-//! declaration order, shared part fields first) and the `Write*` calls of
-//! the object `Save` methods (types), the shared part fields of
-//! `IEditable::SaveSharedEditableFields` only for parts. `None` marks a
-//! field vpinball only reads, from older files, and never writes.
+//! Generated from vpinball d6442e404: `src/utils/JSONSerializer.cpp` (names, in
+//! declaration order, shared part fields first), the `Write*` calls of the
+//! object `Save` methods (types of the fields vpinball writes, the shared
+//! part fields of `IEditable` only for parts) and the `As*` calls of the
+//! `Load` methods (types of the legacy fields vpinball only reads from
+//! older files). `None` marks a field vpinball neither writes nor reads.
 
 use super::{Field, Node, Value};
 
@@ -25,7 +26,7 @@ pub(super) const ITEM_0: &[Field] = &[
     Field::new("DPNT", "dragpoints", Some(Value::Objects(Node::DragPoint))),
     Field::new("CLDW", "collidable", Some(Value::Bool)),
     Field::new("DILB", "disable_lighting_below", Some(Value::Float)),
-    Field::new("DILI", "disable_lighting_legacy", None),
+    Field::legacy("DILI", "disable_lighting_legacy", Value::Int),
     Field::new("DILT", "disable_lighting_top", Some(Value::Float)),
     Field::new("DROP", "droppable", Some(Value::Bool)),
     Field::new("DSPT", "ui_show_texture", Some(Value::Bool)),
@@ -206,7 +207,7 @@ pub(super) const ITEM_5: &[Field] = &[
     Field::new("BAMA", "base_material", Some(Value::String)),
     Field::new("BSCT", "scatter", Some(Value::Float)),
     Field::new("BSVS", "base_visible", Some(Value::Bool)),
-    Field::new("BVIS", "all_visible", None),
+    Field::legacy("BVIS", "all_visible", Value::Bool),
     Field::new("CAVI", "cap_visible", Some(Value::Bool)),
     Field::new("COLI", "collidable", Some(Value::Bool)),
     Field::new("FORC", "force", Some(Value::Float)),
@@ -534,7 +535,7 @@ pub(super) const ITEM_19: &[Field] = &[
     Field::new("COLR", "color", Some(Value::Int)),
     Field::new("CORF", "collision_reduction_factor", Some(Value::Float)),
     Field::new("DILB", "disable_lighting_below", Some(Value::Float)),
-    Field::new("DILI", "disable_lighting_legacy", None),
+    Field::legacy("DILI", "disable_lighting_legacy", Value::Int),
     Field::new("DILT", "disable_lighting_top", Some(Value::Float)),
     Field::new("DIPT", "display_texture", Some(Value::Bool)),
     Field::new("DTXI", "draw_textures_inside", Some(Value::Bool)),
@@ -618,7 +619,7 @@ pub(super) const ITEM_20: &[Field] = &[
     Field::new("GRGH", "glass_roughness", Some(Value::Float)),
     Field::new("GRHT", "glass_pad_right", Some(Value::Float)),
     Field::new("GTOP", "glass_pad_top", Some(Value::Float)),
-    Field::new("IDMD", "dmd", None),
+    Field::legacy("IDMD", "dmd", Value::Bool),
     Field::new("IMAB", "image_b", Some(Value::String)),
     Field::new("IMAG", "image", Some(Value::String)),
     Field::new("LINK", "image_src_link", Some(Value::String)),
@@ -680,7 +681,7 @@ pub(super) const ITEM_22: &[Field] = &[
     Field::new("DPNT", "dragpoints", Some(Value::Objects(Node::DragPoint))),
     Field::new("CLDR", "collidable", Some(Value::Bool)),
     Field::new("DILB", "disable_lighting_below", Some(Value::Float)),
-    Field::new("DILI", "disable_lighting_legacy", None),
+    Field::legacy("DILI", "disable_lighting_legacy", Value::Int),
     Field::new("DILT", "disable_lighting_top", Some(Value::Float)),
     Field::new("DRSP", "drop_speed", Some(Value::Float)),
     Field::new("ELAS", "elasticity", Some(Value::Float)),

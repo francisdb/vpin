@@ -14,6 +14,7 @@
 mod biff;
 mod fields;
 mod glb;
+mod to_vpx;
 
 use super::{
     Asset, Document, FontSidecar, ImageSidecar, Manifest, NamedDocument, OutputTarget, Part,
@@ -25,6 +26,7 @@ use crate::vpx::gameitem::{self, GameItemEnum};
 use biff::{Bytes, Extras, float, invalid, sort_fields, utf8_or_cp1252};
 use serde_json::{Map, Value as Json};
 use std::io;
+pub use to_vpx::to_vpx;
 
 /// One field of vpinball's JSON field map of an object
 pub(super) struct Field {
@@ -32,13 +34,25 @@ pub(super) struct Field {
     tag: &'static str,
     /// The JSON name, dotted for a field of a grouping object
     name: &'static str,
-    /// How vpinball writes the field, `None` for a field it only reads
+    /// The value type vpinball writes or reads the field with, `None` for a
+    /// field vpinball neither writes nor uses
     value: Option<Value>,
 }
 
 impl Field {
     const fn new(tag: &'static str, name: &'static str, value: Option<Value>) -> Self {
         Self { tag, name, value }
+    }
+
+    /// A field vpinball only reads from older files and converts on load.
+    /// It is carried over when a table has it, so vpinball converts it when
+    /// it loads the pack.
+    const fn legacy(tag: &'static str, name: &'static str, value: Value) -> Self {
+        Self {
+            tag,
+            name,
+            value: Some(value),
+        }
     }
 }
 
@@ -425,33 +439,6 @@ fn bitmap_webp(lzw_compressed_data: &[u8], width: u32, height: u32) -> io::Resul
     crate::vpx::images::encode(&decoded, image::ImageFormat::WebP, 0)
 }
 
-/// A WAV file from the `WAVEFORMATEX` and samples vpinball stores, with
-/// the 44 byte header vpinball rebuilds on load
-fn wav_file(format: &[u8], samples: &[u8]) -> io::Result<Vec<u8>> {
-    let mut reader = Bytes::new(format);
-    let format_tag = reader.u16()?;
-    let channels = reader.u16()?;
-    let samples_per_sec = reader.u32()?;
-    let avg_bytes_per_sec = reader.u32()?;
-    let block_align = reader.u16()?;
-    let bits_per_sample = reader.u16()?;
-    let mut wav = Vec::with_capacity(44 + samples.len());
-    wav.extend_from_slice(b"RIFF");
-    wav.extend_from_slice(&(36 + samples.len() as u32).to_le_bytes());
-    wav.extend_from_slice(b"WAVEfmt ");
-    wav.extend_from_slice(&16u32.to_le_bytes());
-    wav.extend_from_slice(&format_tag.to_le_bytes());
-    wav.extend_from_slice(&channels.to_le_bytes());
-    wav.extend_from_slice(&samples_per_sec.to_le_bytes());
-    wav.extend_from_slice(&avg_bytes_per_sec.to_le_bytes());
-    wav.extend_from_slice(&block_align.to_le_bytes());
-    wav.extend_from_slice(&bits_per_sample.to_le_bytes());
-    wav.extend_from_slice(b"data");
-    wav.extend_from_slice(&(samples.len() as u32).to_le_bytes());
-    wav.extend_from_slice(samples);
-    Ok(wav)
-}
-
 fn sounds(vpx: &VPX) -> io::Result<Vec<Asset<SoundSidecar>>> {
     vpx.sounds
         .iter()
@@ -475,10 +462,10 @@ fn sound_asset(vpx: &VPX, sound: &crate::vpx::sound::SoundData) -> io::Result<As
     // a path without extension, as old files store those sounds as WAV
     let is_wav = crate::vpx::sound::is_wav(&sound.path);
     let bytes = if is_wav {
-        // WAVEFORMATEX
-        let format = reader.take(18)?;
-        let samples = reader.sized()?;
-        wav_file(format, samples)?
+        // the format block, then the samples
+        reader.take(18)?;
+        reader.sized()?;
+        crate::vpx::sound::vpinball_wav_file(&sound.wave_form, &sound.data)
     } else {
         reader.sized()?.to_vec()
     };

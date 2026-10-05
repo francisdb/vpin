@@ -277,6 +277,17 @@ fn read_named(
         };
         entries.push(Some((path, name, properties)));
     }
+    // collision suffixed files in the order they were written: `a`, `a_2`,
+    // ..., `a_10`, not by text where `a_10` comes before `a_2`
+    entries.sort_by(|a, b| {
+        let key = |entry: &Option<(String, Option<String>, Map<String, Value>)>| {
+            entry
+                .as_ref()
+                .map(|(path, _, _)| collision_order(path))
+                .unwrap_or_default()
+        };
+        key(a).cmp(&key(b))
+    });
 
     let mut ordered = Vec::with_capacity(entries.len());
     for list_name in list {
@@ -318,6 +329,24 @@ fn read_named(
             }),
     );
     Ok(ordered)
+}
+
+/// A sort key ordering `stem_N` by its number after `stem`
+fn collision_order(path: &str) -> (String, u64, String) {
+    let (parent, _) = split_path(path);
+    let stem = file_stem(path);
+    match stem.rsplit_once('_') {
+        Some((base, number))
+            if !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()) =>
+        {
+            (
+                format!("{parent}/{base}"),
+                number.parse().unwrap_or(u64::MAX),
+                path.to_string(),
+            )
+        }
+        _ => (format!("{parent}/{stem}"), 0, path.to_string()),
+    }
 }
 
 fn read_part(files: &mut BTreeMap<String, Vec<u8>>, entry: NamedEntry) -> io::Result<Part> {

@@ -557,3 +557,126 @@ fn a_sound_without_extension_converts_to_a_wav() -> TestResult {
     assert_eq!(sound.data.len(), 44 + 4);
     Ok(())
 }
+
+#[test]
+fn a_vpinball_pack_converts_to_the_table_vpinball_saved() -> TestResult {
+    use crate::vpx::diff::semantic::{Change, Entity, diff};
+    let pack = from_zip_bytes(VPINBALL_PACK)?;
+    let reference = crate::vpx::from_bytes(VPINBALL_VPX)?;
+    let converted = to_vpx(&pack, pack.manifest.save_date.as_deref().unwrap_or(""))?;
+    for change in diff(&reference, &converted) {
+        match &change {
+            // the pack was saved once more after the table, the conversion
+            // saves once more again
+            Change::Changed {
+                entity: Entity::TableInfo,
+                fields,
+            } if fields
+                .iter()
+                .all(|f| f.field == "table_save_rev" || f.field == "table_save_date") => {}
+            // meshes go through meters and back, see below
+            Change::Changed {
+                entity: Entity::GameItem { type_name, .. },
+                fields,
+            } if type_name == "Primitive" && fields.iter().all(|f| f.field == "mesh") => {}
+            other => panic!("unexpected difference {other:?}"),
+        }
+    }
+    // a mesh comes back within a float step of its value
+    for (a, b) in reference.gameitems.iter().zip(&converted.gameitems) {
+        if let (
+            crate::vpx::gameitem::GameItemEnum::Primitive(a),
+            crate::vpx::gameitem::GameItemEnum::Primitive(b),
+        ) = (a, b)
+            && let (Some(a), Some(b)) = (a.read_mesh()?, b.read_mesh()?)
+        {
+            assert_eq!(a.indices, b.indices);
+            for (a, b) in a.vertices.iter().zip(&b.vertices) {
+                let (a, b) = (&a.vertex, &b.vertex);
+                for (x, y) in [(a.x, b.x), (a.y, b.y), (a.z, b.z)] {
+                    assert!((x - y).abs() <= x.abs() * 2.5e-7, "{x} {y}");
+                }
+                assert_eq!((a.tu, a.tv), (b.tu, b.tv));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn a_pack_survives_a_table_round_trip_apart_from_meshes() -> TestResult {
+    let pack = from_zip_bytes(VPINBALL_PACK)?;
+    let date = pack.manifest.save_date.clone().unwrap_or_default();
+    let vpx = crate::vpx::from_bytes(&crate::vpx::to_bytes(&to_vpx(&pack, &date)?)?)?;
+    let mut again = from_vpx(&vpx, &date)?;
+    // two saves later
+    if let (Some(table), Some(original)) = (&mut again.table, &pack.table) {
+        table
+            .properties
+            .insert("save_rev".into(), original.properties["save_rev"].clone());
+    }
+    let original = to_files(&pack)?;
+    let again = to_files(&again)?;
+    assert_eq!(
+        again.keys().collect::<Vec<_>>(),
+        original.keys().collect::<Vec<_>>()
+    );
+    for (path, data) in &original {
+        if !path.starts_with("meshes/") {
+            assert!(again[path] == *data, "{path} differs");
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn duplicate_names_come_back_in_their_order() -> TestResult {
+    let mut vpz = Vpz {
+        table: Some(Document::default()),
+        ..Vpz::default()
+    };
+    for (i, name) in ["", "", "", "", "", "", "", "", "", "", "", ""]
+        .iter()
+        .enumerate()
+    {
+        let mut part = part(name, PartType::Decal);
+        part.properties.insert("index".into(), json!(i));
+        vpz.parts.push(part);
+    }
+    let back = from_files(to_files(&vpz)?)?;
+    let order: Vec<u64> = back
+        .parts
+        .iter()
+        .map(|part| part.properties["index"].as_u64().unwrap_or(99))
+        .collect();
+    assert_eq!(order, (0..12).collect::<Vec<u64>>());
+    Ok(())
+}
+
+#[test]
+fn a_legacy_field_vpinball_converts_is_carried_over() -> TestResult {
+    use crate::vpx::gameitem::GameItemEnum;
+    use crate::vpx::gameitem::wall::Wall;
+    // an old table: only the quantized disable lighting of before 10.8
+    let wall = Wall {
+        name: "Wall".to_string(),
+        disable_lighting_top_old: Some(12.0 / 255.0),
+        disable_lighting_top: None,
+        ..Wall::default()
+    };
+    let vpx = crate::vpx::VPX {
+        gameitems: vec![GameItemEnum::Wall(wall)],
+        ..crate::vpx::VPX::default()
+    };
+    let pack = from_vpx(&vpx, "Mon Oct  5 00:00:00 2026")?;
+    assert_eq!(
+        pack.parts[0].properties["disable_lighting_legacy"],
+        json!(12)
+    );
+    let back = to_vpx(&pack, "Mon Oct  5 00:00:00 2026")?;
+    let GameItemEnum::Wall(wall) = &back.gameitems[0] else {
+        panic!("a wall");
+    };
+    assert_eq!(wall.disable_lighting_top_old, Some(12.0 / 255.0));
+    Ok(())
+}

@@ -381,6 +381,64 @@ pub fn read_sound(data: &[u8], sound_data: &mut SoundData) -> io::Result<()> {
     Ok(())
 }
 
+/// The WAV file vpinball builds when it loads a `.wav` sound from a
+/// `.vpx`: a 44 byte RIFF header from the stored [`WaveForm`], then the
+/// samples (`Sound::CreateFromStream`). This is the file a VPZ pack holds.
+///
+/// Unlike [`write_sound`], which keeps every stored header field so that
+/// an extracted table assembles byte for byte, this drops `cbSize` as
+/// vpinball does.
+pub(crate) fn vpinball_wav_file(wave_form: &WaveForm, samples: &[u8]) -> Vec<u8> {
+    let mut wav = Vec::with_capacity(VPINBALL_WAV_HEADER_SIZE + samples.len());
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&(36 + samples.len() as u32).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&wave_form.format_tag.to_le_bytes());
+    wav.extend_from_slice(&wave_form.channels.to_le_bytes());
+    wav.extend_from_slice(&wave_form.samples_per_sec.to_le_bytes());
+    wav.extend_from_slice(&wave_form.avg_bytes_per_sec.to_le_bytes());
+    wav.extend_from_slice(&wave_form.block_align.to_le_bytes());
+    wav.extend_from_slice(&wave_form.bits_per_sample.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&(samples.len() as u32).to_le_bytes());
+    wav.extend_from_slice(samples);
+    wav
+}
+
+/// The [`WaveForm`] and samples vpinball saves from a WAV file: the
+/// format fields at the offsets of its 44 byte header, `cbSize` 0, and
+/// everything after the header as samples (`Sound::SaveToStream`). The
+/// inverse of [`vpinball_wav_file`].
+///
+/// Unlike [`read_sound`], which parses the chunks of any WAV and takes
+/// `cbSize` from the data chunk size where [`write_sound`] keeps it, this
+/// reads a file as vpinball does, whatever its chunks.
+pub(crate) fn read_vpinball_wav(data: &[u8]) -> io::Result<(WaveForm, Vec<u8>)> {
+    let header = data.get(..VPINBALL_WAV_HEADER_SIZE).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("a WAV file of {} bytes has no 44 byte header", data.len()),
+        )
+    })?;
+    let u16_at = |o: usize| u16::from_le_bytes([header[o], header[o + 1]]);
+    let u32_at =
+        |o: usize| u32::from_le_bytes([header[o], header[o + 1], header[o + 2], header[o + 3]]);
+    let wave_form = WaveForm {
+        format_tag: u16_at(20),
+        channels: u16_at(22),
+        samples_per_sec: u32_at(24),
+        avg_bytes_per_sec: u32_at(28),
+        block_align: u16_at(32),
+        bits_per_sample: u16_at(34),
+        cb_size: 0,
+    };
+    Ok((wave_form, data[VPINBALL_WAV_HEADER_SIZE..].to_vec()))
+}
+
+/// The size of the RIFF header vpinball writes and expects
+const VPINBALL_WAV_HEADER_SIZE: usize = 44;
+
 /// Format of the samples of a WAV sound, mirroring the Windows `WAVEFORMATEX`
 /// struct.
 ///
@@ -1282,5 +1340,54 @@ mod json_error_tests {
                 "{value}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod vpinball_wav_tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+    use testresult::TestResult;
+
+    fn float_stereo() -> WaveForm {
+        WaveForm {
+            format_tag: 3,
+            channels: 2,
+            samples_per_sec: 44100,
+            avg_bytes_per_sec: 352800,
+            block_align: 8,
+            bits_per_sample: 32,
+            // a value old files hold, vpinball does not keep it
+            cb_size: 24932,
+        }
+    }
+
+    #[test]
+    fn a_vpinball_wav_reads_back_without_cb_size() -> TestResult {
+        let samples = vec![1u8, 2, 3, 4, 5, 6, 7, 8];
+        let wav = vpinball_wav_file(&float_stereo(), &samples);
+        assert_eq!(wav.len(), 44 + samples.len());
+        assert_eq!(&wav[..4], b"RIFF");
+        let (wave_form, read) = read_vpinball_wav(&wav)?;
+        assert_eq!(
+            wave_form,
+            WaveForm {
+                cb_size: 0,
+                ..float_stereo()
+            }
+        );
+        assert_eq!(read, samples);
+        Ok(())
+    }
+
+    #[test]
+    fn a_wav_with_more_chunks_is_read_like_vpinball_reads_it() -> TestResult {
+        // vpinball takes everything after the first 44 bytes as samples
+        let mut wav = vpinball_wav_file(&float_stereo(), &[9, 9]);
+        wav.extend_from_slice(b"LIST\x02\x00\x00\x00ab");
+        let (_, samples) = read_vpinball_wav(&wav)?;
+        assert_eq!(samples, b"\x09\x09LIST\x02\x00\x00\x00ab".to_vec());
+        assert!(read_vpinball_wav(&wav[..40]).is_err());
+        Ok(())
     }
 }
