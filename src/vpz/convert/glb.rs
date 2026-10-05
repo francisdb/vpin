@@ -261,7 +261,7 @@ fn glb(content: &[u8], binary: &[u8]) -> Vec<u8> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::vpx::gameitem::primitive::{compress_mesh_data, write_animation_vertex_data};
     use crate::vpx::mesh::test_utils::create_minimal_mesh_data;
@@ -269,7 +269,7 @@ mod tests {
     use pretty_assertions::assert_eq;
     use testresult::TestResult;
 
-    fn animated_primitive(offsets: &[f32]) -> io::Result<Primitive> {
+    pub(super) fn animated_primitive(offsets: &[f32]) -> io::Result<Primitive> {
         let (vertices, indices, num_vertices, num_indices) = create_minimal_mesh_data();
         let base = Primitive {
             num_vertices: Some(num_vertices),
@@ -353,6 +353,336 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(primitive_glb(&primitive)?, None);
+        Ok(())
+    }
+}
+
+/// A mesh as vpinball reads it from a glTF binary
+pub(super) struct GlbMesh {
+    pub(super) vertices: Vec<crate::vpx::model::Vertex3dNoTex2>,
+    /// Three per triangle, in vpx winding
+    pub(super) indices: Vec<u32>,
+    pub(super) frames: Vec<Vec<VertData>>,
+}
+
+/// vpinball's `MTOVPU`: the double constant rounded to float, then a
+/// float multiplication
+fn m_to_vpu(value: f32) -> f32 {
+    const SCALE: f32 = (50.0 / (0.0254 * 1.0625)) as f32;
+    value * SCALE
+}
+
+/// glTF `(x, y, z)` in meters to vpx `(x, z, y)`
+fn to_vpx(x: f32, y: f32, z: f32) -> [f32; 3] {
+    [m_to_vpu(x), m_to_vpu(z), m_to_vpu(y)]
+}
+
+struct GlbFile<'a> {
+    json: Json,
+    binary: &'a [u8],
+}
+
+fn invalid(message: String) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message)
+}
+
+fn parse_glb(data: &[u8]) -> io::Result<GlbFile<'_>> {
+    let word = |offset: usize| -> io::Result<u32> {
+        data.get(offset..offset + 4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            .ok_or_else(|| invalid("truncated GLB".to_string()))
+    };
+    if data.get(..4) != Some(b"glTF") {
+        return Err(invalid("not a GLB file".to_string()));
+    }
+    let mut offset = 12;
+    let mut json = None;
+    let mut binary: &[u8] = &[];
+    while offset + 8 <= data.len() {
+        let length = word(offset)? as usize;
+        let kind = word(offset + 4)?;
+        let chunk = data
+            .get(offset + 8..offset + 8 + length)
+            .ok_or_else(|| invalid("truncated GLB chunk".to_string()))?;
+        match kind {
+            0x4E4F_534A => {
+                json = Some(
+                    serde_json::from_slice(chunk).map_err(|e| invalid(format!("GLB JSON: {e}")))?,
+                );
+            }
+            0x004E_4942 => binary = chunk,
+            _ => {}
+        }
+        offset += 8 + length;
+    }
+    let json = json.ok_or_else(|| invalid("GLB without JSON chunk".to_string()))?;
+    Ok(GlbFile { json, binary })
+}
+
+impl GlbFile<'_> {
+    fn number(value: &Json, what: &str) -> io::Result<usize> {
+        value
+            .as_u64()
+            .map(|v| v as usize)
+            .ok_or_else(|| invalid(format!("GLB: missing {what}")))
+    }
+
+    /// The bytes an accessor starts at, its stride and count
+    fn accessor(
+        &self,
+        index: usize,
+        component_size: usize,
+        components: usize,
+    ) -> io::Result<(usize, usize, usize)> {
+        let accessor = &self.json["accessors"][index];
+        let view_index = Self::number(&accessor["bufferView"], "accessor bufferView")?;
+        let view = &self.json["bufferViews"][view_index];
+        // only the binary chunk of a GLB is supported as buffer
+        let buffer = Self::number(&view["buffer"], "bufferView buffer")?;
+        if self.json["buffers"][buffer].get("uri").is_some() {
+            return Err(invalid(
+                "GLB: external buffers are not supported".to_string(),
+            ));
+        }
+        let base = view["byteOffset"].as_u64().unwrap_or(0) as usize
+            + accessor["byteOffset"].as_u64().unwrap_or(0) as usize;
+        let stride = match view["byteStride"].as_u64().unwrap_or(0) as usize {
+            0 => component_size * components,
+            stride => stride,
+        };
+        let count = Self::number(&accessor["count"], "accessor count")?;
+        let end = count
+            .checked_sub(1)
+            .map_or(Some(base), |last| {
+                last.checked_mul(stride)
+                    .and_then(|o| o.checked_add(base + component_size * components))
+            })
+            .ok_or_else(|| invalid("GLB: accessor out of range".to_string()))?;
+        if end > self.binary.len() {
+            return Err(invalid(
+                "GLB: accessor outside the binary chunk".to_string(),
+            ));
+        }
+        Ok((base, stride, count))
+    }
+
+    /// A float accessor as a flat array (`ReadFloatAccessor`), `None` for
+    /// one that is missing, empty or not of floats
+    fn floats(&self, index: Option<usize>, components: usize) -> io::Result<Option<Vec<f32>>> {
+        let Some(index) =
+            index.filter(|&i| i < self.json["accessors"].as_array().map_or(0, Vec::len))
+        else {
+            return Ok(None);
+        };
+        let accessor = &self.json["accessors"][index];
+        if accessor["componentType"] != FLOAT || accessor["count"].as_u64().unwrap_or(0) == 0 {
+            return Ok(None);
+        }
+        let (base, stride, count) = self.accessor(index, 4, components)?;
+        let mut values = Vec::with_capacity(count * components);
+        for i in 0..count {
+            for c in 0..components {
+                let o = base + i * stride + c * 4;
+                let b = &self.binary[o..o + 4];
+                values.push(f32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+            }
+        }
+        Ok(Some(values))
+    }
+}
+
+/// The mesh of a glTF binary as vpinball reads it (`Mesh::LoadGLB`): the
+/// first triangle primitive, converted to vpx axes in VP units, the V
+/// texture coordinate flipped back, triangle winding reversed back, morph
+/// targets as animation frames. A mesh without normals gets `(0, 0, 1)`.
+pub(super) fn read_glb(data: &[u8]) -> io::Result<GlbMesh> {
+    let glb = parse_glb(data)?;
+    let primitive = glb.json["meshes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|mesh| mesh["primitives"].as_array().into_iter().flatten())
+        .find(|primitive| {
+            primitive["mode"]
+                .as_u64()
+                .is_none_or(|mode| mode == u64::from(TRIANGLES))
+        })
+        .ok_or_else(|| invalid("GLB mesh contains no triangle primitive".to_string()))?;
+    let attribute = |name: &str| primitive["attributes"][name].as_u64().map(|i| i as usize);
+    let positions = glb
+        .floats(attribute("POSITION"), 3)?
+        .ok_or_else(|| invalid("GLB mesh has no positions".to_string()))?;
+    let normals = glb.floats(attribute("NORMAL"), 3)?;
+    let texcoords = glb.floats(attribute("TEXCOORD_0"), 2)?;
+    let count = positions.len() / 3;
+    if normals.as_ref().is_some_and(|n| n.len() != positions.len())
+        || texcoords.as_ref().is_some_and(|t| t.len() != count * 2)
+    {
+        return Err(invalid(
+            "GLB mesh has inconsistent attribute vertex counts".to_string(),
+        ));
+    }
+
+    let index_accessor = primitive["indices"]
+        .as_u64()
+        .ok_or_else(|| invalid("GLB mesh primitive has no index buffer".to_string()))?
+        as usize;
+    let component_size = match glb.json["accessors"][index_accessor]["componentType"].as_u64() {
+        Some(5121) => 1,
+        Some(5123) => 2,
+        _ => 4,
+    };
+    let (base, stride, index_count) = glb.accessor(index_accessor, component_size, 1)?;
+    let index = |i: usize| -> u32 {
+        let o = base + i * stride;
+        let b = &glb.binary[o..o + component_size];
+        match component_size {
+            1 => u32::from(b[0]),
+            2 => u32::from(u16::from_le_bytes([b[0], b[1]])),
+            _ => u32::from_le_bytes([b[0], b[1], b[2], b[3]]),
+        }
+    };
+    let mut indices = Vec::with_capacity(index_count);
+    for triangle in 0..index_count / 3 {
+        let i = triangle * 3;
+        indices.extend_from_slice(&[index(i), index(i + 2), index(i + 1)]);
+    }
+
+    let mut vertices = Vec::with_capacity(count);
+    for i in 0..count {
+        let [x, y, z] = to_vpx(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
+        let [nx, ny, nz] = match &normals {
+            Some(n) => to_vpx(n[i * 3], n[i * 3 + 1], n[i * 3 + 2]),
+            None => [0.0, 0.0, 1.0],
+        };
+        let (tu, tv) = match &texcoords {
+            Some(t) => (t[i * 2], 1.0 - t[i * 2 + 1]),
+            None => (0.0, 0.0),
+        };
+        vertices.push(crate::vpx::model::Vertex3dNoTex2 {
+            x,
+            y,
+            z,
+            nx,
+            ny,
+            nz,
+            tu,
+            tv,
+        });
+    }
+
+    let mut frames = Vec::new();
+    for target in primitive["targets"].as_array().into_iter().flatten() {
+        let Some(delta_positions) =
+            glb.floats(target["POSITION"].as_u64().map(|i| i as usize), 3)?
+        else {
+            continue;
+        };
+        if delta_positions.len() != positions.len() {
+            continue;
+        }
+        let delta_normals = glb
+            .floats(target["NORMAL"].as_u64().map(|i| i as usize), 3)?
+            .filter(|d| d.len() == positions.len());
+        let frame = (0..count)
+            .map(|i| {
+                let p = |c: usize| positions[i * 3 + c] + delta_positions[i * 3 + c];
+                let [x, y, z] = to_vpx(p(0), p(1), p(2));
+                let [nx, ny, nz] = match (&delta_normals, &normals) {
+                    (Some(d), Some(n)) => {
+                        let v = |c: usize| n[i * 3 + c] + d[i * 3 + c];
+                        to_vpx(v(0), v(1), v(2))
+                    }
+                    _ => [vertices[i].nx, vertices[i].ny, vertices[i].nz],
+                };
+                VertData {
+                    x,
+                    y,
+                    z,
+                    nx,
+                    ny,
+                    nz,
+                }
+            })
+            .collect();
+        frames.push(frame);
+    }
+    Ok(GlbMesh {
+        vertices,
+        indices,
+        frames,
+    })
+}
+
+#[cfg(test)]
+mod read_tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+    use testresult::TestResult;
+
+    /// A GLB of one triangle as another tool may write it: positions and
+    /// texture coordinates interleaved, no normals, 8-bit indices
+    fn foreign_glb() -> Vec<u8> {
+        let mut binary = Vec::new();
+        for (position, uv) in [
+            ([0.0f32, 0.0, 0.0], [0.0f32, 0.0]),
+            ([1.0, 0.0, 0.0], [1.0, 0.0]),
+            ([0.0, 0.5, 0.25], [0.0, 1.0]),
+        ] {
+            for v in position.iter().chain(&uv) {
+                binary.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        binary.extend_from_slice(&[0, 1, 2, 0]);
+        let document = serde_json::json!({
+            "asset": {"version": "2.0"},
+            "buffers": [{"byteLength": binary.len()}],
+            "bufferViews": [
+                {"buffer": 0, "byteLength": 60, "byteStride": 20},
+                {"buffer": 0, "byteOffset": 60, "byteLength": 3}
+            ],
+            "accessors": [
+                {"bufferView": 0, "componentType": FLOAT, "count": 3, "type": "VEC3"},
+                {"bufferView": 0, "byteOffset": 12, "componentType": FLOAT, "count": 3, "type": "VEC2"},
+                {"bufferView": 1, "componentType": 5121, "count": 3, "type": "SCALAR"}
+            ],
+            "meshes": [{"primitives": [{"attributes": {"POSITION": 0, "TEXCOORD_0": 1}, "indices": 2}]}]
+        });
+        glb(&serde_json::to_vec(&document).unwrap_or_default(), &binary)
+    }
+
+    #[test]
+    fn a_foreign_layout_is_read_like_vpinball_reads_it() -> TestResult {
+        let mesh = read_glb(&foreign_glb())?;
+        assert_eq!(mesh.indices, vec![0, 2, 1]);
+        let v = &mesh.vertices[2];
+        // glTF (0, 0.5, 0.25) m is vpx (0, 0.25, 0.5) m, in VP units
+        assert_eq!((v.x, v.y, v.z), (0.0, m_to_vpu(0.25), m_to_vpu(0.5)));
+        assert_eq!((v.nx, v.ny, v.nz), (0.0, 0.0, 1.0));
+        assert_eq!((v.tu, v.tv), (0.0, 0.0));
+        assert!(mesh.frames.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn a_written_mesh_reads_back_with_its_frames() -> TestResult {
+        let primitive = tests::animated_primitive(&[1.0, 3.0])?;
+        let glb = primitive_glb(&primitive)?.ok_or("a mesh")?;
+        let mesh = read_glb(&glb)?;
+        let original = primitive.read_mesh()?.ok_or("a mesh")?;
+        let original_indices: Vec<u32> = original
+            .indices
+            .iter()
+            .flat_map(|face| [face.i0 as u32, face.i1 as u32, face.i2 as u32])
+            .collect();
+        assert_eq!(mesh.indices, original_indices);
+        assert_eq!(mesh.vertices.len(), original.vertices.len());
+        for (read, written) in mesh.vertices.iter().zip(&original.vertices) {
+            let written = &written.vertex;
+            assert!((read.x - written.x).abs() <= written.x.abs() * 2.5e-7 + 1e-9);
+            assert_eq!((read.tu, read.tv), (written.tu, written.tv));
+        }
+        assert_eq!(mesh.frames.len(), 2);
         Ok(())
     }
 }

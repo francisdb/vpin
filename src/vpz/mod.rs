@@ -35,7 +35,8 @@
 //!
 //! Files no entity claims are kept in [`Vpz::other_files`].
 //!
-//! [`from_vpx`] gives the pack vpinball saves from a `.vpx` table.
+//! [`from_vpx`] gives the pack vpinball saves from a `.vpx` table, and
+//! [`to_vpx`] the table vpinball saves after loading a pack.
 //!
 //! ```no_run
 //! # fn main() -> std::io::Result<()> {
@@ -60,7 +61,7 @@ use std::fs;
 use std::io::{self, Cursor, Read, Seek, Write};
 use std::path::Path;
 
-pub use convert::from_vpx;
+pub use convert::{from_vpx, to_vpx};
 pub use names::sanitize_file_name;
 
 /// The `file_format` of a pack manifest

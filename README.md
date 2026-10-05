@@ -93,13 +93,17 @@ The manifest and the asset sidecars are typed; the table and scene documents are
 
 `vpin::vpz::from_vpx` gives the pack vpinball saves from a table, byte for byte for a table vpinball last saved
 itself. vpinball upgrades older tables on load (defaults of newer fields, legacy fields converted, invalid references
-cleared) before saving them; the conversion keeps the fields of the file. Conversion from a pack back to a `.vpx` is
-not part of it yet.
+cleared) before saving them; the conversion keeps the fields of the file, and carries the legacy fields vpinball
+converts on load.
+
+`vpin::vpz::to_vpx` gives the table vpinball saves after loading a pack. Meshes go through meters and back, so their
+vertices may move by a float step, as they do in vpinball.
 
 ```rust
 let vpx = vpin::vpx::read(std::path::Path::new("table.vpx"))?;
 let pack = vpin::vpz::from_vpx(&vpx, "Mon Oct  5 12:00:00 2026")?;
 vpin::vpz::write(&pack, "table.vpz")?;
+let table = vpin::vpz::to_vpx(&vpin::vpz::read("table.vpz")?, "Mon Oct  5 12:05:00 2026")?;
 ```
 
 ## Whole-Table Export (OBJ / glTF)
