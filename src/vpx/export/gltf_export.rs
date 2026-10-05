@@ -168,6 +168,20 @@ fn mime_type_for_image(image: &ImageData) -> &'static str {
     }
 }
 
+/// A texture of an image. Core glTF only takes png and jpeg sources, a
+/// webp image is referenced through `EXT_texture_webp`.
+fn texture_json(sampler: usize, image: usize, name: String, mime_type: &str) -> serde_json::Value {
+    if mime_type == "image/webp" {
+        json!({
+            "sampler": sampler,
+            "extensions": { "EXT_texture_webp": { "source": image } },
+            "name": name
+        })
+    } else {
+        json!({ "sampler": sampler, "source": image, "name": name })
+    }
+}
+
 /// A named mesh ready for GLTF export
 struct NamedMesh {
     name: String,
@@ -858,11 +872,12 @@ fn playfield_material(
 
     // Add texture
     let texture_idx = gltf_textures.len();
-    gltf_textures.push(json!({
-        "sampler": sampler_idx,
-        "source": image_idx,
-        "name": format!("{}_texture", playfield_image.name)
-    }));
+    gltf_textures.push(texture_json(
+        sampler_idx,
+        image_idx,
+        format!("{}_texture", playfield_image.name),
+        mime_type,
+    ));
 
     // Add playfield material with texture
     // Note: VPinball's playfield reflections are a separate screen-space effect
@@ -2186,11 +2201,12 @@ fn build_combined_gltf_payload(
 
                 // Add texture
                 let texture_idx = gltf_textures.len();
-                gltf_textures.push(json!({
-                    "sampler": sampler_idx,
-                    "source": image_idx,
-                    "name": format!("{}_texture", image.name)
-                }));
+                gltf_textures.push(texture_json(
+                    sampler_idx,
+                    image_idx,
+                    format!("{}_texture", image.name),
+                    mime_type,
+                ));
 
                 texture_index_map.insert(texture_key, texture_idx);
             } else {
@@ -3114,6 +3130,13 @@ fn build_combined_gltf_payload(
     if uses_node_visibility_extension {
         extensions_used.push("KHR_node_visibility");
     }
+    // without a png fallback a viewer needs the extension to show them
+    let uses_webp = gltf_textures
+        .iter()
+        .any(|texture| texture["extensions"]["EXT_texture_webp"].is_object());
+    if uses_webp {
+        extensions_used.push("EXT_texture_webp");
+    }
 
     // Create a root node that wraps all scene content, with gamedata as custom properties.
     // This makes the table name visible as the root object in Blender and provides
@@ -3156,6 +3179,10 @@ fn build_combined_gltf_payload(
             "byteLength": bin_data.len()
         }]
     });
+
+    if uses_webp {
+        gltf_json["extensionsRequired"] = json!(["EXT_texture_webp"]);
+    }
 
     if !animation_channels.is_empty() {
         gltf_json["animations"] = json!([{
@@ -3982,5 +4009,31 @@ mod morph_target_tests {
             .ok_or("the mesh")?;
         assert!(mesh.morph_targets.is_empty());
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod validator_tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn a_webp_texture_is_referenced_through_its_extension() {
+        let webp = texture_json(0, 3, "a".to_string(), "image/webp");
+        assert_eq!(webp["extensions"]["EXT_texture_webp"]["source"], 3);
+        assert!(webp.get("source").is_none());
+        let png = texture_json(0, 3, "a".to_string(), "image/png");
+        assert_eq!(png["source"], 3);
+    }
+
+    #[test]
+    fn a_base_color_factor_stays_within_0_and_1() {
+        let material = crate::gltf::GltfMaterialBuilder::new("m", 0.0, 0.5)
+            .base_color([1.2, 0.5, -0.1, 1.6])
+            .build();
+        assert_eq!(
+            material["pbrMetallicRoughness"]["baseColorFactor"],
+            json!([1.0, 0.5, 0.0, 1.0])
+        );
     }
 }

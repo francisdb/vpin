@@ -136,8 +136,10 @@ impl GltfMaterialBuilder {
     /// Set the base color factor (RGBA, 0-1 range).
     ///
     /// This color is multiplied with the base color texture if one is set.
+    /// Components outside 0-1, such as a flasher's opacity above 100%, are
+    /// clamped as glTF requires.
     pub fn base_color(mut self, color: [f32; 4]) -> Self {
-        self.pbr_metallic_roughness.base_color_factor = Some(color);
+        self.pbr_metallic_roughness.base_color_factor = Some(color.map(|c| c.clamp(0.0, 1.0)));
         self
     }
 
