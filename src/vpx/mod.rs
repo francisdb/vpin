@@ -358,6 +358,31 @@ impl<F: Read + Seek> VpxFile<F> {
         read_gamedata(&mut self.compound_file, &version)
     }
 
+    /// Reads the MAC stored in the `GameStg/MAC` stream: the MD2 signature
+    /// vpinball writes when saving. It covers the file format version, the
+    /// table info (save date and revision excluded), the custom info tags,
+    /// the game data with the script, and the collections. Parts, images,
+    /// sounds and fonts are not part of it, so tables that differ only in
+    /// those share a MAC.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the stream is missing or cannot be read.
+    pub fn read_mac(&mut self) -> io::Result<Vec<u8>> {
+        read_mac(&mut self.compound_file)
+    }
+
+    /// Computes the MAC of the current file content, as vpinball does when
+    /// saving. It equals [`VpxFile::read_mac`] for a table whose signed
+    /// content is unchanged since it was saved.
+    ///
+    /// # Errors
+    ///
+    /// Fails when a signed stream cannot be read.
+    pub fn compute_mac(&mut self) -> io::Result<Vec<u8>> {
+        generate_mac(&mut self.compound_file)
+    }
+
     /// Whether the table is currently locked.
     ///
     /// vpinball stores `TLCK` as a monotonic counter; the lock bit is the
@@ -695,9 +720,11 @@ pub fn importvbs(vpx_file_path: &Path, vbs_file_path: Option<PathBuf>) -> io::Re
 /// Verifies the MAC signature of a VPX file
 pub fn verify(vpx_file_path: &Path) -> VerifyResult {
     let result = move || -> io::Result<_> {
-        let mut comp = cfb::open(vpx_file_path)?;
-        let mac = read_mac(&mut comp)?;
-        let generated_mac = generate_mac(&mut comp)?;
+        let mut vpx_file = VpxFile {
+            compound_file: cfb::open(vpx_file_path)?,
+        };
+        let mac = vpx_file.read_mac()?;
+        let generated_mac = vpx_file.compute_mac()?;
         Ok((mac, generated_mac))
     }();
     match result {
@@ -732,7 +759,7 @@ fn path_for(vpx_file_path: &Path, extension: &str) -> PathBuf {
     PathBuf::from(vpx_file_path).with_extension(extension)
 }
 
-fn read_mac<F: Read + Write + Seek>(comp: &mut CompoundFile<F>) -> io::Result<Vec<u8>> {
+fn read_mac<F: Read + Seek>(comp: &mut CompoundFile<F>) -> io::Result<Vec<u8>> {
     let mac_path = Path::new(MAIN_SEPARATOR_STR).join("GameStg").join("MAC");
     if !comp.exists(&mac_path) {
         // fail
@@ -1366,6 +1393,24 @@ mod tests {
             vpx.read_gameitems()?.len(),
             vpx.read_gamedata()?.gameitems_size as usize
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_read_and_compute_mac() -> io::Result<()> {
+        let mut vpx = VpxFile::open(Cursor::new(TEST_TABLE_BYTES))?;
+        let stored = vpx.read_mac()?;
+        assert_eq!(stored.len(), 16);
+        assert_eq!(vpx.compute_mac()?, stored);
+
+        // a script change is signed, so the computed MAC no longer matches
+        let mut writable = VpxFile::open(Cursor::new(TEST_TABLE_BYTES.to_vec()))?;
+        let mut gamedata = writable.read_gamedata()?;
+        gamedata.code.string.push_str("' changed");
+        let version = writable.read_version()?;
+        write_game_data(&mut writable.compound_file, &gamedata, &version)?;
+        assert_eq!(writable.read_mac()?, stored);
+        assert_ne!(writable.compute_mac()?, stored);
         Ok(())
     }
 
