@@ -6,6 +6,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.0](https://github.com/francisdb/vpin/compare/v0.37.4...v0.38.0) - 2026-10-05
+
+### Added
+
+- *(vpz)* read what describes a pack without decoding it ([#561](https://github.com/francisdb/vpin/pull/561))
+- read and compute the table MAC ([#560](https://github.com/francisdb/vpin/pull/560))
+- *(audit)* report sound paths without extension as their own finding ([#559](https://github.com/francisdb/vpin/pull/559))
+- *(vpz)* convert a pack to the vpx table vpinball saves ([#555](https://github.com/francisdb/vpin/pull/555))
+- *(export)* primitive animation frames as glTF morph targets and animation ([#554](https://github.com/francisdb/vpin/pull/554))
+- *(vpz)* convert a vpx table to the pack vpinball saves ([#553](https://github.com/francisdb/vpin/pull/553))
+- *(vpz)* read and write the vpinball VPZ table pack ([#550](https://github.com/francisdb/vpin/pull/550))
+
+### Fixed
+
+- *(vpz)* write unit length normals in pack meshes ([#558](https://github.com/francisdb/vpin/pull/558))
+- *(export)* pass the official glTF validator ([#556](https://github.com/francisdb/vpin/pull/556))
+- *(vpz)* write packs byte for byte as vpinball does ([#552](https://github.com/francisdb/vpin/pull/552))
+
+### Other
+
+- [**breaking**] extract primitive meshes as OBJ only ([#548](https://github.com/francisdb/vpin/pull/548))
+
 ## [0.37.4](https://github.com/francisdb/vpin/compare/v0.37.3...v0.37.4) - 2026-10-03
 
 ### Added
