@@ -48,6 +48,7 @@
 //! ```
 
 mod convert;
+mod info;
 mod json;
 mod names;
 mod read;
@@ -62,6 +63,7 @@ use std::io::{self, Cursor, Read, Seek, Write};
 use std::path::Path;
 
 pub use convert::{from_vpx, to_vpx};
+pub use info::{PackInfo, read_info, read_zip_info, table_info};
 pub use names::sanitize_file_name;
 
 /// The `file_format` of a pack manifest
