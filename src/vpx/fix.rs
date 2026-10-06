@@ -363,8 +363,8 @@ pub enum SoundSkipReason {
     /// The samples could not be encoded as FLAC; the error
     Unencodable(String),
     /// The path is the `* Backglass Output *` marker, which a `.flac`
-    /// extension would not replace: [`add_wav_extensions`] renames the
-    /// sound first
+    /// extension would not replace: [`rename_backglass_marker_sounds`]
+    /// renames the sound first
     BackglassMarker,
 }
 
@@ -471,10 +471,10 @@ impl SoundConversion {
 ///
 /// A WAV that is not PCM is left alone and reported, as is one the FLAC
 /// would not shrink or that does not encode, and one with the `* Backglass
-/// Output *` path: run [`add_wav_extensions`] first, as `vpxtool optimize`
-/// does, so it gets a name to put the `.flac` extension on. A sound already stored as a
-/// file (ogg, mp3, an existing flac) was never a candidate and is in
-/// neither list.
+/// Output *` path: run [`rename_backglass_marker_sounds`] first, as
+/// `vpxtool optimize` does, so it gets a name to put the `.flac` extension
+/// on. A sound already stored as a file (ogg, mp3, an existing flac) was
+/// never a candidate and is in neither list.
 ///
 /// Returns what was converted and what was left alone, with the reason.
 #[cfg(not(target_family = "wasm"))]
@@ -518,7 +518,7 @@ pub fn wavs_to_flac(vpx: &mut VPX) -> SoundConversion {
     conversion
 }
 
-/// A sound whose path got the `.wav` extension from [`add_wav_extensions`]
+/// A sound given a `.wav` path by [`rename_backglass_marker_sounds`]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenamedSound {
     name: String,
@@ -560,7 +560,7 @@ impl RenamedSound {
 ///
 /// Returns the renamed sounds in table order, empty when the table is left
 /// as it was.
-pub fn add_wav_extensions(vpx: &mut VPX) -> Vec<RenamedSound> {
+pub fn rename_backglass_marker_sounds(vpx: &mut VPX) -> Vec<RenamedSound> {
     let mut findings = Vec::new();
     assets::check_sound_storage(vpx, &mut findings);
     let names: HashSet<String> = findings
@@ -936,7 +936,7 @@ mod tests {
         vpx.sounds.push(sound("knock", "C:\\sounds\\knock"));
         vpx.sounds.push(sound("hit", "hit.wav"));
 
-        let renamed = add_wav_extensions(&mut vpx);
+        let renamed = rename_backglass_marker_sounds(&mut vpx);
 
         assert_eq!(
             renamed
@@ -959,7 +959,7 @@ mod tests {
                 ..
             }
         )));
-        assert!(add_wav_extensions(&mut vpx).is_empty());
+        assert!(rename_backglass_marker_sounds(&mut vpx).is_empty());
     }
 
     #[test]
@@ -968,7 +968,7 @@ mod tests {
         vpx.version = crate::vpx::version::Version::new(1030);
         vpx.sounds.push(sound("bell", "* Backglass Output *"));
 
-        add_wav_extensions(&mut vpx);
+        rename_backglass_marker_sounds(&mut vpx);
 
         assert_eq!(
             vpx.sounds[0].output_target,
@@ -989,7 +989,7 @@ mod tests {
         );
         assert_eq!(vpx.sounds[0].path, "* Backglass Output *");
 
-        add_wav_extensions(&mut vpx);
+        rename_backglass_marker_sounds(&mut vpx);
         let conversion = wavs_to_flac(&mut vpx);
         // a candidate now, whatever the converter makes of the test samples
         assert_eq!(vpx.sounds[0].path, "bell.wav");
