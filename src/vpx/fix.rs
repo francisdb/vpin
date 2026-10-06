@@ -497,6 +497,78 @@ pub fn wavs_to_flac(vpx: &mut VPX) -> SoundConversion {
     conversion
 }
 
+/// A sound whose path got the `.wav` extension from [`add_wav_extensions`]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenamedSound {
+    name: String,
+    path_before: String,
+    path_after: String,
+}
+
+impl RenamedSound {
+    /// Name of the sound in the table
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// The path the sound had
+    pub fn path_before(&self) -> &str {
+        &self.path_before
+    }
+
+    /// The path the sound has now
+    pub fn path_after(&self) -> &str {
+        &self.path_after
+    }
+}
+
+/// The path older tables give a sound for the backglass speakers
+const BACKGLASS_OUTPUT_MARKER: &str = "* Backglass Output *";
+
+/// Gives the sounds whose path has no extension, the ones the audit reports
+/// as `sound-without-extension`, a `.wav` path: they are stored as wavs,
+/// which vpinball 10.8.0 reads from such a path but the 10.8.1 pre-releases
+/// only from a `.wav` one. A path gets `.wav` appended, the `* Backglass
+/// Output *` marker becomes the sound name with `.wav`. In a table older
+/// than 1031, where the marker is what sends the sound to the backglass
+/// speakers, the sound's output target is set to the backglass instead.
+///
+/// Returns the renamed sounds in table order, empty when the table is left
+/// as it was.
+pub fn add_wav_extensions(vpx: &mut VPX) -> Vec<RenamedSound> {
+    let mut findings = Vec::new();
+    assets::check_sound_storage(vpx, &mut findings);
+    let names: HashSet<String> = findings
+        .into_iter()
+        .filter_map(|finding| match finding {
+            Kind::SoundWithoutExtension { sound, .. } => Some(sound),
+            _ => None,
+        })
+        .collect();
+    let legacy_marker = vpx.version.u32() < 1031;
+    let mut renamed = Vec::new();
+    for sound in &mut vpx.sounds {
+        if !names.contains(&sound.name) {
+            continue;
+        }
+        let path_before = sound.path.clone();
+        if path_before.eq_ignore_ascii_case(BACKGLASS_OUTPUT_MARKER) {
+            sound.path = format!("{}.wav", sound.name);
+            if legacy_marker {
+                sound.output_target = crate::vpx::sound::OutputTarget::Backglass;
+            }
+        } else {
+            sound.path.push_str(".wav");
+        }
+        renamed.push(RenamedSound {
+            name: sound.name.clone(),
+            path_before,
+            path_after: sound.path.clone(),
+        });
+    }
+    renamed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -817,5 +889,65 @@ mod tests {
         let again = wavs_to_flac(&mut vpx);
         assert!(again.is_empty());
         assert_eq!(again.skipped(), conversion.skipped());
+    }
+
+    fn sound(name: &str, path: &str) -> crate::vpx::sound::SoundData {
+        crate::vpx::sound::SoundData {
+            name: name.to_string(),
+            path: path.to_string(),
+            data: vec![0; 8],
+            wave_form: Default::default(),
+            internal_name: String::new(),
+            fade: 0,
+            volume: 0,
+            balance: 0,
+            output_target: crate::vpx::sound::OutputTarget::Table,
+        }
+    }
+
+    #[test]
+    fn sounds_without_extension_get_a_wav_path() {
+        let mut vpx = clean_vpx();
+        vpx.sounds.push(sound("bell", "* Backglass Output *"));
+        vpx.sounds.push(sound("knock", "C:\\sounds\\knock"));
+        vpx.sounds.push(sound("hit", "hit.wav"));
+
+        let renamed = add_wav_extensions(&mut vpx);
+
+        assert_eq!(
+            renamed
+                .iter()
+                .map(|r| (r.name(), r.path_before(), r.path_after()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("bell", "* Backglass Output *", "bell.wav"),
+                ("knock", "C:\\sounds\\knock", "C:\\sounds\\knock.wav"),
+            ]
+        );
+        // a table of 1031 or newer stores the output target itself
+        assert_eq!(
+            vpx.sounds[0].output_target,
+            crate::vpx::sound::OutputTarget::Table
+        );
+        assert!(
+            !audit_kinds(&vpx)
+                .iter()
+                .any(|kind| matches!(kind, Kind::SoundWithoutExtension { .. }))
+        );
+        assert!(add_wav_extensions(&mut vpx).is_empty());
+    }
+
+    #[test]
+    fn a_legacy_backglass_marker_becomes_the_output_target() {
+        let mut vpx = clean_vpx();
+        vpx.version = crate::vpx::version::Version::new(1030);
+        vpx.sounds.push(sound("bell", "* Backglass Output *"));
+
+        add_wav_extensions(&mut vpx);
+
+        assert_eq!(
+            vpx.sounds[0].output_target,
+            crate::vpx::sound::OutputTarget::Backglass
+        );
     }
 }
