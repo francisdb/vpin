@@ -455,7 +455,11 @@ pub(crate) enum Kind {
         /// The light has an intensity, so the stuck state shows
         lit: bool,
     },
-    /// A sound plays on the playfield speakers but is not mono
+    /// A sound plays on the playfield speakers but is not mono. vpinball
+    /// 10.8.1 and later decode a playfield sound to one channel, averaging
+    /// the others into it, so they only take space; 10.8.0 played it in
+    /// stereo in its two speaker mode. Checked for wavs and for FLAC, Ogg
+    /// Vorbis and MP3 files
     StereoTableSound {
         /// Name of the sound
         sound: String,

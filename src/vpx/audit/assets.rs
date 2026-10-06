@@ -160,12 +160,19 @@ pub(super) fn referenced_images(vpx: &VPX) -> HashSet<String> {
 }
 
 /// Stereo sounds that play from the table, where vpinball positions
-/// them
+/// them. A wav has its channels in the stored header, a FLAC, Ogg Vorbis or
+/// MP3 file in its own.
 pub(super) fn check_stereo_sounds(vpx: &VPX, findings: &mut Vec<Kind>) {
     for sound in &vpx.sounds {
-        if sound.output_target == crate::vpx::sound::OutputTarget::Table
-            && sound.wave_form.channels > 1
-        {
+        if sound.output_target != crate::vpx::sound::OutputTarget::Table {
+            continue;
+        }
+        let channels = if crate::vpx::sound::is_wav(&sound.path) {
+            sound.wave_form.channels
+        } else {
+            crate::vpx::sound::file_channels(&sound.data).unwrap_or(0)
+        };
+        if channels > 1 {
             findings.push(Kind::StereoTableSound {
                 sound: sound.name.clone(),
             });
@@ -1408,6 +1415,76 @@ mod tests {
             balance: 0,
             output_target: crate::vpx::sound::OutputTarget::Table,
         }
+    }
+
+    /// A FLAC stream header: the STREAMINFO block of 16-bit 44100 Hz audio
+    fn flac_header(channels: u8) -> Vec<u8> {
+        let mut data = b"fLaC".to_vec();
+        data.extend([0x80, 0, 0, 34]);
+        data.extend([0x10, 0x00, 0x10, 0x00, 0, 0, 0, 0, 0, 0]);
+        // 44100 Hz in 20 bits, the channels minus one, 16 bits per sample
+        data.extend([0x0A, 0xC4, 0x40 | ((channels - 1) << 1), 0xF0]);
+        data.extend([0; 20]);
+        data
+    }
+
+    /// An Ogg page holding a Vorbis identification header
+    fn vorbis_header(channels: u8) -> Vec<u8> {
+        let mut data = b"OggS".to_vec();
+        data.extend([0; 22]);
+        data.extend([1, 30]);
+        data.extend(b"\x01vorbis");
+        data.extend([0, 0, 0, 0, channels]);
+        data.extend([0; 18]);
+        data
+    }
+
+    /// An MP3 behind an ID3v2 tag: an MPEG 1 layer 3 frame header, joint
+    /// stereo or mono
+    fn mp3_header(mono: bool) -> Vec<u8> {
+        let mut data = b"ID3\x04\x00\x00".to_vec();
+        data.extend([0, 0, 0, 4, 0, 0, 0, 0]);
+        data.extend([0xFF, 0xFB, 0x90, if mono { 0xC4 } else { 0x64 }]);
+        data
+    }
+
+    fn stereo_findings(vpx: &VPX) -> Vec<String> {
+        audit_kinds(vpx)
+            .into_iter()
+            .filter_map(|finding| match finding {
+                Kind::StereoTableSound { sound } => Some(sound),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn stereo_sound_files_on_the_playfield_are_reported() {
+        let mut vpx = clean_vpx();
+        let wav = |channels: u8| {
+            let mut data = b"RIFF\x24\0\0\0WAVEfmt \x10\0\0\0\x01\0".to_vec();
+            data.extend([channels, 0]);
+            data
+        };
+        for (name, path, data) in [
+            ("flac2", "a.flac", flac_header(2)),
+            ("flac1", "b.flac", flac_header(1)),
+            ("ogg2", "c.ogg", vorbis_header(2)),
+            ("ogg1", "d.ogg", vorbis_header(1)),
+            ("mp3stereo", "e.mp3", mp3_header(false)),
+            ("mp3mono", "f.mp3", mp3_header(true)),
+            ("riff2", "g.mp3", wav(2)),
+        ] {
+            vpx.sounds.push(stored_sound(name, path, data));
+        }
+        let mut backglass = stored_sound("music", "music.flac", flac_header(2));
+        backglass.output_target = crate::vpx::sound::OutputTarget::Backglass;
+        vpx.sounds.push(backglass);
+
+        assert_eq!(
+            stereo_findings(&vpx),
+            vec!["flac2", "ogg2", "mp3stereo", "riff2"]
+        );
     }
 
     fn sound_storage_findings(vpx: &VPX) -> Vec<Kind> {
