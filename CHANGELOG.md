@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.2](https://github.com/francisdb/vpin/compare/v0.38.1...v0.38.2) - 2026-10-06
+
+### Added
+
+- *(fix)* downmix stereo playfield sounds to vpinball's mono ([#569](https://github.com/francisdb/vpin/pull/569))
+- *(audit)* report stereo FLAC, Ogg and MP3 playfield sounds ([#568](https://github.com/francisdb/vpin/pull/568))
+- *(fix)* give backglass marker sounds a .wav path ([#565](https://github.com/francisdb/vpin/pull/565))
+
+### Other
+
+- *(fix)* rename add_wav_extensions to rename_backglass_marker_sounds ([#567](https://github.com/francisdb/vpin/pull/567))
+- *(deps)* bump taiki-e/install-action from 2.87.15 to 2.87.22 ([#562](https://github.com/francisdb/vpin/pull/562))
+
 ## [0.38.1](https://github.com/francisdb/vpin/compare/v0.38.0...v0.38.1) - 2026-10-06
 
 ### Fixed
