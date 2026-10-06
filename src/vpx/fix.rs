@@ -349,14 +349,15 @@ fn stored_bytes(image: &ImageData) -> usize {
 #[cfg(not(target_family = "wasm"))]
 const BACKGLASS_OUTPUT_MARKER: &str = "* Backglass Output *";
 
-/// Why [`wavs_to_flac`] left a sound alone
+/// Why [`wavs_to_flac`] or [`playfield_sounds_to_mono`] left a sound alone
 #[cfg(not(target_family = "wasm"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SoundSkipReason {
-    /// The WAV is not plain PCM this converter re-encodes: a `format_tag`
-    /// other than 1 (such as ADPCM or float), or a sample depth other
-    /// than 8, 16 or 24 bits
+    /// The WAV is not plain PCM the fix converts: for [`wavs_to_flac`] a
+    /// `format_tag` other than 1 (such as ADPCM or float) or a sample depth
+    /// other than 8, 16 or 24 bits; [`playfield_sounds_to_mono`] also takes
+    /// 32 bit PCM and 32 bit float
     NotPcm,
     /// The FLAC would not be smaller than the stored WAV samples
     NotSmaller,
@@ -366,6 +367,11 @@ pub enum SoundSkipReason {
     /// extension would not replace: [`rename_backglass_marker_sounds`]
     /// renames the sound first
     BackglassMarker,
+    /// An MP3 or Ogg file: re-encoding it to mono would degrade it
+    Lossy,
+    /// A FLAC of 24 bits or more: its exact mono needs one bit more than
+    /// the encoder writes
+    TooDeep,
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -373,10 +379,17 @@ impl std::fmt::Display for SoundSkipReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SoundSkipReason::NotPcm => {
-                write!(f, "not plain 8, 16 or 24-bit PCM, which is not re-encoded")
+                write!(f, "not a plain PCM format this converts")
             }
-            SoundSkipReason::NotSmaller => write!(f, "the flac would not be smaller"),
+            SoundSkipReason::NotSmaller => write!(f, "the result would not be smaller"),
             SoundSkipReason::Unencodable(error) => write!(f, "does not encode: {error}"),
+            SoundSkipReason::Lossy => write!(f, "a lossy mp3 or ogg, not re-encoded"),
+            SoundSkipReason::TooDeep => {
+                write!(
+                    f,
+                    "a flac of 24 bits or more, whose exact mono does not fit"
+                )
+            }
             SoundSkipReason::BackglassMarker => write!(
                 f,
                 "has the \"{BACKGLASS_OUTPUT_MARKER}\" path, which needs a .wav name first"
@@ -505,6 +518,65 @@ pub fn wavs_to_flac(vpx: &mut VPX) -> SoundConversion {
             Ok(Some(crate::vpx::sound::Flac::NotSmaller)) => SoundSkipReason::NotSmaller,
             // a wav that is not PCM: wav_to_flac declines it
             Ok(None) => SoundSkipReason::NotPcm,
+            Err(e) => {
+                warn!("Skipping sound {}: {e}", sound.name);
+                SoundSkipReason::Unencodable(e.to_string())
+            }
+        };
+        conversion.skipped.push(SkippedSound {
+            name: sound.name.clone(),
+            reason,
+        });
+    }
+    conversion
+}
+
+/// Downmixes the sounds the audit reports as `stereo-table-sound` to the
+/// mono vpinball plays them as: vpinball 10.8.1 and later decode a
+/// playfield sound to one channel, averaging the others into it, so the
+/// extra channels only take space. The downmix is exactly vpinball's: a wav
+/// keeps its sample format, a FLAC gets one bit more to hold the average
+/// exactly. 10.8.0 played such sounds in stereo in its two speaker mode,
+/// so this is an opt-in size lever, as `vpxtool optimize` has it behind a
+/// flag. Run it before [`wavs_to_flac`] so the FLAC only encodes one
+/// channel.
+///
+/// MP3 and Ogg files are left alone and reported, as are wavs in another
+/// sample format, FLACs of 24 bits or more or other than two channels, and
+/// a FLAC whose mono would not be smaller.
+///
+/// Returns what was downmixed and what was left alone, with the reason.
+#[cfg(not(target_family = "wasm"))]
+pub fn playfield_sounds_to_mono(vpx: &mut VPX) -> SoundConversion {
+    let mut findings = Vec::new();
+    assets::check_stereo_sounds(vpx, &mut findings);
+    let stereo: HashSet<String> = findings
+        .into_iter()
+        .filter_map(|finding| match finding {
+            Kind::StereoTableSound { sound } => Some(sound),
+            _ => None,
+        })
+        .collect();
+    let mut conversion = SoundConversion::default();
+    for sound in &mut vpx.sounds {
+        if !stereo.contains(&sound.name) {
+            continue;
+        }
+        let bytes_before = sound.data.len();
+        let reason = match sound.downmix_to_mono() {
+            Ok(crate::vpx::sound::Mono::Converted) => {
+                conversion.converted.push(ConvertedSound {
+                    name: sound.name.clone(),
+                    bytes_before,
+                    bytes_after: sound.data.len(),
+                });
+                continue;
+            }
+            Ok(crate::vpx::sound::Mono::NotPcm) => SoundSkipReason::NotPcm,
+            Ok(crate::vpx::sound::Mono::Lossy) => SoundSkipReason::Lossy,
+            Ok(crate::vpx::sound::Mono::TooDeep) => SoundSkipReason::TooDeep,
+            Ok(crate::vpx::sound::Mono::NotSmaller) => SoundSkipReason::NotSmaller,
+            Ok(crate::vpx::sound::Mono::Unsupported(why)) => SoundSkipReason::Unencodable(why),
             Err(e) => {
                 warn!("Skipping sound {}: {e}", sound.name);
                 SoundSkipReason::Unencodable(e.to_string())
@@ -999,5 +1071,50 @@ mod tests {
                 .iter()
                 .all(|skipped| skipped.reason() != &SoundSkipReason::BackglassMarker)
         );
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[test]
+    fn stereo_playfield_sounds_are_downmixed() {
+        use crate::vpx::sound::flac_tests::pcm_wav;
+        let mut vpx = clean_vpx();
+        vpx.sounds.push(pcm_wav("hit", 2, 16, 1000));
+        vpx.sounds.push(pcm_wav("click", 1, 16, 1000));
+        let mut music = pcm_wav("music", 2, 16, 1000);
+        music.output_target = crate::vpx::sound::OutputTarget::Backglass;
+        vpx.sounds.push(music);
+        let mut mp3 = pcm_wav("voice", 2, 16, 10);
+        mp3.path = "voice.mp3".to_string();
+        mp3.data = vec![0xFF, 0xFB, 0x90, 0x64, 0, 0];
+        vpx.sounds.push(mp3);
+
+        let conversion = playfield_sounds_to_mono(&mut vpx);
+
+        assert_eq!(
+            conversion
+                .converted()
+                .iter()
+                .map(|c| (c.name(), c.bytes_before(), c.bytes_after()))
+                .collect::<Vec<_>>(),
+            vec![("hit", 4000, 2000)]
+        );
+        assert_eq!(
+            conversion
+                .skipped()
+                .iter()
+                .map(|s| (s.name(), s.reason().clone()))
+                .collect::<Vec<_>>(),
+            vec![("voice", SoundSkipReason::Lossy)]
+        );
+        // the backglass sound stays stereo
+        assert_eq!(vpx.sounds[2].wave_form.channels, 2);
+        let stereo: Vec<_> = audit_kinds(&vpx)
+            .into_iter()
+            .filter_map(|kind| match kind {
+                Kind::StereoTableSound { sound } => Some(sound),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(stereo, vec!["voice"]);
     }
 }
