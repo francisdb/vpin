@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.1](https://github.com/francisdb/vpin/compare/v0.38.0...v0.38.1) - 2026-10-06
+
+### Fixed
+
+- *(vpz)* write a zip only for a .vpz name ([#563](https://github.com/francisdb/vpin/pull/563))
+
 ## [0.38.0](https://github.com/francisdb/vpin/compare/v0.37.4...v0.38.0) - 2026-10-05
 
 ### Added
