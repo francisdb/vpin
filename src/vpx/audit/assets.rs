@@ -162,7 +162,7 @@ pub(super) fn referenced_images(vpx: &VPX) -> HashSet<String> {
 /// Stereo sounds that play from the table, where vpinball positions
 /// them. A wav has its channels in the stored header, a FLAC, Ogg Vorbis or
 /// MP3 file in its own.
-pub(super) fn check_stereo_sounds(vpx: &VPX, findings: &mut Vec<Kind>) {
+pub(crate) fn check_stereo_sounds(vpx: &VPX, findings: &mut Vec<Kind>) {
     for sound in &vpx.sounds {
         if sound.output_target != crate::vpx::sound::OutputTarget::Table {
             continue;

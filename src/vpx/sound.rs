@@ -779,9 +779,6 @@ impl SoundData {
     /// When the samples cannot be encoded as FLAC.
     #[cfg(not(target_family = "wasm"))]
     pub(crate) fn wav_to_flac(&mut self) -> io::Result<Option<Flac>> {
-        use flacenc::component::BitRepr;
-        use flacenc::error::Verify;
-
         if !is_wav(&self.path) || self.wave_form.format_tag != 1 {
             return Ok(None);
         }
@@ -793,31 +790,7 @@ impl SoundData {
         }
         let samples = pcm_samples(&self.data, bits);
         let bytes_before = self.data.len();
-
-        let config = flacenc::config::Encoder::default()
-            .into_verified()
-            .map_err(|(_, e)| io::Error::other(format!("flac config: {e:?}")))?;
-        let source = flacenc::source::MemSource::from_samples(
-            &samples,
-            channels as usize,
-            bits as usize,
-            self.wave_form.samples_per_sec as usize,
-        );
-        let mut stream = flacenc::encode_with_fixed_block_size(&config, source, config.block_size)
-            .map_err(|e| io::Error::other(format!("flac encode: {e:?}")))?;
-        // Published flacenc 0.5.1 sets min == max block size up front, which is wrong when
-        // the stream ends in a shorter tail frame; strict decoders (miniaudio) then reject it.
-        // Re-set min = max = max_block_size after encoding, matching yotarok/flacenc-rs#255.
-        let max_block_size = stream.stream_info().max_block_size();
-        stream
-            .stream_info_mut()
-            .set_block_sizes(max_block_size, max_block_size)
-            .map_err(|e| io::Error::other(format!("flac block sizes: {e:?}")))?;
-        let mut sink = flacenc::bitsink::ByteSink::new();
-        stream
-            .write(&mut sink)
-            .map_err(|e| io::Error::other(format!("flac write: {e:?}")))?;
-        let flac = sink.into_inner();
+        let flac = encode_flac(&samples, channels, bits, self.wave_form.samples_per_sec)?;
 
         if flac.len() >= bytes_before {
             return Ok(Some(Flac::NotSmaller));
@@ -828,6 +801,222 @@ impl SoundData {
         self.wave_form = WaveForm::default();
         Ok(Some(Flac::Converted))
     }
+}
+
+/// Encodes interleaved samples of the given depth as a FLAC file
+#[cfg(not(target_family = "wasm"))]
+fn encode_flac(
+    samples: &[i32],
+    channels: u16,
+    bits_per_sample: u16,
+    sample_rate: u32,
+) -> io::Result<Vec<u8>> {
+    use flacenc::component::BitRepr;
+    use flacenc::error::Verify;
+
+    let config = flacenc::config::Encoder::default()
+        .into_verified()
+        .map_err(|(_, e)| io::Error::other(format!("flac config: {e:?}")))?;
+    let source = flacenc::source::MemSource::from_samples(
+        samples,
+        channels as usize,
+        bits_per_sample as usize,
+        sample_rate as usize,
+    );
+    let mut stream = flacenc::encode_with_fixed_block_size(&config, source, config.block_size)
+        .map_err(|e| io::Error::other(format!("flac encode: {e:?}")))?;
+    // Published flacenc 0.5.1 sets min == max block size up front, which is wrong when
+    // the stream ends in a shorter tail frame; strict decoders (miniaudio) then reject it.
+    // Re-set min = max = max_block_size after encoding, matching yotarok/flacenc-rs#255.
+    let max_block_size = stream.stream_info().max_block_size();
+    stream
+        .stream_info_mut()
+        .set_block_sizes(max_block_size, max_block_size)
+        .map_err(|e| io::Error::other(format!("flac block sizes: {e:?}")))?;
+    let mut sink = flacenc::bitsink::ByteSink::new();
+    stream
+        .write(&mut sink)
+        .map_err(|e| io::Error::other(format!("flac write: {e:?}")))?;
+    Ok(sink.into_inner())
+}
+
+/// What [`SoundData::downmix_to_mono`] did with a sound of more than one channel
+#[cfg(not(target_family = "wasm"))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Mono {
+    /// Downmixed, the sound now holds one channel
+    Converted,
+    /// A wav that is not 8, 16, 24 or 32 bit PCM or 32 bit float
+    NotPcm,
+    /// An MP3 or Ogg file, which re-encoding would degrade
+    Lossy,
+    /// A FLAC of 24 bits or more: the exact mono needs a bit more, past
+    /// what the encoder writes
+    TooDeep,
+    /// The mono FLAC would not be smaller
+    NotSmaller,
+    /// Something else this does not downmix, why
+    Unsupported(String),
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl SoundData {
+    /// Downmixes a sound of more than one channel to the mono vpinball
+    /// plays it as on the playfield: miniaudio 0.11, which vpinball 10.8.1
+    /// and later decode with, averages the channels when a playfield sound
+    /// is decoded to one channel (`ma_channel_mix_mode_simple`), see
+    /// [`downmix_wav`].
+    ///
+    /// A wav keeps its sample format with one channel. A two channel FLAC
+    /// up to 23 bits becomes a mono FLAC one bit deeper holding the sum of
+    /// the channels: miniaudio averages FLAC samples as floats, which only
+    /// that depth stores exactly. MP3 and Ogg files are lossy and left
+    /// alone.
+    pub(crate) fn downmix_to_mono(&mut self) -> io::Result<Mono> {
+        if is_wav(&self.path) {
+            let Some(data) = downmix_wav(&self.data, &self.wave_form) else {
+                return Ok(Mono::NotPcm);
+            };
+            let bytes_per_sample = self.wave_form.bits_per_sample / 8;
+            self.data = data;
+            self.wave_form.channels = 1;
+            self.wave_form.block_align = bytes_per_sample;
+            self.wave_form.avg_bytes_per_sec =
+                self.wave_form.samples_per_sec * u32::from(bytes_per_sample);
+            return Ok(Mono::Converted);
+        }
+        match content_format(&self.data) {
+            Some("flac") => self.flac_to_mono(),
+            Some("mp3" | "ogg") => Ok(Mono::Lossy),
+            Some(format) => Ok(Mono::Unsupported(format!(
+                "a {format} stored under another name"
+            ))),
+            None => Ok(Mono::Unsupported("an unknown format".to_string())),
+        }
+    }
+
+    fn flac_to_mono(&mut self) -> io::Result<Mono> {
+        let mut reader =
+            claxon::FlacReader::new(io::Cursor::new(&self.data)).map_err(io::Error::other)?;
+        let info = reader.streaminfo();
+        if info.channels != 2 {
+            return Ok(Mono::Unsupported(format!(
+                "a {} channel flac",
+                info.channels
+            )));
+        }
+        let bits = info.bits_per_sample as u16;
+        if bits >= 24 {
+            return Ok(Mono::TooDeep);
+        }
+        if bits < 7 {
+            return Ok(Mono::Unsupported(format!("a {bits} bit flac")));
+        }
+        let samples = reader
+            .samples()
+            .collect::<Result<Vec<i32>, _>>()
+            .map_err(io::Error::other)?;
+        let mono: Vec<i32> = samples
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|[left, right]| left + right)
+            .collect();
+        let flac = encode_flac(&mono, 1, bits + 1, info.sample_rate)?;
+        if flac.len() >= self.data.len() {
+            return Ok(Mono::NotSmaller);
+        }
+        self.data = flac;
+        Ok(Mono::Converted)
+    }
+}
+
+/// miniaudio's `0.00784313725490196078f`, 2/255 as the nearest float
+#[cfg(not(target_family = "wasm"))]
+const U8_TO_F32: f32 = f32::from_bits(0x3C00_8081);
+/// miniaudio's `0.00000011920928955078125f`, 2^-23
+#[cfg(not(target_family = "wasm"))]
+const S24_TO_F32: f32 = f32::from_bits(0x3400_0000);
+
+/// Averages the channels of interleaved wav samples into one, as miniaudio
+/// 0.11 does when vpinball decodes a playfield sound to mono: in the
+/// samples' own format for 16 bit PCM and 32 bit float, through floats for
+/// 8, 24 and 32 bit PCM (`ma_data_converter_config_get_mid_format`). The
+/// sum of the channels is divided by their count
+/// (`ma_channel_converter_process_pcm_frames__mono_out`), and the sample
+/// conversions are miniaudio's reference ones, which its SIMD variants
+/// call too. `None` for any other format. A trailing partial frame is
+/// dropped, as the decoder reads whole frames.
+#[cfg(not(target_family = "wasm"))]
+fn downmix_wav(data: &[u8], wave_form: &WaveForm) -> Option<Vec<u8>> {
+    let channels = usize::from(wave_form.channels);
+    let bytes = usize::from(wave_form.bits_per_sample / 8);
+    if channels == 0 || bytes == 0 || !wave_form.bits_per_sample.is_multiple_of(8) {
+        return None;
+    }
+    let frames = data.chunks_exact(channels * bytes);
+    let average = |frame: &[u8], to_f32: &dyn Fn(&[u8]) -> f32| {
+        let mut sum = 0.0f32;
+        for sample in frame.chunks_exact(bytes) {
+            sum += to_f32(sample);
+        }
+        sum / channels as f32
+    };
+    let mono = match (wave_form.format_tag, wave_form.bits_per_sample) {
+        (1, 16) => frames
+            .flat_map(|frame| {
+                let sum: i32 = frame
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|s| i32::from(i16::from_le_bytes(*s)))
+                    .sum();
+                // miniaudio divides the signed sum by the unsigned channel
+                // count, so C converts the sum to unsigned first and the
+                // result is cut to 16 bits; for two channels that rounds
+                // down instead of toward zero
+                (((sum as u32) / channels as u32) as i16).to_le_bytes()
+            })
+            .collect(),
+        (1, 8) => frames
+            .map(|frame| {
+                // ma_pcm_u8_to_f32__reference, ma_pcm_f32_to_u8__reference
+                let x = average(frame, &|s| f32::from(s[0]) * U8_TO_F32 - 1.0);
+                ((x.clamp(-1.0, 1.0) + 1.0) * 127.5) as u8
+            })
+            .collect(),
+        (1, 24) => frames
+            .flat_map(|frame| {
+                // ma_pcm_s24_to_f32__reference, ma_pcm_f32_to_s24__reference
+                let x = average(frame, &|s| {
+                    let v = (u32::from(s[0]) << 8 | u32::from(s[1]) << 16 | u32::from(s[2]) << 24)
+                        as i32
+                        >> 8;
+                    v as f32 * S24_TO_F32
+                });
+                let r = (x.clamp(-1.0, 1.0) * 8_388_607.0) as i32;
+                let [b0, b1, b2, _] = r.to_le_bytes();
+                [b0, b1, b2]
+            })
+            .collect(),
+        (1, 32) => frames
+            .flat_map(|frame| {
+                // ma_pcm_s32_to_f32__reference, ma_pcm_f32_to_s32__reference
+                let x = average(frame, &|s| {
+                    (f64::from(i32::from_le_bytes([s[0], s[1], s[2], s[3]])) / 2_147_483_648.0)
+                        as f32
+                });
+                ((f64::from(x).clamp(-1.0, 1.0) * 2_147_483_647.0) as i32).to_le_bytes()
+            })
+            .collect(),
+        (3, 32) => frames
+            .flat_map(|frame| {
+                average(frame, &|s| f32::from_le_bytes([s[0], s[1], s[2], s[3]])).to_le_bytes()
+            })
+            .collect(),
+        _ => return None,
+    };
+    Some(mono)
 }
 
 /// Decodes interleaved PCM WAV samples into the interleaved `i32` the FLAC
@@ -1468,6 +1657,114 @@ mod vpinball_wav_tests {
         let (_, samples) = read_vpinball_wav(&wav)?;
         assert_eq!(samples, b"\x09\x09LIST\x02\x00\x00\x00ab".to_vec());
         assert!(read_vpinball_wav(&wav[..40]).is_err());
+        Ok(())
+    }
+}
+
+#[cfg(all(test, not(target_family = "wasm")))]
+mod mono_tests {
+    use super::flac_tests::pcm_wav;
+    use super::*;
+    use pretty_assertions::assert_eq;
+    use testresult::TestResult;
+
+    /// Stereo frames, noise after the extremes, and the mono that
+    /// miniaudio 0.11.25, built from vpinball's own copy, decodes them to
+    /// the way vpinball decodes a playfield sound, per format tag and bits
+    #[rustfmt::skip]
+    const MINIAUDIO_DOWNMIX: [(u16, u16, &[u8], &[u8]); 5] = [
+            (1, 8, &[255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 94, 63, 49, 145, 233, 3, 232, 20, 219, 118, 3, 179, 64, 112, 221, 162, 253, 115, 44, 159, 216, 161, 54, 50, 93, 112, 88, 217, 197, 112, 232, 157], &[255, 0, 255, 0, 255, 0, 255, 0, 78, 97, 118, 126, 168, 91, 88, 191, 184, 101, 188, 52, 102, 152, 154, 194]),
+            (1, 16, &[255, 255, 255, 255, 0, 128, 0, 128, 255, 255, 255, 255, 0, 128, 0, 128, 255, 255, 255, 255, 0, 128, 0, 128, 255, 255, 255, 255, 0, 128, 0, 128, 83, 252, 142, 84, 120, 4, 110, 161, 237, 97, 210, 67, 94, 16, 185, 64, 251, 32, 181, 237, 132, 185, 211, 132, 211, 68, 43, 243, 211, 75, 73, 222, 25, 224, 108, 40, 61, 104, 222, 29, 103, 180, 130, 69, 170, 162, 108, 136, 114, 228, 178, 11, 63, 110, 50, 58, 136, 116, 113, 181, 170, 198, 177, 140], &[255, 255, 0, 128, 255, 255, 0, 128, 255, 255, 0, 128, 255, 255, 0, 128, 112, 40, 243, 210, 223, 82, 139, 40, 88, 7, 43, 159, 255, 27, 14, 21, 66, 4, 13, 67, 244, 252, 139, 149, 18, 248, 56, 84, 252, 20, 173, 169]),
+            (1, 24, &[255, 255, 255, 255, 255, 255, 0, 0, 128, 0, 0, 128, 255, 255, 255, 255, 255, 255, 0, 0, 128, 0, 0, 128, 255, 255, 255, 255, 255, 255, 0, 0, 128, 0, 0, 128, 255, 255, 255, 255, 255, 255, 0, 0, 128, 0, 0, 128, 85, 244, 60, 37, 195, 152, 45, 175, 189, 15, 99, 141, 33, 169, 52, 66, 134, 74, 195, 84, 248, 200, 157, 212, 92, 161, 131, 143, 185, 144, 8, 77, 47, 198, 18, 65, 202, 183, 142, 95, 211, 151, 70, 137, 217, 217, 55, 230, 159, 163, 20, 241, 83, 251, 229, 103, 124, 253, 252, 32, 71, 100, 49, 6, 133, 141, 18, 110, 140, 192, 101, 130, 193, 101, 12, 221, 168, 110, 93, 211, 106, 139, 118, 56, 144, 32, 163, 38, 144, 234, 179, 23, 9, 5, 222, 27], &[0, 0, 0, 1, 0, 128, 0, 0, 0, 1, 0, 128, 0, 0, 0, 1, 0, 128, 0, 0, 0, 1, 0, 128, 190, 219, 234, 31, 137, 165, 177, 151, 63, 70, 121, 230, 119, 45, 138, 230, 47, 56, 150, 69, 147, 144, 224, 223, 199, 251, 7, 112, 178, 78, 167, 116, 223, 234, 105, 135, 78, 135, 61, 243, 164, 81, 92, 216, 198, 219, 122, 18]),
+            (1, 32, &[255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 128, 0, 0, 0, 128, 255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 128, 0, 0, 0, 128, 255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 128, 0, 0, 0, 128, 255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 128, 0, 0, 0, 128, 214, 202, 36, 23, 198, 207, 144, 198, 97, 68, 241, 162, 39, 216, 214, 183, 92, 123, 105, 97, 153, 240, 227, 172, 164, 239, 103, 33, 84, 207, 1, 104, 22, 104, 248, 37, 62, 38, 203, 235, 248, 6, 182, 187, 152, 152, 74, 175, 248, 46, 122, 19, 86, 139, 49, 155, 5, 64, 95, 136, 28, 55, 117, 206, 203, 37, 166, 104, 122, 164, 61, 122, 50, 206, 182, 172, 170, 59, 150, 56, 253, 2, 4, 254, 169, 206, 34, 88, 42, 211, 102, 164, 36, 14, 119, 196, 107, 69, 210, 254, 98, 135, 169, 62, 154, 223, 82, 108, 220, 92, 233, 219, 190, 219, 120, 145, 228, 29, 247, 187, 200, 232, 69, 239, 93, 39, 152, 21], &[0, 0, 0, 0, 1, 0, 0, 128, 0, 0, 0, 0, 1, 0, 0, 128, 0, 0, 0, 0, 1, 0, 0, 128, 0, 0, 0, 0, 1, 0, 0, 128, 65, 205, 218, 238, 1, 14, 100, 173, 255, 181, 38, 7, 127, 223, 180, 68, 31, 199, 225, 8, 1, 80, 128, 181, 65, 221, 85, 215, 129, 59, 106, 171, 255, 228, 113, 113, 225, 132, 166, 242, 191, 104, 19, 43, 129, 240, 110, 180, 127, 230, 189, 30, 255, 29, 30, 36, 1, 253, 183, 166, 15, 8, 111, 2]),
+            (3, 32, &[0, 0, 128, 63, 0, 0, 128, 191, 255, 255, 127, 63, 255, 255, 127, 191, 0, 0, 128, 63, 0, 0, 128, 191, 255, 255, 127, 63, 255, 255, 127, 191, 0, 0, 128, 63, 0, 0, 128, 191, 255, 255, 127, 63, 255, 255, 127, 191, 0, 0, 128, 63, 0, 0, 128, 191, 255, 255, 127, 63, 255, 255, 127, 191, 251, 132, 31, 191, 16, 214, 99, 63, 165, 182, 104, 63, 99, 6, 5, 63, 86, 198, 97, 191, 196, 92, 23, 62, 235, 183, 127, 63, 218, 196, 26, 191, 198, 7, 169, 60, 30, 14, 177, 189, 3, 25, 128, 190, 104, 42, 134, 62, 180, 230, 80, 191, 105, 138, 39, 63, 189, 34, 69, 63, 88, 72, 178, 60, 133, 33, 227, 61, 146, 200, 112, 63, 190, 79, 243, 188, 249, 34, 181, 190, 106, 31, 15, 191, 105, 203, 117, 62, 44, 218, 58, 62, 53, 36, 108, 191, 85, 164, 161, 190, 234, 15, 27, 63, 222, 131, 193, 61, 54, 44, 115, 191, 137, 60, 52, 191, 228, 212, 85, 191, 223, 8, 111, 63, 58, 100, 57, 190], &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 42, 162, 8, 62, 132, 222, 54, 63, 37, 239, 187, 190, 34, 230, 73, 62, 44, 204, 6, 189, 160, 44, 194, 59, 44, 113, 165, 189, 0, 181, 202, 62, 97, 150, 6, 63, 245, 87, 68, 190, 32, 89, 35, 190, 170, 109, 189, 190, 127, 123, 20, 62, 186, 251, 218, 190, 182, 8, 69, 191, 208, 175, 192, 62]),
+    ];
+
+    #[test]
+    fn the_downmix_is_miniaudios() {
+        for (format_tag, bits, stereo, mono) in MINIAUDIO_DOWNMIX {
+            let wave_form = WaveForm {
+                format_tag,
+                channels: 2,
+                samples_per_sec: 44100,
+                avg_bytes_per_sec: 44100 * u32::from(bits / 4),
+                block_align: bits / 4,
+                bits_per_sample: bits,
+                cb_size: 0,
+            };
+            assert_eq!(
+                downmix_wav(stereo, &wave_form).as_deref(),
+                Some(mono),
+                "format {format_tag} at {bits} bits"
+            );
+        }
+    }
+
+    #[test]
+    fn a_stereo_wav_becomes_a_mono_wav_of_the_same_format() -> TestResult {
+        let mut sound = pcm_wav("hit", 2, 24, 1000);
+        assert_eq!(sound.downmix_to_mono()?, Mono::Converted);
+        assert_eq!(sound.data.len(), 3000);
+        assert_eq!(
+            (
+                sound.wave_form.channels,
+                sound.wave_form.block_align,
+                sound.wave_form.avg_bytes_per_sec,
+                sound.wave_form.bits_per_sample
+            ),
+            (1, 3, 44100 * 3, 24)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_stereo_flac_becomes_a_mono_flac_one_bit_deeper() -> TestResult {
+        let mut sound = pcm_wav("hit", 2, 16, 20_000);
+        let stereo = pcm_samples(&sound.data, 16);
+        assert_eq!(sound.wav_to_flac()?, Some(Flac::Converted));
+
+        assert_eq!(sound.downmix_to_mono()?, Mono::Converted);
+
+        // claxon does not read a depth the frame headers cannot name
+        use flacenc::component::Decode;
+        let (_, stream) =
+            flacenc::component::parser::stream::<nom::error::Error<&[u8]>>(&sound.data)
+                .map_err(|e| e.to_string())?;
+        assert_eq!(
+            (
+                stream.stream_info().channels(),
+                stream.stream_info().bits_per_sample()
+            ),
+            (1, 17)
+        );
+        let mono: Vec<i32> = (0..stream.frame_count())
+            .filter_map(|i| stream.frame(i))
+            .flat_map(|frame| frame.decode())
+            .collect();
+        let sums: Vec<i32> = stereo
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|[l, r]| l + r)
+            .collect();
+        assert_eq!(mono, sums);
+        Ok(())
+    }
+
+    #[test]
+    fn lossy_and_deep_files_are_left_alone() -> TestResult {
+        let mut mp3 = pcm_wav("music", 2, 16, 10);
+        mp3.path = "music.mp3".to_string();
+        mp3.data = vec![0xFF, 0xFB, 0x90, 0x64, 0, 0];
+        assert_eq!(mp3.downmix_to_mono()?, Mono::Lossy);
+
+        let mut deep = pcm_wav("deep", 2, 24, 2000);
+        assert_eq!(deep.wav_to_flac()?, Some(Flac::Converted));
+        assert_eq!(deep.downmix_to_mono()?, Mono::TooDeep);
+
+        let mut adpcm = pcm_wav("adpcm", 2, 16, 10);
+        adpcm.wave_form.format_tag = 2;
+        assert_eq!(adpcm.downmix_to_mono()?, Mono::NotPcm);
         Ok(())
     }
 }
