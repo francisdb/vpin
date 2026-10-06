@@ -345,6 +345,10 @@ fn stored_bytes(image: &ImageData) -> usize {
         .unwrap_or(0)
 }
 
+/// The path older tables give a sound for the backglass speakers
+#[cfg(not(target_family = "wasm"))]
+const BACKGLASS_OUTPUT_MARKER: &str = "* Backglass Output *";
+
 /// Why [`wavs_to_flac`] left a sound alone
 #[cfg(not(target_family = "wasm"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -358,6 +362,10 @@ pub enum SoundSkipReason {
     NotSmaller,
     /// The samples could not be encoded as FLAC; the error
     Unencodable(String),
+    /// The path is the `* Backglass Output *` marker, which a `.flac`
+    /// extension would not replace: [`add_wav_extensions`] renames the
+    /// sound first
+    BackglassMarker,
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -369,6 +377,10 @@ impl std::fmt::Display for SoundSkipReason {
             }
             SoundSkipReason::NotSmaller => write!(f, "the flac would not be smaller"),
             SoundSkipReason::Unencodable(error) => write!(f, "does not encode: {error}"),
+            SoundSkipReason::BackglassMarker => write!(
+                f,
+                "has the \"{BACKGLASS_OUTPUT_MARKER}\" path, which needs a .wav name first"
+            ),
         }
     }
 }
@@ -458,7 +470,9 @@ impl SoundConversion {
 /// knowingly, as `vpxtool optimize` does behind a flag.
 ///
 /// A WAV that is not PCM is left alone and reported, as is one the FLAC
-/// would not shrink or that does not encode. A sound already stored as a
+/// would not shrink or that does not encode, and one with the `* Backglass
+/// Output *` path: run [`add_wav_extensions`] first, as `vpxtool optimize`
+/// does, so it gets a name to put the `.flac` extension on. A sound already stored as a
 /// file (ogg, mp3, an existing flac) was never a candidate and is in
 /// neither list.
 ///
@@ -469,6 +483,13 @@ pub fn wavs_to_flac(vpx: &mut VPX) -> SoundConversion {
     for sound in &mut vpx.sounds {
         if !sound.is_wav() {
             // a file in some other format, never a candidate
+            continue;
+        }
+        if sound.path.eq_ignore_ascii_case(BACKGLASS_OUTPUT_MARKER) {
+            conversion.skipped.push(SkippedSound {
+                name: sound.name.clone(),
+                reason: SoundSkipReason::BackglassMarker,
+            });
             continue;
         }
         let bytes_before = sound.data.len();
@@ -533,6 +554,9 @@ impl RenamedSound {
 /// from versions that stored such a sound as a wav, while a 10.8.1
 /// pre-release stores a sound imported without extension as a plain file,
 /// which a `.wav` path would break.
+///
+/// Run it before [`wavs_to_flac`], which leaves a sound with the marker
+/// path alone.
 ///
 /// Returns the renamed sounds in table order, empty when the table is left
 /// as it was.
@@ -949,6 +973,31 @@ mod tests {
         assert_eq!(
             vpx.sounds[0].output_target,
             crate::vpx::sound::OutputTarget::Backglass
+        );
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[test]
+    fn a_backglass_marker_sound_is_converted_only_after_the_rename() {
+        let mut vpx = clean_vpx();
+        vpx.sounds.push(sound("bell", "* Backglass Output *"));
+
+        let conversion = wavs_to_flac(&mut vpx);
+        assert_eq!(
+            conversion.skipped()[0].reason(),
+            &SoundSkipReason::BackglassMarker
+        );
+        assert_eq!(vpx.sounds[0].path, "* Backglass Output *");
+
+        add_wav_extensions(&mut vpx);
+        let conversion = wavs_to_flac(&mut vpx);
+        // a candidate now, whatever the converter makes of the test samples
+        assert_eq!(vpx.sounds[0].path, "bell.wav");
+        assert!(
+            conversion
+                .skipped()
+                .iter()
+                .all(|skipped| skipped.reason() != &SoundSkipReason::BackglassMarker)
         );
     }
 }
