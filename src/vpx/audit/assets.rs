@@ -177,7 +177,7 @@ pub(super) fn check_stereo_sounds(vpx: &VPX, findings: &mut Vec<Kind>) {
 /// that vpinball's decoder cannot identify, and sounds whose path has no
 /// extension. A `.wav` name is left alone: vpinball stores those as a
 /// header plus samples and rebuilds the file
-pub(super) fn check_sound_storage(vpx: &VPX, findings: &mut Vec<Kind>) {
+pub(crate) fn check_sound_storage(vpx: &VPX, findings: &mut Vec<Kind>) {
     for sound in &vpx.sounds {
         let Some(extension) = sound.extension() else {
             findings.push(Kind::SoundWithoutExtension {
