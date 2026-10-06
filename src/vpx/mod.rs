@@ -265,7 +265,12 @@ impl<F: Read + Seek + Write> VpxFile<F> {
     /// (`gamedata.locked`) without re-encoding the entire file.
     pub fn write_gamedata(&mut self, gamedata: &GameData) -> io::Result<()> {
         let version = self.read_version()?;
-        write_game_data(&mut self.compound_file, gamedata, &version)?;
+        write_game_data(
+            &mut self.compound_file,
+            gamedata,
+            &version,
+            &gamedata::StreamCounts::stored(gamedata),
+        )?;
         let mac = generate_mac(&mut self.compound_file)?;
         write_mac(&mut self.compound_file, &mac)?;
         self.compound_file.flush()
@@ -608,7 +613,16 @@ fn write_vpx<F: Read + Write + Seek>(comp: &mut CompoundFile<F>, vpx: &VPX) -> i
     write_custominfotags(comp, &vpx.custominfotags)?;
     write_tableinfo(comp, &vpx.info)?;
     write_version(comp, &vpx.version)?;
-    write_game_data(comp, &vpx.gamedata, &vpx.version)?;
+    // a reader loads as many streams as the game data counts, so write the
+    // lists' lengths whatever the stored counters say
+    let counts = gamedata::StreamCounts {
+        gameitems: vpx.gameitems.len() as u32,
+        sounds: vpx.sounds.len() as u32,
+        images: vpx.images.len() as u32,
+        fonts: vpx.fonts.len() as u32,
+        collections: vpx.collections.len() as u32,
+    };
+    write_game_data(comp, &vpx.gamedata, &vpx.version, &counts)?;
     debug!("Wrote gamedata");
     // Validate part group ordering before writing
     for warning in gameitem::validate_part_group_order(&vpx.gameitems) {
@@ -648,7 +662,13 @@ fn write_minimal_vpx<F: Read + Write + Seek>(comp: &mut CompoundFile<F>) -> io::
     create_game_storage(comp)?;
     let version = Version::new(1072);
     write_version(comp, &version)?;
-    write_game_data(comp, &GameData::default(), &version)?;
+    let gamedata = GameData::default();
+    write_game_data(
+        comp,
+        &gamedata,
+        &version,
+        &gamedata::StreamCounts::stored(&gamedata),
+    )?;
     // to be more efficient we could generate the mac while writing the different parts
     let mac = generate_mac(comp)?;
     write_mac(comp, &mac)
@@ -710,7 +730,12 @@ pub fn importvbs(vpx_file_path: &Path, vbs_file_path: Option<PathBuf>) -> io::Re
     // Reading with encoding detection keeps an extractvbs/importvbs round
     // trip byte-identical.
     gamedata.code = read_script_file(&script_path)?;
-    write_game_data(&mut comp, &gamedata, &version)?;
+    write_game_data(
+        &mut comp,
+        &gamedata,
+        &version,
+        &gamedata::StreamCounts::stored(&gamedata),
+    )?;
     let mac = generate_mac(&mut comp)?;
     write_mac(&mut comp, &mac)?;
     comp.flush()?;
@@ -1001,13 +1026,14 @@ fn write_game_data<F: Read + Write + Seek>(
     comp: &mut CompoundFile<F>,
     gamedata: &GameData,
     version: &Version,
+    counts: &gamedata::StreamCounts,
 ) -> Result<(), io::Error> {
     let game_data_path = Path::new(MAIN_SEPARATOR_STR)
         .join("GameStg")
         .join("GameData");
     // we expect GameStg to exist
     let mut game_data_stream = comp.create_stream(&game_data_path)?;
-    let data = gamedata::write_all_gamedata_records(gamedata, version);
+    let data = gamedata::write_gamedata_records(gamedata, version, counts);
     game_data_stream.write_all(&data)
     // this flush was required before but now it's working without
     // game_data_stream.flush()
@@ -1359,6 +1385,49 @@ mod tests {
         Ok(())
     }
 
+    /// Entries pushed to the lists without touching the game data counters
+    /// are written, read back and counted
+    #[test]
+    fn test_write_counts_the_lists() -> io::Result<()> {
+        let mut vpx = from_bytes(TEST_TABLE_BYTES)?;
+        let (sounds, fonts, collections) =
+            (vpx.sounds.len(), vpx.fonts.len(), vpx.collections.len());
+        vpx.sounds.push(crate::vpx::sound::SoundData {
+            name: "hit".to_string(),
+            path: "hit.ogg".to_string(),
+            data: b"OggS".to_vec(),
+            wave_form: Default::default(),
+            internal_name: String::new(),
+            fade: 0,
+            volume: 0,
+            balance: 0,
+            output_target: crate::vpx::sound::OutputTarget::Table,
+        });
+        vpx.fonts.push(PinBinary {
+            name: "font".to_string(),
+            internal_name: None,
+            path: "font.ttf".to_string(),
+            data: vec![1, 2, 3],
+        });
+        vpx.collections.push(collection::Collection {
+            name: "lights".to_string(),
+            items: vec![],
+            fire_events: false,
+            stop_single_events: false,
+            group_elements: true,
+        });
+
+        let read = from_bytes(&to_bytes(&vpx)?)?;
+
+        assert_eq!(
+            (read.sounds.len(), read.fonts.len(), read.collections.len()),
+            (sounds + 1, fonts + 1, collections + 1)
+        );
+        assert_eq!(read.gamedata.sounds_size as usize, sounds + 1);
+        assert_eq!(read.sounds.last().map(|s| s.name.as_str()), Some("hit"));
+        Ok(())
+    }
+
     #[test]
     fn test_write_read_unknown_gameitem() -> io::Result<()> {
         let generic = gameitem::generic::Generic {
@@ -1408,7 +1477,12 @@ mod tests {
         let mut gamedata = writable.read_gamedata()?;
         gamedata.code.string.push_str("' changed");
         let version = writable.read_version()?;
-        write_game_data(&mut writable.compound_file, &gamedata, &version)?;
+        write_game_data(
+            &mut writable.compound_file,
+            &gamedata,
+            &version,
+            &gamedata::StreamCounts::stored(&gamedata),
+        )?;
         assert_eq!(writable.read_mac()?, stored);
         assert_ne!(writable.compute_mac()?, stored);
         Ok(())
@@ -1497,7 +1571,12 @@ mod tests {
         let mut comp2 = CompoundFile::create(buff)?;
         create_game_storage(&mut comp2)?;
         write_version(&mut comp2, &version)?;
-        write_game_data(&mut comp2, &original, &version)?;
+        write_game_data(
+            &mut comp2,
+            &original,
+            &version,
+            &gamedata::StreamCounts::stored(&original),
+        )?;
 
         let read = read_gamedata(&mut comp2, &version)?;
 

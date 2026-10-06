@@ -1549,7 +1549,9 @@ pub struct GameData {
     /// streams that follow in the file.
     ///
     /// vpinball reads the five counters into `m_loadTemp` to know how many
-    /// streams of each kind to load. Default: `0`.
+    /// streams of each kind to load. Writing a [`VPX`](crate::vpx::VPX)
+    /// stores the lengths of its lists instead of these five, so a list
+    /// changed without them keeps all its entries. Default: `0`.
     ///
     /// BIFF tag `SEDT`
     pub gameitems_size: u32,
@@ -2397,6 +2399,40 @@ pub fn game_data_to_json(game_data: &GameData) -> serde_json::Value {
 /// written from 10.8 on, or at a different position depending on it (see
 /// [`GameData::is_10_8_0_beta1_to_beta4`]).
 pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec<u8> {
+    write_gamedata_records(gamedata, version, &StreamCounts::stored(gamedata))
+}
+
+/// How many streams of each kind follow the game data, the counters a
+/// reader loads them by
+pub(crate) struct StreamCounts {
+    pub(crate) gameitems: u32,
+    pub(crate) sounds: u32,
+    pub(crate) images: u32,
+    pub(crate) fonts: u32,
+    pub(crate) collections: u32,
+}
+
+impl StreamCounts {
+    /// The counters the game data holds, for rewriting the game data of a
+    /// file whose other streams stay as they are
+    pub(crate) fn stored(gamedata: &GameData) -> Self {
+        StreamCounts {
+            gameitems: gamedata.gameitems_size,
+            sounds: gamedata.sounds_size,
+            images: gamedata.images_size,
+            fonts: gamedata.fonts_size,
+            collections: gamedata.collections_size,
+        }
+    }
+}
+
+/// The game data records with the given stream counters in place of the
+/// ones the game data holds
+pub(crate) fn write_gamedata_records(
+    gamedata: &GameData,
+    version: &Version,
+    counts: &StreamCounts,
+) -> Vec<u8> {
     // the script is usually most of the stream
     let mut writer = BiffWriter::with_capacity(gamedata.code.string.len() + 64 * 1024);
     // order is important
@@ -2599,11 +2635,11 @@ pub fn write_all_gamedata_records(gamedata: &GameData, version: &Version) -> Vec
             writer.write_tagged_data("RPRB", probe_writer.get_data());
         }
     }
-    writer.write_tagged_u32("SEDT", gamedata.gameitems_size);
-    writer.write_tagged_u32("SSND", gamedata.sounds_size);
-    writer.write_tagged_u32("SIMG", gamedata.images_size);
-    writer.write_tagged_u32("SFNT", gamedata.fonts_size);
-    writer.write_tagged_u32("SCOL", gamedata.collections_size);
+    writer.write_tagged_u32("SEDT", counts.gameitems);
+    writer.write_tagged_u32("SSND", counts.sounds);
+    writer.write_tagged_u32("SIMG", counts.images);
+    writer.write_tagged_u32("SFNT", counts.fonts);
+    writer.write_tagged_u32("SCOL", counts.collections);
     writer.write_tagged_wide_string("NAME", &gamedata.name);
 
     let custom_color_bytes = write_colors(&gamedata.custom_colors);
