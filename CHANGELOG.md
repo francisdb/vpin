@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.3](https://github.com/francisdb/vpin/compare/v0.38.2...v0.38.3) - 2026-10-06
+
+### Fixed
+
+- write the stream counters from the table's lists ([#570](https://github.com/francisdb/vpin/pull/570))
+
 ## [0.38.2](https://github.com/francisdb/vpin/compare/v0.38.1...v0.38.2) - 2026-10-06
 
 ### Added
