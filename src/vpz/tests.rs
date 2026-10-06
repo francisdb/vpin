@@ -438,6 +438,15 @@ fn a_pack_round_trips_through_a_directory_and_a_file() -> TestResult {
     write(&vpz, &file)?;
     assert!(file.is_file());
     assert_eq!(read(&file)?, vpz);
+
+    // only a .vpz name is zipped, a dotted directory name stays a directory
+    let upper = root.join("TABLE.VPZ");
+    write(&vpz, &upper)?;
+    assert!(upper.is_file());
+    let dotted = root.join("Table 1.5");
+    write(&vpz, &dotted)?;
+    assert!(dotted.join(read::MANIFEST).is_file());
+    assert_eq!(read(&dotted)?, vpz);
     Ok(())
 }
 

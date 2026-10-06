@@ -494,16 +494,23 @@ pub fn read<P: AsRef<Path>>(path: P) -> io::Result<Vpz> {
     }
 }
 
-/// Writes a pack the way vpinball picks the form: a directory when the
-/// path is an existing directory or has no extension, a `.vpz` zip
-/// archive otherwise.
+/// Writes a pack as a `.vpz` zip archive when the name ends in `.vpz`, and
+/// as a directory otherwise, which must not exist yet or be empty.
+///
+/// vpinball zips any new path with an extension, so it saves `Table 1.5` as
+/// a zip that it only loads back under a `.vpz` name. Here a dotted name
+/// stays a directory.
 pub fn write<P: AsRef<Path>>(vpz: &Vpz, path: P) -> io::Result<()> {
     let path = path.as_ref();
-    if path.is_dir() || (!path.exists() && path.extension().is_none()) {
-        write_dir(vpz, path)
-    } else {
+    let is_zip = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("vpz"));
+    if is_zip {
         let file = write_zip(vpz, io::BufWriter::new(fs::File::create(path)?))?;
         file.into_inner().map_err(|e| e.into_error())?.sync_all()
+    } else {
+        write_dir(vpz, path)
     }
 }
 
