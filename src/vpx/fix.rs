@@ -522,16 +522,17 @@ impl RenamedSound {
     }
 }
 
-/// The path older tables give a sound for the backglass speakers
-const BACKGLASS_OUTPUT_MARKER: &str = "* Backglass Output *";
-
-/// Gives the sounds whose path has no extension, the ones the audit reports
-/// as `sound-without-extension`, a `.wav` path: they are stored as wavs,
-/// which vpinball 10.8.0 reads from such a path but the 10.8.1 pre-releases
-/// only from a `.wav` one. A path gets `.wav` appended, the `* Backglass
-/// Output *` marker becomes the sound name with `.wav`. In a table older
-/// than 1031, where the marker is what sends the sound to the backglass
+/// Gives the sounds with the `* Backglass Output *` path, which the audit
+/// reports as `sound-without-extension`, their name with `.wav` as path:
+/// they are stored as wavs, which vpinball 10.8.0 reads from such a path but
+/// the 10.8.1 pre-releases only from a `.wav` one. In a table older than
+/// 1031, where the marker is what sends the sound to the backglass
 /// speakers, the sound's output target is set to the backglass instead.
+///
+/// Any other path without extension is left alone: the marker only comes
+/// from versions that stored such a sound as a wav, while a 10.8.1
+/// pre-release stores a sound imported without extension as a plain file,
+/// which a `.wav` path would break.
 ///
 /// Returns the renamed sounds in table order, empty when the table is left
 /// as it was.
@@ -541,7 +542,10 @@ pub fn add_wav_extensions(vpx: &mut VPX) -> Vec<RenamedSound> {
     let names: HashSet<String> = findings
         .into_iter()
         .filter_map(|finding| match finding {
-            Kind::SoundWithoutExtension { sound, .. } => Some(sound),
+            Kind::SoundWithoutExtension {
+                sound,
+                backglass_marker: true,
+            } => Some(sound),
             _ => None,
         })
         .collect();
@@ -552,13 +556,9 @@ pub fn add_wav_extensions(vpx: &mut VPX) -> Vec<RenamedSound> {
             continue;
         }
         let path_before = sound.path.clone();
-        if path_before.eq_ignore_ascii_case(BACKGLASS_OUTPUT_MARKER) {
-            sound.path = format!("{}.wav", sound.name);
-            if legacy_marker {
-                sound.output_target = crate::vpx::sound::OutputTarget::Backglass;
-            }
-        } else {
-            sound.path.push_str(".wav");
+        sound.path = format!("{}.wav", sound.name);
+        if legacy_marker {
+            sound.output_target = crate::vpx::sound::OutputTarget::Backglass;
         }
         renamed.push(RenamedSound {
             name: sound.name.clone(),
@@ -906,7 +906,7 @@ mod tests {
     }
 
     #[test]
-    fn sounds_without_extension_get_a_wav_path() {
+    fn backglass_marker_sounds_get_a_wav_path() {
         let mut vpx = clean_vpx();
         vpx.sounds.push(sound("bell", "* Backglass Output *"));
         vpx.sounds.push(sound("knock", "C:\\sounds\\knock"));
@@ -919,21 +919,22 @@ mod tests {
                 .iter()
                 .map(|r| (r.name(), r.path_before(), r.path_after()))
                 .collect::<Vec<_>>(),
-            vec![
-                ("bell", "* Backglass Output *", "bell.wav"),
-                ("knock", "C:\\sounds\\knock", "C:\\sounds\\knock.wav"),
-            ]
+            vec![("bell", "* Backglass Output *", "bell.wav")]
         );
+        // another path without extension may hold a plain file, left alone
+        assert_eq!(vpx.sounds[1].path, "C:\\sounds\\knock");
         // a table of 1031 or newer stores the output target itself
         assert_eq!(
             vpx.sounds[0].output_target,
             crate::vpx::sound::OutputTarget::Table
         );
-        assert!(
-            !audit_kinds(&vpx)
-                .iter()
-                .any(|kind| matches!(kind, Kind::SoundWithoutExtension { .. }))
-        );
+        assert!(!audit_kinds(&vpx).iter().any(|kind| matches!(
+            kind,
+            Kind::SoundWithoutExtension {
+                backglass_marker: true,
+                ..
+            }
+        )));
         assert!(add_wav_extensions(&mut vpx).is_empty());
     }
 
