@@ -525,6 +525,86 @@ pub(crate) fn content_format(data: &[u8]) -> Option<&'static str> {
     Some(format)
 }
 
+/// The channel count of a sound stored as a file, read from its header:
+/// the `fmt ` chunk of a RIFF wave, FLAC's STREAMINFO, the Vorbis
+/// identification header of an Ogg file, or the first MPEG audio frame of
+/// an MP3 (1 for mono, 2 otherwise). `None` for a file this cannot read the
+/// channels of.
+pub(crate) fn file_channels(data: &[u8]) -> Option<u16> {
+    match content_format(data)? {
+        "wav" => riff_channels(data),
+        "flac" => flac_channels(data),
+        "ogg" => vorbis_channels(data),
+        "mp3" => mp3_channels(data),
+        _ => None,
+    }
+}
+
+/// The channels of a RIFF wave, from its `fmt ` chunk
+fn riff_channels(data: &[u8]) -> Option<u16> {
+    let mut offset = 12;
+    loop {
+        let id = data.get(offset..offset + 4)?;
+        let size = u32::from_le_bytes(data.get(offset + 4..offset + 8)?.try_into().ok()?) as usize;
+        if id == b"fmt " {
+            let channels = data.get(offset + 10..offset + 12)?;
+            return Some(u16::from_le_bytes([channels[0], channels[1]]));
+        }
+        // chunks are padded to an even size
+        offset = offset.checked_add(8 + size + (size & 1))?;
+    }
+}
+
+/// The channels of a FLAC stream: STREAMINFO is the first metadata block,
+/// its channel count minus one is 3 bits after the 20 bit sample rate
+fn flac_channels(data: &[u8]) -> Option<u16> {
+    // "fLaC", the 4 byte block header, then 10 bytes of block and frame
+    // sizes before the sample rate
+    if data.get(4)? & 0x7F != 0 {
+        return None;
+    }
+    Some(u16::from((data.get(20)? >> 1) & 0x07) + 1)
+}
+
+/// The channels of the first stream of an Ogg file, when it is Vorbis: the
+/// first page holds the identification header, `\x01vorbis`, a 4 byte
+/// version, then the channel count
+fn vorbis_channels(data: &[u8]) -> Option<u16> {
+    let segments = usize::from(*data.get(26)?);
+    let packet = data.get(27 + segments..)?;
+    if !packet.starts_with(b"\x01vorbis") {
+        return None;
+    }
+    let channels = *packet.get(11)?;
+    (channels > 0).then_some(u16::from(channels))
+}
+
+/// The channels of the first MPEG audio frame of an MP3, after an ID3v2
+/// tag when there is one: channel mode 3 is mono, the others two channels
+fn mp3_channels(data: &[u8]) -> Option<u16> {
+    let mut offset = 0;
+    if data.starts_with(b"ID3") {
+        let size = data
+            .get(6..10)?
+            .iter()
+            .fold(0usize, |size, byte| (size << 7) | usize::from(byte & 0x7F));
+        let footer = if data.get(5)? & 0x10 != 0 { 10 } else { 0 };
+        offset = 10 + size + footer;
+    }
+    // the first plausible frame header: sync word, a layer, a bitrate and a
+    // sample rate that are not reserved
+    let rest = data.get(offset..)?;
+    let header = rest.windows(4).find(|header| {
+        header[0] == 0xFF
+            && header[1] & 0xE0 == 0xE0
+            && header[1] & 0x18 != 0x08
+            && header[1] & 0x06 != 0
+            && header[2] & 0xF0 != 0xF0
+            && header[2] & 0x0C != 0x0C
+    })?;
+    Some(if header[3] >> 6 == 3 { 1 } else { 2 })
+}
+
 /// The format a sound's file extension names, in the same short names as
 /// [`content_format`]. `None` for an extension that names no audio format
 /// vpinball reads.
