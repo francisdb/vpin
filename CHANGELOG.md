@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.4](https://github.com/francisdb/vpin/compare/v0.38.3...v0.38.4) - 2026-10-07
+
+### Added
+
+- *(fix)* scale images down for devices with a texture size limit ([#574](https://github.com/francisdb/vpin/pull/574))
+
 ## [0.38.3](https://github.com/francisdb/vpin/compare/v0.38.2...v0.38.3) - 2026-10-06
 
 ### Fixed
