@@ -68,6 +68,9 @@ sanitize-filename = "0.6"
 unicode-normalization = "0.1"
 log = "0.4"
 tracing = "0.1"
+# the exr writer that keeps a bake's compression and sample depth, the
+# image crate's own writes 32 bit samples with RLE
+exr = "1.74.2"
 wavefront-obj-io = "0.3.1"
 zmij = "1.0.23"
 # deflate through the target specific flate2 backend below

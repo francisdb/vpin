@@ -21,6 +21,11 @@
 //! [`crate::vpx::VpxFile::images_to_webp`] does the bitmap and png
 //! conversions in place in a file.
 //!
+//! [`ImageData::shrink`] and
+//! [`fix::shrink_images`](crate::vpx::fix::shrink_images) scale images
+//! down for devices with a texture size limit, the way vpinball's
+//! "Maximum texture dimension" video setting does on load.
+//!
 //! Neither FlexDMD implementation reads a bitmap image out of a table
 //! (they only read the encoded `JPEG` record), so nothing that worked is
 //! lost by the conversion.
@@ -28,6 +33,7 @@
 use super::image::{ImageData, vpx_image_to_dynamic_image};
 use super::pinbinary::PinBinary;
 use ::image::codecs::jpeg::JpegEncoder;
+use ::image::imageops::FilterType;
 use ::image::{DynamicImage, ImageFormat, ImageReader};
 use std::io;
 
@@ -135,6 +141,83 @@ pub(crate) fn header_dimensions(data: &[u8]) -> Option<(u32, u32)> {
     let mut reader = ImageReader::new(io::Cursor::new(data));
     reader.no_limits();
     reader.with_guessed_format().ok()?.into_dimensions().ok()
+}
+
+/// The quality a jpeg is re-encoded at when it is scaled down
+const SHRINK_JPEG_QUALITY: u8 = 90;
+
+/// What [`ImageData::shrink_within`] did with an image over the limit
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Shrunk {
+    /// The image is scaled down, from and to these sizes
+    Resized { from: (u32, u32), to: (u32, u32) },
+    /// The scaled down image would not be smaller than what is stored
+    NotSmaller,
+}
+
+/// The size vpinball scales a picture to under its "Maximum texture
+/// dimension" setting (`BaseTexture::CreateFromFreeImage`): each side is
+/// capped at `max_dimension`, then the side that lost the most pixels sets
+/// the other by the aspect ratio. A side never goes below vpinball's
+/// minimum of 8 pixels, and the arithmetic wraps as its unsigned
+/// subtraction does. `None` when the picture fits, or has no size.
+pub(crate) fn fitted_dimensions(width: u32, height: u32, max_dimension: u32) -> Option<(u32, u32)> {
+    const MIN_TEXTURE_SIZE: u32 = 8;
+    if width == 0 || height == 0 || (width <= max_dimension && height <= max_dimension) {
+        return None;
+    }
+    let mut new_width = width.min(max_dimension).max(MIN_TEXTURE_SIZE);
+    let mut new_height = height.min(max_dimension).max(MIN_TEXTURE_SIZE);
+    let scaled = |side: u32, by: u32, of: u32| {
+        ((u64::from(side) * u64::from(by) / u64::from(of)) as u32)
+            .min(max_dimension)
+            .max(1)
+    };
+    if width.wrapping_sub(new_width) > height.wrapping_sub(new_height) {
+        new_height = scaled(height, new_width, width);
+    } else {
+        new_width = scaled(width, new_height, height);
+    }
+    Some((new_width, new_height))
+}
+
+/// Resamples with a Lanczos filter. The resampler clamps every channel to
+/// 0..1, which would flatten an hdr or exr bake, so a float image is scaled
+/// into that range first and back afterwards.
+fn resize(image: &DynamicImage, width: u32, height: u32) -> DynamicImage {
+    let filter = FilterType::Lanczos3;
+    match image {
+        DynamicImage::ImageRgb32F(_) | DynamicImage::ImageRgba32F(_) => {
+            let mut float = image.to_rgba32f();
+            let peak = float
+                .pixels()
+                .flat_map(|pixel| pixel.0[..3].iter().copied())
+                .filter(|value| value.is_finite())
+                .fold(1.0f32, f32::max);
+            if peak > 1.0 {
+                for pixel in float.pixels_mut() {
+                    for channel in &mut pixel.0[..3] {
+                        *channel /= peak;
+                    }
+                }
+            }
+            let mut resized = ::image::imageops::resize(&float, width, height, filter);
+            if peak > 1.0 {
+                for pixel in resized.pixels_mut() {
+                    for channel in &mut pixel.0[..3] {
+                        *channel *= peak;
+                    }
+                }
+            }
+            match image {
+                DynamicImage::ImageRgb32F(_) => {
+                    DynamicImage::ImageRgb32F(DynamicImage::ImageRgba32F(resized).to_rgb32f())
+                }
+                _ => DynamicImage::ImageRgba32F(resized),
+            }
+        }
+        _ => image.resize_exact(width, height, filter),
+    }
 }
 
 /// What a webp conversion did with an image it was asked to convert
@@ -333,6 +416,102 @@ impl ImageData {
         self.file_webp(bytes_before).map(Some)
     }
 
+    /// Scales the image down so no side exceeds `max_dimension`, keeping
+    /// the aspect ratio the way vpinball's "Maximum texture dimension"
+    /// video setting does when it loads the image, and re-encodes it in
+    /// its own format: a jpeg stays a jpeg (at quality 90), a png a png, an
+    /// hdr or exr bake keeps its float range and an exr its compression
+    /// and sample depth. A bitmap, bmp or gif becomes
+    /// a lossless webp and a lossy webp without alpha a jpeg, since vpin
+    /// has no lossy webp encoder. The image is left as it is when the
+    /// result would not be smaller than what is stored: vpinball scales it
+    /// down on load anyway, so a larger file would buy nothing.
+    ///
+    /// Returns the new size, `None` when the image already fits or was
+    /// left as it is.
+    ///
+    /// # Errors
+    ///
+    /// When the image does not decode, or its format has no encoder.
+    pub fn shrink(&mut self, max_dimension: u32) -> io::Result<Option<(u32, u32)>> {
+        Ok(match self.shrink_within(max_dimension)? {
+            Some(Shrunk::Resized { to, .. }) => Some(to),
+            _ => None,
+        })
+    }
+
+    /// [`ImageData::shrink`] telling what it did: `None` when the image
+    /// already fits
+    pub(crate) fn shrink_within(&mut self, max_dimension: u32) -> io::Result<Option<Shrunk>> {
+        // the header tells whether the image is over the limit without
+        // decoding it
+        let (width, height) = if self.bits.is_some() {
+            (self.width, self.height)
+        } else {
+            self.dimensions()?
+        };
+        if fitted_dimensions(width, height, max_dimension).is_none() {
+            return Ok(None);
+        }
+        let decoded = self.decode()?;
+        let from = (decoded.width(), decoded.height());
+        let Some(to) = fitted_dimensions(from.0, from.1, max_dimension) else {
+            return Ok(None);
+        };
+        let resized = resize(&decoded, to.0, to.1);
+        let (format, extension) = self.shrunk_format(&resized)?;
+        let data = match (&self.jpeg, format) {
+            (Some(source), ImageFormat::OpenExr) => encode_exr_like(&resized, &source.data)?,
+            _ => encode(&resized, format, SHRINK_JPEG_QUALITY)?,
+        };
+        if data.len() >= self.data_len() {
+            return Ok(Some(Shrunk::NotSmaller));
+        }
+        self.set_data(data, &extension, to.0, to.1);
+        Ok(Some(Shrunk::Resized { from, to }))
+    }
+
+    /// The format and extension a scaled down image is stored in: the
+    /// format of the stored content, by signature, with the extension as
+    /// the fallback for a format without one. A bitmap, bmp or gif becomes
+    /// a lossless webp, a lossy webp without alpha a jpeg. A jpeg keeps its
+    /// `jpg`, `jpeg` or `jfif` spelling.
+    fn shrunk_format(&self, pixels: &DynamicImage) -> io::Result<(ImageFormat, String)> {
+        if self.bits.is_some() {
+            return Ok((ImageFormat::WebP, "webp".to_string()));
+        }
+        let data = self
+            .jpeg
+            .as_ref()
+            .map_or(&[][..], |jpeg| jpeg.data.as_slice());
+        let extension = self.ext().to_lowercase();
+        let unsupported = |name: &str| {
+            io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!("no encoder for {name} images"),
+            )
+        };
+        let format = match content_format(data) {
+            Some("bmp" | "gif") => ImageFormat::WebP,
+            Some("webp") if webp_is_lossy(data) && !pixels.color().has_alpha() => ImageFormat::Jpeg,
+            Some(name) => ImageFormat::from_extension(name).ok_or_else(|| unsupported(name))?,
+            None => {
+                ImageFormat::from_extension(&extension).ok_or_else(|| unsupported(&extension))?
+            }
+        };
+        if !format.writing_enabled() {
+            return Err(unsupported(format.extensions_str()[0]));
+        }
+        let extension = if format == ImageFormat::Jpeg
+            && matches!(extension.as_str(), "jpg" | "jpeg" | "jfif")
+        {
+            extension
+        } else {
+            format.extensions_str()[0].to_string()
+        };
+        Ok((format, extension))
+    }
+
     /// Replaces the image content; the hash vpinball keeps of the encoded
     /// bytes is dropped since it no longer matches
     fn set_data(&mut self, data: Vec<u8>, extension: &str, width: u32, height: u32) {
@@ -351,6 +530,85 @@ impl ImageData {
             self.change_extension(extension);
         }
     }
+}
+
+/// Encodes a float image as exr the way its source exr was stored: with
+/// the same compression, so a DWAA bake stays one and a PIZ bake PIZ, and
+/// the same sample depth, half floats for a half float source. The `image`
+/// crate's own exr writer stores 32 bit samples with RLE, several times
+/// the size of the bakes tables carry.
+fn encode_exr_like(image: &DynamicImage, source: &[u8]) -> io::Result<Vec<u8>> {
+    use exr::prelude::*;
+    let invalid = |e: exr::error::Error| io::Error::new(io::ErrorKind::InvalidData, e.to_string());
+    let meta = MetaData::read_from_buffered(io::Cursor::new(source), false).map_err(invalid)?;
+    let header = meta
+        .headers
+        .first()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "the exr has no header"))?;
+    let half = header
+        .channels
+        .list
+        .iter()
+        .all(|channel| channel.sample_type == SampleType::F16);
+    let encoding = Encoding {
+        compression: header.compression,
+        blocks: Blocks::ScanLines,
+        line_order: LineOrder::Increasing,
+    };
+    let size = (image.width() as usize, image.height() as usize);
+    let mut data = io::Cursor::new(Vec::new());
+    let written = match image {
+        DynamicImage::ImageRgb32F(pixels) => {
+            let rgb = |Vec2(x, y): Vec2<usize>| pixels.get_pixel(x as u32, y as u32).0;
+            if half {
+                let channels = SpecificChannels::rgb(|at| {
+                    let [r, g, b] = rgb(at);
+                    (f16::from_f32(r), f16::from_f32(g), f16::from_f32(b))
+                });
+                Image::from_encoded_channels(size, encoding, channels)
+                    .write()
+                    .to_buffered(&mut data)
+            } else {
+                let channels = SpecificChannels::rgb(|at| {
+                    let [r, g, b] = rgb(at);
+                    (r, g, b)
+                });
+                Image::from_encoded_channels(size, encoding, channels)
+                    .write()
+                    .to_buffered(&mut data)
+            }
+        }
+        DynamicImage::ImageRgba32F(pixels) => {
+            let rgba = |Vec2(x, y): Vec2<usize>| pixels.get_pixel(x as u32, y as u32).0;
+            if half {
+                let channels = SpecificChannels::rgba(|at| {
+                    let [r, g, b, a] = rgba(at);
+                    (
+                        f16::from_f32(r),
+                        f16::from_f32(g),
+                        f16::from_f32(b),
+                        f16::from_f32(a),
+                    )
+                });
+                Image::from_encoded_channels(size, encoding, channels)
+                    .write()
+                    .to_buffered(&mut data)
+            } else {
+                let channels = SpecificChannels::rgba(|at| {
+                    let [r, g, b, a] = rgba(at);
+                    (r, g, b, a)
+                });
+                Image::from_encoded_channels(size, encoding, channels)
+                    .write()
+                    .to_buffered(&mut data)
+            }
+        }
+        other => {
+            return encode_exr_like(&DynamicImage::ImageRgba32F(other.to_rgba32f()), source);
+        }
+    };
+    written.map_err(|e| io::Error::other(e.to_string()))?;
+    Ok(data.into_inner())
 }
 
 /// Encodes for a format, converting the pixel layout to one the encoder
@@ -560,6 +818,190 @@ pub(crate) mod tests {
             assert_eq!(image.md5_hash, Some([7; 16]));
         }
         assert!(!link_image("link").bitmap_to_webp()?);
+        Ok(())
+    }
+
+    fn stored_format(image: &ImageData) -> Option<&'static str> {
+        image
+            .jpeg
+            .as_ref()
+            .and_then(|jpeg| content_format(&jpeg.data))
+    }
+
+    #[test]
+    fn fitted_dimensions_are_what_vpinball_scales_to() {
+        assert_eq!(fitted_dimensions(4000, 2000, 1536), Some((1536, 768)));
+        assert_eq!(fitted_dimensions(100, 3000, 1536), Some((51, 1536)));
+        assert_eq!(fitted_dimensions(3000, 3000, 768), Some((768, 768)));
+        assert_eq!(fitted_dimensions(4096, 8192, 1536), Some((768, 1536)));
+        // a side never goes below vpinball's minimum of 8 pixels
+        assert_eq!(fitted_dimensions(5000, 1, 1000), Some((1000, 8)));
+        // what fits is left alone
+        assert_eq!(fitted_dimensions(1536, 1536, 1536), None);
+        assert_eq!(fitted_dimensions(0, 5000, 100), None);
+    }
+
+    /// An image of noise, so that fewer pixels always encode smaller
+    fn noisy_image(name: &str, extension: &str, width: u32, height: u32) -> TestResult<ImageData> {
+        let mut image = encoded_image(name, extension, width, height)?;
+        let format = ImageFormat::from_extension(extension).expect("a known extension");
+        let noise = noise_png("noise", width, height)?.decode()?;
+        if let Some(jpeg) = &mut image.jpeg {
+            jpeg.data = encode(&noise, format, 90)?;
+        }
+        Ok(image)
+    }
+
+    #[test]
+    fn shrinking_keeps_the_format_and_the_aspect_ratio() -> TestResult {
+        for extension in ["png", "jpg", "jpeg", "webp", "tga"] {
+            let mut image = noisy_image(extension, extension, 200, 100)?;
+            assert_eq!(image.shrink(50)?, Some((50, 25)), "{extension}");
+            assert_eq!(image.ext(), extension, "{extension}");
+            assert_eq!((image.width, image.height), (50, 25));
+            let decoded = image.decode()?;
+            assert_eq!((decoded.width(), decoded.height()), (50, 25), "{extension}");
+            assert_eq!(image.md5_hash, None);
+            // it fits now
+            assert_eq!(image.shrink(50)?, None);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_shrunk_bitmap_bmp_or_gif_becomes_a_webp() -> TestResult {
+        let mut bitmap = bitmap_image("old", 120, 60);
+        assert_eq!(bitmap.shrink(30)?, Some((30, 15)));
+        assert!(bitmap.bits.is_none());
+        assert_eq!(bitmap.ext(), "webp");
+        assert_eq!(stored_format(&bitmap), Some("webp"));
+        for extension in ["bmp", "gif"] {
+            let mut image = encoded_image(extension, extension, 120, 60)?;
+            assert_eq!(image.shrink(30)?, Some((30, 15)), "{extension}");
+            assert_eq!(image.ext(), "webp", "{extension}");
+            assert_eq!(stored_format(&image), Some("webp"), "{extension}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn shrunk_float_bakes_keep_their_range() -> TestResult {
+        use ::image::{Rgb, Rgb32FImage};
+        for (extension, format) in [("exr", ImageFormat::OpenExr), ("hdr", ImageFormat::Hdr)] {
+            let float = Rgb32FImage::from_fn(64, 32, |x, _| Rgb([x as f32 / 64.0, 2.0, 0.5]));
+            let data = encode(&DynamicImage::ImageRgb32F(float), format, 0)?;
+            let mut image = ImageData {
+                name: extension.to_string(),
+                path: format!("bake.{extension}"),
+                width: 64,
+                height: 32,
+                jpeg: Some(PinBinary {
+                    path: format!("bake.{extension}"),
+                    name: extension.to_string(),
+                    internal_name: None,
+                    data,
+                }),
+                ..Default::default()
+            };
+            assert_eq!(image.shrink(16)?, Some((16, 8)), "{extension}");
+            assert_eq!(image.ext(), extension);
+            let decoded = image.decode()?;
+            assert!(
+                matches!(
+                    decoded,
+                    DynamicImage::ImageRgb32F(_) | DynamicImage::ImageRgba32F(_)
+                ),
+                "{extension} decoded as {:?}",
+                decoded.color()
+            );
+            // values above 1.0 survive the resampling
+            assert!(
+                decoded.to_rgb32f().pixels().all(|p| p[1] > 1.9),
+                "{extension}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_shrunk_exr_keeps_its_compression_and_sample_depth() -> TestResult {
+        use exr::prelude::*;
+        let mut data = io::Cursor::new(Vec::new());
+        let encoding = Encoding {
+            compression: Compression::DWAA(None),
+            blocks: Blocks::ScanLines,
+            line_order: LineOrder::Increasing,
+        };
+        let channels = SpecificChannels::rgb(|Vec2(x, _)| {
+            (
+                f16::from_f32(x as f32 / 64.0),
+                f16::from_f32(2.0),
+                f16::from_f32(0.5),
+            )
+        });
+        Image::from_encoded_channels((64usize, 32usize), encoding, channels)
+            .write()
+            .to_buffered(&mut data)?;
+        let mut image = ImageData {
+            name: "bake".to_string(),
+            path: "bake.exr".to_string(),
+            width: 64,
+            height: 32,
+            jpeg: Some(PinBinary {
+                path: "bake.exr".to_string(),
+                name: "bake".to_string(),
+                internal_name: None,
+                data: data.into_inner(),
+            }),
+            ..Default::default()
+        };
+
+        assert_eq!(image.shrink(16)?, Some((16, 8)));
+
+        let shrunk = image
+            .jpeg
+            .as_ref()
+            .map(|jpeg| jpeg.data.as_slice())
+            .unwrap_or_default();
+        let meta = MetaData::read_from_buffered(io::Cursor::new(shrunk), true)?;
+        let header = &meta.headers[0];
+        assert!(
+            matches!(header.compression, Compression::DWAA(_)),
+            "{:?}",
+            header.compression
+        );
+        assert!(
+            header
+                .channels
+                .list
+                .iter()
+                .all(|channel| channel.sample_type == SampleType::F16)
+        );
+        assert_eq!(header.channels.list.len(), 3);
+        let decoded = image.decode()?.to_rgb32f();
+        assert!(decoded.pixels().all(|p| p[1] > 1.9));
+        Ok(())
+    }
+
+    #[test]
+    fn an_image_that_would_not_get_smaller_is_left_as_it_is() -> TestResult {
+        // a jpeg that loses two pixels grows through re-encoding
+        let mut photo = encoded_image("photo", "jpg", 400, 400)?;
+        let before = photo.clone();
+        assert_eq!(photo.shrink_within(398)?, Some(Shrunk::NotSmaller));
+        assert_eq!(photo, before);
+        Ok(())
+    }
+
+    #[test]
+    fn an_image_without_encoder_is_an_error() -> TestResult {
+        let mut image = encoded_image("art", "png", 64, 64)?;
+        image.path = "art.psd".to_string();
+        if let Some(jpeg) = &mut image.jpeg {
+            jpeg.data = b"8BPS\0\x01".repeat(20);
+        }
+        let error = image.shrink(16).expect_err("a psd has no decoder");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData, "{error}");
         Ok(())
     }
 
