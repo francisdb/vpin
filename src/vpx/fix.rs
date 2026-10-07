@@ -17,7 +17,7 @@
 use super::VPX;
 use super::audit::{Kind, assets};
 use super::image::ImageData;
-use super::images::Webp;
+use super::images::{Shrunk, Webp};
 use super::pinbinary::PinBinary;
 use log::warn;
 use std::collections::HashSet;
@@ -92,6 +92,12 @@ pub enum SkipReason {
     TooDeep,
     /// The image does not decode, or webp cannot encode it; the error
     Unreadable(String),
+    /// The script hands the image to FlexDMD as `VPX.name`, and FlexDMD
+    /// draws it pixel for pixel on the DMD, so a scaled one renders wrong
+    FlexDmdArtwork,
+    /// The image is a color grade lookup table, which the shader reads
+    /// by pixel position
+    ColorGradeLut,
 }
 
 impl std::fmt::Display for SkipReason {
@@ -101,6 +107,15 @@ impl std::fmt::Display for SkipReason {
             SkipReason::NotSmaller => write!(f, "the webp would not be smaller"),
             SkipReason::TooDeep => write!(f, "deeper than 8 bits, which webp cannot hold"),
             SkipReason::Unreadable(error) => write!(f, "does not decode: {error}"),
+            SkipReason::FlexDmdArtwork => {
+                write!(f, "FlexDMD draws it pixel for pixel on the DMD")
+            }
+            SkipReason::ColorGradeLut => {
+                write!(
+                    f,
+                    "a color grade LUT, which the shader reads by pixel position"
+                )
+            }
         }
     }
 }
@@ -343,6 +358,149 @@ fn stored_bytes(image: &ImageData) -> usize {
                 .map(|bits| bits.lzw_compressed_data.len())
         })
         .unwrap_or(0)
+}
+
+/// An image scaled down by [`shrink_images`]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShrunkImage {
+    name: String,
+    width_before: u32,
+    height_before: u32,
+    width_after: u32,
+    height_after: u32,
+    bytes_before: usize,
+    bytes_after: usize,
+}
+
+impl ShrunkImage {
+    /// Name of the image in the table, as the table spelled it
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Width and height of the picture before
+    pub fn size_before(&self) -> (u32, u32) {
+        (self.width_before, self.height_before)
+    }
+
+    /// Width and height of the picture now
+    pub fn size_after(&self) -> (u32, u32) {
+        (self.width_after, self.height_after)
+    }
+
+    /// Size of the stored image data before
+    pub fn bytes_before(&self) -> usize {
+        self.bytes_before
+    }
+
+    /// Size of the stored image data now
+    pub fn bytes_after(&self) -> usize {
+        self.bytes_after
+    }
+}
+
+/// What a run of [`shrink_images`] did: the images it scaled down and the
+/// ones over the limit it left alone, each with the reason. Images that
+/// already fit, and links, which hold no picture, are in neither list.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ImageShrink {
+    shrunk: Vec<ShrunkImage>,
+    skipped: Vec<SkippedImage>,
+}
+
+impl ImageShrink {
+    /// The scaled down images, in the order the table lists them
+    pub fn shrunk(&self) -> &[ShrunkImage] {
+        &self.shrunk
+    }
+
+    /// The images over the limit left alone, in the order the table
+    /// lists them
+    pub fn skipped(&self) -> &[SkippedImage] {
+        &self.skipped
+    }
+
+    /// Whether the table is left as it was
+    pub fn is_empty(&self) -> bool {
+        self.shrunk.is_empty()
+    }
+}
+
+/// Scales every image with a side over `max_dimension` down to fit it,
+/// keeping the aspect ratio. vpinball does the same on load for every
+/// image over its "Maximum texture dimension" video setting (1536 by
+/// default on mobile, where people with little memory go down to 512;
+/// unlimited on desktop), so this stores what such a device would show
+/// anyway, resampled once with a better filter than the bilinear one
+/// vpinball uses: the file is smaller, loads faster and no longer holds
+/// pixels the device decodes only to throw away. It is lossy, a jpeg is
+/// re-encoded at quality 90, so it is an opt-in lever for a table meant
+/// for such a device, with no audit finding behind it; `vpxtool optimize`
+/// has it behind a flag. Each image keeps its format, see
+/// [`ImageData::shrink`] for the exceptions.
+///
+/// Left alone and reported: images the script hands to FlexDMD as
+/// `VPX.name`, which FlexDMD draws pixel for pixel; the color grade image
+/// and every 256x16 image, the LUT layout the shader reads and the size
+/// of the LUTs a script switches between; images whose scaled down
+/// encoding would not be smaller, since vpinball scales those down on load
+/// anyway; and images that do not decode or have no encoder, with a
+/// warning. Images that already fit are not candidates, nor is a link,
+/// which holds no picture.
+///
+/// Returns what was scaled down and what was left alone, with the reason.
+pub fn shrink_images(vpx: &mut VPX, max_dimension: u32) -> ImageShrink {
+    let flexdmd = assets::flexdmd_image_names(&vpx.gamedata.code.string);
+    let lut = vpx.gamedata.image_color_grade.to_lowercase();
+    let mut shrink = ImageShrink::default();
+    for image in &mut vpx.images {
+        if image.is_link() {
+            continue;
+        }
+        // the header says whether the image is over the limit; one whose
+        // header does not parse is left to the decoder to report
+        let size = if image.bits.is_some() {
+            Some((image.width, image.height))
+        } else {
+            image.dimensions().ok()
+        };
+        if size.is_some_and(|(width, height)| width <= max_dimension && height <= max_dimension) {
+            continue;
+        }
+        let lower = image.name.to_lowercase();
+        let reason = if flexdmd.contains(&lower) {
+            SkipReason::FlexDmdArtwork
+        } else if (!lut.is_empty() && lower == lut) || size == Some((256, 16)) {
+            SkipReason::ColorGradeLut
+        } else {
+            let bytes_before = stored_bytes(image);
+            match image.shrink_within(max_dimension) {
+                Ok(Some(Shrunk::Resized { from, to })) => {
+                    shrink.shrunk.push(ShrunkImage {
+                        name: image.name.clone(),
+                        width_before: from.0,
+                        height_before: from.1,
+                        width_after: to.0,
+                        height_after: to.1,
+                        bytes_before,
+                        bytes_after: stored_bytes(image),
+                    });
+                    continue;
+                }
+                Ok(Some(Shrunk::NotSmaller)) => SkipReason::NotSmaller,
+                Ok(None) => continue,
+                Err(e) => {
+                    warn!("Skipping image {}: {e}", image.name);
+                    SkipReason::Unreadable(e.to_string())
+                }
+            }
+        };
+        shrink.skipped.push(SkippedImage {
+            name: image.name.clone(),
+            reason,
+        });
+    }
+    shrink
 }
 
 /// The path older tables give a sound for the backglass speakers
@@ -946,6 +1104,116 @@ mod tests {
         let again = tgas_to_webp(&mut vpx);
         assert!(again.is_empty());
         assert_eq!(again.skipped(), conversion.skipped());
+        Ok(())
+    }
+
+    #[test]
+    fn images_over_the_limit_are_shrunk_and_the_rest_left_alone() -> TestResult {
+        let mut vpx = VPX::default();
+        vpx.add_or_replace_image(encoded_image("big", "png", 200, 100)?);
+        vpx.add_or_replace_image(encoded_image("small", "png", 40, 40)?);
+        vpx.add_or_replace_image(encoded_image("photo", "jpg", 300, 100)?);
+        vpx.add_or_replace_image(bitmap_image("old", 120, 60));
+        vpx.add_or_replace_image(crate::vpx::images::tests::link_image("Capture"));
+        // the stored size of a bitmap can be stale
+        let bytes_before: Vec<usize> = vpx.images.iter().map(stored_bytes).collect();
+
+        let shrink = shrink_images(&mut vpx, 50);
+
+        assert_eq!(shrink.skipped(), []);
+        let shrunk = shrink.shrunk();
+        assert_eq!(shrunk.len(), 3, "{shrunk:#?}");
+        assert_eq!(shrunk[0].name(), "big");
+        assert_eq!(shrunk[0].size_before(), (200, 100));
+        assert_eq!(shrunk[0].size_after(), (50, 25));
+        assert_eq!(shrunk[0].bytes_before(), bytes_before[0]);
+        assert!(shrunk[0].bytes_after() < shrunk[0].bytes_before());
+        assert_eq!(shrunk[1].name(), "photo");
+        // the side that lost the most pixels sets the other, vpinball's way
+        assert_eq!(shrunk[1].size_after(), (50, 16));
+        assert_eq!(shrunk[2].name(), "old");
+        assert_eq!(shrunk[2].size_after(), (50, 25));
+        assert_eq!(vpx.images[0].ext(), "png");
+        assert_eq!(vpx.images[1].ext(), "png");
+        assert_eq!((vpx.images[1].width, vpx.images[1].height), (40, 40));
+        assert_eq!(vpx.images[2].ext(), "jpg");
+        assert_eq!(vpx.images[3].ext(), "webp");
+        assert!(vpx.images[3].bits.is_none());
+        assert!(vpx.images[4].is_link());
+        for image in &vpx.images[..4] {
+            let decoded = image.decode()?;
+            assert_eq!(
+                (decoded.width(), decoded.height()),
+                (image.width, image.height)
+            );
+            assert!(image.width <= 50 && image.height <= 50, "{}", image.name);
+        }
+        // a second run has nothing to do
+        assert_eq!(shrink_images(&mut vpx, 50), ImageShrink::default());
+        Ok(())
+    }
+
+    #[test]
+    fn images_over_the_limit_left_alone_are_reported_with_the_reason() -> TestResult {
+        let mut vpx = VPX::default();
+        vpx.add_or_replace_image(encoded_image("dmd", "png", 200, 100)?);
+        vpx.add_or_replace_image(encoded_image("Grade", "png", 512, 32)?);
+        vpx.add_or_replace_image(encoded_image("LUT2", "png", 256, 16)?);
+        // a smooth gradient is a few hundred bytes of lossless webp at
+        // any size, so a smaller one buys nothing
+        vpx.add_or_replace_image(encoded_image("gradient", "webp", 400, 400)?);
+        // a png whose data is cut short does not decode
+        let mut broken = encoded_image("broken", "png", 200, 200)?;
+        if let Some(jpeg) = &mut broken.jpeg {
+            jpeg.data.truncate(40);
+        }
+        vpx.add_or_replace_image(broken);
+        vpx.add_or_replace_image(encoded_image("fits", "png", 64, 64)?);
+        vpx.gamedata.image_color_grade = "grade".to_string();
+        vpx.gamedata.set_code(
+            "Option Explicit\r\nSet img = FlexDMD.NewImage(\"d\", \"VPX.DMD\")\r\n".to_string(),
+        );
+        let before = format!("{vpx:?}");
+
+        let shrink = shrink_images(&mut vpx, 100);
+
+        assert!(shrink.is_empty());
+        assert_eq!(shrink.skipped().len(), 5, "{shrink:#?}");
+        assert_eq!(
+            shrink.skipped()[..4],
+            [
+                SkippedImage {
+                    name: "dmd".to_string(),
+                    reason: SkipReason::FlexDmdArtwork,
+                },
+                SkippedImage {
+                    name: "Grade".to_string(),
+                    reason: SkipReason::ColorGradeLut,
+                },
+                SkippedImage {
+                    name: "LUT2".to_string(),
+                    reason: SkipReason::ColorGradeLut,
+                },
+                SkippedImage {
+                    name: "gradient".to_string(),
+                    reason: SkipReason::NotSmaller,
+                },
+            ]
+        );
+        assert_eq!(shrink.skipped()[4].name(), "broken");
+        assert!(matches!(
+            shrink.skipped()[4].reason(),
+            SkipReason::Unreadable(_)
+        ));
+        assert_eq!(
+            shrink.skipped()[0].reason().to_string(),
+            "FlexDMD draws it pixel for pixel on the DMD"
+        );
+        assert_eq!(
+            shrink.skipped()[1].reason().to_string(),
+            "a color grade LUT, which the shader reads by pixel position"
+        );
+        assert_eq!(format!("{vpx:?}"), before);
         Ok(())
     }
 
