@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.39.0](https://github.com/francisdb/vpin/compare/v0.38.4...v0.39.0) - 2026-10-12
+
+### Added
+
+- add the state link of lights, triggers, flashers and primitives ([#577](https://github.com/francisdb/vpin/pull/577))
+- *(fix)* store the gain vpinball applies to a downmixed playfield sound ([#579](https://github.com/francisdb/vpin/pull/579))
+
+### Fixed
+
+- *(ci)* enable getrandom 0.4's wasm_js backend for the wasm tests ([#578](https://github.com/francisdb/vpin/pull/578))
+
+### Other
+
+- follow vpinball dropping the AgX punchy tone mapper ([#581](https://github.com/francisdb/vpin/pull/581))
+
 ## [0.38.4](https://github.com/francisdb/vpin/compare/v0.38.3...v0.38.4) - 2026-10-07
 
 ### Added
