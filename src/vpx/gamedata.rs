@@ -493,23 +493,29 @@ impl ViewSetup {
 ///
 /// Stored per table in [`GameData::tone_mapper`]. The numeric values follow
 /// the vpinball enum: `0` Reinhard, `1` AgX, `2` Filmic, `3` Neutral,
-/// `4` AgX punchy.
+/// `4` AgX punchy. vpinball dropped AgX punchy on 2026-10-06 (10.8.1
+/// master): it loads any value outside `0..=3` as AgX and only writes those
+/// four, so `4` and [`ToneMapper::Other`] values survive only through this
+/// crate.
 #[derive(Debug, PartialEq, Clone, Copy)]
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum ToneMapper {
     /// Reinhard, used to be the default until 10.8
     Reinhard,
-    /// AgX tonemapper, used in Blender, implementation derived from threeJs which derives its implementation from Filament
+    /// AgX tonemapper, used in Blender, implementation derived from Godot's which derives from EaryChow's AgX
     AgX,
     /// Filmic tonemapper
     Filmic,
     /// Neutral tonemapper, designed for e-commerce, keeps sRGB colors kinda original
     Neutral,
-    /// AgX tonemapper, punchy look curve (more contrast/saturation)
+    /// AgX tonemapper, punchy look curve (more contrast/saturation).
+    /// Removed from vpinball on 2026-10-06, which loads it as [`ToneMapper::AgX`]
+    /// since; kept so a table saved before that round trips.
     AgXPunchy,
     /// Any value this crate does not know, kept as is so the table round
-    /// trips. vpinball master also defines `5` (`TM_WCG_SPLINE`), a spline
-    /// curve for HDR to HDR display mapping that is not exposed to the user.
+    /// trips. vpinball master also defines `256` (`TM_WCG_SPLINE`, `5` before
+    /// 2026-10-06), a spline curve for HDR to HDR display mapping that is not
+    /// exposed to the user and never saved.
     Other(#[cfg_attr(test, proptest(strategy = "5..=u32::MAX"))] u32),
 }
 
