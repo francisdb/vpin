@@ -527,8 +527,9 @@ pub enum SoundSkipReason {
     BackglassMarker,
     /// An MP3 or Ogg file: re-encoding it to mono would degrade it
     Lossy,
-    /// A FLAC of 24 bits or more: its exact mono needs one bit more than
-    /// the encoder writes
+    /// No longer produced: since the downmix stores the clipped sum at the
+    /// source depth, a FLAC of any depth up to 24 bits converts
+    #[deprecated(note = "no longer produced")]
     TooDeep,
 }
 
@@ -542,6 +543,7 @@ impl std::fmt::Display for SoundSkipReason {
             SoundSkipReason::NotSmaller => write!(f, "the result would not be smaller"),
             SoundSkipReason::Unencodable(error) => write!(f, "does not encode: {error}"),
             SoundSkipReason::Lossy => write!(f, "a lossy mp3 or ogg, not re-encoded"),
+            #[allow(deprecated)]
             SoundSkipReason::TooDeep => {
                 write!(
                     f,
@@ -692,16 +694,21 @@ pub fn wavs_to_flac(vpx: &mut VPX) -> SoundConversion {
 /// Downmixes the sounds the audit reports as `stereo-table-sound` to the
 /// mono vpinball plays them as: vpinball 10.8.1 and later decode a
 /// playfield sound to one channel, averaging the others into it, so the
-/// extra channels only take space. The downmix is exactly vpinball's: a wav
-/// keeps its sample format, a FLAC gets one bit more to hold the average
-/// exactly. 10.8.0 played such sounds in stereo in its two speaker mode,
-/// so this is an opt-in size lever, as `vpxtool optimize` has it behind a
-/// flag. Run it before [`wavs_to_flac`] so the FLAC only encodes one
-/// channel.
+/// extra channels only take space. Since 2026-10-12 vpinball also
+/// multiplies the gain of such a sound by its channel count to keep it as
+/// loud as a mono one (vpinball/vpinball#4166), so the stored mono is that
+/// compensated signal: the average times the channel count, clipped to
+/// full scale. A wav keeps its sample format, a FLAC its depth. A sound
+/// whose channels add up past full scale clips where vpinball, applying
+/// the gain in floats, only clips at the output. On a vpinball before that
+/// date the result plays twice as loud as the original did there. 10.8.0
+/// played such sounds in stereo in its two speaker mode, so this is an
+/// opt-in size lever, as `vpxtool optimize` has it behind a flag. Run it
+/// before [`wavs_to_flac`] so the FLAC only encodes one channel.
 ///
 /// MP3 and Ogg files are left alone and reported, as are wavs in another
-/// sample format, FLACs of 24 bits or more or other than two channels, and
-/// a FLAC whose mono would not be smaller.
+/// sample format, FLACs deeper than 24 bits or other than two channels,
+/// and a FLAC whose mono would not be smaller.
 ///
 /// Returns what was downmixed and what was left alone, with the reason.
 #[cfg(not(target_family = "wasm"))]
@@ -732,7 +739,6 @@ pub fn playfield_sounds_to_mono(vpx: &mut VPX) -> SoundConversion {
             }
             Ok(crate::vpx::sound::Mono::NotPcm) => SoundSkipReason::NotPcm,
             Ok(crate::vpx::sound::Mono::Lossy) => SoundSkipReason::Lossy,
-            Ok(crate::vpx::sound::Mono::TooDeep) => SoundSkipReason::TooDeep,
             Ok(crate::vpx::sound::Mono::NotSmaller) => SoundSkipReason::NotSmaller,
             Ok(crate::vpx::sound::Mono::Unsupported(why)) => SoundSkipReason::Unencodable(why),
             Err(e) => {

@@ -850,9 +850,6 @@ pub(crate) enum Mono {
     NotPcm,
     /// An MP3 or Ogg file, which re-encoding would degrade
     Lossy,
-    /// A FLAC of 24 bits or more: the exact mono needs a bit more, past
-    /// what the encoder writes
-    TooDeep,
     /// The mono FLAC would not be smaller
     NotSmaller,
     /// Something else this does not downmix, why
@@ -864,14 +861,17 @@ impl SoundData {
     /// Downmixes a sound of more than one channel to the mono vpinball
     /// plays it as on the playfield: miniaudio 0.11, which vpinball 10.8.1
     /// and later decode with, averages the channels when a playfield sound
-    /// is decoded to one channel (`ma_channel_mix_mode_simple`), see
-    /// [`downmix_wav`].
+    /// is decoded to one channel (`ma_channel_mix_mode_simple`), and
+    /// vpinball since 2026-10-12 (vpinball/vpinball#4166) multiplies the
+    /// gain by the source channel count so the sound stays as loud as a
+    /// mono one. The stored mono is that compensated signal, the average
+    /// times the channel count clipped to full scale, see [`downmix_wav`]:
+    /// on a vpinball before that date it plays twice as loud as the
+    /// original did there.
     ///
     /// A wav keeps its sample format with one channel. A two channel FLAC
-    /// up to 23 bits becomes a mono FLAC one bit deeper holding the sum of
-    /// the channels: miniaudio averages FLAC samples as floats, which only
-    /// that depth stores exactly. MP3 and Ogg files are lossy and left
-    /// alone.
+    /// becomes a mono FLAC of the same depth holding the clipped sum of
+    /// the channels. MP3 and Ogg files are lossy and left alone.
     pub(crate) fn downmix_to_mono(&mut self) -> io::Result<Mono> {
         if is_wav(&self.path) {
             let Some(data) = downmix_wav(&self.data, &self.wave_form) else {
@@ -906,12 +906,10 @@ impl SoundData {
             )));
         }
         let bits = info.bits_per_sample as u16;
-        if bits >= 24 {
-            return Ok(Mono::TooDeep);
-        }
-        if bits < 7 {
+        if !(8..=24).contains(&bits) {
             return Ok(Mono::Unsupported(format!("a {bits} bit flac")));
         }
+        let (min, max) = (-(1i32 << (bits - 1)), (1i32 << (bits - 1)) - 1);
         let samples = reader
             .samples()
             .collect::<Result<Vec<i32>, _>>()
@@ -920,9 +918,9 @@ impl SoundData {
             .as_chunks::<2>()
             .0
             .iter()
-            .map(|[left, right]| left + right)
+            .map(|[left, right]| (left + right).clamp(min, max))
             .collect();
-        let flac = encode_flac(&mono, 1, bits + 1, info.sample_rate)?;
+        let flac = encode_flac(&mono, 1, bits, info.sample_rate)?;
         if flac.len() >= self.data.len() {
             return Ok(Mono::NotSmaller);
         }
@@ -938,6 +936,17 @@ const U8_TO_F32: f32 = f32::from_bits(0x3C00_8081);
 #[cfg(not(target_family = "wasm"))]
 const S24_TO_F32: f32 = f32::from_bits(0x3400_0000);
 
+/// Downmixes interleaved wav samples to the mono vpinball plays them as on
+/// the playfield: the channels averaged as miniaudio does, see [`mix_wav`],
+/// then multiplied by the channel count and clipped to full scale, the
+/// gain vpinball applies to a multi channel playfield sound since
+/// 2026-10-12 (`SoundPlayer::m_monoCompensation`). `None` for a format
+/// this does not convert.
+#[cfg(not(target_family = "wasm"))]
+fn downmix_wav(data: &[u8], wave_form: &WaveForm) -> Option<Vec<u8>> {
+    mix_wav(data, wave_form, true)
+}
+
 /// Averages the channels of interleaved wav samples into one, as miniaudio
 /// 0.11 does when vpinball decodes a playfield sound to mono: in the
 /// samples' own format for 16 bit PCM and 32 bit float, through floats for
@@ -945,10 +954,13 @@ const S24_TO_F32: f32 = f32::from_bits(0x3400_0000);
 /// sum of the channels is divided by their count
 /// (`ma_channel_converter_process_pcm_frames__mono_out`), and the sample
 /// conversions are miniaudio's reference ones, which its SIMD variants
-/// call too. `None` for any other format. A trailing partial frame is
-/// dropped, as the decoder reads whole frames.
+/// call too. With `compensate` the average is multiplied by the channel
+/// count and clipped to full scale before it is stored, which is what
+/// reaches the output when vpinball applies that gain to the average and
+/// the mix is clipped to the device format. `None` for any other format.
+/// A trailing partial frame is dropped, as the decoder reads whole frames.
 #[cfg(not(target_family = "wasm"))]
-fn downmix_wav(data: &[u8], wave_form: &WaveForm) -> Option<Vec<u8>> {
+fn mix_wav(data: &[u8], wave_form: &WaveForm, compensate: bool) -> Option<Vec<u8>> {
     let channels = usize::from(wave_form.channels);
     let bytes = usize::from(wave_form.bits_per_sample / 8);
     if channels == 0 || bytes == 0 || !wave_form.bits_per_sample.is_multiple_of(8) {
@@ -960,7 +972,12 @@ fn downmix_wav(data: &[u8], wave_form: &WaveForm) -> Option<Vec<u8>> {
         for sample in frame.chunks_exact(bytes) {
             sum += to_f32(sample);
         }
-        sum / channels as f32
+        let average = sum / channels as f32;
+        if compensate {
+            (average * channels as f32).clamp(-1.0, 1.0)
+        } else {
+            average
+        }
     };
     let mono = match (wave_form.format_tag, wave_form.bits_per_sample) {
         (1, 16) => frames
@@ -975,7 +992,14 @@ fn downmix_wav(data: &[u8], wave_form: &WaveForm) -> Option<Vec<u8>> {
                 // count, so C converts the sum to unsigned first and the
                 // result is cut to 16 bits; for two channels that rounds
                 // down instead of toward zero
-                (((sum as u32) / channels as u32) as i16).to_le_bytes()
+                let average = ((sum as u32) / channels as u32) as i16;
+                if compensate {
+                    (i32::from(average) * channels as i32)
+                        .clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16
+                } else {
+                    average
+                }
+                .to_le_bytes()
             })
             .collect(),
         (1, 8) => frames
@@ -1680,21 +1704,99 @@ mod mono_tests {
             (3, 32, &[0, 0, 128, 63, 0, 0, 128, 191, 255, 255, 127, 63, 255, 255, 127, 191, 0, 0, 128, 63, 0, 0, 128, 191, 255, 255, 127, 63, 255, 255, 127, 191, 0, 0, 128, 63, 0, 0, 128, 191, 255, 255, 127, 63, 255, 255, 127, 191, 0, 0, 128, 63, 0, 0, 128, 191, 255, 255, 127, 63, 255, 255, 127, 191, 251, 132, 31, 191, 16, 214, 99, 63, 165, 182, 104, 63, 99, 6, 5, 63, 86, 198, 97, 191, 196, 92, 23, 62, 235, 183, 127, 63, 218, 196, 26, 191, 198, 7, 169, 60, 30, 14, 177, 189, 3, 25, 128, 190, 104, 42, 134, 62, 180, 230, 80, 191, 105, 138, 39, 63, 189, 34, 69, 63, 88, 72, 178, 60, 133, 33, 227, 61, 146, 200, 112, 63, 190, 79, 243, 188, 249, 34, 181, 190, 106, 31, 15, 191, 105, 203, 117, 62, 44, 218, 58, 62, 53, 36, 108, 191, 85, 164, 161, 190, 234, 15, 27, 63, 222, 131, 193, 61, 54, 44, 115, 191, 137, 60, 52, 191, 228, 212, 85, 191, 223, 8, 111, 63, 58, 100, 57, 190], &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 42, 162, 8, 62, 132, 222, 54, 63, 37, 239, 187, 190, 34, 230, 73, 62, 44, 204, 6, 189, 160, 44, 194, 59, 44, 113, 165, 189, 0, 181, 202, 62, 97, 150, 6, 63, 245, 87, 68, 190, 32, 89, 35, 190, 170, 109, 189, 190, 127, 123, 20, 62, 186, 251, 218, 190, 182, 8, 69, 191, 208, 175, 192, 62]),
     ];
 
+    fn stereo_wave_form(format_tag: u16, bits: u16) -> WaveForm {
+        WaveForm {
+            format_tag,
+            channels: 2,
+            samples_per_sec: 44100,
+            avg_bytes_per_sec: 44100 * u32::from(bits / 4),
+            block_align: bits / 4,
+            bits_per_sample: bits,
+            cb_size: 0,
+        }
+    }
+
     #[test]
-    fn the_downmix_is_miniaudios() {
+    fn the_average_is_miniaudios() {
         for (format_tag, bits, stereo, mono) in MINIAUDIO_DOWNMIX {
-            let wave_form = WaveForm {
-                format_tag,
-                channels: 2,
-                samples_per_sec: 44100,
-                avg_bytes_per_sec: 44100 * u32::from(bits / 4),
-                block_align: bits / 4,
-                bits_per_sample: bits,
-                cb_size: 0,
+            assert_eq!(
+                mix_wav(stereo, &stereo_wave_form(format_tag, bits), false).as_deref(),
+                Some(mono),
+                "format {format_tag} at {bits} bits"
+            );
+        }
+    }
+
+    /// For 16 bit PCM and 32 bit float the compensation works on the
+    /// stored average itself, so the downmix is exactly twice miniaudio's
+    /// average, clipped
+    #[test]
+    fn the_downmix_doubles_the_average_and_clips() {
+        for (format_tag, bits, stereo, mono) in MINIAUDIO_DOWNMIX {
+            let expected: Vec<u8> = match (format_tag, bits) {
+                (1, 16) => mono
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .flat_map(|s| {
+                        ((i32::from(i16::from_le_bytes(*s)) * 2).clamp(-32768, 32767) as i16)
+                            .to_le_bytes()
+                    })
+                    .collect(),
+                (3, 32) => mono
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .flat_map(|s| {
+                        (f32::from_le_bytes(*s) * 2.0)
+                            .clamp(-1.0, 1.0)
+                            .to_le_bytes()
+                    })
+                    .collect(),
+                _ => continue,
             };
             assert_eq!(
-                downmix_wav(stereo, &wave_form).as_deref(),
-                Some(mono),
+                downmix_wav(stereo, &stereo_wave_form(format_tag, bits)).as_deref(),
+                Some(expected.as_slice()),
+                "format {format_tag} at {bits} bits"
+            );
+        }
+    }
+
+    /// The formats that go through floats: a frame at full scale on both
+    /// channels clips, one at half scale on one channel comes out at half
+    /// scale, the lowest value stays there
+    #[test]
+    fn the_downmix_compensates_through_floats_and_clips() {
+        let cases: &[(u16, u16, &[u8], &[u8])] = &[
+            (
+                1,
+                8,
+                &[255, 255, 192, 192, 128, 128, 0, 0],
+                &[255, 255, 128, 0],
+            ),
+            (
+                1,
+                24,
+                &[
+                    0xFF, 0xFF, 0x7F, 0xFF, 0xFF, 0x7F, 0, 0, 0x40, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                ],
+                &[0xFF, 0xFF, 0x7F, 0xFF, 0xFF, 0x3F, 0, 0, 0],
+            ),
+            (
+                1,
+                32,
+                &[
+                    0xFF, 0xFF, 0xFF, 0x7F, 0xFF, 0xFF, 0xFF, 0x7F, 0, 0, 0, 0x40, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0,
+                ],
+                &[0xFF, 0xFF, 0xFF, 0x7F, 0xFF, 0xFF, 0xFF, 0x3F, 0, 0, 0, 0],
+            ),
+        ];
+        for (format_tag, bits, stereo, mono) in cases {
+            assert_eq!(
+                downmix_wav(stereo, &stereo_wave_form(*format_tag, *bits)).as_deref(),
+                Some(*mono),
                 "format {format_tag} at {bits} bits"
             );
         }
@@ -1718,7 +1820,7 @@ mod mono_tests {
     }
 
     #[test]
-    fn a_stereo_flac_becomes_a_mono_flac_one_bit_deeper() -> TestResult {
+    fn a_stereo_flac_becomes_a_mono_flac_of_the_clipped_sum() -> TestResult {
         let mut sound = pcm_wav("hit", 2, 16, 20_000);
         let stereo = pcm_samples(&sound.data, 16);
         assert_eq!(sound.wav_to_flac()?, Some(Flac::Converted));
@@ -1735,7 +1837,7 @@ mod mono_tests {
                 stream.stream_info().channels(),
                 stream.stream_info().bits_per_sample()
             ),
-            (1, 17)
+            (1, 16)
         );
         let mono: Vec<i32> = (0..stream.frame_count())
             .filter_map(|i| stream.frame(i))
@@ -1745,22 +1847,34 @@ mod mono_tests {
             .as_chunks::<2>()
             .0
             .iter()
-            .map(|[l, r]| l + r)
+            .map(|[l, r]| (l + r).clamp(-32768, 32767))
             .collect();
         assert_eq!(mono, sums);
         Ok(())
     }
 
     #[test]
-    fn lossy_and_deep_files_are_left_alone() -> TestResult {
+    fn a_deep_stereo_flac_is_downmixed_at_its_depth() -> TestResult {
+        let mut deep = pcm_wav("deep", 2, 24, 2000);
+        assert_eq!(deep.wav_to_flac()?, Some(Flac::Converted));
+        assert_eq!(deep.downmix_to_mono()?, Mono::Converted);
+        let reader = claxon::FlacReader::new(io::Cursor::new(&deep.data))?;
+        assert_eq!(
+            (
+                reader.streaminfo().channels,
+                reader.streaminfo().bits_per_sample
+            ),
+            (1, 24)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn lossy_files_are_left_alone() -> TestResult {
         let mut mp3 = pcm_wav("music", 2, 16, 10);
         mp3.path = "music.mp3".to_string();
         mp3.data = vec![0xFF, 0xFB, 0x90, 0x64, 0, 0];
         assert_eq!(mp3.downmix_to_mono()?, Mono::Lossy);
-
-        let mut deep = pcm_wav("deep", 2, 24, 2000);
-        assert_eq!(deep.wav_to_flac()?, Some(Flac::Converted));
-        assert_eq!(deep.downmix_to_mono()?, Mono::TooDeep);
 
         let mut adpcm = pcm_wav("adpcm", 2, 16, 10);
         adpcm.wave_form.format_tag = 2;
