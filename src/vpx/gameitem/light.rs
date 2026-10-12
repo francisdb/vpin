@@ -482,6 +482,18 @@ pub struct Light {
     ///
     /// BIFF tag: `BINT`
     pub blink_interval: u32,
+    /// Controller state source driving the light state: a resuri the plugin
+    /// `ResURIResolver` resolves to a float state the light follows while
+    /// it resolves, unless the light sequencer holds the light. Written as
+    /// an empty string when unset; `None` in tables saved before the field
+    /// existed.
+    ///
+    /// BIFF tag: `LINK` added in 10.8.1
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
+    pub state_src_link: Option<String>,
     /// Light intensity/brightness multiplier.
     ///
     /// ## Range
@@ -840,6 +852,8 @@ struct LightJson {
     #[serde(alias = "off_image")]
     image: String,
     blink_interval: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    state_src_link: Option<String>,
     intensity: f32,
     transmission_scale: f32,
     surface: String,
@@ -880,6 +894,7 @@ impl LightJson {
             blink_pattern: light.blink_pattern.clone(),
             image: light.image.clone(),
             blink_interval: light.blink_interval,
+            state_src_link: light.state_src_link.clone(),
             intensity: light.intensity,
             transmission_scale: light.transmission_scale,
             surface: light.surface.clone(),
@@ -918,6 +933,7 @@ impl LightJson {
             blink_pattern: self.blink_pattern.clone(),
             image: self.image.clone(),
             blink_interval: self.blink_interval,
+            state_src_link: self.state_src_link.clone(),
             intensity: self.intensity,
             transmission_scale: self.transmission_scale,
             surface: self.surface.clone(),
@@ -1025,6 +1041,7 @@ impl Default for Light {
             blink_pattern,
             image,
             blink_interval,
+            state_src_link: None,
             intensity,
             transmission_scale,
             surface,
@@ -1071,6 +1088,7 @@ impl BiffRead for Light {
                 "BPAT" => light.blink_pattern = reader.get_string()?,
                 "IMG1" => light.image = reader.get_string()?,
                 "BINT" => light.blink_interval = reader.get_u32()?,
+                "LINK" => light.state_src_link = Some(reader.get_string()?),
                 "BWTH" => light.intensity = reader.get_f32()?,
                 "TRMS" => light.transmission_scale = reader.get_f32()?,
                 "SURF" => light.surface = reader.get_string()?,
@@ -1134,6 +1152,9 @@ impl BiffWrite for Light {
         writer.write_tagged_string("BPAT", &self.blink_pattern);
         writer.write_tagged_string("IMG1", &self.image);
         writer.write_tagged_u32("BINT", self.blink_interval);
+        if let Some(state_src_link) = &self.state_src_link {
+            writer.write_tagged_string("LINK", state_src_link);
+        }
         writer.write_tagged_f32("BWTH", self.intensity);
         writer.write_tagged_f32("TRMS", self.transmission_scale);
 

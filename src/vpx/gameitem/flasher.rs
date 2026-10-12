@@ -887,6 +887,18 @@ pub struct Flasher {
         proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
     )]
     pub light_map: Option<String>,
+    /// Controller state source driving the opacity: a resuri the plugin
+    /// `ResURIResolver` resolves to a float state that multiplies the
+    /// opacity while it resolves, instead of the light map. Written as an
+    /// empty string when unset; `None` in tables saved before the field
+    /// existed.
+    ///
+    /// BIFF tag: `SLNK` added in 10.8.1
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
+    pub state_src_link: Option<String>,
     /// BIFF tag: `BGLS` added in 10.8.1
     pub backglass: Option<bool>,
 
@@ -998,6 +1010,7 @@ impl Default for Flasher {
             filter: Filter::Overlay,
             filter_amount: 100,
             light_map: None,
+            state_src_link: None,
             backglass: None,
             drag_points: vec![],
 
@@ -1047,6 +1060,8 @@ pub(crate) struct FlasherJson {
     filter: Filter,
     filter_amount: u32,
     light_map: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    state_src_link: Option<String>,
     backglass: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     part_group_name: Option<String>,
@@ -1087,6 +1102,7 @@ impl FlasherJson {
             filter: flasher.filter.clone(),
             filter_amount: flasher.filter_amount,
             light_map: flasher.light_map.clone(),
+            state_src_link: flasher.state_src_link.clone(),
             backglass: flasher.backglass,
             part_group_name: flasher.part_group_name.clone(),
             drag_points: flasher.drag_points.clone(),
@@ -1125,6 +1141,7 @@ impl FlasherJson {
             filter: self.filter.clone(),
             filter_amount: self.filter_amount,
             light_map: self.light_map.clone(),
+            state_src_link: self.state_src_link.clone(),
             backglass: self.backglass,
             part_group_name: self.part_group_name.clone(),
             drag_points: self.drag_points.clone(),
@@ -1256,6 +1273,9 @@ impl BiffRead for Flasher {
                 "LMAP" => {
                     flasher.light_map = Some(reader.get_string()?);
                 }
+                "SLNK" => {
+                    flasher.state_src_link = Some(reader.get_string()?);
+                }
                 "BGLS" => {
                     flasher.backglass = Some(reader.get_bool()?);
                 }
@@ -1339,6 +1359,9 @@ impl BiffWrite for Flasher {
         writer.write_tagged_u32("FIAM", self.filter_amount);
         if let Some(light_map) = &self.light_map {
             writer.write_tagged_string("LMAP", light_map);
+        }
+        if let Some(state_src_link) = &self.state_src_link {
+            writer.write_tagged_string("SLNK", state_src_link);
         }
         if let Some(backglass) = &self.backglass {
             writer.write_tagged_bool("BGLS", *backglass);

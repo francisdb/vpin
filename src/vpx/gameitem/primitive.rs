@@ -404,6 +404,19 @@ pub struct Primitive {
     )]
     pub light_map: Option<String>,
 
+    /// Controller state source driving the opacity: a resuri the plugin
+    /// `ResURIResolver` resolves to a float state that multiplies the
+    /// opacity while it resolves, instead of the light map. Written as an
+    /// empty string when unset; `None` in tables saved before the field
+    /// existed.
+    ///
+    /// BIFF tag: `SLNK` added in 10.8.1
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
+    pub state_src_link: Option<String>,
+
     /// Name of a reflection probe defined in the table; see
     /// `vpx.gamedata.reflection_probes`.
     ///
@@ -534,6 +547,7 @@ impl Default for Primitive {
             alpha: None,
             color: None,
             light_map: None,
+            state_src_link: None,
             reflection_probe: None,
             reflection_strength: None,
             refraction_probe: None,
@@ -595,6 +609,8 @@ struct PrimitiveJson {
     alpha: Option<f32>,
     color: Option<Color>,
     light_map: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    state_src_link: Option<String>,
     reflection_probe: Option<String>,
     reflection_strength: Option<f32>,
     refraction_probe: Option<String>,
@@ -799,6 +815,7 @@ impl PrimitiveJson {
             alpha: primitive.alpha,
             color: primitive.color,
             light_map: primitive.light_map.clone(),
+            state_src_link: primitive.state_src_link.clone(),
             reflection_probe: primitive.reflection_probe.clone(),
             reflection_strength: primitive.reflection_strength,
             refraction_probe: primitive.refraction_probe.clone(),
@@ -861,6 +878,7 @@ impl PrimitiveJson {
             alpha: self.alpha,
             color: self.color,
             light_map: self.light_map.clone(),
+            state_src_link: self.state_src_link.clone(),
             reflection_probe: self.reflection_probe.clone(),
             reflection_strength: self.reflection_strength,
             refraction_probe: self.refraction_probe.clone(),
@@ -1110,6 +1128,9 @@ impl BiffRead for Primitive {
                 "LMAP" => {
                     primitive.light_map = Some(reader.get_string()?);
                 }
+                "SLNK" => {
+                    primitive.state_src_link = Some(reader.get_string()?);
+                }
                 "REFL" => {
                     primitive.reflection_probe = Some(reader.get_string()?);
                 }
@@ -1279,6 +1300,9 @@ impl BiffWrite for Primitive {
         }
         if let Some(light_map) = &self.light_map {
             writer.write_tagged_string("LMAP", light_map);
+        }
+        if let Some(state_src_link) = &self.state_src_link {
+            writer.write_tagged_string("SLNK", state_src_link);
         }
         if let Some(reflection_probe) = &self.reflection_probe {
             writer.write_tagged_string("REFL", reflection_probe);
