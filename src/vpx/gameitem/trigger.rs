@@ -264,6 +264,16 @@ pub struct Trigger {
     ///
     /// BIFF tag `EBLD`
     pub is_enabled: bool,
+    /// Controller state link: a resuri the plugin `ResURIResolver` sets to
+    /// true on hit and false on unhit. Written as an empty string when
+    /// unset; `None` in tables saved before the field existed.
+    ///
+    /// BIFF tag `LINK` added in 10.8.1
+    #[cfg_attr(
+        test,
+        proptest(strategy = "proptest::option::of(crate::vpx::test_support::latin1_string())")
+    )]
+    pub state_src_link: Option<String>,
     /// Height of the hit volume above its base, in VPU.
     ///
     /// The line segments of a polygon trigger use `hit_height - 8` so they
@@ -381,6 +391,8 @@ struct TriggerJson {
     surface: String,
     is_visible: bool,
     is_enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    state_src_link: Option<String>,
     hit_height: f32,
     name: String,
     shape: TriggerShape,
@@ -405,6 +417,7 @@ impl TriggerJson {
             surface: trigger.surface.clone(),
             is_visible: trigger.is_visible,
             is_enabled: trigger.is_enabled,
+            state_src_link: trigger.state_src_link.clone(),
             hit_height: trigger.hit_height,
             name: trigger.name.clone(),
             shape: trigger.shape.clone(),
@@ -427,6 +440,7 @@ impl TriggerJson {
             surface: self.surface.clone(),
             is_visible: self.is_visible,
             is_enabled: self.is_enabled,
+            state_src_link: self.state_src_link.clone(),
             hit_height: self.hit_height,
             name: self.name.clone(),
             shape: self.shape.clone(),
@@ -479,6 +493,7 @@ impl Default for Trigger {
             surface: Default::default(),
             is_visible: true,
             is_enabled: true,
+            state_src_link: None,
             hit_height: 50.0,
             name: Default::default(),
             shape: TriggerShape::WireA,
@@ -533,6 +548,9 @@ impl BiffRead for Trigger {
                 "EBLD" => {
                     trigger.is_enabled = reader.get_bool()?;
                 }
+                "LINK" => {
+                    trigger.state_src_link = Some(reader.get_string()?);
+                }
                 "THOT" => {
                     trigger.hit_height = reader.get_f32()?;
                 }
@@ -584,6 +602,9 @@ impl BiffWrite for Trigger {
         writer.write_tagged_string("SURF", &self.surface);
         writer.write_tagged_string("MATR", &self.material);
         writer.write_tagged_bool("EBLD", self.is_enabled);
+        if let Some(state_src_link) = &self.state_src_link {
+            writer.write_tagged_string("LINK", state_src_link);
+        }
         writer.write_tagged_bool("VSBL", self.is_visible);
         writer.write_tagged_f32("THOT", self.hit_height);
         writer.write_tagged_wide_string("NAME", &self.name);
