@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.39.1](https://github.com/francisdb/vpin/compare/v0.39.0...v0.39.1) - 2026-10-14
+
+### Other
+
+- *(deps)* drop the nom dev-dependency ([#587](https://github.com/francisdb/vpin/pull/587))
+- *(deps)* update zip requirement from 8.6.0 to 9.0.1 ([#584](https://github.com/francisdb/vpin/pull/584))
+- *(deps)* update proptest-derive requirement from 0.8.0 to 0.9.0 ([#583](https://github.com/francisdb/vpin/pull/583))
+- *(deps)* bump taiki-e/install-action from 2.87.22 to 2.87.27 ([#582](https://github.com/francisdb/vpin/pull/582))
+
 ## [0.39.0](https://github.com/francisdb/vpin/compare/v0.38.4...v0.39.0) - 2026-10-12
 
 ### Added
