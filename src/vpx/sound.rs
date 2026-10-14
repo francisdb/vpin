@@ -1830,8 +1830,7 @@ mod mono_tests {
         // claxon does not read a depth the frame headers cannot name
         use flacenc::component::Decode;
         let (_, stream) =
-            flacenc::component::parser::stream::<nom::error::Error<&[u8]>>(&sound.data)
-                .map_err(|e| e.to_string())?;
+            flacenc::component::parser::stream::<()>(&sound.data).map_err(|e| e.to_string())?;
         assert_eq!(
             (
                 stream.stream_info().channels(),
