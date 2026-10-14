@@ -42,12 +42,13 @@ pub fn read_info<P: AsRef<Path>>(path: P) -> io::Result<PackInfo> {
 /// Reads what describes a pack in a `.vpz` zip archive, see [`read_info`].
 pub fn read_zip_info<R: Read + Seek>(reader: R) -> io::Result<PackInfo> {
     let mut archive = zip::ZipArchive::new(reader).map_err(io::Error::other)?;
-    let names: BTreeMap<String, usize> = (0..archive.len())
-        .filter_map(|index| {
-            let name = archive.name_for_index(index)?.replace('\\', "/");
-            Some((name, index))
-        })
-        .collect();
+    let mut names: BTreeMap<String, usize> = BTreeMap::new();
+    for index in 0..archive.len() {
+        if let Some(name) = archive.name_for_index(index) {
+            let name = name.map_err(io::Error::other)?.replace('\\', "/");
+            names.insert(name, index);
+        }
+    }
     info(read_head(|name| {
         let Some(&index) = names.get(name) else {
             return Ok(None);

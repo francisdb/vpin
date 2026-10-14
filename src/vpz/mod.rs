@@ -401,7 +401,10 @@ pub fn read_zip<R: Read + Seek>(reader: R) -> io::Result<Vpz> {
             .ok_or_else(|| {
                 io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!("unsafe zip entry name {:?}", entry.name()),
+                    format!(
+                        "unsafe zip entry name {:?}",
+                        String::from_utf8_lossy(entry.name_raw())
+                    ),
                 )
             })?;
         let mut data = Vec::with_capacity(entry.size() as usize);
