@@ -401,7 +401,7 @@ fn a_pack_round_trips_through_a_zip() -> TestResult {
     let bytes = to_zip_bytes(&vpz)?;
     assert_eq!(from_zip_bytes(&bytes)?, from_files(to_files(&vpz)?)?);
     let mut archive = zip::ZipArchive::new(Cursor::new(&bytes))?;
-    assert_eq!(archive.by_index(0)?.name(), "manifest.json");
+    assert_eq!(archive.by_index(0)?.name()?, "manifest.json");
     // no timestamps, so the same pack gives the same bytes
     assert_eq!(to_zip_bytes(&vpz)?, bytes);
     Ok(())
@@ -495,7 +495,8 @@ fn zip_entries(bytes: &[u8]) -> io::Result<BTreeMap<String, Vec<u8>>> {
         let mut entry = archive.by_index(index).map_err(io::Error::other)?;
         let mut data = Vec::new();
         entry.read_to_end(&mut data)?;
-        entries.insert(entry.name().to_string(), data);
+        let name = entry.name().map_err(io::Error::other)?.into_owned();
+        entries.insert(name, data);
     }
     Ok(entries)
 }
