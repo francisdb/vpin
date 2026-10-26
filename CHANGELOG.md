@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.39.2](https://github.com/francisdb/vpin/compare/v0.39.1...v0.39.2) - 2026-10-26
+
+### Fixed
+
+- clamp builtin primitive sides to 3..=100 like vpinball ([#590](https://github.com/francisdb/vpin/pull/590))
+
+### Other
+
+- *(deps)* bump taiki-e/install-action from 2.87.27 to 2.87.29 ([#588](https://github.com/francisdb/vpin/pull/588))
+
 ## [0.39.1](https://github.com/francisdb/vpin/compare/v0.39.0...v0.39.1) - 2026-10-14
 
 ### Other
