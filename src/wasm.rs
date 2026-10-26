@@ -1238,8 +1238,8 @@ pub fn mesh_to_glb(
 /// has `use_3d_mesh = false`, or to seed the editor's "Add
 /// Primitive" workflow.
 ///
-/// `sides` must be at least 3; otherwise the call errors out
-/// (vpinball clamps to 3 in its own editor).
+/// `sides` must be in `3..=100`, the range vpinball accepts;
+/// otherwise the call errors out.
 ///
 /// `draw_textures_inside = true` doubles the index count so back
 /// faces are also rendered (matches vpinball's flag of the same
@@ -1250,10 +1250,14 @@ pub fn generate_builtin_primitive(
     sides: u32,
     draw_textures_inside: bool,
 ) -> Result<PrimitiveMesh, JsError> {
-    use crate::vpx::mesh::builtin_primitive::build_builtin_primitive_mesh;
+    use crate::vpx::mesh::builtin_primitive::{MAX_PRIMITIVE_SIDES, build_builtin_primitive_mesh};
 
-    let (vertices, faces) = build_builtin_primitive_mesh(sides, draw_textures_inside)
-        .ok_or_else(|| JsError::new(&format!("sides must be >= 3 (got {sides})")))?;
+    let (vertices, faces) =
+        build_builtin_primitive_mesh(sides, draw_textures_inside).ok_or_else(|| {
+            JsError::new(&format!(
+                "sides must be in 3..={MAX_PRIMITIVE_SIDES} (got {sides})"
+            ))
+        })?;
 
     let mut positions = Vec::with_capacity(vertices.len() * 3);
     let mut tex_coords = Vec::with_capacity(vertices.len() * 2);
@@ -1781,8 +1785,8 @@ mod tests {
     }
 
     #[wasm_bindgen_test]
-    fn test_generate_builtin_primitive_rejects_too_few_sides() {
-        for sides in 0..3 {
+    fn test_generate_builtin_primitive_rejects_sides_out_of_range() {
+        for sides in [0, 1, 2, 101, u32::MAX] {
             let result = generate_builtin_primitive(sides, false);
             assert!(result.is_err(), "sides={sides} should error");
         }

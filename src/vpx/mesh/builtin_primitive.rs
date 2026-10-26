@@ -83,14 +83,13 @@ pub fn effective_primitive_mesh(primitive: &Primitive) -> Result<Option<ReadMesh
 pub const MAX_PRIMITIVE_SIDES: u32 = 100;
 
 /// Build the procedural mesh used when a primitive has
-/// `use_3d_mesh = false`. Returns `None` if `sides < 3` (degenerate -
-/// vpinball clamps to 3 in the editor; the function declines rather
-/// than producing a malformed mesh).
+/// `use_3d_mesh = false`. Returns `None` if `sides` is outside
+/// `3..=MAX_PRIMITIVE_SIDES`, the range vpinball accepts.
 pub fn build_builtin_primitive_mesh(
     sides: u32,
     draw_textures_inside: bool,
 ) -> Option<(Vec<VertexWrapper>, Vec<VpxFace>)> {
-    if sides < 3 {
+    if !(3..=MAX_PRIMITIVE_SIDES).contains(&sides) {
         return None;
     }
     let n = sides as usize;
@@ -286,10 +285,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rejects_fewer_than_three_sides() {
-        assert!(build_builtin_primitive_mesh(0, false).is_none());
-        assert!(build_builtin_primitive_mesh(1, false).is_none());
-        assert!(build_builtin_primitive_mesh(2, false).is_none());
+    fn rejects_sides_out_of_range() {
+        for sides in [0, 1, 2, MAX_PRIMITIVE_SIDES + 1, u32::MAX] {
+            assert!(
+                build_builtin_primitive_mesh(sides, false).is_none(),
+                "sides={sides}"
+            );
+        }
+        assert!(build_builtin_primitive_mesh(MAX_PRIMITIVE_SIDES, false).is_some());
     }
 
     #[test]
