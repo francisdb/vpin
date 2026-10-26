@@ -24,7 +24,7 @@ jobs:
         with:
           components: rustfmt, clippy
           targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2.9.2
+      - uses: Swatinem/rust-cache@v2.9.3
       - name: Run Clippy
         run: cargo clippy --color always --all-targets --all-features
       # code behind a feature gate can leave items unused in other feature
