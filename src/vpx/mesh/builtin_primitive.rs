@@ -47,9 +47,10 @@ use std::f32::consts::PI;
 ///   M3CX chunk - emits the builtin mesh and ignores the stale
 ///   data (matches what vpinball does at runtime).
 ///
-/// Returns `None` only when no mesh can be produced; primitives
-/// with `sides < 3` also return `None` since the builtin generator
-/// declines those (vpinball's editor clamps to 3+).
+/// Returns `None` only when no mesh can be produced. The builtin
+/// form clamps `sides` to `3..=MAX_PRIMITIVE_SIDES` the way vpinball
+/// does when it loads `SIDS` (a signed int, so a stored negative value
+/// clamps to 3); the stored value itself is left untouched.
 pub fn effective_primitive_mesh(primitive: &Primitive) -> Result<Option<ReadMesh>, WriteError> {
     if primitive.use_3d_mesh {
         match primitive.read_mesh()? {
@@ -69,18 +70,17 @@ pub fn effective_primitive_mesh(primitive: &Primitive) -> Result<Option<ReadMesh
                 primitive.name
             );
         }
-        match build_builtin_primitive_mesh(primitive.sides, primitive.draw_textures_inside) {
-            Some((vertices, indices)) => Ok(Some(ReadMesh { vertices, indices })),
-            None => {
-                warn!(
-                    "Primitive '{}' has sides={} (< 3); cannot generate builtin mesh",
-                    primitive.name, primitive.sides
-                );
-                Ok(None)
-            }
-        }
+        let sides = (primitive.sides as i32).clamp(3, MAX_PRIMITIVE_SIDES as i32) as u32;
+        Ok(
+            build_builtin_primitive_mesh(sides, primitive.draw_textures_inside)
+                .map(|(vertices, indices)| ReadMesh { vertices, indices }),
+        )
     }
 }
+
+/// Highest side count vpinball accepts for a builtin primitive
+/// (`Primitive::Max_Primitive_Sides`).
+pub const MAX_PRIMITIVE_SIDES: u32 = 100;
 
 /// Build the procedural mesh used when a primitive has
 /// `use_3d_mesh = false`. Returns `None` if `sides < 3` (degenerate -
@@ -290,6 +290,26 @@ mod tests {
         assert!(build_builtin_primitive_mesh(0, false).is_none());
         assert!(build_builtin_primitive_mesh(1, false).is_none());
         assert!(build_builtin_primitive_mesh(2, false).is_none());
+    }
+
+    #[test]
+    fn effective_mesh_clamps_sides_like_vpinball_load() {
+        // SIDS is a signed int in vpinball: u32::MAX is a stored -1
+        for (stored, sides) in [
+            (0, 3),
+            (2, 3),
+            (u32::MAX, 3),
+            (7, 7),
+            (101, 100),
+            (1000, 100),
+        ] {
+            let primitive = Primitive {
+                sides: stored,
+                ..Default::default()
+            };
+            let mesh = effective_primitive_mesh(&primitive).unwrap().unwrap();
+            assert_eq!(mesh.vertices.len(), 4 * sides + 2, "stored sides={stored}");
+        }
     }
 
     #[test]
