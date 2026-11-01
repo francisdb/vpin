@@ -1439,6 +1439,16 @@ mod tests {
         data
     }
 
+    /// An Ogg page holding an Opus identification header
+    fn opus_header(channels: u8) -> Vec<u8> {
+        let mut data = b"OggS".to_vec();
+        data.extend([0; 22]);
+        data.extend([1, 19]);
+        data.extend(b"OpusHead");
+        data.extend([1, channels, 0x38, 0x01, 0x44, 0xAC, 0, 0, 0, 0, 0]);
+        data
+    }
+
     /// An MP3 behind an ID3v2 tag: an MPEG 1 layer 3 frame header, joint
     /// stereo or mono
     fn mp3_header(mono: bool) -> Vec<u8> {
@@ -1471,6 +1481,8 @@ mod tests {
             ("flac1", "b.flac", flac_header(1)),
             ("ogg2", "c.ogg", vorbis_header(2)),
             ("ogg1", "d.ogg", vorbis_header(1)),
+            ("opus2", "c.opus", opus_header(2)),
+            ("opus1", "d.opus", opus_header(1)),
             ("mp3stereo", "e.mp3", mp3_header(false)),
             ("mp3mono", "f.mp3", mp3_header(true)),
             ("riff2", "g.mp3", wav(2)),
@@ -1483,7 +1495,7 @@ mod tests {
 
         assert_eq!(
             stereo_findings(&vpx),
-            vec!["flac2", "ogg2", "mp3stereo", "riff2"]
+            vec!["flac2", "ogg2", "opus2", "mp3stereo", "riff2"]
         );
     }
 
@@ -1513,8 +1525,8 @@ mod tests {
             "C:\\sounds\\music.MP3",
             b"OggS\0\x02".to_vec(),
         ));
-        // an mp3 by its ID3 tag, one by its first frame, an ogg and a
-        // flac under their own names are fine, whatever the case
+        // an mp3 by its ID3 tag, one by its first frame, an ogg, an opus
+        // and a flac under their own names are fine, whatever the case
         vpx.sounds
             .push(stored_sound("tagged", "tagged.mp3", b"ID3\x04\0".to_vec()));
         vpx.sounds.push(stored_sound(
@@ -1524,6 +1536,8 @@ mod tests {
         ));
         vpx.sounds
             .push(stored_sound("vorbis", "vorbis.ogg", b"OggS\0\x02".to_vec()));
+        vpx.sounds
+            .push(stored_sound("opus", "opus.opus", opus_header(2)));
         vpx.sounds.push(stored_sound(
             "lossless",
             "lossless.flac",

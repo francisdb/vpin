@@ -507,19 +507,23 @@ pub fn shrink_images(vpx: &mut VPX, max_dimension: u32) -> ImageShrink {
 #[cfg(not(target_family = "wasm"))]
 const BACKGLASS_OUTPUT_MARKER: &str = "* Backglass Output *";
 
-/// Why [`wavs_to_flac`] or [`playfield_sounds_to_mono`] left a sound alone
+/// Why [`wavs_to_flac`], `wavs_to_opus` or [`playfield_sounds_to_mono`]
+/// left a sound alone
 #[cfg(not(target_family = "wasm"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SoundSkipReason {
-    /// The WAV is not plain PCM the fix converts: for [`wavs_to_flac`] a
-    /// `format_tag` other than 1 (such as ADPCM or float) or a sample depth
-    /// other than 8, 16 or 24 bits; [`playfield_sounds_to_mono`] also takes
+    /// The WAV is not plain PCM the fix converts: for [`wavs_to_flac`] and
+    /// `wavs_to_opus` a `format_tag` other than 1 (such as ADPCM or float)
+    /// or a sample depth other than 8, 16 or 24 bits;
+    /// [`playfield_sounds_to_mono`] also takes
     /// 32 bit PCM and 32 bit float
     NotPcm,
-    /// The FLAC would not be smaller than the stored WAV samples
+    /// The FLAC or Opus file would not be smaller than the stored WAV
+    /// samples
     NotSmaller,
-    /// The samples could not be encoded as FLAC; the error
+    /// The samples could not be encoded; the error, or what this does not
+    /// encode
     Unencodable(String),
     /// The path is the `* Backglass Output *` marker, which a `.flac`
     /// extension would not replace: [`rename_backglass_marker_sounds`]
@@ -558,7 +562,7 @@ impl std::fmt::Display for SoundSkipReason {
     }
 }
 
-/// A sound [`wavs_to_flac`] left alone, with the reason
+/// A sound one of the sound conversions left alone, with the reason
 #[cfg(not(target_family = "wasm"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SkippedSound {
@@ -579,7 +583,8 @@ impl SkippedSound {
     }
 }
 
-/// A sound re-encoded by [`wavs_to_flac`]
+/// A sound re-encoded by [`wavs_to_flac`], `wavs_to_opus` or
+/// [`playfield_sounds_to_mono`]
 #[cfg(not(target_family = "wasm"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConvertedSound {
@@ -600,13 +605,14 @@ impl ConvertedSound {
         self.bytes_before
     }
 
-    /// Size of the stored FLAC file after it
+    /// Size of the stored sound after it
     pub fn bytes_after(&self) -> usize {
         self.bytes_after
     }
 }
 
-/// What a run of [`wavs_to_flac`] did: the sounds it re-encoded and the
+/// What a run of [`wavs_to_flac`], `wavs_to_opus` or
+/// [`playfield_sounds_to_mono`] did: the sounds it re-encoded and the
 /// WAVs it would have but left alone, each with the reason. Sounds that
 /// were never candidates, a sound already in a file format, are in
 /// neither list.
@@ -677,6 +683,70 @@ pub fn wavs_to_flac(vpx: &mut VPX) -> SoundConversion {
             }
             Ok(Some(crate::vpx::sound::Flac::NotSmaller)) => SoundSkipReason::NotSmaller,
             // a wav that is not PCM: wav_to_flac declines it
+            Ok(None) => SoundSkipReason::NotPcm,
+            Err(e) => {
+                warn!("Skipping sound {}: {e}", sound.name);
+                SoundSkipReason::Unencodable(e.to_string())
+            }
+        };
+        conversion.skipped.push(SkippedSound {
+            name: sound.name.clone(),
+            reason,
+        });
+    }
+    conversion
+}
+
+/// Re-encodes the PCM WAV sounds of a table as Ogg Opus where that is
+/// smaller, which it is by far for all but the shortest sounds. Opus is
+/// lossy, but at up to 64 kb/s for mono and 96 kb/s for stereo, less for
+/// 22 and 11 kHz sounds, they sound the same. Only vpinball builds made
+/// after vpinball/vpinball#4315 decode Opus: every earlier one, released
+/// ones included, plays the table without these sounds. Even more than
+/// [`wavs_to_flac`] this is an opt-in size lever, for a caller that knows
+/// the table is played on such a build, as `vpxtool optimize` does behind
+/// a flag.
+///
+/// The candidates and the reported skips are those of [`wavs_to_flac`],
+/// so run [`rename_backglass_marker_sounds`] first here as well. A WAV of
+/// more than two channels is left alone and reported. A sound already
+/// stored as a file, including a FLAC made by [`wavs_to_flac`], was never
+/// a candidate and is in neither list.
+///
+/// Returns what was converted and what was left alone, with the reason.
+#[cfg(all(feature = "opus", not(target_family = "wasm")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "opus")))]
+pub fn wavs_to_opus(vpx: &mut VPX) -> SoundConversion {
+    let mut conversion = SoundConversion::default();
+    for sound in &mut vpx.sounds {
+        if !sound.is_wav() {
+            // a file in some other format, never a candidate
+            continue;
+        }
+        if sound.path.eq_ignore_ascii_case(BACKGLASS_OUTPUT_MARKER) {
+            conversion.skipped.push(SkippedSound {
+                name: sound.name.clone(),
+                reason: SoundSkipReason::BackglassMarker,
+            });
+            continue;
+        }
+        let bytes_before = sound.data.len();
+        let reason = match sound.wav_to_opus() {
+            Ok(Some(crate::vpx::sound::Opus::Converted)) => {
+                conversion.converted.push(ConvertedSound {
+                    name: sound.name.clone(),
+                    bytes_before,
+                    bytes_after: sound.data.len(),
+                });
+                continue;
+            }
+            Ok(Some(crate::vpx::sound::Opus::NotSmaller)) => SoundSkipReason::NotSmaller,
+            Ok(Some(crate::vpx::sound::Opus::TooManyChannels(channels))) => {
+                SoundSkipReason::Unencodable(format!(
+                    "{channels} channels, this encodes mono and stereo as Opus"
+                ))
+            }
+            // a wav that is not PCM: wav_to_opus declines it
             Ok(None) => SoundSkipReason::NotPcm,
             Err(e) => {
                 warn!("Skipping sound {}: {e}", sound.name);
@@ -1257,6 +1327,63 @@ mod tests {
         assert_eq!(vpx.sounds[2].ext(), "ogg"); // not a candidate
         // a second run has nothing to convert but reports the same skip
         let again = wavs_to_flac(&mut vpx);
+        assert!(again.is_empty());
+        assert_eq!(again.skipped(), conversion.skipped());
+    }
+
+    #[test]
+    #[cfg(all(feature = "opus", not(target_family = "wasm")))]
+    fn wavs_are_converted_to_opus_and_the_rest_reported_or_ignored() {
+        use crate::vpx::sound::flac_tests::pcm_wav;
+        let mut vpx = VPX::default();
+        // a PCM wav (converts), a non-PCM wav (reported NotPcm), a six
+        // channel wav (reported, Opus here is mono or stereo), and a flac
+        // file (never a candidate, ignored)
+        vpx.sounds.push(pcm_wav("music", 2, 16, 4096));
+        let mut adpcm = pcm_wav("voice", 1, 16, 64);
+        adpcm.wave_form.format_tag = 2;
+        vpx.sounds.push(adpcm);
+        vpx.sounds.push(pcm_wav("surround", 6, 16, 64));
+        let mut flac = pcm_wav("song", 2, 16, 64);
+        flac.path = "C:\\sounds\\song.flac".to_string();
+        vpx.sounds.push(flac);
+
+        let conversion = wavs_to_opus(&mut vpx);
+
+        let converted = conversion.converted();
+        assert_eq!(converted.len(), 1);
+        assert_eq!(converted[0].name(), "music");
+        assert!(converted[0].bytes_after() < converted[0].bytes_before());
+        assert_eq!(
+            conversion.skipped(),
+            [
+                SkippedSound {
+                    name: "voice".to_string(),
+                    reason: SoundSkipReason::NotPcm,
+                },
+                SkippedSound {
+                    name: "surround".to_string(),
+                    reason: SoundSkipReason::Unencodable(
+                        "6 channels, this encodes mono and stereo as Opus".to_string()
+                    ),
+                }
+            ]
+        );
+        assert_eq!(vpx.sounds[0].path, "C:\\sounds\\music.opus");
+        assert!(vpx.sounds[0].data.starts_with(b"OggS"));
+        assert_eq!(vpx.sounds[1].ext(), "wav");
+        assert_eq!(vpx.sounds[2].ext(), "wav");
+        assert_eq!(vpx.sounds[3].ext(), "flac");
+        // the audit reads the content as Opus, what the .opus name says
+        let kinds = audit_kinds(&vpx);
+        assert!(
+            !kinds
+                .iter()
+                .any(|kind| matches!(kind, Kind::SoundExtensionMismatch { .. })),
+            "{kinds:?}"
+        );
+        // a second run has nothing to convert but reports the same skips
+        let again = wavs_to_opus(&mut vpx);
         assert!(again.is_empty());
         assert_eq!(again.skipped(), conversion.skipped());
     }

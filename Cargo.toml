@@ -30,6 +30,9 @@ parallel = ["rayon"]
 # transitive deps). Not in default to keep the plain library lean; the
 # wasm build has it, so vpx-editor gets the script findings.
 script-audit = ["dep:vbscript"]
+# The opt-in wav-to-opus fix. Not in default since it builds libopus from C
+# source, which needs cmake and a C compiler; no effect on wasm.
+opus = ["dep:opus", "dep:ogg", "dep:rubato"]
 wasm = [
     "script-audit",
     "wasm-bindgen",
@@ -93,6 +96,12 @@ image = { version = "0.25.9", default-features = false, features = [
 flacenc = { version = "0.5.1", default-features = false }
 # FLAC decoder, to downmix stereo FLAC playfield sounds
 claxon = "0.4.3"
+# Opus encoding for the opt-in wav-to-opus fix: libopus, built from the
+# source the crate bundles, the pure Rust Ogg writer, and a resampler for the
+# rates Opus does not take
+opus = { version = "0.4.0", optional = true }
+ogg = { version = "0.9.2", optional = true }
+rubato = { version = "5.0.1", optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 # Use pure Rust miniz_oxide backend for wasm compatibility
