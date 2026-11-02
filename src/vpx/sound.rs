@@ -2043,6 +2043,85 @@ mod opus_tests {
         Ok(())
     }
 
+    /// Where the clicks of [`impulse_wav`] go: in different packets, off
+    /// any 20 ms packet boundary, the last one past the first full page
+    fn impulse_positions(sample_rate: u32) -> [usize; 3] {
+        let rate = sample_rate as usize;
+        [rate / 10 + 37, rate / 2 + 3, rate * 6 / 5 + 101]
+    }
+
+    /// A PCM WAV of silence with single sample clicks at
+    /// [`impulse_positions`], positive on the first channel and negative on
+    /// the second
+    fn impulse_wav(channels: u16, sample_rate: u32) -> SoundData {
+        let channel_count = usize::from(channels);
+        let frames = sample_rate as usize * 3 / 2;
+        let mut samples = vec![0.0; frames * channel_count];
+        for position in impulse_positions(sample_rate) {
+            for channel in 0..channel_count {
+                samples[position * channel_count + channel] = if channel == 0 { 0.9 } else { -0.9 };
+            }
+        }
+        wav(channels, 16, sample_rate, &samples)
+    }
+
+    /// Checks each click of an [`impulse_wav`] comes out of the encoder and
+    /// decoder on the sample it went in on, mapped to 48 kHz: at 48 kHz that
+    /// sample exactly, at another rate one of the two 48 kHz samples around
+    /// where it falls, since the resampler puts the peak of the click
+    /// between them. A pre-skip off by one sample already fails at 48 kHz.
+    /// The length test does not catch that, the end trim is computed from
+    /// the pre-skip as well.
+    fn assert_impulses_in_place(channels: u16, sample_rate: u32) -> TestResult {
+        let mut sound = impulse_wav(channels, sample_rate);
+        assert_eq!(sound.wav_to_opus()?, Some(Opus::Converted));
+        let (decoded_channels, decoded) = decode_opus(&sound.data)?;
+        let channel_count = usize::from(channels);
+        assert_eq!(decoded_channels, channel_count);
+        let ratio = 48000.0 / f64::from(sample_rate);
+        for position in impulse_positions(sample_rate) {
+            let expected = position as f64 * ratio;
+            for channel in 0..channel_count {
+                // the loudest sample within 10 ms of the click; the codec
+                // spreads a click over a few samples, the peak stays put
+                let around = (expected as usize - 480)..(expected as usize + 480);
+                let (peak, value) = around
+                    .map(|frame| (frame, decoded[frame * channel_count + channel]))
+                    .max_by(|a, b| a.1.abs().total_cmp(&b.1.abs()))
+                    .ok_or("no samples")?;
+                let case = format!(
+                    "{sample_rate} Hz, {channels} channels, click at {position}, channel {channel}"
+                );
+                if sample_rate == 48000 {
+                    assert_eq!(peak, position, "{case}");
+                } else {
+                    assert!(
+                        (peak as f64 - expected).abs() < 1.0,
+                        "{case}: peak at {peak}, expected {expected:.2}"
+                    );
+                }
+                // the click itself and not codec noise, with its sign: a
+                // 0.9 click comes out at 0.7 to 0.8 in mono, down to 0.45 in
+                // stereo, where clicks of opposite signs are all side signal
+                let sign = if channel == 0 { 1.0 } else { -1.0 };
+                assert!(value * sign > 0.3, "{case}: peak {value}");
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_click_at_48_khz_decodes_on_the_same_sample() -> TestResult {
+        assert_impulses_in_place(1, 48000)?;
+        assert_impulses_in_place(2, 48000)
+    }
+
+    #[test]
+    fn a_click_at_44_1_khz_decodes_on_the_same_sample_after_resampling() -> TestResult {
+        assert_impulses_in_place(1, 44100)?;
+        assert_impulses_in_place(2, 44100)
+    }
+
     #[test]
     fn a_wav_of_more_than_two_channels_is_left_alone() -> TestResult {
         let mut sound = wav(6, 16, 44100, &[0.25; 6 * 4096]);
