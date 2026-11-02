@@ -503,6 +503,73 @@ pub fn shrink_images(vpx: &mut VPX, max_dimension: u32) -> ImageShrink {
     shrink
 }
 
+/// Re-encodes the PCM WAV sounds of a table as Ogg Opus where that is
+/// smaller, which it is by far for all but the shortest sounds. This is a
+/// lossy fix, like [`shrink_images`]: [`wavs_to_flac`] gives back the
+/// exact samples of the WAV, Opus does not. At up to 64 kb/s for mono and
+/// 96 kb/s for stereo, less for 22 and 11 kHz sounds, the sounds are
+/// meant to sound the same, but the decoded waveform is not the source's,
+/// and the original samples are gone from the table once it is saved.
+/// Only vpinball builds made after vpinball/vpinball#4315 decode Opus:
+/// every earlier one, released ones included, plays the table without
+/// these sounds. So this is an opt-in size lever, for a caller that knows
+/// the table is played on such a build, as `vpxtool optimize` does behind
+/// a flag.
+///
+/// The candidates and the reported skips are those of [`wavs_to_flac`],
+/// so run [`rename_backglass_marker_sounds`] first here as well. A WAV of
+/// more than two channels is left alone and reported. A sound already
+/// stored as a file, including a FLAC made by [`wavs_to_flac`], was never
+/// a candidate and is in neither list.
+///
+/// Returns what was converted and what was left alone, with the reason.
+#[cfg(feature = "opus")]
+#[cfg_attr(docsrs, doc(cfg(feature = "opus")))]
+pub fn wavs_to_opus(vpx: &mut VPX) -> SoundConversion {
+    let mut conversion = SoundConversion::default();
+    for sound in &mut vpx.sounds {
+        if !sound.is_wav() {
+            // a file in some other format, never a candidate
+            continue;
+        }
+        if sound.path.eq_ignore_ascii_case(BACKGLASS_OUTPUT_MARKER) {
+            conversion.skipped.push(SkippedSound {
+                name: sound.name.clone(),
+                reason: SoundSkipReason::BackglassMarker,
+            });
+            continue;
+        }
+        let bytes_before = sound.data.len();
+        let reason = match sound.wav_to_opus() {
+            Ok(Some(crate::vpx::sound::Opus::Converted)) => {
+                conversion.converted.push(ConvertedSound {
+                    name: sound.name.clone(),
+                    bytes_before,
+                    bytes_after: sound.data.len(),
+                });
+                continue;
+            }
+            Ok(Some(crate::vpx::sound::Opus::NotSmaller)) => SoundSkipReason::NotSmaller,
+            Ok(Some(crate::vpx::sound::Opus::TooManyChannels(channels))) => {
+                SoundSkipReason::Unencodable(format!(
+                    "{channels} channels, this encodes mono and stereo as Opus"
+                ))
+            }
+            // a wav that is not PCM: wav_to_opus declines it
+            Ok(None) => SoundSkipReason::NotPcm,
+            Err(e) => {
+                warn!("Skipping sound {}: {e}", sound.name);
+                SoundSkipReason::Unencodable(e.to_string())
+            }
+        };
+        conversion.skipped.push(SkippedSound {
+            name: sound.name.clone(),
+            reason,
+        });
+    }
+    conversion
+}
+
 /// The path older tables give a sound for the backglass speakers
 #[cfg(any(feature = "opus", not(target_family = "wasm")))]
 const BACKGLASS_OUTPUT_MARKER: &str = "* Backglass Output *";
@@ -683,70 +750,6 @@ pub fn wavs_to_flac(vpx: &mut VPX) -> SoundConversion {
             }
             Ok(Some(crate::vpx::sound::Flac::NotSmaller)) => SoundSkipReason::NotSmaller,
             // a wav that is not PCM: wav_to_flac declines it
-            Ok(None) => SoundSkipReason::NotPcm,
-            Err(e) => {
-                warn!("Skipping sound {}: {e}", sound.name);
-                SoundSkipReason::Unencodable(e.to_string())
-            }
-        };
-        conversion.skipped.push(SkippedSound {
-            name: sound.name.clone(),
-            reason,
-        });
-    }
-    conversion
-}
-
-/// Re-encodes the PCM WAV sounds of a table as Ogg Opus where that is
-/// smaller, which it is by far for all but the shortest sounds. Opus is
-/// lossy, but at up to 64 kb/s for mono and 96 kb/s for stereo, less for
-/// 22 and 11 kHz sounds, they sound the same. Only vpinball builds made
-/// after vpinball/vpinball#4315 decode Opus: every earlier one, released
-/// ones included, plays the table without these sounds. Even more than
-/// [`wavs_to_flac`] this is an opt-in size lever, for a caller that knows
-/// the table is played on such a build, as `vpxtool optimize` does behind
-/// a flag.
-///
-/// The candidates and the reported skips are those of [`wavs_to_flac`],
-/// so run [`rename_backglass_marker_sounds`] first here as well. A WAV of
-/// more than two channels is left alone and reported. A sound already
-/// stored as a file, including a FLAC made by [`wavs_to_flac`], was never
-/// a candidate and is in neither list.
-///
-/// Returns what was converted and what was left alone, with the reason.
-#[cfg(feature = "opus")]
-#[cfg_attr(docsrs, doc(cfg(feature = "opus")))]
-pub fn wavs_to_opus(vpx: &mut VPX) -> SoundConversion {
-    let mut conversion = SoundConversion::default();
-    for sound in &mut vpx.sounds {
-        if !sound.is_wav() {
-            // a file in some other format, never a candidate
-            continue;
-        }
-        if sound.path.eq_ignore_ascii_case(BACKGLASS_OUTPUT_MARKER) {
-            conversion.skipped.push(SkippedSound {
-                name: sound.name.clone(),
-                reason: SoundSkipReason::BackglassMarker,
-            });
-            continue;
-        }
-        let bytes_before = sound.data.len();
-        let reason = match sound.wav_to_opus() {
-            Ok(Some(crate::vpx::sound::Opus::Converted)) => {
-                conversion.converted.push(ConvertedSound {
-                    name: sound.name.clone(),
-                    bytes_before,
-                    bytes_after: sound.data.len(),
-                });
-                continue;
-            }
-            Ok(Some(crate::vpx::sound::Opus::NotSmaller)) => SoundSkipReason::NotSmaller,
-            Ok(Some(crate::vpx::sound::Opus::TooManyChannels(channels))) => {
-                SoundSkipReason::Unencodable(format!(
-                    "{channels} channels, this encodes mono and stereo as Opus"
-                ))
-            }
-            // a wav that is not PCM: wav_to_opus declines it
             Ok(None) => SoundSkipReason::NotPcm,
             Err(e) => {
                 warn!("Skipping sound {}: {e}", sound.name);
