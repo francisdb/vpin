@@ -504,12 +504,12 @@ pub fn shrink_images(vpx: &mut VPX, max_dimension: u32) -> ImageShrink {
 }
 
 /// The path older tables give a sound for the backglass speakers
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(feature = "opus", not(target_family = "wasm")))]
 const BACKGLASS_OUTPUT_MARKER: &str = "* Backglass Output *";
 
 /// Why [`wavs_to_flac`], `wavs_to_opus` or [`playfield_sounds_to_mono`]
 /// left a sound alone
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(feature = "opus", not(target_family = "wasm")))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SoundSkipReason {
@@ -537,7 +537,7 @@ pub enum SoundSkipReason {
     TooDeep,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(feature = "opus", not(target_family = "wasm")))]
 impl std::fmt::Display for SoundSkipReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -563,14 +563,14 @@ impl std::fmt::Display for SoundSkipReason {
 }
 
 /// A sound one of the sound conversions left alone, with the reason
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(feature = "opus", not(target_family = "wasm")))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SkippedSound {
     name: String,
     reason: SoundSkipReason,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(feature = "opus", not(target_family = "wasm")))]
 impl SkippedSound {
     /// Name of the sound in the table, as the table spelled it
     pub fn name(&self) -> &str {
@@ -585,7 +585,7 @@ impl SkippedSound {
 
 /// A sound re-encoded by [`wavs_to_flac`], `wavs_to_opus` or
 /// [`playfield_sounds_to_mono`]
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(feature = "opus", not(target_family = "wasm")))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConvertedSound {
     name: String,
@@ -593,7 +593,7 @@ pub struct ConvertedSound {
     bytes_after: usize,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(feature = "opus", not(target_family = "wasm")))]
 impl ConvertedSound {
     /// Name of the sound in the table, as the table spelled it
     pub fn name(&self) -> &str {
@@ -616,14 +616,14 @@ impl ConvertedSound {
 /// WAVs it would have but left alone, each with the reason. Sounds that
 /// were never candidates, a sound already in a file format, are in
 /// neither list.
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(feature = "opus", not(target_family = "wasm")))]
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SoundConversion {
     converted: Vec<ConvertedSound>,
     skipped: Vec<SkippedSound>,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(feature = "opus", not(target_family = "wasm")))]
 impl SoundConversion {
     /// The re-encoded sounds, in the order the table lists them
     pub fn converted(&self) -> &[ConvertedSound] {
@@ -714,7 +714,7 @@ pub fn wavs_to_flac(vpx: &mut VPX) -> SoundConversion {
 /// a candidate and is in neither list.
 ///
 /// Returns what was converted and what was left alone, with the reason.
-#[cfg(all(feature = "opus", not(target_family = "wasm")))]
+#[cfg(feature = "opus")]
 #[cfg_attr(docsrs, doc(cfg(feature = "opus")))]
 pub fn wavs_to_opus(vpx: &mut VPX) -> SoundConversion {
     let mut conversion = SoundConversion::default();
