@@ -735,6 +735,55 @@ fn a_legacy_field_vpinball_converts_is_carried_over() -> TestResult {
 }
 
 #[test]
+fn a_state_source_link_is_carried_over() -> TestResult {
+    use crate::vpx::gameitem::GameItemEnum;
+    use crate::vpx::gameitem::trigger::Trigger;
+    use crate::vpx::gameitem::{flasher::Flasher, light::Light, primitive::Primitive};
+    let link = Some("lamp(12)".to_string());
+    let vpx = crate::vpx::VPX {
+        gameitems: vec![
+            GameItemEnum::Flasher(Flasher {
+                name: "Flasher".to_string(),
+                state_src_link: link.clone(),
+                ..Flasher::default()
+            }),
+            GameItemEnum::Light(Light {
+                name: "Light".to_string(),
+                state_src_link: link.clone(),
+                ..Light::default()
+            }),
+            GameItemEnum::Primitive(Box::new(Primitive {
+                name: "Primitive".to_string(),
+                state_src_link: link.clone(),
+                ..Primitive::default()
+            })),
+            GameItemEnum::Trigger(Trigger {
+                name: "Trigger".to_string(),
+                state_src_link: link.clone(),
+                ..Trigger::default()
+            }),
+        ],
+        ..crate::vpx::VPX::default()
+    };
+    let pack = from_vpx(&vpx, "Mon Oct  5 00:00:00 2026")?;
+    for part in &pack.parts {
+        assert_eq!(part.properties["state_src_link"], json!("lamp(12)"));
+    }
+    let back = to_vpx(&pack, "Mon Oct  5 00:00:00 2026")?;
+    for item in &back.gameitems {
+        let state_src_link = match item {
+            GameItemEnum::Flasher(item) => &item.state_src_link,
+            GameItemEnum::Light(item) => &item.state_src_link,
+            GameItemEnum::Primitive(item) => &item.state_src_link,
+            GameItemEnum::Trigger(item) => &item.state_src_link,
+            other => panic!("unexpected {other:?}"),
+        };
+        assert_eq!(state_src_link, &link);
+    }
+    Ok(())
+}
+
+#[test]
 fn pack_info_reads_only_what_describes_the_pack() -> TestResult {
     let full = from_zip_bytes(VPINBALL_PACK)?;
     let expected = PackInfo {
