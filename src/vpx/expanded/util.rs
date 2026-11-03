@@ -1,7 +1,9 @@
 //! Utility functions for expanded VPX operations
 
 use crate::filesystem::FileSystem;
-use serde::de;
+use log::warn;
+use serde::{Serialize, de};
+use serde_json::Value;
 use std::borrow::Cow;
 use std::io;
 use std::io::{Read, Write};
@@ -101,10 +103,11 @@ impl FileSystem for NormalizingFileSystem<'_> {
     }
 }
 
-/// Read and parse a JSON file from the filesystem
+/// Read and parse a JSON file from the filesystem, warning about the keys
+/// it holds that the parsed value does not use (see [`warn_unknown_keys`])
 pub(super) fn read_json<P: AsRef<Path>, T>(json_path: P, fs: &dyn FileSystem) -> io::Result<T>
 where
-    T: de::DeserializeOwned,
+    T: de::DeserializeOwned + Serialize,
 {
     let path = json_path.as_ref();
     if !fs.exists(path) {
@@ -113,14 +116,79 @@ where
             format!("JSON file not found: {}", path.display()),
         ));
     }
-    let mut json_file = fs.open_buffered_file(path)?;
-    serde_json::from_reader(&mut json_file).map_err(|e| {
+    let mut bytes = Vec::new();
+    fs.open_buffered_file(path)?.read_to_end(&mut bytes)?;
+    let parsed: T = serde_json::from_slice(&bytes).map_err(|e| {
         io::Error::other(format!(
             "Failed to parse/read json {}: {}",
             path.display(),
             e
         ))
-    })
+    })?;
+    if let (Ok(input), Ok(written)) = (
+        serde_json::from_slice::<Value>(&bytes),
+        serde_json::to_value(&parsed),
+    ) {
+        warn_unknown_keys(path, &input, &written);
+    }
+    Ok(parsed)
+}
+
+/// Keys a value is read from under an older name and written back under
+/// its current one (`serde(alias)`), so they are known though never
+/// written
+const ALIASES: &[&str] = &["type_", "return_", "off_image"];
+
+/// Logs a warning for every key of the `input` JSON that the value read
+/// from it does not write back (`written`), such as a misspelled key in a
+/// hand edited file, which reading silently ignores. Keys holding `null`
+/// are skipped: an absent optional field is written by leaving it out.
+pub(super) fn warn_unknown_keys(path: &Path, input: &Value, written: &Value) {
+    let mut unknown = Vec::new();
+    collect_unknown_keys(input, written, "", &mut unknown);
+    for key in unknown {
+        warn!("{}: unknown key {key} is ignored", path.display());
+        #[cfg(test)]
+        UNKNOWN_KEYS_SEEN
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(format!("{}: {key}", path.display()));
+    }
+}
+
+/// Every unknown key [`warn_unknown_keys`] reported, as `<path>: <key>`,
+/// for tests to check without a logger; reads run in parallel, so tests
+/// filter by their own directory
+#[cfg(test)]
+pub(super) static UNKNOWN_KEYS_SEEN: std::sync::Mutex<Vec<String>> =
+    std::sync::Mutex::new(Vec::new());
+
+fn collect_unknown_keys(input: &Value, written: &Value, at: &str, unknown: &mut Vec<String>) {
+    match (input, written) {
+        (Value::Object(input), Value::Object(written)) => {
+            for (key, value) in input {
+                if value.is_null() {
+                    continue;
+                }
+                let path = if at.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{at}.{key}")
+                };
+                match written.get(key) {
+                    Some(written) => collect_unknown_keys(value, written, &path, unknown),
+                    None if ALIASES.contains(&key.as_str()) => {}
+                    None => unknown.push(path),
+                }
+            }
+        }
+        (Value::Array(input), Value::Array(written)) => {
+            for (index, (value, written)) in input.iter().zip(written).enumerate() {
+                collect_unknown_keys(value, written, &format!("{at}[{index}]"), unknown);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[cfg(test)]

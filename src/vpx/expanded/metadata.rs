@@ -15,7 +15,7 @@ use std::borrow::Cow;
 use std::io;
 use std::path::Path;
 
-use super::util::read_json;
+use super::util::{read_json, warn_unknown_keys};
 use super::{Output, WriteError};
 
 pub(super) fn write_game_data(gamedata: &GameData, out: &Output) -> Result<(), WriteError> {
@@ -67,7 +67,8 @@ pub(super) fn read_info<P: AsRef<Path>>(
         return Ok((TableInfo::default(), CustomInfoTags::default()));
     }
     let value: Value = read_json(&info_path, fs)?;
-    let (info, custominfotags) = json_to_info(value, screenshot)?;
+    let (info, custominfotags) = json_to_info(value.clone(), screenshot)?;
+    warn_unknown_keys(&info_path, &value, &info_to_json(&info, &custominfotags));
     Ok((info, custominfotags))
 }
 
@@ -89,8 +90,9 @@ pub(super) fn read_collections<P: AsRef<Path>>(
         info!("No collections.json found");
         return Ok(vec![]);
     }
-    let value = read_json(collections_path, fs)?;
-    let mut collections: Vec<Collection> = json_to_collections(value)?;
+    let value: Value = read_json(&collections_path, fs)?;
+    let mut collections: Vec<Collection> = json_to_collections(value.clone())?;
+    warn_unknown_keys(&collections_path, &value, &collections_json(&collections));
     for collection in &mut collections {
         cap_collection_name(collection);
     }

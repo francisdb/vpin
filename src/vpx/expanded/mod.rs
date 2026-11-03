@@ -1079,6 +1079,53 @@ mod tests {
         let read = read_fs(&path, &fs)?;
 
         assert_eq!(&vpx, &read);
+        assert_eq!(unknown_keys_seen_below(path), Vec::<String>::new());
+        Ok(())
+    }
+
+    /// The unknown keys reads below `root` reported
+    fn unknown_keys_seen_below(root: &Path) -> Vec<String> {
+        let prefix = format!("{}{}", root.display(), std::path::MAIN_SEPARATOR);
+        util::UNKNOWN_KEYS_SEEN
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .filter(|seen| seen.starts_with(&prefix))
+            .cloned()
+            .collect()
+    }
+
+    #[test]
+    fn a_misspelled_key_is_reported() -> TestResult {
+        let fs = MemoryFileSystem::default();
+        let root = Path::new("misspelled");
+        write_fs(&small_table(), &root, &ExpandOptions::default(), &fs)?;
+        let edit = |file: &Path, change: &dyn Fn(&mut serde_json::Value)| -> TestResult {
+            let mut json: serde_json::Value = serde_json::from_slice(&fs.read_file(file)?)?;
+            change(&mut json);
+            fs.write_file(file, &serde_json::to_vec(&json)?)?;
+            Ok(())
+        };
+        let wall = root.join(GAMEITEMS_DIR).join("Wall.test_wall.json");
+        edit(&wall, &|json| {
+            json["Wall"]["materail"] = "m".into();
+            // an absent optional field may be written as null
+            json["Wall"]["part_group_name"] = serde_json::Value::Null;
+        })?;
+        let images = root.join("images.json");
+        edit(&images, &|json| json[0]["nmae"] = "x".into())?;
+
+        read_fs(&root, &fs)?;
+
+        let mut seen = unknown_keys_seen_below(root);
+        seen.sort();
+        assert_eq!(
+            seen,
+            [
+                format!("{}: Wall.materail", wall.display()),
+                format!("{}: [0].nmae", images.display()),
+            ]
+        );
         Ok(())
     }
 
