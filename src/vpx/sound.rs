@@ -233,11 +233,11 @@ pub(crate) struct SoundDataJson {
     /// Optional as other tools writing the json might not provide it.
     #[serde(default)]
     internal_name: String,
-    #[serde(deserialize_with = "wrapped_i32")]
+    #[serde(deserialize_with = "fade_offset")]
     fade: i32,
-    #[serde(deserialize_with = "wrapped_i32")]
+    #[serde(deserialize_with = "volume_offset")]
     volume: i32,
-    #[serde(deserialize_with = "wrapped_i32")]
+    #[serde(deserialize_with = "balance_offset")]
     balance: i32,
     output_target: OutputTarget,
     /// In case we have a duplicate name or the file name is not simply derived from the name
@@ -246,19 +246,41 @@ pub(crate) struct SoundDataJson {
     pub(crate) name_dedup: Option<String>,
 }
 
-/// Reads a signed 32-bit offset, also as the unsigned raw bits that older
-/// versions of this library wrote for a negative one, 4294967196 for -100
-fn wrapped_i32<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<i32, D::Error> {
+/// Reads a percentage offset, -100 to 100 as vpinball's editor sets it.
+/// Also takes the unsigned raw bits that older versions of this library
+/// wrote for a negative one, 4294967196 for -100. Anything else is an
+/// error: vpinball would play it clamped to the range.
+fn percent_offset<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+    field: &str,
+) -> Result<i32, D::Error> {
     use serde::Deserialize;
     let value = i64::deserialize(deserializer)?;
-    if (i64::from(i32::MIN)..=i64::from(u32::MAX)).contains(&value) {
-        // the low 32 bits: a value above i32::MAX wraps to the negative one
-        Ok(value as i32)
+    // a value above i32::MAX keeps its low 32 bits, the negative one
+    let offset = if (i64::from(i32::MAX) + 1..=i64::from(u32::MAX)).contains(&value) {
+        i64::from(value as u32 as i32)
+    } else {
+        value
+    };
+    if (-100..=100).contains(&offset) {
+        Ok(offset as i32)
     } else {
         Err(serde::de::Error::custom(format!(
-            "{value} is out of range for a 32-bit offset"
+            "sound {field} {value} is outside -100..100"
         )))
     }
+}
+
+fn fade_offset<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<i32, D::Error> {
+    percent_offset(deserializer, "fade")
+}
+
+fn volume_offset<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<i32, D::Error> {
+    percent_offset(deserializer, "volume")
+}
+
+fn balance_offset<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<i32, D::Error> {
+    percent_offset(deserializer, "balance")
 }
 
 impl SoundDataJson {
@@ -2324,9 +2346,9 @@ mod json_error_tests {
         for (value, expected) in [
             (json!(-100), -100),
             (json!(4_294_967_196u32), -100),
-            (json!(50), 50),
-            (json!(i32::MIN), i32::MIN),
             (json!(u32::MAX), -1),
+            (json!(50), 50),
+            (json!(100), 100),
         ] {
             let sound: SoundDataJson = serde_json::from_value(sound_json(value.clone())).unwrap();
             assert_eq!(sound.to_sound_data().volume, expected, "{value}");
@@ -2341,10 +2363,14 @@ mod json_error_tests {
     }
 
     #[test]
-    fn an_offset_out_of_32_bit_range_is_an_error() {
+    fn an_offset_outside_the_percent_range_is_an_error() {
         for value in [
+            json!(101),
+            json!(-101),
+            json!(i32::MAX),
+            json!(2_147_483_648u32),
+            json!(4_294_967_196u64 - 1),
             json!(4_294_967_296u64),
-            json!(-2_147_483_649i64),
             json!(1.5),
         ] {
             assert!(
@@ -2352,6 +2378,10 @@ mod json_error_tests {
                 "{value}"
             );
         }
+        let error = serde_json::from_value::<SoundDataJson>(sound_json(json!(101)))
+            .unwrap_err()
+            .to_string();
+        assert_eq!(error, "sound volume 101 is outside -100..100");
     }
 }
 
