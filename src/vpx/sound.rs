@@ -195,8 +195,8 @@ pub struct SoundData {
     /// -1..1 and adds the fade passed to `PlaySound`. Only used for the
     /// table output target. vpinball stores it as a signed 32-bit integer;
     /// this library keeps the raw bits, so a negative setting shows as a
-    /// large value. Absent in files older than 1031, where vpinball uses 100
-    /// and this library reads 0.
+    /// large value. Absent in files older than 1031, where vpinball and this
+    /// library both use 0.
     pub fade: u32,
     /// Volume of the sound (`Sound::m_volume`).
     ///
@@ -205,7 +205,7 @@ pub struct SoundData {
     /// before the balance and once after the fade. vpinball stores it as a
     /// signed 32-bit integer; this library keeps the raw bits, so a negative
     /// setting shows as a large value. Absent in files older than 1031, where
-    /// vpinball uses 100 and this library reads 0.
+    /// vpinball and this library both use 0.
     pub volume: u32,
     /// Left/right balance, the pan of the sound (`Sound::m_pan`).
     ///
@@ -213,7 +213,7 @@ pub struct SoundData {
     /// -1..1 and adds the pan passed to `PlaySound`. vpinball stores it as a
     /// signed 32-bit integer; this library keeps the raw bits, so a negative
     /// setting shows as a large value. Absent in files older than 1031, where
-    /// vpinball uses 100 and this library reads 0.
+    /// vpinball and this library both use 0.
     pub balance: u32,
     /// The audio device the sound plays on (`Sound::m_outputTarget`).
     ///

@@ -568,6 +568,49 @@ fn a_sound_without_extension_converts_to_a_wav() -> TestResult {
     Ok(())
 }
 
+/// A table older than 1031 stores no volume, balance or fade for its
+/// sounds; vpinball loads them centered, at the sound's own volume
+#[test]
+fn a_sound_of_a_legacy_table_converts_centered() -> TestResult {
+    use crate::vpx::sound::{SoundData, WaveForm};
+    let sound = |name: &str| SoundData {
+        name: name.to_string(),
+        path: format!("{name}.wav"),
+        wave_form: WaveForm::new(),
+        data: vec![1, 2, 3, 4],
+        internal_name: String::new(),
+        fade: 0,
+        volume: 0,
+        balance: 0,
+        output_target: crate::vpx::sound::OutputTarget::Table,
+    };
+    let vpx = crate::vpx::VPX {
+        version: crate::vpx::version::Version::new(1030),
+        // a bgout_ name is how such a table sends a sound to the backglass
+        sounds: vec![sound("knocker"), sound("bgout_music")],
+        ..crate::vpx::VPX::default()
+    };
+    let vpz = from_vpx(&vpx, "Mon Oct  5 00:00:00 2026")?;
+    for (asset, output_target) in vpz
+        .sounds
+        .iter()
+        .zip([OutputTarget::Playfield, OutputTarget::Backglass])
+    {
+        assert_eq!(
+            asset.sidecar,
+            SoundSidecar {
+                import_path: Some(format!("{}.wav", asset.name)),
+                output_target: Some(output_target),
+                volume_offset: Some(0),
+                left_right_offset: Some(0),
+                rear_front_offset: Some(0),
+                ..SoundSidecar::default()
+            }
+        );
+    }
+    Ok(())
+}
+
 #[test]
 fn a_vpinball_pack_converts_to_the_table_vpinball_saved() -> TestResult {
     use crate::vpx::diff::semantic::{Change, Entity, diff};

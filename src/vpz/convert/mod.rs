@@ -469,12 +469,14 @@ fn sound_asset(vpx: &VPX, sound: &crate::vpx::sound::SoundData) -> io::Result<As
     } else {
         reader.sized()?.to_vec()
     };
+    // what vpinball loads for a sound of a file older than 1031, which
+    // stores no volume, balance or fade: centered, at its own volume
     let mut sidecar = SoundSidecar {
         import_path: Some(path.clone()),
         output_target: Some(OutputTarget::Playfield),
-        volume_offset: Some(100),
-        left_right_offset: Some(100),
-        rear_front_offset: Some(100),
+        volume_offset: Some(0),
+        left_right_offset: Some(0),
+        rear_front_offset: Some(0),
         ..SoundSidecar::default()
     };
     if vpx.version.u32() >= NEW_SOUND_FORMAT_VERSION {
