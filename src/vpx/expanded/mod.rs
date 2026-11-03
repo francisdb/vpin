@@ -599,9 +599,9 @@ pub fn extract_directory_list(vpx_file_path: &Path) -> io::Result<Vec<String>> {
     Ok(files)
 }
 
-/// Generate the file name for a generated mesh file
-pub(super) fn generated_mesh_file_name(json_file_name: &str) -> String {
-    format!("{json_file_name}-generated.{MESH_FILE_EXTENSION}")
+/// The file name of a derived mesh, `<stem>-generated.<ext>`
+pub(super) fn generated_mesh_file_name(stem: &str) -> String {
+    format!("{stem}-generated.{MESH_FILE_EXTENSION}")
 }
 
 /// The file extension mesh files get
