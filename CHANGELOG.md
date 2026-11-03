@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.40.0](https://github.com/francisdb/vpin/compare/v0.39.3...v0.40.0) - 2026-11-03
+
+### Fixed
+
+- *(sound)* [**breaking**] keep sound volume, balance and fade offsets signed ([#599](https://github.com/francisdb/vpin/pull/599))
+- *(vpz)* convert legacy sounds centered, like vpinball ([#597](https://github.com/francisdb/vpin/pull/597))
+
 ## [0.39.3](https://github.com/francisdb/vpin/compare/v0.39.2...v0.39.3) - 2026-11-03
 
 ### Added
