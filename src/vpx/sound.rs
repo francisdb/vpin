@@ -188,33 +188,34 @@ pub struct SoundData {
     /// Now just writes a short dummy/empty string.
     /// see <https://github.com/vpinball/vpinball/commit/3320dd11d66ecedba326197c7d4e85c48864cc19>
     pub internal_name: String,
-    /// Front/rear fade of the sound on the playfield speakers
+    /// Front/rear fade offset on the playfield speakers
     /// (`Sound::m_frontRearFade`).
     ///
-    /// Percent in the range -100 (rear) to 100 (front); vpinball maps it to
-    /// -1..1 and adds the fade passed to `PlaySound`. Only used for the
-    /// table output target. vpinball stores it as a signed 32-bit integer;
-    /// this library keeps the raw bits, so a negative setting shows as a
-    /// large value. Absent in files older than 1031, where vpinball and this
-    /// library both use 0.
-    pub fade: u32,
-    /// Volume of the sound (`Sound::m_volume`).
+    /// Not a position of its own but a percentage added to the fade the
+    /// script passes to `PlaySound`: vpinball divides it by 100 and adds it
+    /// to that fade. 0 plays the sound where the script puts it, 100 moves
+    /// it fully to the front, -100 fully to the rear. Only used for the
+    /// table output target. Absent in files older than 1031, where vpinball
+    /// and this library both use 0.
+    pub fade: i32,
+    /// Volume offset (`Sound::m_volume`).
     ///
-    /// Percent in the range -100 to 100; vpinball maps it to -1..1 and adds
-    /// the volume passed to `PlaySound`. Stored twice in the stream, once
-    /// before the balance and once after the fade. vpinball stores it as a
-    /// signed 32-bit integer; this library keeps the raw bits, so a negative
-    /// setting shows as a large value. Absent in files older than 1031, where
-    /// vpinball and this library both use 0.
-    pub volume: u32,
-    /// Left/right balance, the pan of the sound (`Sound::m_pan`).
+    /// Not a volume of its own but a percentage added to the volume the
+    /// script passes to `PlaySound`: vpinball divides it by 100 and adds it
+    /// to that volume, then applies the table's sound volume. 0 plays the
+    /// sound as loud as the script asks, -100 takes 1 off, which silences a
+    /// sound the script plays at full volume. Stored twice in the stream,
+    /// once before the balance and once after the fade. Absent in files
+    /// older than 1031, where vpinball and this library both use 0.
+    pub volume: i32,
+    /// Left/right balance offset, the pan (`Sound::m_pan`).
     ///
-    /// Percent in the range -100 (left) to 100 (right); vpinball maps it to
-    /// -1..1 and adds the pan passed to `PlaySound`. vpinball stores it as a
-    /// signed 32-bit integer; this library keeps the raw bits, so a negative
-    /// setting shows as a large value. Absent in files older than 1031, where
-    /// vpinball and this library both use 0.
-    pub balance: u32,
+    /// Not a position of its own but a percentage added to the pan the
+    /// script passes to `PlaySound`: vpinball divides it by 100 and adds it
+    /// to that pan. 0 plays the sound where the script puts it, -100 moves
+    /// it fully to the left, 100 fully to the right. Absent in files older
+    /// than 1031, where vpinball and this library both use 0.
+    pub balance: i32,
     /// The audio device the sound plays on (`Sound::m_outputTarget`).
     ///
     /// Stored as one byte. In files older than 1031 the same byte is a
@@ -232,14 +233,32 @@ pub(crate) struct SoundDataJson {
     /// Optional as other tools writing the json might not provide it.
     #[serde(default)]
     internal_name: String,
-    fade: u32,
-    volume: u32,
-    balance: u32,
+    #[serde(deserialize_with = "wrapped_i32")]
+    fade: i32,
+    #[serde(deserialize_with = "wrapped_i32")]
+    volume: i32,
+    #[serde(deserialize_with = "wrapped_i32")]
+    balance: i32,
     output_target: OutputTarget,
     /// In case we have a duplicate name or the file name is not simply derived from the name
     /// because of special characters etc.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) name_dedup: Option<String>,
+}
+
+/// Reads a signed 32-bit offset, also as the unsigned raw bits that older
+/// versions of this library wrote for a negative one, 4294967196 for -100
+fn wrapped_i32<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<i32, D::Error> {
+    use serde::Deserialize;
+    let value = i64::deserialize(deserializer)?;
+    if (i64::from(i32::MIN)..=i64::from(u32::MAX)).contains(&value) {
+        // the low 32 bits: a value above i32::MAX wraps to the negative one
+        Ok(value as i32)
+    } else {
+        Err(serde::de::Error::custom(format!(
+            "{value} is out of range for a 32-bit offset"
+        )))
+    }
 }
 
 impl SoundDataJson {
@@ -682,9 +701,9 @@ pub(crate) fn read(
     let mut name: String = "".to_string();
     let mut path: String = "".to_string();
     let mut internal_name: String = "".to_string();
-    let mut fade: u32 = 0;
-    let mut volume: u32 = 0;
-    let mut balance: u32 = 0;
+    let mut fade: i32 = 0;
+    let mut volume: i32 = 0;
+    let mut balance: i32 = 0;
     let mut output_target: OutputTarget = OutputTarget::Table;
     let mut data: Vec<u8> = Vec::new();
     let mut wave_form: WaveForm = WaveForm::new();
@@ -728,17 +747,17 @@ pub(crate) fn read(
                 output_target = reader.get_u8_no_remaining_update()?.into();
             }
             6 => {
-                volume = reader.get_u32_no_remaining_update()?;
+                volume = reader.get_u32_no_remaining_update()? as i32;
             }
             7 => {
-                balance = reader.get_u32_no_remaining_update()?;
+                balance = reader.get_u32_no_remaining_update()? as i32;
             }
             8 => {
-                fade = reader.get_u32_no_remaining_update()?;
+                fade = reader.get_u32_no_remaining_update()? as i32;
             }
             9 => {
                 // TODO why do we have the volume twice?
-                volume = reader.get_u32_no_remaining_update()?;
+                volume = reader.get_u32_no_remaining_update()? as i32;
             }
             unexpected => {
                 return Err(reader.err(format!("unexpected sound field {unexpected}")));
@@ -1387,10 +1406,10 @@ pub(crate) fn write(file_version: &Version, sound: &SoundData, writer: &mut Biff
     writer.write_length_prefixed_data(&sound.data);
     writer.write_u8((&sound.output_target).into());
     if file_version.u32() >= NEW_SOUND_FORMAT_VERSION {
-        writer.write_u32(sound.volume);
-        writer.write_u32(sound.balance);
-        writer.write_u32(sound.fade);
-        writer.write_u32(sound.volume);
+        writer.write_u32(sound.volume as u32);
+        writer.write_u32(sound.balance as u32);
+        writer.write_u32(sound.fade as u32);
+        writer.write_u32(sound.volume as u32);
     }
 }
 
@@ -1473,9 +1492,9 @@ mod test {
             prop_oneof![wav, other],
             proptest::collection::vec(any::<u8>(), 0..64),
             latin1_string(),
-            any::<u32>(),
-            any::<u32>(),
-            any::<u32>(),
+            any::<i32>(),
+            any::<i32>(),
+            any::<i32>(),
             any::<OutputTarget>(),
         )
             .prop_map(
@@ -2284,6 +2303,52 @@ mod json_error_tests {
         for value in [json!(1.5), json!(-1), json!(true), json!(null)] {
             assert!(
                 serde_json::from_value::<OutputTarget>(value.clone()).is_err(),
+                "{value}"
+            );
+        }
+    }
+
+    fn sound_json(volume: serde_json::Value) -> serde_json::Value {
+        json!({
+            "name": "knocker",
+            "path": "knocker.wav",
+            "fade": 0,
+            "volume": volume,
+            "balance": 0,
+            "output_target": 0
+        })
+    }
+
+    #[test]
+    fn an_offset_reads_signed_and_as_the_raw_bits_older_versions_wrote() {
+        for (value, expected) in [
+            (json!(-100), -100),
+            (json!(4_294_967_196u32), -100),
+            (json!(50), 50),
+            (json!(i32::MIN), i32::MIN),
+            (json!(u32::MAX), -1),
+        ] {
+            let sound: SoundDataJson = serde_json::from_value(sound_json(value.clone())).unwrap();
+            assert_eq!(sound.to_sound_data().volume, expected, "{value}");
+        }
+        let written = serde_json::to_value(SoundDataJson::from_sound_data(
+            &serde_json::from_value::<SoundDataJson>(sound_json(json!(4_294_967_196u32)))
+                .unwrap()
+                .to_sound_data(),
+        ))
+        .unwrap();
+        assert_eq!(written["volume"], json!(-100));
+    }
+
+    #[test]
+    fn an_offset_out_of_32_bit_range_is_an_error() {
+        for value in [
+            json!(4_294_967_296u64),
+            json!(-2_147_483_649i64),
+            json!(1.5),
+        ] {
+            assert!(
+                serde_json::from_value::<SoundDataJson>(sound_json(value.clone())).is_err(),
                 "{value}"
             );
         }

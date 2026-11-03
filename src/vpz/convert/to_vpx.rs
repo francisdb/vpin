@@ -471,9 +471,9 @@ fn sound_data(sound: &Asset<SoundSidecar>) -> io::Result<SoundData> {
         wave_form: WaveForm::default(),
         data: sound.data.clone(),
         internal_name: String::new(),
-        fade: sidecar.rear_front_offset.unwrap_or(0) as u32,
-        volume: sidecar.volume_offset.unwrap_or(0) as u32,
-        balance: sidecar.left_right_offset.unwrap_or(0) as u32,
+        fade: sidecar.rear_front_offset.unwrap_or(0),
+        volume: sidecar.volume_offset.unwrap_or(0),
+        balance: sidecar.left_right_offset.unwrap_or(0),
         output_target: match sidecar.output_target {
             Some(OutputTarget::Backglass) => VpxOutputTarget::Backglass,
             _ => VpxOutputTarget::Table,
