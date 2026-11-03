@@ -26,6 +26,65 @@ fn emit_progress(message: &str) {
     });
 }
 
+thread_local! {
+    static LOG_CALLBACK: RefCell<Option<js_sys::Function>> = const { RefCell::new(None) };
+}
+
+/// Forwards the warnings and errors the library logs to the callback set
+/// with [`set_log_callback`]
+struct CallbackLogger;
+
+impl log::Log for CallbackLogger {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        metadata.level() <= log::Level::Warn
+    }
+
+    fn log(&self, record: &log::Record) {
+        if !self.enabled(record.metadata()) {
+            return;
+        }
+        // cloned out of the cell, so the callback may set another one
+        let Some(callback) = LOG_CALLBACK.with(|cb| cb.borrow().clone()) else {
+            return;
+        };
+        let level = if record.level() == log::Level::Error {
+            "error"
+        } else {
+            "warn"
+        };
+        let _ = callback.call2(
+            &JsValue::NULL,
+            &JsValue::from_str(level),
+            &JsValue::from_str(&record.args().to_string()),
+        );
+    }
+
+    fn flush(&self) {}
+}
+
+static LOGGER: CallbackLogger = CallbackLogger;
+
+/// Sets the callback that receives the warnings and errors the library
+/// logs while it works, for example a key of an extracted JSON file it
+/// does not know, a text that a save cannot store, or a value it does not
+/// recognize. Without one they are dropped.
+///
+/// `callback` is called with the level, `"warn"` or `"error"`, and the
+/// message. It applies to every later call, until it is replaced; `null`
+/// or `undefined` removes it.
+#[wasm_bindgen]
+pub fn set_log_callback(callback: Option<LogCallback>) {
+    let callback: Option<js_sys::Function> = callback.map(Into::into);
+    // fails only when a logger is already installed, which is this one
+    let _ = log::set_logger(&LOGGER);
+    log::set_max_level(if callback.is_some() {
+        log::LevelFilter::Warn
+    } else {
+        log::LevelFilter::Off
+    });
+    LOG_CALLBACK.with(|cb| *cb.borrow_mut() = callback);
+}
+
 /// Runs once when the wasm module is instantiated; installs the panic
 /// hook that forwards Rust panics to the browser console. JavaScript
 /// callers never call this themselves.
@@ -49,6 +108,12 @@ export type VpxFileMap = Record<string, Uint8Array>;
  * long running operation works through a table.
  */
 export type ProgressCallback = (message: string) => void;
+
+/**
+ * Log callback set with `set_log_callback`: receives every warning and
+ * error the library logs, with its level.
+ */
+export type LogCallback = (level: "warn" | "error", message: string) => void;
 
 /**
  * One table consistency finding reported by `audit`.
@@ -83,6 +148,12 @@ extern "C" {
     /// TypeScript side as the `ProgressCallback` alias above.
     #[wasm_bindgen(typescript_type = "ProgressCallback", extends = js_sys::Function)]
     pub type ProgressCallback;
+
+    /// A `(level: "warn" | "error", message: string) => void` callback for
+    /// [`set_log_callback`], typed on the TypeScript side as the
+    /// `LogCallback` alias above.
+    #[wasm_bindgen(typescript_type = "LogCallback", extends = js_sys::Function)]
+    pub type LogCallback;
 
     /// The findings array returned by [`audit`], typed on the TypeScript
     /// side as `AuditFinding[]`.
@@ -1316,6 +1387,34 @@ mod tests {
             .unwrap();
         }
         obj.unchecked_into()
+    }
+
+    /// The messages the log callback received, as `<level>: <message>`
+    fn logged() -> Vec<String> {
+        let logs = js_sys::Reflect::get(&js_sys::global(), &JsValue::from_str("vpinTestLogs"))
+            .unwrap_or(JsValue::UNDEFINED);
+        if logs.is_undefined() {
+            return vec![];
+        }
+        js_sys::Array::from(&logs)
+            .iter()
+            .filter_map(|entry| entry.as_string())
+            .collect()
+    }
+
+    #[wasm_bindgen_test]
+    fn warnings_and_errors_reach_the_log_callback() {
+        let callback = js_sys::Function::new_with_args(
+            "level, message",
+            "(globalThis.vpinTestLogs ??= []).push(level + ': ' + message)",
+        );
+        set_log_callback(Some(callback.unchecked_into()));
+        log::warn!("a warning");
+        log::error!("an error");
+        log::info!("not forwarded");
+        set_log_callback(None);
+        log::warn!("after removal");
+        assert_eq!(logged(), ["warn: a warning", "error: an error"]);
     }
 
     #[wasm_bindgen_test]

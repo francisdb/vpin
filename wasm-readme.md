@@ -11,10 +11,25 @@ npm install @francisdb/vpin-wasm
 ## Usage
 
 ```typescript
-import init, { extract, assemble, obj_to_mesh, mesh_to_obj, AxisConvention } from '@francisdb/vpin-wasm';
+import init, { extract, assemble, set_log_callback, obj_to_mesh, mesh_to_obj, AxisConvention } from '@francisdb/vpin-wasm';
 
 await init();
 ```
+
+### set_log_callback(callback?)
+
+Receives the warnings and errors the library logs while it works, for every later call: for example a key in an extracted JSON file it does not know, or a text a save cannot store. Without a callback they are dropped.
+
+```typescript
+set_log_callback((level, message) => {
+  if (level === 'error') console.error(message);
+  else console.warn(message);
+});
+```
+
+**Parameters:**
+
+- `callback?: (level: "warn" | "error", message: string) => void` - the callback, or `undefined` to remove it
 
 ### extract(data, callback?)
 
