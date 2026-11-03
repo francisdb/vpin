@@ -9,6 +9,7 @@ use log::warn;
 use std::io;
 use std::path::Path;
 
+use super::util::read_json;
 use super::{Output, WriteError};
 
 pub(super) fn write_materials(materials: &[Material], out: &Output) -> Result<(), WriteError> {
@@ -28,8 +29,7 @@ pub(super) fn read_materials<P: AsRef<Path>>(
     if !fs.exists(&materials_path) {
         return Ok(None);
     }
-    let mut materials_file = fs.open_buffered_file(&materials_path)?;
-    let materials_index: Vec<MaterialJson> = serde_json::from_reader(&mut materials_file)?;
+    let materials_index: Vec<MaterialJson> = read_json(&materials_path, fs)?;
     let materials: Vec<Material> = materials_index
         .into_iter()
         .map(|m| MaterialJson::to_material(&m))
@@ -63,8 +63,7 @@ pub(super) fn read_old_materials<P: AsRef<Path>>(
     if !fs.exists(&materials_path) {
         return Ok(None);
     }
-    let mut materials_file = fs.open_buffered_file(&materials_path)?;
-    let materials_index: Vec<SaveMaterialJson> = serde_json::from_reader(&mut materials_file)?;
+    let materials_index: Vec<SaveMaterialJson> = read_json(&materials_path, fs)?;
     let materials: Vec<SaveMaterial> = materials_index
         .into_iter()
         .map(|m| SaveMaterialJson::to_save_material(&m))
@@ -95,9 +94,7 @@ pub(super) fn read_old_materials_physics<P: AsRef<Path>>(
     if !fs.exists(&materials_path) {
         return Ok(None);
     }
-    let mut materials_file = fs.open_buffered_file(&materials_path)?;
-    let materials_index: Vec<SavePhysicsMaterialJson> =
-        serde_json::from_reader(&mut materials_file)?;
+    let materials_index: Vec<SavePhysicsMaterialJson> = read_json(&materials_path, fs)?;
     let materials: Vec<SavePhysicsMaterial> = materials_index
         .into_iter()
         .map(|m| SavePhysicsMaterialJson::to_save_physics_material(&m))
