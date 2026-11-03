@@ -243,6 +243,7 @@ pub(super) const ITEM_6: &[Field] = &[
     Field::new("DPNT", "dragpoints", Some(Value::Objects(Node::DragPoint))),
     Field::new("ANSP", "anim_speed", Some(Value::Float)),
     Field::new("EBLD", "enabled", Some(Value::Bool)),
+    Field::new("LINK", "state_src_link", Some(Value::String)),
     Field::new("MATR", "material", Some(Value::String)),
     Field::new("RADI", "radius", Some(Value::Float)),
     Field::new("REEN", "reflection_enabled", Some(Value::Bool)),
@@ -288,6 +289,7 @@ pub(super) const ITEM_7: &[Field] = &[
     Field::new("IMG1", "image", Some(Value::String)),
     Field::new("IMMO", "image_mode", Some(Value::Bool)),
     Field::new("LIDB", "depth_bias", Some(Value::Float)),
+    Field::new("LINK", "state_src_link", Some(Value::String)),
     Field::new("RADI", "radius", Some(Value::Float)),
     Field::new("SHAP", "shape", None),
     Field::new("SHBM", "show_bulb_mesh", Some(Value::Bool)),
@@ -574,6 +576,7 @@ pub(super) const ITEM_19: &[Field] = &[
     Field::new("SCOL", "side_color", Some(Value::Int)),
     Field::new("SIDS", "sides", Some(Value::Int)),
     Field::new("SIMG", "side_image", None),
+    Field::new("SLNK", "state_src_link", Some(Value::String)),
     Field::new("STRE", "static_rendering", Some(Value::Bool)),
     Field::new("THRS", "threshold", Some(Value::Float)),
     Field::new("TVIS", "visible", Some(Value::Bool)),
@@ -627,6 +630,7 @@ pub(super) const ITEM_20: &[Field] = &[
     Field::new("MOVA", "modulate_vs_add", Some(Value::Float)),
     Field::new("RDMD", "render_mode", Some(Value::Int)),
     Field::new("RSTL", "render_style", Some(Value::Int)),
+    Field::new("SLNK", "state_src_link", Some(Value::String)),
 ];
 
 /// eItemRubber (item type 21)
