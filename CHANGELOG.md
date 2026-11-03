@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.39.3](https://github.com/francisdb/vpin/compare/v0.39.2...v0.39.3) - 2026-11-03
+
+### Added
+
+- *(fix)* re-encode FLAC sounds as Opus too ([#596](https://github.com/francisdb/vpin/pull/596))
+- *(fix)* re-encode PCM WAV sounds as Opus behind the opus feature ([#594](https://github.com/francisdb/vpin/pull/594))
+
+### Other
+
+- *(deps)* bump taiki-e/install-action from 2.87.31 to 2.88.1 ([#595](https://github.com/francisdb/vpin/pull/595))
+- *(deps)* bump taiki-e/install-action from 2.87.29 to 2.87.31 ([#591](https://github.com/francisdb/vpin/pull/591))
+- *(deps)* bump Swatinem/rust-cache from 2.9.2 to 2.9.3 ([#592](https://github.com/francisdb/vpin/pull/592))
+
 ## [0.39.2](https://github.com/francisdb/vpin/compare/v0.39.1...v0.39.2) - 2026-10-26
 
 ### Fixed
