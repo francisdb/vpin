@@ -648,9 +648,8 @@ impl SoundData {
     /// raw samples rather than a file. True when the path names a `.wav`
     /// or has no extension, as vpinball treats it.
     ///
-    /// Only the wav-to-flac fix, native only, and the wav-to-opus one use
-    /// this, so it is gated to match.
-    #[cfg(any(feature = "opus", not(target_family = "wasm")))]
+    /// Only the native wav-to-flac fix uses this, so it is gated to match.
+    #[cfg(not(target_family = "wasm"))]
     pub(crate) fn is_wav(&self) -> bool {
         is_wav(&self.path)
     }
@@ -865,55 +864,86 @@ fn encode_flac(
     Ok(sink.into_inner())
 }
 
-/// The outcome of [`SoundData::wav_to_opus`] for a sound that was a
-/// candidate: a PCM WAV. Mirrors [`Flac`].
+/// The outcome of [`SoundData::lossless_to_opus`] for a sound that was a
+/// candidate: a WAV or a FLAC file. Mirrors [`Flac`].
 #[cfg(feature = "opus")]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Opus {
     /// Re-encoded as Opus, the sound now holds the smaller `.opus` file
     Converted,
-    /// The Opus file would not be smaller than the stored WAV samples, left
-    /// as is
+    /// The Opus file would not be smaller than the stored sound, left as is
     NotSmaller,
     /// More channels than the mono or stereo this encodes, the count
     TooManyChannels(u16),
+    /// A WAV that is not 8, 16 or 24 bit PCM, left as is
+    NotPcm,
 }
 
 #[cfg(feature = "opus")]
 impl SoundData {
-    /// Re-encodes a PCM WAV sound as Ogg Opus when that is smaller. Opus
-    /// is lossy, at bitrates where table sounds and music still sound the
-    /// same, and far smaller than FLAC. Only vpinball builds made after
-    /// vpinball/vpinball#4315 decode Opus, every earlier one, released
-    /// versions included, plays the table without these sounds, which is
-    /// why this is an opt-in size lever and not a repair.
+    /// Re-encodes a lossless sound, a PCM WAV or a FLAC file, as Ogg Opus
+    /// when that is smaller. Opus is lossy, at bitrates where table sounds
+    /// and music still sound the same, and far smaller than FLAC. Only
+    /// vpinball builds made after vpinball/vpinball#4315 decode Opus, every
+    /// earlier one, released versions included, plays the table without
+    /// these sounds, which is why this is an opt-in size lever and not a
+    /// repair.
     ///
-    /// The candidates are those of [`SoundData::wav_to_flac`]: `None` for a
-    /// sound that is not an 8, 16 or 24 bit PCM WAV. Opus takes mono and
-    /// stereo here, a WAV with more channels is left alone.
+    /// The WAV candidates are those of [`SoundData::wav_to_flac`]; a FLAC
+    /// is recognized by its content, whatever its name. A FLAC holds the
+    /// exact samples of its WAV, so both give the same Opus file. `None`
+    /// for any other file, such as an MP3 or Ogg one, which re-encoding
+    /// would degrade further. Opus takes mono and stereo here, a sound with
+    /// more channels is left alone.
     ///
     /// # Errors
     ///
-    /// When the samples cannot be resampled or encoded.
-    pub(crate) fn wav_to_opus(&mut self) -> io::Result<Option<Opus>> {
-        if !is_wav(&self.path) || self.wave_form.format_tag != 1 {
+    /// When a FLAC cannot be decoded, or the samples cannot be resampled or
+    /// encoded.
+    pub(crate) fn lossless_to_opus(&mut self) -> io::Result<Option<Opus>> {
+        let (samples, bits, channels, sample_rate) = if is_wav(&self.path) {
+            let bits = self.wave_form.bits_per_sample;
+            let channels = self.wave_form.channels;
+            if self.wave_form.format_tag != 1 || channels == 0 || !matches!(bits, 8 | 16 | 24) {
+                return Ok(Some(Opus::NotPcm));
+            }
+            if channels > 2 {
+                return Ok(Some(Opus::TooManyChannels(channels)));
+            }
+            (
+                pcm_samples(&self.data, bits),
+                bits,
+                channels,
+                self.wave_form.samples_per_sec,
+            )
+        } else if content_format(&self.data) == Some("flac") {
+            let mut reader =
+                claxon::FlacReader::new(io::Cursor::new(&self.data)).map_err(io::Error::other)?;
+            let info = reader.streaminfo();
+            let channels = info.channels as u16;
+            if channels > 2 {
+                return Ok(Some(Opus::TooManyChannels(channels)));
+            }
+            let samples = reader
+                .samples()
+                .collect::<Result<Vec<i32>, _>>()
+                .map_err(io::Error::other)?;
+            (
+                samples,
+                info.bits_per_sample as u16,
+                channels,
+                info.sample_rate,
+            )
+        } else {
             return Ok(None);
-        }
-        let bits = self.wave_form.bits_per_sample;
-        let channels = self.wave_form.channels;
-        if channels == 0 || !matches!(bits, 8 | 16 | 24) {
-            return Ok(None);
-        }
-        if channels > 2 {
-            return Ok(Some(Opus::TooManyChannels(channels)));
-        }
+        };
         // floats keep the resolution of a 24 bit sound, full scale at 1.0
-        let scale = 1.0 / (1u32 << (bits - 1)) as f32;
-        let samples: Vec<f32> = pcm_samples(&self.data, bits)
+        let scale = 1.0 / (1u64 << (bits - 1)) as f32;
+        let samples: Vec<f32> = samples
             .into_iter()
             .map(|sample| sample as f32 * scale)
             .collect();
-        let opus = encode_opus(&samples, channels, self.wave_form.samples_per_sec)?;
+        let opus = encode_opus(&samples, channels, sample_rate)?;
 
         if opus.len() >= self.data.len() {
             return Ok(Some(Opus::NotSmaller));
@@ -2017,7 +2047,7 @@ mod opus_tests {
                 let bytes_before = sound.data.len();
                 let case = format!("{sample_rate} Hz, {bits} bits, {channels} channels");
 
-                assert_eq!(sound.wav_to_opus()?, Some(Opus::Converted), "{case}");
+                assert_eq!(sound.lossless_to_opus()?, Some(Opus::Converted), "{case}");
                 assert_eq!(sound.path, "C:\\sounds\\tone.opus");
                 assert_eq!(sound.wave_form, WaveForm::default());
                 assert!(sound.data.len() < bytes_before, "{case}");
@@ -2074,7 +2104,7 @@ mod opus_tests {
     /// the pre-skip as well.
     fn assert_impulses_in_place(channels: u16, sample_rate: u32) -> TestResult {
         let mut sound = impulse_wav(channels, sample_rate);
-        assert_eq!(sound.wav_to_opus()?, Some(Opus::Converted));
+        assert_eq!(sound.lossless_to_opus()?, Some(Opus::Converted));
         let (decoded_channels, decoded) = decode_opus(&sound.data)?;
         let channel_count = usize::from(channels);
         assert_eq!(decoded_channels, channel_count);
@@ -2126,7 +2156,7 @@ mod opus_tests {
     fn a_wav_of_more_than_two_channels_is_left_alone() -> TestResult {
         let mut sound = wav(6, 16, 44100, &[0.25; 6 * 4096]);
         let data = sound.data.clone();
-        assert_eq!(sound.wav_to_opus()?, Some(Opus::TooManyChannels(6)));
+        assert_eq!(sound.lossless_to_opus()?, Some(Opus::TooManyChannels(6)));
         assert_eq!(sound.data, data);
         assert_eq!(sound.ext(), "wav");
         assert_eq!(sound.wave_form.channels, 6);
@@ -2134,24 +2164,111 @@ mod opus_tests {
     }
 
     #[test]
-    fn a_non_pcm_or_non_wav_sound_is_declined() -> TestResult {
+    fn a_non_pcm_wav_or_a_lossy_file_is_declined() -> TestResult {
         let mut adpcm = tone_wav(1, 16, 44100, 64);
         adpcm.wave_form.format_tag = 2;
-        assert_eq!(adpcm.wav_to_opus()?, None);
+        assert_eq!(adpcm.lossless_to_opus()?, Some(Opus::NotPcm));
         assert_eq!(adpcm.ext(), "wav");
 
         let mut ogg = tone_wav(2, 16, 44100, 64);
         ogg.path = "C:\\sounds\\music.ogg".to_string();
-        assert_eq!(ogg.wav_to_opus()?, None);
+        ogg.data = b"OggS\0\x02".to_vec();
+        assert_eq!(ogg.lossless_to_opus()?, None);
         assert_eq!(ogg.ext(), "ogg");
         Ok(())
+    }
+
+    /// A PCM WAV of a tone per channel with noise on top, which FLAC
+    /// cannot predict the way it does a bare tone: closer to a real sound,
+    /// and so a FLAC that Opus shrinks at every rate
+    #[cfg(not(target_family = "wasm"))]
+    fn noisy_wav(channels: u16, bits: u16, sample_rate: u32, frames: usize) -> SoundData {
+        let mut state = 0x2545_f491_u32;
+        let mut samples = Vec::with_capacity(frames * usize::from(channels));
+        for frame in 0..frames {
+            for channel in 0..usize::from(channels) {
+                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                let noise = f64::from(state >> 8) / f64::from(1u32 << 24) - 0.5;
+                let t = frame as f64 / f64::from(sample_rate);
+                samples.push(tone(frequency(channel), t) + 0.01 * noise);
+            }
+        }
+        wav(channels, bits, sample_rate, &samples)
+    }
+
+    /// A FLAC holds the exact samples of its WAV, so it encodes to the same
+    /// Opus file, whatever the rate, depth or channels: the Opus checks on
+    /// WAVs above, the click alignment included, hold for FLACs as well
+    #[test]
+    #[cfg(not(target_family = "wasm"))]
+    fn a_flac_encodes_to_the_same_opus_as_its_wav() -> TestResult {
+        for (channels, bits, sample_rate) in [
+            (1, 16, 44100),
+            (2, 16, 44100),
+            (1, 8, 22050),
+            (2, 24, 48000),
+            (1, 16, 11025),
+        ] {
+            let case = format!("{sample_rate} Hz, {bits} bits, {channels} channels");
+            let frames = sample_rate as usize / 3;
+            let mut from_wav = noisy_wav(channels, bits, sample_rate, frames);
+            let mut from_flac = noisy_wav(channels, bits, sample_rate, frames);
+            assert_eq!(from_flac.wav_to_flac()?, Some(Flac::Converted), "{case}");
+            let flac_bytes = from_flac.data.len();
+
+            assert_eq!(
+                from_wav.lossless_to_opus()?,
+                Some(Opus::Converted),
+                "{case}"
+            );
+            assert_eq!(
+                from_flac.lossless_to_opus()?,
+                Some(Opus::Converted),
+                "{case}"
+            );
+            assert!(from_flac.data.len() < flac_bytes, "{case}");
+            assert_eq!(from_flac.path, "C:\\sounds\\tone.opus", "{case}");
+            assert_eq!(from_flac.data, from_wav.data, "{case}");
+        }
+
+        // the content decides, not the name
+        let mut misnamed = noisy_wav(2, 16, 44100, 22050);
+        let mut expected = noisy_wav(2, 16, 44100, 22050);
+        misnamed.wav_to_flac()?;
+        misnamed.path = "C:\\sounds\\noise.ogg".to_string();
+        assert_eq!(misnamed.lossless_to_opus()?, Some(Opus::Converted));
+        assert_eq!(misnamed.path, "C:\\sounds\\noise.opus");
+        expected.lossless_to_opus()?;
+        assert_eq!(misnamed.data, expected.data);
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(not(target_family = "wasm"))]
+    fn a_flac_of_more_than_two_channels_is_left_alone() -> TestResult {
+        let mut sound = tone_wav(6, 16, 44100, 4096);
+        assert_eq!(sound.wav_to_flac()?, Some(Flac::Converted));
+        let data = sound.data.clone();
+        assert_eq!(sound.lossless_to_opus()?, Some(Opus::TooManyChannels(6)));
+        assert_eq!(sound.data, data);
+        assert_eq!(sound.ext(), "flac");
+        Ok(())
+    }
+
+    #[test]
+    fn a_broken_flac_is_an_error() {
+        let mut sound = tone_wav(1, 16, 44100, 64);
+        sound.path = "C:\\sounds\\broken.flac".to_string();
+        sound.data = b"fLaC\0\0".to_vec();
+        assert!(sound.lossless_to_opus().is_err());
+        assert_eq!(sound.ext(), "flac");
     }
 
     #[test]
     fn opus_that_would_not_shrink_is_left_as_a_wav() -> TestResult {
         // the Ogg pages and the headers alone take more than these samples
         let mut sound = tone_wav(1, 16, 44100, 8);
-        assert_eq!(sound.wav_to_opus()?, Some(Opus::NotSmaller));
+        assert_eq!(sound.lossless_to_opus()?, Some(Opus::NotSmaller));
         assert_eq!(sound.ext(), "wav");
         Ok(())
     }
