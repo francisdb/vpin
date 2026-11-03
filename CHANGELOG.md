@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.40.1](https://github.com/francisdb/vpin/compare/v0.40.0...v0.40.1) - 2026-11-03
+
+### Added
+
+- *(wasm)* forward library warnings to a log callback ([#606](https://github.com/francisdb/vpin/pull/606))
+
+### Fixed
+
+- *(expanded)* warn about unknown keys when reading the extracted JSON ([#605](https://github.com/francisdb/vpin/pull/605))
+- *(expanded)* name every derived mesh <stem>[-<part>]-generated.obj ([#603](https://github.com/francisdb/vpin/pull/603))
+- *(vpz)* carry the state source link of flashers, lights, primitives and triggers ([#602](https://github.com/francisdb/vpin/pull/602))
+- *(sound)* reject sound offsets outside -100..100 in the JSON ([#600](https://github.com/francisdb/vpin/pull/600))
+
 ## [0.40.0](https://github.com/francisdb/vpin/compare/v0.39.3...v0.40.0) - 2026-11-03
 
 ### Fixed
