@@ -23,6 +23,11 @@ The library provides several optional features that can be enabled:
 - `script-audit`: Adds script-level checks to `vpx::audit` (missing `Option Explicit`,
   duplicate procedures, unused variables, `Execute` usage, VPinMAME setup). Pulls in the `vbscript`
   parser, so it is off by default; the `wasm` feature includes it
+- `opus`: Adds `vpx::fix::wavs_to_opus`, a lossy fix like `shrink_images`: it re-encodes PCM WAV
+  sounds as Ogg Opus, far smaller than FLAC but without giving back the same samples. Pure Rust (the
+  opus-rs encoder), so it builds for wasm as well; off by default since most users do not need an
+  encoder. Only vpinball builds made after
+  [vpinball/vpinball#4315](https://github.com/vpinball/vpinball/pull/4315) play Opus sounds
 
 To use only VPX functionality without parallel support:
 

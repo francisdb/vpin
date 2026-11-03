@@ -39,5 +39,11 @@ jobs:
           # RUSTFLAGS replaces the target rustflags in .cargo/config.toml,
           # so the getrandom backend they select is repeated here
           RUSTFLAGS: '-Dwarnings --cfg getrandom_backend="wasm_js"'
+      - name: Check the wasm build with the opus feature
+        # the opt-in wav-to-opus fix is pure Rust and has to keep building
+        # for the web, though the wasm feature leaves it out
+        run: cargo check --color always --all-targets --target wasm32-unknown-unknown --features wasm,opus
+        env:
+          RUSTFLAGS: '-Dwarnings --cfg getrandom_backend="wasm_js"'
       - name: Run fmt check
         run: cargo fmt --all --check -- --color=always

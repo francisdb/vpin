@@ -30,6 +30,9 @@ parallel = ["rayon"]
 # transitive deps). Not in default to keep the plain library lean; the
 # wasm build has it, so vpx-editor gets the script findings.
 script-audit = ["dep:vbscript"]
+# The opt-in wav-to-opus fix, a lossy one. Not in default: it pulls in an
+# Opus encoder and a resampler that most users of the library do not need.
+opus = ["dep:opus-rs", "dep:ogg", "dep:rubato"]
 wasm = [
     "script-audit",
     "wasm-bindgen",
@@ -83,6 +86,12 @@ console_error_panic_hook = { version = "0.1", optional = true }
 web-sys = { version = "0.3", optional = true, features = ["console"] }
 serde-wasm-bindgen = { version = "0.6", optional = true }
 serde_repr = { version = "0.1", optional = true }
+# The opt-in wav-to-opus fix, all pure Rust so it builds for wasm too: the
+# opus-rs encoder, a port of libopus, the Ogg writer, and a resampler for
+# the rates Opus does not take
+opus-rs = { version = "0.1.40", optional = true }
+ogg = { version = "0.9.2", optional = true }
+rubato = { version = "5.0.1", optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 # Use zlib-ng for much faster compression/decompression on native targets

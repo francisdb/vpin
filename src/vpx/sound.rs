@@ -502,16 +502,21 @@ impl Default for WaveForm {
 }
 
 /// The format the content of a stored sound file names, by its signature,
-/// as the short lower case name the audit shows: `wav`, `ogg`, `mp3` and
-/// `flac`, the formats vpinball's decoder reads. `None` when no signature
-/// matches. Only meaningful for a sound stored as a file, that is one
-/// whose path does not name a `.wav`: a wav is stored as a header plus
-/// raw samples and carries no signature.
+/// as the short lower case name the audit shows: `wav`, `ogg`, `opus`,
+/// `mp3` and `flac`, the formats vpinball's decoder reads. An Ogg file is
+/// `opus` when its first packet is an Opus header, `ogg` otherwise. `None`
+/// when no signature matches. Only meaningful for a sound stored as a
+/// file, that is one whose path does not name a `.wav`: a wav is stored
+/// as a header plus raw samples and carries no signature.
 pub(crate) fn content_format(data: &[u8]) -> Option<&'static str> {
     let format = if data.starts_with(b"RIFF") && data.get(8..12) == Some(b"WAVE") {
         "wav"
     } else if data.starts_with(b"OggS") {
-        "ogg"
+        if first_ogg_packet(data).is_some_and(|packet| packet.starts_with(b"OpusHead")) {
+            "opus"
+        } else {
+            "ogg"
+        }
     } else if data.starts_with(b"fLaC") {
         "flac"
     } else if data.starts_with(b"ID3")
@@ -527,14 +532,15 @@ pub(crate) fn content_format(data: &[u8]) -> Option<&'static str> {
 
 /// The channel count of a sound stored as a file, read from its header:
 /// the `fmt ` chunk of a RIFF wave, FLAC's STREAMINFO, the Vorbis
-/// identification header of an Ogg file, or the first MPEG audio frame of
-/// an MP3 (1 for mono, 2 otherwise). `None` for a file this cannot read the
-/// channels of.
+/// identification header of an Ogg file, the Opus header of an Ogg Opus
+/// file, or the first MPEG audio frame of an MP3 (1 for mono, 2
+/// otherwise). `None` for a file this cannot read the channels of.
 pub(crate) fn file_channels(data: &[u8]) -> Option<u16> {
     match content_format(data)? {
         "wav" => riff_channels(data),
         "flac" => flac_channels(data),
         "ogg" => vorbis_channels(data),
+        "opus" => opus_channels(data),
         "mp3" => mp3_channels(data),
         _ => None,
     }
@@ -566,16 +572,33 @@ fn flac_channels(data: &[u8]) -> Option<u16> {
     Some(u16::from((data.get(20)? >> 1) & 0x07) + 1)
 }
 
+/// The data of the first page of an Ogg file, past its header and segment
+/// table, where the first packet of a stream starts
+fn first_ogg_packet(data: &[u8]) -> Option<&[u8]> {
+    let segments = usize::from(*data.get(26)?);
+    data.get(27 + segments..)
+}
+
 /// The channels of the first stream of an Ogg file, when it is Vorbis: the
 /// first page holds the identification header, `\x01vorbis`, a 4 byte
 /// version, then the channel count
 fn vorbis_channels(data: &[u8]) -> Option<u16> {
-    let segments = usize::from(*data.get(26)?);
-    let packet = data.get(27 + segments..)?;
+    let packet = first_ogg_packet(data)?;
     if !packet.starts_with(b"\x01vorbis") {
         return None;
     }
     let channels = *packet.get(11)?;
+    (channels > 0).then_some(u16::from(channels))
+}
+
+/// The channels of an Ogg Opus file: its first page holds the Opus header,
+/// `OpusHead`, a version byte, then the channel count
+fn opus_channels(data: &[u8]) -> Option<u16> {
+    let packet = first_ogg_packet(data)?;
+    if !packet.starts_with(b"OpusHead") {
+        return None;
+    }
+    let channels = *packet.get(9)?;
     (channels > 0).then_some(u16::from(channels))
 }
 
@@ -612,6 +635,7 @@ pub(crate) fn extension_format(extension: &str) -> Option<&'static str> {
     let format = match extension.to_ascii_lowercase().as_str() {
         "wav" => "wav",
         "ogg" => "ogg",
+        "opus" => "opus",
         "mp3" => "mp3",
         "flac" => "flac",
         _ => return None,
@@ -624,8 +648,9 @@ impl SoundData {
     /// raw samples rather than a file. True when the path names a `.wav`
     /// or has no extension, as vpinball treats it.
     ///
-    /// Only the native wav-to-flac fix uses this, so it is gated to match.
-    #[cfg(not(target_family = "wasm"))]
+    /// Only the wav-to-flac fix, native only, and the wav-to-opus one use
+    /// this, so it is gated to match.
+    #[cfg(any(feature = "opus", not(target_family = "wasm")))]
     pub(crate) fn is_wav(&self) -> bool {
         is_wav(&self.path)
     }
@@ -840,6 +865,240 @@ fn encode_flac(
     Ok(sink.into_inner())
 }
 
+/// The outcome of [`SoundData::wav_to_opus`] for a sound that was a
+/// candidate: a PCM WAV. Mirrors [`Flac`].
+#[cfg(feature = "opus")]
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Opus {
+    /// Re-encoded as Opus, the sound now holds the smaller `.opus` file
+    Converted,
+    /// The Opus file would not be smaller than the stored WAV samples, left
+    /// as is
+    NotSmaller,
+    /// More channels than the mono or stereo this encodes, the count
+    TooManyChannels(u16),
+}
+
+#[cfg(feature = "opus")]
+impl SoundData {
+    /// Re-encodes a PCM WAV sound as Ogg Opus when that is smaller. Opus
+    /// is lossy, at bitrates where table sounds and music still sound the
+    /// same, and far smaller than FLAC. Only vpinball builds made after
+    /// vpinball/vpinball#4315 decode Opus, every earlier one, released
+    /// versions included, plays the table without these sounds, which is
+    /// why this is an opt-in size lever and not a repair.
+    ///
+    /// The candidates are those of [`SoundData::wav_to_flac`]: `None` for a
+    /// sound that is not an 8, 16 or 24 bit PCM WAV. Opus takes mono and
+    /// stereo here, a WAV with more channels is left alone.
+    ///
+    /// # Errors
+    ///
+    /// When the samples cannot be resampled or encoded.
+    pub(crate) fn wav_to_opus(&mut self) -> io::Result<Option<Opus>> {
+        if !is_wav(&self.path) || self.wave_form.format_tag != 1 {
+            return Ok(None);
+        }
+        let bits = self.wave_form.bits_per_sample;
+        let channels = self.wave_form.channels;
+        if channels == 0 || !matches!(bits, 8 | 16 | 24) {
+            return Ok(None);
+        }
+        if channels > 2 {
+            return Ok(Some(Opus::TooManyChannels(channels)));
+        }
+        // floats keep the resolution of a 24 bit sound, full scale at 1.0
+        let scale = 1.0 / (1u32 << (bits - 1)) as f32;
+        let samples: Vec<f32> = pcm_samples(&self.data, bits)
+            .into_iter()
+            .map(|sample| sample as f32 * scale)
+            .collect();
+        let opus = encode_opus(&samples, channels, self.wave_form.samples_per_sec)?;
+
+        if opus.len() >= self.data.len() {
+            return Ok(Some(Opus::NotSmaller));
+        }
+        self.data = opus;
+        self.path = replace_sound_extension(&self.path, "opus");
+        // no longer a wav, so the stored header is irrelevant
+        self.wave_form = WaveForm::default();
+        Ok(Some(Opus::Converted))
+    }
+}
+
+/// The bitrate to encode a sound at. A full band source gets what opusenc
+/// picks by default, 64 kb/s for mono and 96 kb/s for stereo, transparent
+/// or close to it for music. Many table sounds are 22 or 11 kHz, with
+/// nothing above half that: those need less for the same quality, and
+/// would not shrink much at the full band rate. Stereo takes half again
+/// the mono rate.
+#[cfg(feature = "opus")]
+fn opus_bitrate(sample_rate: u32, channels: u16) -> i32 {
+    let mono = match sample_rate {
+        44100.. => 64_000,
+        32000.. => 48_000,
+        22050.. => 40_000,
+        16000.. => 32_000,
+        _ => 24_000,
+    };
+    if channels == 1 { mono } else { mono * 3 / 2 }
+}
+
+/// Any serial number does for a file with one stream, a fixed one keeps
+/// the output the same from run to run
+#[cfg(feature = "opus")]
+const OPUS_SERIAL: u32 = 0x7670_696e;
+
+/// The pre-skip of every file this writes, in 48 kHz samples: the
+/// encoder's lookahead, 2.5 ms plus the 4 ms of delay compensation that
+/// libopus adds in `Audio` mode (`Fs/400 + Fs/250`), 312 samples whatever
+/// rate the encoder runs at. opus-rs keeps the same delay but has no getter
+/// for it yet, restsend/opus-rs#74; once it has, this can ask the encoder
+/// as the libopus `OPUS_GET_LOOKAHEAD` does. restsend/opus-rs#38 relies on
+/// and checks the same 312.
+#[cfg(feature = "opus")]
+const OPUS_PRE_SKIP: u64 = 312;
+
+/// The largest packet RFC 6716 allows, and the most opus-rs writes
+#[cfg(feature = "opus")]
+const OPUS_MAX_PACKET: usize = 1276;
+
+/// Encodes interleaved samples, full scale at 1.0, as an Ogg Opus file
+/// (RFC 7845). The encoder takes 8, 12, 16, 24 and 48 kHz, other rates are
+/// resampled to 48 kHz first. The header carries the encoder's lookahead as
+/// pre-skip and the last page's granule position cuts the padding of the
+/// last packet, so a decoder plays back exactly the length of the source,
+/// starting on the same sample.
+#[cfg(feature = "opus")]
+fn encode_opus(samples: &[f32], channels: u16, sample_rate: u32) -> io::Result<Vec<u8>> {
+    use ogg::writing::{PacketWriteEndInfo, PacketWriter};
+
+    let opus_error = |what: &str, e: &str| io::Error::other(format!("opus {what}: {e}"));
+    let (samples, encoder_rate) = if matches!(sample_rate, 8000 | 12000 | 16000 | 24000 | 48000) {
+        (std::borrow::Cow::Borrowed(samples), sample_rate)
+    } else {
+        let resampled = resample_to_48k(samples, channels, sample_rate)?;
+        (std::borrow::Cow::Owned(resampled), 48000)
+    };
+    let channel_count = usize::from(channels);
+    let frames = samples.len() / channel_count;
+    // granule positions and the pre-skip count 48 kHz samples, whatever
+    // rate the encoder runs at
+    let scale = u64::from(48000 / encoder_rate);
+
+    let mut encoder = opus_rs::OpusEncoder::new(
+        encoder_rate as i32,
+        channel_count,
+        opus_rs::Application::Audio,
+    )
+    .map_err(|e| opus_error("encoder", e))?;
+    // variable bitrate, the default, and the highest complexity, the
+    // libopus and opusenc default (opus-rs defaults to 9)
+    encoder.bitrate_bps = opus_bitrate(sample_rate, channels);
+    encoder.use_cbr = false;
+    encoder.complexity = 10;
+    let lookahead = (OPUS_PRE_SKIP / scale) as usize;
+
+    let mut writer = PacketWriter::new(Vec::new());
+    // each header gets a page of its own, as RFC 7845 asks
+    writer.write_packet(
+        opus_head(channels, OPUS_PRE_SKIP, sample_rate)?,
+        OPUS_SERIAL,
+        PacketWriteEndInfo::EndPage,
+        0,
+    )?;
+    writer.write_packet(opus_tags(), OPUS_SERIAL, PacketWriteEndInfo::EndPage, 0)?;
+
+    // 20 ms packets. The lookahead delays what comes out, so the encoder
+    // is fed silence past the end until the last sample made it in.
+    let frame_size = encoder_rate as usize / 50;
+    let packets = (frames + lookahead).div_ceil(frame_size);
+    let end_granule = OPUS_PRE_SKIP + frames as u64 * scale;
+    let mut frame = vec![0.0; frame_size * channel_count];
+    let mut packet = vec![0; OPUS_MAX_PACKET];
+    for index in 0..packets {
+        let start = (index * frame.len()).min(samples.len());
+        let end = (start + frame.len()).min(samples.len());
+        frame.fill(0.0);
+        frame[..end - start].copy_from_slice(&samples[start..end]);
+        let len = encoder
+            .encode(&frame, frame_size, &mut packet)
+            .map_err(|e| opus_error("encode", e))?;
+        let (info, granule) = if index + 1 == packets {
+            // less than what the packets hold: the decoder drops the rest
+            (PacketWriteEndInfo::EndStream, end_granule)
+        } else if (index + 1) % 50 == 0 {
+            // a page a second, which keeps seeking cheap
+            let granule = ((index + 1) * frame_size) as u64 * scale;
+            (PacketWriteEndInfo::EndPage, granule)
+        } else {
+            let granule = ((index + 1) * frame_size) as u64 * scale;
+            (PacketWriteEndInfo::NormalPacket, granule)
+        };
+        writer.write_packet(packet[..len].to_vec(), OPUS_SERIAL, info, granule)?;
+    }
+    Ok(writer.into_inner())
+}
+
+/// The Opus identification header (RFC 7845, section 5.1), for channel
+/// mapping family 0: mono or stereo
+#[cfg(feature = "opus")]
+fn opus_head(channels: u16, pre_skip: u64, input_sample_rate: u32) -> io::Result<Vec<u8>> {
+    let channels = u8::try_from(channels).map_err(io::Error::other)?;
+    let pre_skip = u16::try_from(pre_skip).map_err(io::Error::other)?;
+    let mut head = b"OpusHead".to_vec();
+    head.push(1); // version
+    head.push(channels);
+    head.extend_from_slice(&pre_skip.to_le_bytes());
+    // the rate of the source, only informative: Opus decodes at 48 kHz
+    head.extend_from_slice(&input_sample_rate.to_le_bytes());
+    head.extend_from_slice(&0i16.to_le_bytes()); // output gain
+    head.push(0); // channel mapping family
+    Ok(head)
+}
+
+/// The Opus comment header (RFC 7845, section 5.2): the encoder as vendor,
+/// no comments
+#[cfg(feature = "opus")]
+fn opus_tags() -> Vec<u8> {
+    let vendor = b"opus-rs";
+    let mut tags = b"OpusTags".to_vec();
+    tags.extend_from_slice(&(vendor.len() as u32).to_le_bytes());
+    tags.extend_from_slice(vendor);
+    tags.extend_from_slice(&0u32.to_le_bytes());
+    tags
+}
+
+/// Resamples interleaved samples to 48 kHz with rubato's FFT resampler,
+/// which trims its own delay, so the output lines up with the input. The
+/// output holds the source's duration rounded up to a whole frame.
+#[cfg(feature = "opus")]
+fn resample_to_48k(samples: &[f32], channels: u16, sample_rate: u32) -> io::Result<Vec<f32>> {
+    use rubato::Resampler;
+    use rubato::audioadapter_buffers::direct::InterleavedSlice;
+
+    let channels = usize::from(channels);
+    let frames = samples.len() / channels;
+    let input = InterleavedSlice::new(samples, channels, frames).map_err(io::Error::other)?;
+    let mut resampler = rubato::Fft::<f32>::new(
+        sample_rate as usize,
+        48000,
+        1024,
+        channels,
+        rubato::FixedSync::Input,
+    )
+    .map_err(io::Error::other)?;
+    let output = resampler
+        .process_all(&input, frames, None)
+        .map_err(io::Error::other)?;
+    // rubato rounds a float ratio up, which gives 44100 frames at 44.1 kHz
+    // one too many; the length in whole numbers does not
+    let length = (frames as u64 * 48000).div_ceil(u64::from(sample_rate));
+    let mut samples = output.take_data();
+    samples.truncate(length as usize * channels);
+    Ok(samples)
+}
+
 /// What [`SoundData::downmix_to_mono`] did with a sound of more than one channel
 #[cfg(not(target_family = "wasm"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -848,7 +1107,7 @@ pub(crate) enum Mono {
     Converted,
     /// A wav that is not 8, 16, 24 or 32 bit PCM or 32 bit float
     NotPcm,
-    /// An MP3 or Ogg file, which re-encoding would degrade
+    /// An MP3, Ogg or Opus file, which re-encoding would degrade
     Lossy,
     /// The mono FLAC would not be smaller
     NotSmaller,
@@ -871,7 +1130,7 @@ impl SoundData {
     ///
     /// A wav keeps its sample format with one channel. A two channel FLAC
     /// becomes a mono FLAC of the same depth holding the clipped sum of
-    /// the channels. MP3 and Ogg files are lossy and left alone.
+    /// the channels. MP3, Ogg and Opus files are lossy and left alone.
     pub(crate) fn downmix_to_mono(&mut self) -> io::Result<Mono> {
         if is_wav(&self.path) {
             let Some(data) = downmix_wav(&self.data, &self.wave_form) else {
@@ -887,7 +1146,7 @@ impl SoundData {
         }
         match content_format(&self.data) {
             Some("flac") => self.flac_to_mono(),
-            Some("mp3" | "ogg") => Ok(Mono::Lossy),
+            Some("mp3" | "ogg" | "opus") => Ok(Mono::Lossy),
             Some(format) => Ok(Mono::Unsupported(format!(
                 "a {format} stored under another name"
             ))),
@@ -1047,7 +1306,7 @@ fn mix_wav(data: &[u8], wave_form: &WaveForm, compensate: bool) -> Option<Vec<u8
 /// encoder takes, sign-extending to `i32`. WAV stores 8-bit PCM as
 /// unsigned bytes biased by 128, and 16- and 24-bit as signed
 /// little-endian, as the format defines.
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(feature = "opus", not(target_family = "wasm")))]
 fn pcm_samples(data: &[u8], bits_per_sample: u16) -> Vec<i32> {
     match bits_per_sample {
         8 => data.iter().map(|&b| b as i32 - 128).collect(),
@@ -1073,7 +1332,7 @@ fn pcm_samples(data: &[u8], bits_per_sample: u16) -> Vec<i32> {
 
 /// Replaces a trailing file extension on a sound path, appends when there
 /// is none
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(feature = "opus", not(target_family = "wasm")))]
 fn replace_sound_extension(path: &str, ext: &str) -> String {
     match str_path_ext(path) {
         Some(_) => {
@@ -1615,6 +1874,284 @@ pub(crate) mod flac_tests {
         sound.data = vec![0x7f, 0x3a, 0x91, 0x08, 0xe2, 0x55, 0x1c, 0xcc];
         let outcome = sound.wav_to_flac()?;
         assert_eq!(outcome, Some(Flac::NotSmaller));
+        assert_eq!(sound.ext(), "wav");
+        Ok(())
+    }
+}
+
+#[cfg(all(test, feature = "opus"))]
+mod opus_tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+    use testresult::TestResult;
+
+    /// A PCM WAV sound of the given interleaved samples, full scale at 1.0,
+    /// stored at `bits` per sample
+    fn wav(channels: u16, bits: u16, sample_rate: u32, samples: &[f64]) -> SoundData {
+        let full_scale = f64::from(1u32 << (bits - 1)) - 1.0;
+        let mut data = Vec::new();
+        for sample in samples {
+            let v = (sample * full_scale).round() as i32;
+            match bits {
+                8 => data.push((v + 128) as u8),
+                16 => data.extend_from_slice(&(v as i16).to_le_bytes()),
+                24 => data.extend_from_slice(&v.to_le_bytes()[..3]),
+                _ => unreachable!(),
+            }
+        }
+        let block_align = channels * bits / 8;
+        SoundData {
+            name: "tone".to_string(),
+            path: "C:\\sounds\\tone.wav".to_string(),
+            wave_form: WaveForm {
+                format_tag: 1,
+                channels,
+                samples_per_sec: sample_rate,
+                avg_bytes_per_sec: sample_rate * u32::from(block_align),
+                block_align,
+                bits_per_sample: bits,
+                cb_size: 0,
+            },
+            data,
+            internal_name: String::new(),
+            fade: 0,
+            volume: 0,
+            balance: 0,
+            output_target: OutputTarget::Table,
+        }
+    }
+
+    /// A tone, `frequency` Hz at half scale, at `t` seconds
+    fn tone(frequency: f64, t: f64) -> f64 {
+        0.5 * (2.0 * std::f64::consts::PI * frequency * t).sin()
+    }
+
+    /// The frequency of a channel's tone, a different one per channel so a
+    /// swap would show
+    fn frequency(channel: usize) -> f64 {
+        440.0 + 220.0 * channel as f64
+    }
+
+    /// A PCM WAV of a tone per channel, `frames` long at `sample_rate`
+    fn tone_wav(channels: u16, bits: u16, sample_rate: u32, frames: usize) -> SoundData {
+        let mut samples = Vec::with_capacity(frames * usize::from(channels));
+        for frame in 0..frames {
+            for channel in 0..usize::from(channels) {
+                let t = frame as f64 / f64::from(sample_rate);
+                samples.push(tone(frequency(channel), t));
+            }
+        }
+        wav(channels, bits, sample_rate, &samples)
+    }
+
+    /// Decodes an Ogg Opus file the way opusfile does: drops the pre-skip
+    /// from the start and cuts the end at the last page's granule position.
+    /// Returns the channel count and the interleaved 48 kHz samples.
+    fn decode_opus(data: &[u8]) -> TestResult<(usize, Vec<f32>)> {
+        let mut reader = ogg::reading::PacketReader::new(std::io::Cursor::new(data));
+        let head = reader.read_packet_expected()?;
+        assert!(head.data.starts_with(b"OpusHead"), "no opus header");
+        assert!(head.first_in_stream() && head.last_in_page());
+        let channels = usize::from(head.data[9]);
+        let pre_skip = usize::from(u16::from_le_bytes([head.data[10], head.data[11]]));
+        let tags = reader.read_packet_expected()?;
+        assert!(tags.data.starts_with(b"OpusTags"), "no opus tags");
+        assert!(tags.last_in_page());
+
+        let mut decoder = opus_rs::OpusDecoder::new(48000, channels)?;
+        let mut decoded = Vec::new();
+        // 120 ms, the longest an Opus packet holds
+        let max_frames = 5760;
+        let mut buffer = vec![0.0; max_frames * channels];
+        let mut granule = 0;
+        let mut ended = false;
+        while let Some(packet) = reader.read_packet()? {
+            let frames = decoder.decode(&packet.data, max_frames, &mut buffer)?;
+            decoded.extend_from_slice(&buffer[..frames * channels]);
+            granule = packet.absgp_page() as usize;
+            ended = packet.last_in_stream();
+        }
+        assert!(ended, "the last page does not end the stream");
+        // the end trim only cuts into the last packet's padding
+        assert!(granule <= decoded.len() / channels, "granule past the end");
+        assert!(granule >= pre_skip);
+        Ok((
+            channels,
+            decoded[pre_skip * channels..granule * channels].to_vec(),
+        ))
+    }
+
+    /// The signal to noise ratio of a channel of the decoded tones against
+    /// the tone itself, in dB. A lossy codec does not keep the waveform
+    /// exactly, this lands between 14 and 40 dB, but a pre-skip or resampler
+    /// delay off by half a millisecond already puts it below zero.
+    fn snr(decoded: &[f32], channels: usize, channel: usize) -> f64 {
+        let (mut signal, mut noise) = (0.0, 0.0);
+        for (frame, samples) in decoded.chunks_exact(channels).enumerate() {
+            let expected = tone(frequency(channel), frame as f64 / 48000.0);
+            signal += expected * expected;
+            noise += (f64::from(samples[channel]) - expected).powi(2);
+        }
+        10.0 * (signal / noise).log10()
+    }
+
+    #[test]
+    fn pcm_wavs_convert_to_opus_across_rates_depths_and_channels() -> TestResult {
+        for (sample_rate, bits) in [
+            (44100, 16),
+            (22050, 16),
+            (11025, 8),
+            (48000, 24),
+            (96000, 24),
+            (32000, 16),
+            (16000, 16),
+            (8000, 8),
+        ] {
+            // half a second, and a length that is not a whole number of
+            // 20 ms packets nor of 48 kHz frames
+            for (channels, frames) in [
+                (1, sample_rate as usize / 2),
+                (2, sample_rate as usize / 2 + 77),
+            ] {
+                let mut sound = tone_wav(channels, bits, sample_rate, frames);
+                let bytes_before = sound.data.len();
+                let case = format!("{sample_rate} Hz, {bits} bits, {channels} channels");
+
+                assert_eq!(sound.wav_to_opus()?, Some(Opus::Converted), "{case}");
+                assert_eq!(sound.path, "C:\\sounds\\tone.opus");
+                assert_eq!(sound.wave_form, WaveForm::default());
+                assert!(sound.data.len() < bytes_before, "{case}");
+                assert_eq!(content_format(&sound.data), Some("opus"));
+                assert_eq!(file_channels(&sound.data), Some(channels));
+
+                let (decoded_channels, decoded) = decode_opus(&sound.data)?;
+                assert_eq!(decoded_channels, usize::from(channels), "{case}");
+                // Opus decodes at 48 kHz, as long as the source: exactly
+                // when the encoder took the rate, rounded up by the resampler
+                let expected_frames = (frames as u64 * 48000).div_ceil(u64::from(sample_rate));
+                assert_eq!(
+                    decoded.len() as u64,
+                    expected_frames * u64::from(channels),
+                    "{case}"
+                );
+                for channel in 0..usize::from(channels) {
+                    let snr = snr(&decoded, usize::from(channels), channel);
+                    assert!(snr > 10.0, "{case}, channel {channel}: {snr:.1} dB");
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Where the clicks of [`impulse_wav`] go: in different packets, off
+    /// any 20 ms packet boundary, the last one past the first full page
+    fn impulse_positions(sample_rate: u32) -> [usize; 3] {
+        let rate = sample_rate as usize;
+        [rate / 10 + 37, rate / 2 + 3, rate * 6 / 5 + 101]
+    }
+
+    /// A PCM WAV of silence with single sample clicks at
+    /// [`impulse_positions`], positive on the first channel and negative on
+    /// the second
+    fn impulse_wav(channels: u16, sample_rate: u32) -> SoundData {
+        let channel_count = usize::from(channels);
+        let frames = sample_rate as usize * 3 / 2;
+        let mut samples = vec![0.0; frames * channel_count];
+        for position in impulse_positions(sample_rate) {
+            for channel in 0..channel_count {
+                samples[position * channel_count + channel] = if channel == 0 { 0.9 } else { -0.9 };
+            }
+        }
+        wav(channels, 16, sample_rate, &samples)
+    }
+
+    /// Checks each click of an [`impulse_wav`] comes out of the encoder and
+    /// decoder on the sample it went in on, mapped to 48 kHz: at 48 kHz that
+    /// sample exactly, at another rate one of the two 48 kHz samples around
+    /// where it falls, since the resampler puts the peak of the click
+    /// between them. A pre-skip off by one sample already fails at 48 kHz.
+    /// The length test does not catch that, the end trim is computed from
+    /// the pre-skip as well.
+    fn assert_impulses_in_place(channels: u16, sample_rate: u32) -> TestResult {
+        let mut sound = impulse_wav(channels, sample_rate);
+        assert_eq!(sound.wav_to_opus()?, Some(Opus::Converted));
+        let (decoded_channels, decoded) = decode_opus(&sound.data)?;
+        let channel_count = usize::from(channels);
+        assert_eq!(decoded_channels, channel_count);
+        let ratio = 48000.0 / f64::from(sample_rate);
+        for position in impulse_positions(sample_rate) {
+            let expected = position as f64 * ratio;
+            for channel in 0..channel_count {
+                // the loudest sample within 10 ms of the click; the codec
+                // spreads a click over a few samples, the peak stays put
+                let around = (expected as usize - 480)..(expected as usize + 480);
+                let (peak, value) = around
+                    .map(|frame| (frame, decoded[frame * channel_count + channel]))
+                    .max_by(|a, b| a.1.abs().total_cmp(&b.1.abs()))
+                    .ok_or("no samples")?;
+                let case = format!(
+                    "{sample_rate} Hz, {channels} channels, click at {position}, channel {channel}"
+                );
+                if sample_rate == 48000 {
+                    assert_eq!(peak, position, "{case}");
+                } else {
+                    assert!(
+                        (peak as f64 - expected).abs() < 1.0,
+                        "{case}: peak at {peak}, expected {expected:.2}"
+                    );
+                }
+                // the click itself and not codec noise, with its sign: a
+                // 0.9 click comes out at 0.7 to 0.8 in mono, down to 0.45 in
+                // stereo, where clicks of opposite signs are all side signal
+                let sign = if channel == 0 { 1.0 } else { -1.0 };
+                assert!(value * sign > 0.3, "{case}: peak {value}");
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_click_at_48_khz_decodes_on_the_same_sample() -> TestResult {
+        assert_impulses_in_place(1, 48000)?;
+        assert_impulses_in_place(2, 48000)
+    }
+
+    #[test]
+    fn a_click_at_44_1_khz_decodes_on_the_same_sample_after_resampling() -> TestResult {
+        assert_impulses_in_place(1, 44100)?;
+        assert_impulses_in_place(2, 44100)
+    }
+
+    #[test]
+    fn a_wav_of_more_than_two_channels_is_left_alone() -> TestResult {
+        let mut sound = wav(6, 16, 44100, &[0.25; 6 * 4096]);
+        let data = sound.data.clone();
+        assert_eq!(sound.wav_to_opus()?, Some(Opus::TooManyChannels(6)));
+        assert_eq!(sound.data, data);
+        assert_eq!(sound.ext(), "wav");
+        assert_eq!(sound.wave_form.channels, 6);
+        Ok(())
+    }
+
+    #[test]
+    fn a_non_pcm_or_non_wav_sound_is_declined() -> TestResult {
+        let mut adpcm = tone_wav(1, 16, 44100, 64);
+        adpcm.wave_form.format_tag = 2;
+        assert_eq!(adpcm.wav_to_opus()?, None);
+        assert_eq!(adpcm.ext(), "wav");
+
+        let mut ogg = tone_wav(2, 16, 44100, 64);
+        ogg.path = "C:\\sounds\\music.ogg".to_string();
+        assert_eq!(ogg.wav_to_opus()?, None);
+        assert_eq!(ogg.ext(), "ogg");
+        Ok(())
+    }
+
+    #[test]
+    fn opus_that_would_not_shrink_is_left_as_a_wav() -> TestResult {
+        // the Ogg pages and the headers alone take more than these samples
+        let mut sound = tone_wav(1, 16, 44100, 8);
+        assert_eq!(sound.wav_to_opus()?, Some(Opus::NotSmaller));
         assert_eq!(sound.ext(), "wav");
         Ok(())
     }
