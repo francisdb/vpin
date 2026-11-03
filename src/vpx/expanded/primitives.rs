@@ -149,33 +149,19 @@ struct DerivedMeshFiles<'a> {
 }
 
 impl<'a> DerivedMeshFiles<'a> {
-    /// Files named `<stem>-generated.<ext>`, or `<stem>-<part>.json-generated.<ext>`
-    /// for the named parts of a multi part item
-    fn generated(out: &'a Output<'a>, json_file_name: &str, parts: &[&'static str]) -> Self {
-        let base = json_file_name.trim_end_matches(".json");
+    /// Files named `<stem>-generated.<ext>` for the single mesh of an item
+    /// (part `""`), or `<stem>-<part>-generated.<ext>` for the named parts
+    /// of a multi part item
+    fn new(out: &'a Output<'a>, stem: &str, parts: &[&'static str]) -> Self {
         let files = parts
             .iter()
             .map(|part| {
                 let name = if part.is_empty() {
-                    json_file_name.to_string()
+                    stem.to_string()
                 } else {
-                    format!("{base}-{part}.json")
+                    format!("{stem}-{part}")
                 };
                 let path = Path::new(GAMEITEMS_DIR).join(generated_mesh_file_name(&name));
-                (*part, path)
-            })
-            .collect();
-        Self { out, files }
-    }
-
-    /// Files named `<stem>-<part>.<ext>`, the light mesh convention
-    fn plain(out: &'a Output<'a>, json_file_name: &str, parts: &[&'static str]) -> Self {
-        let base = json_file_name.trim_end_matches(".json");
-        let files = parts
-            .iter()
-            .map(|part| {
-                let path =
-                    Path::new(GAMEITEMS_DIR).join(format!("{base}-{part}.{MESH_FILE_EXTENSION}"));
                 (*part, path)
             })
             .collect();
@@ -206,7 +192,7 @@ impl<'a> DerivedMeshFiles<'a> {
 }
 
 fn write_gate_meshes(out: &Output, gate: &Gate, json_file_name: &str) -> Result<(), WriteError> {
-    let files = DerivedMeshFiles::generated(out, json_file_name, &["bracket", "wire"]);
+    let files = DerivedMeshFiles::new(out, json_file_name, &["bracket", "wire"]);
     if !files.wanted() {
         return Ok(());
     }
@@ -230,8 +216,7 @@ fn write_bumper_meshes(
     bumper: &Bumper,
     json_file_name: &str,
 ) -> Result<(), WriteError> {
-    let files =
-        DerivedMeshFiles::generated(out, json_file_name, &["base", "socket", "ring", "cap"]);
+    let files = DerivedMeshFiles::new(out, json_file_name, &["base", "socket", "ring", "cap"]);
     if !files.wanted() {
         return Ok(());
     }
@@ -260,7 +245,7 @@ fn write_flipper_meshes(
     flipper: &Flipper,
     json_file_name: &str,
 ) -> Result<(), WriteError> {
-    let files = DerivedMeshFiles::generated(out, json_file_name, &[""]);
+    let files = DerivedMeshFiles::new(out, json_file_name, &[""]);
     if !files.wanted() {
         return Ok(());
     }
@@ -275,7 +260,7 @@ fn write_hit_target_meshes(
     hit_target: &HitTarget,
     json_file_name: &str,
 ) -> Result<(), WriteError> {
-    let files = DerivedMeshFiles::generated(out, json_file_name, &[""]);
+    let files = DerivedMeshFiles::new(out, json_file_name, &[""]);
     if !files.wanted() {
         return Ok(());
     }
@@ -290,7 +275,7 @@ fn write_plunger_meshes(
     plunger: &Plunger,
     json_file_name: &str,
 ) -> Result<(), WriteError> {
-    let files = DerivedMeshFiles::generated(
+    let files = DerivedMeshFiles::new(
         out,
         json_file_name,
         &["flat", "rod", "spring", "ring", "tip"],
@@ -324,7 +309,7 @@ fn write_spinner_meshes(
     spinner: &Spinner,
     json_file_name: &str,
 ) -> Result<(), WriteError> {
-    let files = DerivedMeshFiles::generated(out, json_file_name, &["bracket", "plate"]);
+    let files = DerivedMeshFiles::new(out, json_file_name, &["bracket", "plate"]);
     if !files.wanted() {
         return Ok(());
     }
@@ -352,7 +337,7 @@ fn write_trigger_mesh(
     trigger: &Trigger,
     json_file_name: &str,
 ) -> Result<(), WriteError> {
-    let files = DerivedMeshFiles::generated(out, json_file_name, &[""]);
+    let files = DerivedMeshFiles::new(out, json_file_name, &[""]);
     if !files.wanted() {
         return Ok(());
     }
@@ -368,7 +353,7 @@ fn write_ramp_meshes(
     json_file_name: &str,
     table_dims: &TableDimensions,
 ) -> Result<(), WriteError> {
-    let files = DerivedMeshFiles::generated(out, json_file_name, &[""]);
+    let files = DerivedMeshFiles::new(out, json_file_name, &[""]);
     if !files.wanted() {
         return Ok(());
     }
@@ -393,7 +378,7 @@ fn write_rubber_meshes(
     rubber: &Rubber,
     json_file_name: &str,
 ) -> Result<(), WriteError> {
-    let files = DerivedMeshFiles::generated(out, json_file_name, &[""]);
+    let files = DerivedMeshFiles::new(out, json_file_name, &[""]);
     if !files.wanted() {
         return Ok(());
     }
@@ -406,7 +391,7 @@ fn write_rubber_meshes(
 }
 
 fn write_wall_meshes(out: &Output, wall: &Wall, json_file_name: &str) -> Result<(), WriteError> {
-    let files = DerivedMeshFiles::generated(out, json_file_name, &[""]);
+    let files = DerivedMeshFiles::new(out, json_file_name, &[""]);
     if !files.wanted() {
         return Ok(());
     }
@@ -422,7 +407,7 @@ fn write_flasher_meshes(
     json_file_name: &str,
     table_dims: &TableDimensions,
 ) -> Result<(), WriteError> {
-    let files = DerivedMeshFiles::generated(out, json_file_name, &[""]);
+    let files = DerivedMeshFiles::new(out, json_file_name, &[""]);
     if !files.wanted() {
         return Ok(());
     }
@@ -433,7 +418,7 @@ fn write_flasher_meshes(
 }
 
 fn write_light_meshes(out: &Output, light: &Light, json_file_name: &str) -> Result<(), WriteError> {
-    let files = DerivedMeshFiles::plain(out, json_file_name, &["bulb", "socket"]);
+    let files = DerivedMeshFiles::new(out, json_file_name, &["bulb", "socket"]);
     if !files.wanted() {
         return Ok(());
     }
@@ -826,9 +811,7 @@ mod tests {
     fn expected_derived_mesh_files() -> Vec<String> {
         let ext = MESH_FILE_EXTENSION;
         let single = |stem: &str| table_file(format!("{stem}-generated.{ext}"));
-        let part =
-            |stem: &str, part: &str| table_file(format!("{stem}-{part}.json-generated.{ext}"));
-        let plain = |stem: &str, part: &str| table_file(format!("{stem}-{part}.{ext}"));
+        let part = |stem: &str, part: &str| table_file(format!("{stem}-{part}-generated.{ext}"));
         vec![
             single("Wall.Wall1"),
             single("Ramp.Ramp1"),
@@ -849,8 +832,8 @@ mod tests {
             part("Plunger.Plunger1", "ring"),
             part("Plunger.Plunger1", "tip"),
             single("Trigger.Trigger1"),
-            plain("Light.Light1", "bulb"),
-            plain("Light.Light1", "socket"),
+            part("Light.Light1", "bulb"),
+            part("Light.Light1", "socket"),
         ]
     }
 
