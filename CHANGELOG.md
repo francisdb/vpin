@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.40.2](https://github.com/francisdb/vpin/compare/v0.40.1...v0.40.2) - 2026-11-06
+
+### Fixed
+
+- update opus-rs to 0.1.41, take the pre-skip from the encoder ([#607](https://github.com/francisdb/vpin/pull/607))
+
 ## [0.40.1](https://github.com/francisdb/vpin/compare/v0.40.0...v0.40.1) - 2026-11-03
 
 ### Added
