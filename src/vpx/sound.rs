@@ -1020,16 +1020,6 @@ fn opus_bitrate(sample_rate: u32, channels: u16) -> i32 {
 #[cfg(feature = "opus")]
 const OPUS_SERIAL: u32 = 0x7670_696e;
 
-/// The pre-skip of every file this writes, in 48 kHz samples: the
-/// encoder's lookahead, 2.5 ms plus the 4 ms of delay compensation that
-/// libopus adds in `Audio` mode (`Fs/400 + Fs/250`), 312 samples whatever
-/// rate the encoder runs at. opus-rs keeps the same delay but has no getter
-/// for it yet, restsend/opus-rs#74; once it has, this can ask the encoder
-/// as the libopus `OPUS_GET_LOOKAHEAD` does. restsend/opus-rs#38 relies on
-/// and checks the same 312.
-#[cfg(feature = "opus")]
-const OPUS_PRE_SKIP: u64 = 312;
-
 /// The largest packet RFC 6716 allows, and the most opus-rs writes
 #[cfg(feature = "opus")]
 const OPUS_MAX_PACKET: usize = 1276;
@@ -1068,12 +1058,15 @@ fn encode_opus(samples: &[f32], channels: u16, sample_rate: u32) -> io::Result<V
     encoder.bitrate_bps = opus_bitrate(sample_rate, channels);
     encoder.use_cbr = false;
     encoder.complexity = 10;
-    let lookahead = (OPUS_PRE_SKIP / scale) as usize;
+    // the pre-skip is the encoder's lookahead in 48 kHz samples, 312 in
+    // `Audio` mode whatever rate the encoder runs at
+    let lookahead = encoder.lookahead();
+    let pre_skip = lookahead as u64 * scale;
 
     let mut writer = PacketWriter::new(Vec::new());
     // each header gets a page of its own, as RFC 7845 asks
     writer.write_packet(
-        opus_head(channels, OPUS_PRE_SKIP, sample_rate)?,
+        opus_head(channels, pre_skip, sample_rate)?,
         OPUS_SERIAL,
         PacketWriteEndInfo::EndPage,
         0,
@@ -1084,7 +1077,7 @@ fn encode_opus(samples: &[f32], channels: u16, sample_rate: u32) -> io::Result<V
     // is fed silence past the end until the last sample made it in.
     let frame_size = encoder_rate as usize / 50;
     let packets = (frames + lookahead).div_ceil(frame_size);
-    let end_granule = OPUS_PRE_SKIP + frames as u64 * scale;
+    let end_granule = pre_skip + frames as u64 * scale;
     let mut frame = vec![0.0; frame_size * channel_count];
     let mut packet = vec![0; OPUS_MAX_PACKET];
     for index in 0..packets {
@@ -2191,6 +2184,12 @@ mod opus_tests {
     fn a_click_at_44_1_khz_decodes_on_the_same_sample_after_resampling() -> TestResult {
         assert_impulses_in_place(1, 44100)?;
         assert_impulses_in_place(2, 44100)
+    }
+
+    #[test]
+    fn a_click_at_22_05_khz_decodes_on_the_same_sample_after_resampling() -> TestResult {
+        assert_impulses_in_place(1, 22050)?;
+        assert_impulses_in_place(2, 22050)
     }
 
     #[test]
