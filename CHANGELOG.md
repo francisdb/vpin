@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.40.3](https://github.com/francisdb/vpin/compare/v0.40.2...v0.40.3) - 2026-11-09
+
+### Other
+
+- *(deps)* update cfb requirement from 0.15.0 to 0.16.0 ([#610](https://github.com/francisdb/vpin/pull/610))
+
 ## [0.40.2](https://github.com/francisdb/vpin/compare/v0.40.1...v0.40.2) - 2026-11-06
 
 ### Fixed
