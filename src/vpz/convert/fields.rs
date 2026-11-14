@@ -844,6 +844,7 @@ pub(super) const TABLE: &[Field] = &[
         Some(Value::Float),
     ),
     Field::new("ORRP", "override_physics", Some(Value::Int)),
+    Field::new("PHPR", "physic_profile", Some(Value::Int)),
     Field::new("ORPF", "override_physics_flipper", Some(Value::Bool)),
     Field::new("GAVT", "gravity", Some(Value::Float)),
     Field::new("FRCT", "friction", Some(Value::Float)),
