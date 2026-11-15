@@ -428,16 +428,6 @@ fn as_stored(text: &str) -> String {
 fn image_data(image: &Asset<ImageSidecar>) -> io::Result<ImageData> {
     let sidecar = &image.sidecar;
     let path = as_stored(sidecar.import_path.as_deref().unwrap_or(""));
-    let md5_hash = match &sidecar.md5 {
-        Some(hex) => {
-            let bytes = hex::decode(hex).map_err(|e| invalid(format!("md5 {hex:?}: {e}")))?;
-            Some(
-                <[u8; 16]>::try_from(bytes.as_slice())
-                    .map_err(|_| invalid(format!("md5 {hex:?} is not 16 bytes")))?,
-            )
-        }
-        None => None,
-    };
     Ok(ImageData {
         name: as_stored(&image.name),
         internal_name: None,
@@ -458,7 +448,8 @@ fn image_data(image: &Asset<ImageSidecar>) -> io::Result<ImageData> {
             data: image.data.clone(),
         }),
         bits: None,
-        md5_hash,
+        // vpinball ignores the legacy md5 of a pack and writes no MD5H
+        md5_hash: None,
     })
 }
 

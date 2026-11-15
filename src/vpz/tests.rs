@@ -488,6 +488,16 @@ const VPINBALL_VPX: &[u8] =
 const VPINBALL_PACK: &[u8] =
     include_bytes!("../../testdata/vpz/blank_table_vpinball_2026-10-05_4650fc6da.vpz");
 
+/// [`VPINBALL_PACK`] without the legacy image md5, which vpinball no
+/// longer writes since 78a616272 (2026-11-12)
+fn vpinball_pack_without_md5() -> io::Result<Vpz> {
+    let mut pack = from_zip_bytes(VPINBALL_PACK)?;
+    for image in &mut pack.images {
+        image.sidecar.md5 = None;
+    }
+    Ok(pack)
+}
+
 fn zip_entries(bytes: &[u8]) -> io::Result<BTreeMap<String, Vec<u8>>> {
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).map_err(io::Error::other)?;
     let mut entries = BTreeMap::new();
@@ -516,8 +526,22 @@ fn assert_same_files(written: &BTreeMap<String, Vec<u8>>, original: &BTreeMap<St
 }
 
 #[test]
+fn the_legacy_image_md5_is_dropped_both_ways() -> TestResult {
+    let vpx = crate::vpx::from_bytes(VPINBALL_VPX)?;
+    assert!(vpx.images.iter().any(|image| image.md5_hash.is_some()));
+    let pack = from_vpx(&vpx, "")?;
+    assert!(pack.images.iter().all(|image| image.sidecar.md5.is_none()));
+
+    let pack = from_zip_bytes(VPINBALL_PACK)?;
+    assert!(pack.images.iter().any(|image| image.sidecar.md5.is_some()));
+    let vpx = to_vpx(&pack, "")?;
+    assert!(vpx.images.iter().all(|image| image.md5_hash.is_none()));
+    Ok(())
+}
+
+#[test]
 fn a_table_converts_to_the_pack_vpinball_saves() -> TestResult {
-    let original = zip_entries(VPINBALL_PACK)?;
+    let original = to_files(&vpinball_pack_without_md5()?)?;
     let save_date = from_zip_bytes(VPINBALL_PACK)?
         .manifest
         .save_date
@@ -658,7 +682,7 @@ fn a_vpinball_pack_converts_to_the_table_vpinball_saved() -> TestResult {
 
 #[test]
 fn a_pack_survives_a_table_round_trip_apart_from_meshes() -> TestResult {
-    let pack = from_zip_bytes(VPINBALL_PACK)?;
+    let pack = vpinball_pack_without_md5()?;
     let date = pack.manifest.save_date.clone().unwrap_or_default();
     let vpx = crate::vpx::from_bytes(&crate::vpx::to_bytes(&to_vpx(&pack, &date)?)?)?;
     let mut again = from_vpx(&vpx, &date)?;
