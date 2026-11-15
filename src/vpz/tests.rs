@@ -480,23 +480,13 @@ fn a_sanitized_name_without_a_table_is_written_in_its_document() -> TestResult {
     Ok(())
 }
 
-/// `testdata/completely_blank_table_10_7_4.vpx` loaded and saved by
-/// vpinball master 4650fc6da (2026-10-05) with vpx-test, as a .vpx and
-/// right after as a .vpz
+/// `testdata/completely_blank_table_10_7_4.vpx` converted by vpinball
+/// master 65c672b97 (2026-11-13) with `-Convert` to a pack, that pack to
+/// the .vpx and that .vpx to the .vpz
 const VPINBALL_VPX: &[u8] =
-    include_bytes!("../../testdata/vpz/blank_table_vpinball_2026-10-05_4650fc6da.vpx");
+    include_bytes!("../../testdata/vpz/blank_table_vpinball_2026-11-13_65c672b97.vpx");
 const VPINBALL_PACK: &[u8] =
-    include_bytes!("../../testdata/vpz/blank_table_vpinball_2026-10-05_4650fc6da.vpz");
-
-/// [`VPINBALL_PACK`] without the legacy image md5, which vpinball no
-/// longer writes since 78a616272 (2026-11-12)
-fn vpinball_pack_without_md5() -> io::Result<Vpz> {
-    let mut pack = from_zip_bytes(VPINBALL_PACK)?;
-    for image in &mut pack.images {
-        image.sidecar.md5 = None;
-    }
-    Ok(pack)
-}
+    include_bytes!("../../testdata/vpz/blank_table_vpinball_2026-11-13_65c672b97.vpz");
 
 fn zip_entries(bytes: &[u8]) -> io::Result<BTreeMap<String, Vec<u8>>> {
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).map_err(io::Error::other)?;
@@ -527,13 +517,19 @@ fn assert_same_files(written: &BTreeMap<String, Vec<u8>>, original: &BTreeMap<St
 
 #[test]
 fn the_legacy_image_md5_is_dropped_both_ways() -> TestResult {
-    let vpx = crate::vpx::from_bytes(VPINBALL_VPX)?;
-    assert!(vpx.images.iter().any(|image| image.md5_hash.is_some()));
+    // tables and packs older vpinball versions saved carry it
+    let mut vpx = crate::vpx::from_bytes(VPINBALL_VPX)?;
+    assert!(!vpx.images.is_empty());
+    for image in &mut vpx.images {
+        image.md5_hash = Some([7; 16]);
+    }
     let pack = from_vpx(&vpx, "")?;
     assert!(pack.images.iter().all(|image| image.sidecar.md5.is_none()));
 
-    let pack = from_zip_bytes(VPINBALL_PACK)?;
-    assert!(pack.images.iter().any(|image| image.sidecar.md5.is_some()));
+    let mut pack = from_zip_bytes(VPINBALL_PACK)?;
+    for image in &mut pack.images {
+        image.sidecar.md5 = Some("07".repeat(16));
+    }
     let vpx = to_vpx(&pack, "")?;
     assert!(vpx.images.iter().all(|image| image.md5_hash.is_none()));
     Ok(())
@@ -541,7 +537,7 @@ fn the_legacy_image_md5_is_dropped_both_ways() -> TestResult {
 
 #[test]
 fn a_table_converts_to_the_pack_vpinball_saves() -> TestResult {
-    let original = to_files(&vpinball_pack_without_md5()?)?;
+    let original = zip_entries(VPINBALL_PACK)?;
     let save_date = from_zip_bytes(VPINBALL_PACK)?
         .manifest
         .save_date
@@ -651,38 +647,15 @@ fn a_vpinball_pack_converts_to_the_table_vpinball_saved() -> TestResult {
             } if fields
                 .iter()
                 .all(|f| f.field == "table_save_rev" || f.field == "table_save_date") => {}
-            // meshes go through meters and back, see below
-            Change::Changed {
-                entity: Entity::GameItem { type_name, .. },
-                fields,
-            } if type_name == "Primitive" && fields.iter().all(|f| f.field == "mesh") => {}
             other => panic!("unexpected difference {other:?}"),
-        }
-    }
-    // a mesh comes back within a float step of its value
-    for (a, b) in reference.gameitems.iter().zip(&converted.gameitems) {
-        if let (
-            crate::vpx::gameitem::GameItemEnum::Primitive(a),
-            crate::vpx::gameitem::GameItemEnum::Primitive(b),
-        ) = (a, b)
-            && let (Some(a), Some(b)) = (a.read_mesh()?, b.read_mesh()?)
-        {
-            assert_eq!(a.indices, b.indices);
-            for (a, b) in a.vertices.iter().zip(&b.vertices) {
-                let (a, b) = (&a.vertex, &b.vertex);
-                for (x, y) in [(a.x, b.x), (a.y, b.y), (a.z, b.z)] {
-                    assert!((x - y).abs() <= x.abs() * 2.5e-7, "{x} {y}");
-                }
-                assert_eq!((a.tu, a.tv), (b.tu, b.tv));
-            }
         }
     }
     Ok(())
 }
 
 #[test]
-fn a_pack_survives_a_table_round_trip_apart_from_meshes() -> TestResult {
-    let pack = vpinball_pack_without_md5()?;
+fn a_pack_survives_a_table_round_trip() -> TestResult {
+    let pack = from_zip_bytes(VPINBALL_PACK)?;
     let date = pack.manifest.save_date.clone().unwrap_or_default();
     let vpx = crate::vpx::from_bytes(&crate::vpx::to_bytes(&to_vpx(&pack, &date)?)?)?;
     let mut again = from_vpx(&vpx, &date)?;
@@ -699,9 +672,7 @@ fn a_pack_survives_a_table_round_trip_apart_from_meshes() -> TestResult {
         original.keys().collect::<Vec<_>>()
     );
     for (path, data) in &original {
-        if !path.starts_with("meshes/") {
-            assert!(again[path] == *data, "{path} differs");
-        }
+        assert!(again[path] == *data, "{path} differs");
     }
     Ok(())
 }
@@ -824,7 +795,7 @@ fn pack_info_reads_only_what_describes_the_pack() -> TestResult {
         Some("Visual Pinball Demo Table")
     );
     assert_eq!(table_info.author_name, None);
-    assert_eq!(table_info.table_save_rev.as_deref(), Some("12"));
+    assert_eq!(table_info.table_save_rev.as_deref(), Some("13"));
     assert!(from_zip.script.as_deref().is_some_and(|s| !s.is_empty()));
     Ok(())
 }

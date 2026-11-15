@@ -102,7 +102,8 @@ cleared) before saving them; the conversion keeps the fields of the file, and ca
 converts on load.
 
 `vpin::vpz::to_vpx` gives the table vpinball saves after loading a pack. Meshes go through meters and back, so their
-vertices may move by a float step, as they do in vpinball.
+vertices may move by a float step the first time, as they do in vpinball; a mesh vpinball saved in a pack converts
+back and forth unchanged.
 
 ```rust
 let vpx = vpin::vpx::read(std::path::Path::new("table.vpx"))?;
