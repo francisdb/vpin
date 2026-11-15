@@ -711,6 +711,16 @@ pub struct GameData {
     ///
     /// BIFF tag `ORRP`
     pub override_physics: u32,
+    /// Physics behavior profile the table is simulated with.
+    ///
+    /// `0` runs the vpinball 10.8 physics, `1` the 10.9 physics with its
+    /// fixes to ball contacts with static objects and flippers. `None` when
+    /// the record is absent (tables saved before 10.9); vpinball then uses
+    /// the 10.8 profile, as it does for values out of range. Tables made
+    /// from the 10.9 templates use `1`.
+    ///
+    /// BIFF tag `PHPR`
+    pub physic_profile: Option<u32>,
     /// Whether the physics override set also applies to the flippers.
     ///
     /// Only has an effect when [`override_physics`](Self::override_physics)
@@ -1741,6 +1751,8 @@ pub(crate) struct GameDataJson {
     pub bg_window_bottom_y_offset_full_single_screen: Option<f32>,
     pub bg_window_bottom_z_offset_full_single_screen: Option<f32>,
     pub override_physics: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub physic_profile: Option<u32>,
     pub override_physics_flipper: Option<bool>,
     pub gravity: f32,
     pub friction: f32,
@@ -1916,6 +1928,7 @@ impl GameDataJson {
                 },
             ],
             override_physics: self.override_physics,
+            physic_profile: self.physic_profile,
             override_physics_flipper: self.override_physics_flipper,
             gravity: self.gravity,
             friction: self.friction,
@@ -2147,6 +2160,7 @@ impl GameDataJson {
             bg_window_bottom_y_offset_full_single_screen: full_single_screen.window_bottom_y_offset,
             bg_window_bottom_z_offset_full_single_screen: full_single_screen.window_bottom_z_offset,
             override_physics: game_data.override_physics,
+            physic_profile: game_data.physic_profile,
             override_physics_flipper: game_data.override_physics_flipper,
             gravity: game_data.gravity,
             friction: game_data.friction,
@@ -2286,6 +2300,7 @@ impl Default for GameData {
             is_10_8_0_beta1_to_beta4: false,
             view_setups: ViewSetup::legacy_defaults(),
             override_physics: 0,
+            physic_profile: None,           // 0
             override_physics_flipper: None, //false,
             gravity: 1.762985,
             friction: 0.075,
@@ -2468,6 +2483,9 @@ pub(crate) fn write_gamedata_records(
     }
 
     writer.write_tagged_u32("ORRP", gamedata.override_physics);
+    if let Some(phpr) = gamedata.physic_profile {
+        writer.write_tagged_u32("PHPR", phpr);
+    }
     if let Some(orpf) = gamedata.override_physics_flipper {
         writer.write_tagged_bool("ORPF", orpf);
     }
@@ -2691,6 +2709,7 @@ pub fn read_all_gamedata_records(input: &[u8], version: &Version) -> io::Result<
                 gamedata.bg_enable_fss = Some(reader.get_bool()?)
             }
             "ORRP" => gamedata.override_physics = reader.get_u32()?,
+            "PHPR" => gamedata.physic_profile = Some(reader.get_u32()?),
             "ORPF" => gamedata.override_physics_flipper = Some(reader.get_bool()?),
             "GAVT" => gamedata.gravity = reader.get_f32()?,
             "FRCT" => gamedata.friction = reader.get_f32()?,
@@ -2983,6 +3002,7 @@ mod tests {
                 },
             ],
             override_physics: 1,
+            physic_profile: Some(1),
             override_physics_flipper: Some(true),
             gravity: 1.0,
             friction: 0.1,
