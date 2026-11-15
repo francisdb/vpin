@@ -385,7 +385,6 @@ fn image_asset(vpx: &VPX, image: &crate::vpx::image::ImageData) -> io::Result<As
                 let value = reader.f32()? * (1.0 / 255.0) as f32 * 255.0;
                 sidecar.alpha_test = float(value).as_f64();
             }
-            "MD5H" => sidecar.md5 = Some(record.iter().map(|b| format!("{b:02x}")).collect()),
             "OPAQ" => sidecar.opaque = Some(reader.i32()? != 0),
             "JPEG" => {
                 for (tag, record) in records(record)? {

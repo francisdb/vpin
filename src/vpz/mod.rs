@@ -294,7 +294,11 @@ pub struct ImageSidecar {
     /// Alpha test threshold on a 0..255 scale, negative when disabled
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alpha_test: Option<f64>,
-    /// MD5 of the image data, 32 hex digits
+    /// Legacy MD5 of the image data, 32 hex digits.
+    ///
+    /// Packs written by earlier vpinball 10.9 builds carry it. vpinball now
+    /// ignores it on load and no longer writes it, and so does the
+    /// conversion from and to vpx.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub md5: Option<String>,
     /// Whether the image has no transparency

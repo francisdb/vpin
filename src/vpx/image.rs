@@ -180,13 +180,12 @@ pub struct ImageData {
     ///
     /// BIFF tag `BITS`
     pub bits: Option<ImageDataBits>,
-    /// MD5 hash of the original image file bytes.
+    /// MD5 hash of the original image file bytes, the same bytes as
+    /// [`PinBinary::data`].
     ///
-    /// vpinball uses it as the identity of the image data
-    /// (`Texture::GetMD5Hash`); `Texture::UpdateMD5` hashes
-    /// `PinBinary::m_buffer`, the same bytes as [`PinBinary::data`].
-    /// vpinball 10.8 and later write it for every image so it need not be
-    /// recomputed on load. `None` when the record is absent (older files).
+    /// vpinball 10.8 wrote it for every image; 10.9 reads and drops it and
+    /// no longer writes it. Kept for byte exact round trips. `None` when
+    /// the record is absent.
     ///
     /// BIFF tag `MD5H`
     pub md5_hash: Option<[u8; 16]>,
