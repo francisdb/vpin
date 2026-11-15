@@ -13,11 +13,14 @@ const UNSIGNED_SHORT: u32 = 5123;
 const UNSIGNED_INT: u32 = 5125;
 const TRIANGLES: u32 = 4;
 
-/// vpinball's `VPUTOM`: the double constant rounded to float, then a
-/// float multiplication
+/// VPU per meter, the single double factor of vpinball's `VpuToMeters` and
+/// `MetersToVpu`: 50 VPU are 1.0625 inches. Dividing and multiplying by it
+/// in double makes every saved value a fixed point of the round trip.
+const VPU_PER_METER: f64 = 50.0 / (0.0254 * 1.0625);
+
+/// vpinball's `VpuToMeters`
 fn vpu_to_m(value: f32) -> f32 {
-    const SCALE: f32 = (0.0254 * 1.0625 / 50.0) as f32;
-    value * SCALE
+    (f64::from(value) / VPU_PER_METER) as f32
 }
 
 /// vpx `(x, y, z)` to glTF `(x, z, y)` in meters
@@ -162,8 +165,15 @@ pub(super) fn primitive_glb(primitive: &Primitive) -> io::Result<Option<Vec<u8>>
             }
             let mut delta_positions = Vec::with_capacity(count * 3);
             let mut delta_normals = Vec::with_capacity(count * 3);
-            for (f, v) in frame.iter().zip(&vertices) {
-                delta_positions.extend_from_slice(&to_gltf(f.x - v.x, f.y - v.y, f.z - v.z));
+            for (i, (f, v)) in frame.iter().zip(&vertices).enumerate() {
+                // the difference of the converted positions, so that a
+                // resaved mesh is byte identical
+                let moved = to_gltf(f.x, f.y, f.z);
+                delta_positions.extend_from_slice(&[
+                    moved[0] - positions[i * 3],
+                    moved[1] - positions[i * 3 + 1],
+                    moved[2] - positions[i * 3 + 2],
+                ]);
                 delta_normals.extend_from_slice(&direction_to_gltf(
                     f.nx - v.nx,
                     f.ny - v.ny,
@@ -326,7 +336,8 @@ pub(super) mod tests {
 
     #[test]
     fn animation_frames_become_morph_targets() -> TestResult {
-        let glb = primitive_glb(&animated_primitive(&[1.0, 3.0])?)?.ok_or("a mesh")?;
+        let primitive = animated_primitive(&[1.0, 3.0])?;
+        let glb = primitive_glb(&primitive)?.ok_or("a mesh")?;
         assert_eq!(&glb[..4], b"glTF");
         assert_eq!(glb.len() % 4, 0);
         let document = json_chunk(&glb)?;
@@ -351,7 +362,19 @@ pub(super) mod tests {
             .iter()
             .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
             .collect();
-        assert_eq!(delta, vec![vpu_to_m(3.0), vpu_to_m(6.0), 0.0]);
+        let mesh = primitive
+            .read_mesh()
+            .map_err(|e| io::Error::other(e.to_string()))?
+            .ok_or("a mesh")?;
+        let v = &mesh.vertices[0].vertex;
+        assert_eq!(
+            delta,
+            vec![
+                vpu_to_m(v.x + 3.0) - vpu_to_m(v.x),
+                vpu_to_m(v.z + 6.0) - vpu_to_m(v.z),
+                0.0
+            ]
+        );
         Ok(())
     }
 
@@ -374,11 +397,9 @@ pub(super) struct GlbMesh {
     pub(super) frames: Vec<Vec<VertData>>,
 }
 
-/// vpinball's `MTOVPU`: the double constant rounded to float, then a
-/// float multiplication
+/// vpinball's `MetersToVpu`
 fn m_to_vpu(value: f32) -> f32 {
-    const SCALE: f32 = (50.0 / (0.0254 * 1.0625)) as f32;
-    value * SCALE
+    (f64::from(value) * VPU_PER_METER) as f32
 }
 
 /// glTF `(x, y, z)` in meters to vpx `(x, z, y)`
