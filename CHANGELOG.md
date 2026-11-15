@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.41.1](https://github.com/francisdb/vpin/compare/v0.41.0...v0.41.1) - 2026-11-15
+
+### Fixed
+
+- *(vpz)* convert pack mesh units like vpinball ([#615](https://github.com/francisdb/vpin/pull/615))
+- *(vpz)* drop the legacy image md5 in conversions ([#614](https://github.com/francisdb/vpin/pull/614))
+
 ## [0.41.0](https://github.com/francisdb/vpin/compare/v0.40.2...v0.41.0) - 2026-11-15
 
 ### Added
